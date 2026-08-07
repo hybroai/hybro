@@ -5,6 +5,33 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.12](https://github.com/hybroai/hybro/compare/v0.2.11...v0.2.12) (2026-08-07)
+
+
+### Features
+
+* discover host A2A agents ([19bfdcc](https://github.com/hybroai/hybro/commit/19bfdcc145717919ec2029aa08bf68fb5d3401a5))
+* discover local A2A agents and harden artifact delivery ([0fe3167](https://github.com/hybroai/hybro/commit/0fe31673713649cb489d1f033e156a569c4bf249))
+* **room:** add stable timeline cursor pagination ([57e8a77](https://github.com/hybroai/hybro/commit/57e8a77560b05b7850d8136b2990c71effb0240d))
+* **room:** add stable timeline cursor pagination ([515db98](https://github.com/hybroai/hybro/commit/515db981c2a31efbb49d45d0eb480b562165d109))
+* **ui:** mark debate mode as coming soon ([baae5ff](https://github.com/hybroai/hybro/commit/baae5ff421cb3b7e2e3335bd45e66bf3b43766ee))
+* **ui:** rename agent groups as teams ([96450de](https://github.com/hybroai/hybro/commit/96450decf69e985ca8029f15abcf24247cc11b36))
+* **ui:** simplify featured use cases ([ee61dda](https://github.com/hybroai/hybro/commit/ee61dda0394e1f36dd34f9038c743c2efde07afa))
+* **ui:** simplify use cases and improve team selection ([c7b2d3b](https://github.com/hybroai/hybro/commit/c7b2d3bf4049652966180843489b8b8e24c992be))
+* unify agent inventory and chat handoff ([72b123b](https://github.com/hybroai/hybro/commit/72b123b0f1a3d5cbda42a49076f9306d6178a7b1))
+* unify Agent inventory, management, and chat handoff ([ff9cadb](https://github.com/hybroai/hybro/commit/ff9cadb18bdc986856695d5024e023c09192a948))
+
+
+### Bug Fixes
+
+* address PR review feedback ([c283fd4](https://github.com/hybroai/hybro/commit/c283fd43b579eb357bd8bc723567b05e1ec92c26))
+* handle unavailable agent artifacts ([43f42ee](https://github.com/hybroai/hybro/commit/43f42ee0ba289059b13129172d2e34747d6d7398))
+* preserve agent chat handoff on remount ([21f9fd4](https://github.com/hybroai/hybro/commit/21f9fd40dc5e97d20081c68276c7d17fe87ef3f0))
+* **ui:** align room team selector behavior ([5a2bcf4](https://github.com/hybroai/hybro/commit/5a2bcf41e75886c6906166d27d7c7d8af7e9adfa))
+* **ui:** preserve room snapshot dispatch ([737c8d5](https://github.com/hybroai/hybro/commit/737c8d55028fd2e2f1ebd0d9cb70e66e4d993960))
+* **ui:** remove team description field ([4295a35](https://github.com/hybroai/hybro/commit/4295a35923fc458408d20c04d48d2eb3b3bd5ba5))
+* **ui:** restore snapshot routing on default selection ([b6450ca](https://github.com/hybroai/hybro/commit/b6450ca348e3e93d5826389c17bb8628935050a7))
+
 ## [0.2.11](https://github.com/hybroai/hybro/compare/v0.2.10...v0.2.11) (2026-08-03)
 
 
