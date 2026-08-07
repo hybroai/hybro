@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "hybro-backend"
-version = "0.2.11"
+version = "0.2.12"
 description = "Hybro backend"
 requires-python = ">=3.12"
 dependencies = [
