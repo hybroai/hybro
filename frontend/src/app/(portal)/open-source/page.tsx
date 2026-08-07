@@ -25,10 +25,41 @@ import { useChatRoomCreation } from "@/hooks/useChatRoomCreation"
 import { FRAMEWORKS } from "@/components/framework-badges"
 import { TypingTerminal } from "@/components/open-source/typing-terminal"
 
+// Steps mirror README "Quick Start" and install.sh. Ports come from
+// docker-compose.yml; the env file names come from install.sh.
+const AI_SETUP_PROMPT = `Set up Hybro AI on my machine and get it running locally.
+
+Repo: https://github.com/hybroai/hybro
+Requires: git, Docker, Docker Compose.
+
+1. Clone the repo and cd into it.
+2. Create the env files from their examples:
+   backend/.env.example        -> backend/.env
+   frontend/.env.example       -> frontend/.env.local
+   default_agents/.env.example -> default_agents/.env
+3. Ask me for my OPENAI_API_KEY, then set the same value in
+   both backend/.env and default_agents/.env. The default agents
+   register without it, but their calls fail until a valid key is set.
+4. Run: docker compose up -d --build
+5. Wait for the containers to come up, then verify:
+   App  http://localhost:3000
+   API  http://localhost:8000
+
+If a container fails, show me its \`docker compose logs\` output and fix it.`
+
 const QUICK_START_COMMANDS = {
   script: "curl -fsSL https://raw.githubusercontent.com/hybroai/hybro/main/install.sh | sh",
   docker: "git clone https://github.com/hybroai/hybro.git && cd hybro && docker compose up -d --build",
+  ai: AI_SETUP_PROMPT,
 }
+
+const QUICK_START_TABS = [
+  { key: "script", label: "CURL" },
+  { key: "ai", label: "Agentic" },
+  { key: "docker", label: "Docker" },
+] as const
+
+type QuickStartTab = (typeof QUICK_START_TABS)[number]["key"]
 
 const HERO_EXAMPLE_PROMPTS = [
   "Plan a travel and calculate the budget for me",
@@ -38,7 +69,7 @@ const HERO_EXAMPLE_PROMPTS = [
 const marqueeFrameworks = FRAMEWORKS
 
 export default function OpenSourcePage() {
-  const [activeTab, setActiveTab] = useState<"script" | "docker">("script")
+  const [activeTab, setActiveTab] = useState<QuickStartTab>("script")
   const [copied, setCopied] = useState(false)
 
   const handleCopy = () => {
@@ -226,32 +257,33 @@ export default function OpenSourcePage() {
                 Quick Start
               </span>
               <div className="flex items-center gap-1 bg-background/60 p-1 rounded-lg border border-border/40 text-xs">
-                <button
-                  onClick={() => setActiveTab("script")}
-                  className={`px-3 py-1.5 rounded-md transition-all ${
-                    activeTab === "script"
-                      ? "bg-[hsl(var(--color-hybro-hy))]/15 text-[hsl(var(--color-hybro-hy))] font-semibold shadow-sm ring-1 ring-[hsl(var(--color-hybro-hy))]/30"
-                      : "text-muted-foreground hover:text-foreground"
-                  }`}
-                >
-                  install.sh
-                </button>
-                <button
-                  onClick={() => setActiveTab("docker")}
-                  className={`px-3 py-1.5 rounded-md transition-all ${
-                    activeTab === "docker"
-                      ? "bg-[hsl(var(--color-hybro-hy))]/15 text-[hsl(var(--color-hybro-hy))] font-semibold shadow-sm ring-1 ring-[hsl(var(--color-hybro-hy))]/30"
-                      : "text-muted-foreground hover:text-foreground"
-                  }`}
-                >
-                  Docker Compose
-                </button>
+                {QUICK_START_TABS.map((tab) => (
+                  <button
+                    key={tab.key}
+                    onClick={() => setActiveTab(tab.key)}
+                    className={`px-3 py-1.5 rounded-md transition-all ${
+                      activeTab === tab.key
+                        ? "bg-[hsl(var(--color-hybro-hy))]/15 text-[hsl(var(--color-hybro-hy))] font-semibold shadow-sm ring-1 ring-[hsl(var(--color-hybro-hy))]/30"
+                        : "text-muted-foreground hover:text-foreground"
+                    }`}
+                  >
+                    {tab.label}
+                  </button>
+                ))}
               </div>
             </div>
-            <div className="flex items-center gap-2 p-4 bg-muted dark:bg-black/40 font-mono text-xs md:text-sm text-foreground">
+            {/* The AI prompt is multi-line, so it wraps and the panel grows;
+                the shell commands stay on a single scrollable line. */}
+            <div className="flex items-start gap-2 p-4 bg-muted dark:bg-black/40 font-mono text-xs md:text-sm text-foreground">
               <div className="flex-1 min-w-0 overflow-x-auto">
-                <code className="text-[hsl(var(--color-hybro-hy))] whitespace-nowrap">
-                  <span className="text-muted-foreground select-none">$ </span>
+                <code
+                  className={`text-[hsl(var(--color-hybro-hy))] ${
+                    activeTab === "ai"
+                      ? "block whitespace-pre-wrap leading-relaxed"
+                      : "whitespace-nowrap"
+                  }`}
+                >
+                  {activeTab !== "ai" && <span className="text-muted-foreground select-none">$ </span>}
                   {QUICK_START_COMMANDS[activeTab]}
                 </code>
               </div>
@@ -262,7 +294,9 @@ export default function OpenSourcePage() {
                 className="h-8 px-2.5 text-muted-foreground hover:text-foreground shrink-0"
               >
                 {copied ? <Check className="h-4 w-4 text-green-600 dark:text-green-400" /> : <Copy className="h-4 w-4" />}
-                <span className="sr-only">Copy command</span>
+                <span className="sr-only">
+                  {activeTab === "ai" ? "Copy prompt" : "Copy command"}
+                </span>
               </Button>
             </div>
           </div>
