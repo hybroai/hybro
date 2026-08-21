@@ -5,6 +5,70 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.15](https://github.com/hybroai/hybro/compare/v0.2.14...v0.2.15) (2026-08-21)
+
+
+### Features
+
+* add orchestrator v3 A2A runtime ([0b9dd31](https://github.com/hybroai/hybro/commit/0b9dd31da5091cdbb02ef84d4f9fd39c0c718f85))
+* add orchestrator v3 A2A runtime ([7fd27ab](https://github.com/hybroai/hybro/commit/7fd27abfde4f257893667d5152822511b188dda6))
+* add orchestrator v3 agent core ([cf8abcc](https://github.com/hybroai/hybro/commit/cf8abcccf286d98c6ca9f82f41a728af61d7f588))
+* add Orchestrator V3 agent core and harden planner JSON contracts ([36d0766](https://github.com/hybroai/hybro/commit/36d0766faa478209d719e142cd34a9f3820971de))
+* **core:** make Hybro Core the public homepage ([9789462](https://github.com/hybroai/hybro/commit/9789462f216d7bb5ebc54b6e748af0428491fb38))
+* **core:** make Hybro Core the public homepage ([51b9f37](https://github.com/hybroai/hybro/commit/51b9f376fc2128fe78f81c2f5167ca8199dc36f2))
+* define typed agent interaction metadata ([43871cf](https://github.com/hybroai/hybro/commit/43871cf6fdfc3942d4744adae3a9fe8fc269e14f))
+* **llm:** add DeepSeek provider ([18b7694](https://github.com/hybroai/hybro/commit/18b76941d193f30910f7122ff5c5644250a64991))
+* **llm:** add DeepSeek provider ([bc36e46](https://github.com/hybroai/hybro/commit/bc36e4648759a578005898e8c60febb962095657))
+* pin pre-cutover contracts and add durable run event stores ([fd061ca](https://github.com/hybroai/hybro/commit/fd061ca14b3ece47bce58c475b2cd7eaea27c62d))
+* redesign HITL lifecycle and questionnaire ([b59fb19](https://github.com/hybroai/hybro/commit/b59fb1977029f6db3b84fb8722cfa82dce1fc0ef))
+
+
+### Bug Fixes
+
+* address orchestrator v3 review findings ([53034cf](https://github.com/hybroai/hybro/commit/53034cf29e56f687ac79ab1787f391926716f5ad))
+* address PR 154 review — lifecycle sync, error sanitization, bounded recovery ([ba1c8c4](https://github.com/hybroai/hybro/commit/ba1c8c4403599751ed2c7257592eb1b3414f7727))
+* advance recovered orchestration steps ([dff5dcc](https://github.com/hybroai/hybro/commit/dff5dccf8c382e161d39b95ceb27102f8d751db3))
+* apply canonical continuation evidence ([ade8c2c](https://github.com/hybroai/hybro/commit/ade8c2c7493d4d483ad7fb54cac97f6e89af4f72))
+* apply nonterminal continuation authority ([e4c5877](https://github.com/hybroai/hybro/commit/e4c58774194cead313832dd59660c84bb6386e8e))
+* **auth:** allow agent registration in mock mode ([7b41fc8](https://github.com/hybroai/hybro/commit/7b41fc8f5a11ba67e4653089f17693a9a68c6196))
+* **backend:** fix non-critical HITL index conflict recovery and improve error logging ([b482533](https://github.com/hybroai/hybro/commit/b482533592be4bb811a93f1024e333ec707e0551))
+* **backend:** reconcile conflicting HITL indexes on startup ([5380cfd](https://github.com/hybroai/hybro/commit/5380cfdb1a4bd4e3b809732a76857a44fa8a3d93))
+* deduplicate run creation commands ([3ae196b](https://github.com/hybroai/hybro/commit/3ae196bd923dbc402a7316f75d9e39c8ab1f4263))
+* defer canonical continuation processing ([2bc4ac3](https://github.com/hybroai/hybro/commit/2bc4ac35aa5028a126cfbf547cd484c0a0ccbdf9))
+* fail closed on dispatch alias conflicts ([1f15e82](https://github.com/hybroai/hybro/commit/1f15e82a67a945855cdad4805879eff51ff6aff1))
+* harden HITL continuation recovery ([a712aa0](https://github.com/hybroai/hybro/commit/a712aa0cc56a807863e68104c94a934c8e736897))
+* harden HITL recovery and orchestration continuation lifecycle ([2246b34](https://github.com/hybroai/hybro/commit/2246b34721da8c0f82994303f70319f8cd192b7c))
+* harden immutable DTO copying and supervisor HITL answer resume ([6baeee7](https://github.com/hybroai/hybro/commit/6baeee72b0262e2d9f624574909736379c4fad50))
+* **hitl:** enforce agent role for interactive status, handle invalid tool calls, and integrate tests into test harness ([4c0bd75](https://github.com/hybroai/hybro/commit/4c0bd75140a7645491f53ddb649d3df05170f587))
+* **hitl:** prevent repeating clarification prompt loop across platform and agent ([89d685b](https://github.com/hybroai/hybro/commit/89d685be4b9aad976c87133341f9e367cf690e44))
+* **hitl:** prevent repeating clarification prompt loop across platform and agent ([b0b4781](https://github.com/hybroai/hybro/commit/b0b4781e43be12e580d42cdf3ff3a2d277140bab))
+* **llm:** auto-select configured provider ([5abf967](https://github.com/hybroai/hybro/commit/5abf9673c48f53d52e1537190068462eaf1890b6))
+* **llm:** disable DeepSeek thinking by default ([ebb50d4](https://github.com/hybroai/hybro/commit/ebb50d4ffb42df05df7b42d388e704b71a1d0402))
+* make continuation expiry replayable ([fddbc13](https://github.com/hybroai/hybro/commit/fddbc13be8fe348062fc050cc782a8689314fc89))
+* normalize Mongo run timestamp precision ([e5e6d3a](https://github.com/hybroai/hybro/commit/e5e6d3a76001395e1625593695071063f41204fb))
+* normalize planner JSON field paths ([51d4ad2](https://github.com/hybroai/hybro/commit/51d4ad2e185bc7cad52ba3647a4a1c81582686e9))
+* order due runs before limiting ([032622c](https://github.com/hybroai/hybro/commit/032622cf093dc6f574001716f1fd70bcef2b8c1b))
+* persist run recovery dates as BSON ([b3eb82d](https://github.com/hybroai/hybro/commit/b3eb82d5f3e6515baf65dcab78c59440e3bba2e4))
+* persist terminal continuation receipts ([a5f753b](https://github.com/hybroai/hybro/commit/a5f753be69b17a0c48a796e1deb3f7ff7e78e20e))
+* preserve canonical HITL reset state ([c81ed4a](https://github.com/hybroai/hybro/commit/c81ed4aa149bf5592d3a3f3d1bc9615d5ec115e5))
+* preserve continuation retry budget ([fdd69ae](https://github.com/hybroai/hybro/commit/fdd69ae7a332fcce08087793095a1eb9a99b4527))
+* preserve terminal command uniqueness ([a29bfbd](https://github.com/hybroai/hybro/commit/a29bfbd0e70914a2107dbd665f9d0119e270145f))
+* reconcile advanced Mongo command winners ([6c8a99b](https://github.com/hybroai/hybro/commit/6c8a99b8f55017f571e95f45be2c9df59dcfbc9f))
+* recover structured agent input internally ([0855bce](https://github.com/hybroai/hybro/commit/0855bce4396175ba33d9a51b048264e100d356a1))
+* reject conflicting continuation evidence ([69aa379](https://github.com/hybroai/hybro/commit/69aa37977c1c3585840699b0cd7d11ad60f0c5ff))
+* reject conflicting continuation expiry ([78610e0](https://github.com/hybroai/hybro/commit/78610e097d8ba4800fc9f021bfbf02e69cf2fc75))
+* reject pre-dispatch progress authority ([9b7b6f7](https://github.com/hybroai/hybro/commit/9b7b6f7b91dd59c09be6f92dea45490f6feb2871))
+* reload concurrent run creation winners ([7cf7f0f](https://github.com/hybroai/hybro/commit/7cf7f0f0c9aeb76a7e570627b178775e4f16d398))
+* replay Mongo run creation retries ([aa99c11](https://github.com/hybroai/hybro/commit/aa99c1100f27564dd08852f6e934fd1fbcd5f77d))
+* restore UTC on Mongo run reads ([1c1969a](https://github.com/hybroai/hybro/commit/1c1969a0d8d63d20a6e6ff7a0e786fe4bf6a8275))
+* resume incomplete HITL continuations ([4571f92](https://github.com/hybroai/hybro/commit/4571f92b347e4bb07022a174783da63d3d374d8f))
+* **room:** validate startup bindings ([9ae8978](https://github.com/hybroai/hybro/commit/9ae89780cc76baf01f11cb388417cf3458d27fc5))
+* **room:** validate startup bindings ([1752459](https://github.com/hybroai/hybro/commit/17524591c382f866f75f6de08228da012fd22986))
+* simplify file-required turn handling ([2fe1069](https://github.com/hybroai/hybro/commit/2fe106992b66e4d264a9a43e1be92c2702c2aa55))
+* strip Mongo IDs from due runs ([7902034](https://github.com/hybroai/hybro/commit/790203440d3edbe8ec8f21a8da598502c9d2c954))
+* strip Mongo IDs from run duplicates ([d4efc68](https://github.com/hybroai/hybro/commit/d4efc680993e4cf49cbe487bd6381289333f9d24))
+* surface agent question text and validate input blockers with declared outputs ([330c617](https://github.com/hybroai/hybro/commit/330c61702b32f7243e433d4581ce5874ca079b31))
+
 ## [0.2.14](https://github.com/hybroai/hybro/compare/v0.2.13...v0.2.14) (2026-08-14)
 
 
