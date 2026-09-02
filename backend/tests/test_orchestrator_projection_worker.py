@@ -297,6 +297,51 @@ async def test_final_message_projector_delivers_on_insert_and_replay():
     ]
 
 
+async def test_final_message_projector_projects_assistant_into_room_memory():
+    store, run = await _stored_terminal_run()
+    stored = await store.load(run.run_id)
+    intent = next(
+        item
+        for item in stored.projection_outbox
+        if item.kind == "deliver_final_message"
+    )
+    projected: list[tuple[str, str]] = []
+
+    async def project_memory(room_id: str, message_id: str):
+        projected.append((room_id, message_id))
+        return {"projected": True}
+
+    projector = MongoFinalMessageProjector(
+        _FakeMessageCollection(), memory_projection=project_memory
+    )
+    assert await projector.project(intent, stored) == "accepted"
+    assert projected == [(stored.room_id, intent.payload["message_id"])]
+
+
+async def test_final_message_projector_retries_until_room_memory_exists():
+    store, run = await _stored_terminal_run()
+    stored = await store.load(run.run_id)
+    intent = next(
+        item
+        for item in stored.projection_outbox
+        if item.kind == "deliver_final_message"
+    )
+    attempts = 0
+
+    async def project_memory(_room_id: str, _message_id: str):
+        nonlocal attempts
+        attempts += 1
+        if attempts == 1:
+            return {"projected": False, "reason": "missing_room_memory"}
+        return {"projected": True}
+
+    projector = MongoFinalMessageProjector(
+        _FakeMessageCollection(), memory_projection=project_memory
+    )
+    assert await projector.project(intent, stored) == "error"
+    assert await projector.project(intent, stored) == "replayed"
+
+
 async def test_final_message_projector_retries_failed_room_delivery():
     store, run = await _stored_terminal_run()
     stored = await store.load(run.run_id)

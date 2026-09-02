@@ -14,6 +14,7 @@ from .models import (
     BudgetState,
     CandidateScopeSnapshot,
     FrozenToolCatalogSnapshot,
+    ModelMessage,
     OrchestratorProfile,
     OrchestratorRunState,
     RecoveryClaim,
@@ -40,6 +41,7 @@ class RoomAgentSessionConfig:
     tool_catalog: ToolCatalog
     frozen_tool_catalog: FrozenToolCatalogSnapshot | None = None
     resource_manifest: RunResourceManifestSnapshot | None = None
+    conversation_history: tuple[ModelMessage, ...] = ()
 
 
 class RunFactory(Protocol):
@@ -96,6 +98,7 @@ class DefaultRunFactory:
             candidate_scope=config.candidate_scope,
             status="running",
             transcript=[message],
+            background_context=list(config.conversation_history),
             tool_catalog=config.frozen_tool_catalog,
             resource_manifest=config.resource_manifest,
             tool_batches=[],

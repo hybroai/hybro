@@ -2629,6 +2629,9 @@ async def _runtime_lifespan(app: Any, runtime: ApplicationRuntime):  # noqa: C90
                     None if _delivery_deps is None else _delivery_deps.event_publisher
                 ),
                 final_message_delivery=_deliver_orchestrator_final_message,
+                final_message_memory_projection=(
+                    context_memory_facade.project_message_for_event
+                ),
                 canonical_event_reader=_read_canonical_run_events,
                 canonical_hitl_control=publish_orchestrator_hitl_control,
                 supervisor_hitl=request_supervisor_input_port,
@@ -2722,6 +2725,9 @@ async def _runtime_lifespan(app: Any, runtime: ApplicationRuntime):  # noqa: C90
                 envelope_source=envelope_source,
                 run_factory=DefaultRunFactory(),
                 webhook_token_verifier=task_store.verify_webhook_token_for_task,
+                room_memory_reader=(
+                    context_memory_facade.memory_repository.get_room_memory
+                ),
             )
             execution_facade.bind_orchestrator_router(orchestrator_router)
 

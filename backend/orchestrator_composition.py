@@ -321,6 +321,7 @@ def create_orchestrator_runtime(  # noqa: C901
     user_message_text_reader: Callable[[str], Any] | None = None,
     hitl_delivery: Any | None = None,
     final_message_delivery: Callable[..., Any] | None = None,
+    final_message_memory_projection: Callable[[str, str], Any] | None = None,
     canonical_event_reader: Callable[[str, str], Any] | None = None,
     canonical_hitl_control: Callable[[str, str, str, list[str]], Any] | None = None,
     supervisor_hitl: Any | None = None,
@@ -516,6 +517,7 @@ def create_orchestrator_runtime(  # noqa: C901
         "deliver_final_message": MongoFinalMessageProjector(
             mongo.collection("room_agent_messages"),
             final_message_delivery,
+            final_message_memory_projection,
         ).project,
         "project_terminal_run_status": project_terminal_run_status,
     }

@@ -31,6 +31,7 @@ _TERMINAL_RUN_STATE_VALUES = [state.value for state in TERMINAL_RUN_STATES]
 FinalMessageDelivery = Callable[
     [OrchestratorRunState, AssistantMessage, str], Awaitable[bool]
 ]
+FinalMessageMemoryProjection = Callable[[str, str], Awaitable[dict[str, Any] | None]]
 
 
 class MongoAppendEventProjector:
@@ -54,9 +55,11 @@ class MongoFinalMessageProjector:
         self,
         messages: Any,
         delivery: FinalMessageDelivery | None = None,
+        memory_projection: FinalMessageMemoryProjection | None = None,
     ) -> None:
         self.messages = messages
         self.delivery = delivery
+        self.memory_projection = memory_projection
 
     async def project(
         self, intent: ProjectionIntent, run: OrchestratorRunState
@@ -90,7 +93,17 @@ class MongoFinalMessageProjector:
             delivered = await self.delivery(run, final, _assistant_text(final))
             if not delivered:
                 return "error"
+        if not await self._project_memory(run.room_id, final.message_id):
+            return "error"
         return outcome
+
+    async def _project_memory(self, room_id: str, message_id: str) -> bool:
+        if self.memory_projection is None:
+            return True
+        projected = await self.memory_projection(room_id, message_id)
+        return not isinstance(projected, dict) or bool(
+            projected.get("projected") or projected.get("reason") == "duplicate"
+        )
 
 
 class MongoTerminalRunStatusProjector:

@@ -76,15 +76,30 @@ def test_parameter_table_defaults_are_pinned():
     assert fields["orchestrator_ultimate_finalization"].default == "pass_through"
 
 
-def test_orchestrator_prompts_require_specialist_dispatch_before_user_clarify():
+def test_orchestrator_prompts_let_the_model_decide_when_tools_are_needed():
     for prompt in (
         FAST_ORCHESTRATOR_SYSTEM_PROMPT,
         ULTIMATE_ORCHESTRATOR_SYSTEM_PROMPT,
     ):
-        assert "DELEGATION FIRST" in prompt
-        assert "MUST call that agent on the first turn" in prompt
-        assert "Never ask the user instead of calling a matching agent" in prompt
-        assert "Missing details alone are not a reason to skip tools" in prompt
+        assert "CONVERSATION CONTINUITY" in prompt
+        assert "Preserve relevant facts, recommendations" in prompt
+        assert "TOOL DECISION" in prompt
+        assert "actually requires an Agent" in prompt
+        assert "Agent availability alone is never a reason" in prompt
+        assert "follow-ups answerable from existing context" in prompt
+        assert "DELEGATION FIRST" not in prompt
+        assert "MUST call" not in prompt
+
+
+def test_orchestrator_prompts_treat_prior_answers_as_context_not_execution_proof():
+    for prompt in (
+        FAST_ORCHESTRATOR_SYSTEM_PROMPT,
+        ULTIMATE_ORCHESTRATOR_SYSTEM_PROMPT,
+    ):
+        assert "relevant prior conversation are evidence" in prompt
+        assert "authoritative records of what Hybro already told" in prompt
+        assert "do not, by themselves, prove that a new external action" in prompt
+        assert "Tool-call arguments are intentions, not results" in prompt
 
 
 def test_openai_reasoning_routes_use_responses_api_for_native_tools():

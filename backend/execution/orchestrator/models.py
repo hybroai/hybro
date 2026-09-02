@@ -721,6 +721,7 @@ class OrchestratorRunState(ContractModel):
     candidate_scope: CandidateScopeSnapshot
     status: RunStatus
     transcript: list[AgentMessage]
+    background_context: list[ModelMessage] = Field(default_factory=list)
     tool_catalog: FrozenToolCatalogSnapshot | None = None
     resource_manifest: RunResourceManifestSnapshot | None = None
     tool_batches: list[ToolCallBatch] = Field(default_factory=list)

@@ -1080,9 +1080,17 @@ class OrchestratorKernel:
                 if _has_presented_interactions(run):
                     tools = [*tools, _surface_agent_questions_tool_definition(run)]
             try:
-                compiled = self.context_compiler.compile(
-                    run, tools=tools, summary=run.compaction_summary
-                )
+                if run.background_context:
+                    compiled = self.context_compiler.compile(
+                        run,
+                        tools=tools,
+                        background=run.background_context,
+                        summary=run.compaction_summary,
+                    )
+                else:
+                    compiled = self.context_compiler.compile(
+                        run, tools=tools, summary=run.compaction_summary
+                    )
             except UnresolvedToolBatchError:
                 return await self._terminate(
                     run, status="failed", reason="unresolved tool batch"

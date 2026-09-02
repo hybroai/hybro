@@ -34,6 +34,7 @@ from execution.orchestrator.lifecycle import (
 from execution.orchestrator.models import (
     CandidateScopeSnapshot,
     FrozenToolCatalogSnapshot,
+    ModelMessage,
     OrchestratorProfile,
     RunResourceManifestSnapshot,
     ToolObservation,
@@ -89,6 +90,7 @@ class RoomSessionHost:
         requesting_subject_id: str,
         frozen_catalog: FrozenToolCatalogSnapshot,
         resource_manifest: RunResourceManifestSnapshot | None = None,
+        conversation_history: tuple[ModelMessage, ...] = (),
         run_factory: RunFactory | None = None,
     ) -> RoomAgentSession:
         if room_id in self._sessions:
@@ -106,6 +108,7 @@ class RoomSessionHost:
             tool_catalog=FrozenToolCatalog(frozen_catalog),
             frozen_tool_catalog=frozen_catalog,
             resource_manifest=resource_manifest,
+            conversation_history=conversation_history,
         )
         lifecycle = self._new_lifecycle_emitter()
         session = RoomAgentSession(

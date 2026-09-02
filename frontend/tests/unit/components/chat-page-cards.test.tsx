@@ -2,6 +2,7 @@ import { StrictMode } from "react"
 import { describe, it, expect, vi, beforeEach } from "vitest"
 import { render, screen, fireEvent, waitFor, cleanup } from "@testing-library/react"
 import type { Agent } from "@/lib/types/agent"
+import { useCaseTemplates } from "@/lib/use-case-templates"
 import { useRoomUiStore } from "@/stores/room-ui-store"
 
 // --- Mocks ---
@@ -30,6 +31,9 @@ function makeAgent(id: string, name: string): Agent {
   }
 }
 const agents = [makeAgent("a1", "Weather Agent"), makeAgent("a2", "Travel Planner Agent")]
+const travelPrompt = useCaseTemplates.find(
+  (template) => template.id === "travel-planner",
+)!.prefillMessage
 
 // Mock useGroupManagement — returns controllable state
 let gmState: Record<string, unknown> = {}
@@ -133,7 +137,7 @@ describe("Chat page — Use Case Cards integration", () => {
       }))
       expect(handleGroupCreated).toHaveBeenCalledWith(presetTeam)
       expect(container.querySelector('[contenteditable="true"]')?.textContent).toContain(
-        'Generate a travel plan for 7-days travel',
+        travelPrompt,
       )
     })
     expect(mockCreateAndNavigate).not.toHaveBeenCalled()
@@ -170,7 +174,7 @@ describe("Chat page — Use Case Cards integration", () => {
     fireEvent.click(card.closest('button')!)
     await waitFor(() => {
       expect(container.querySelector('[contenteditable="true"]')?.textContent).toContain(
-        'Generate a travel plan',
+        travelPrompt,
       )
     })
     fireEvent.click(card.closest('button')!)

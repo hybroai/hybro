@@ -36,6 +36,7 @@ from common.dto.hitl import (
     HITLTextAnswer,
 )
 from common.utils.logger import get_logger
+from context_memory.translators import normalize_room_memory
 from execution.hitl.exceptions import (
     HITLConflictError,
     HITLDeliveryUncertainError,
@@ -52,6 +53,8 @@ from execution.orchestrator.a2a_runtime.models import NormalizedA2AObservation
 from execution.orchestrator.models import (
     AuthorizationBasis,
     CandidateScopeSnapshot,
+    ModelMessage,
+    ModelTextPart,
     PreparedResourceRef,
     RunResourceManifestSnapshot,
     TextPart,
@@ -77,6 +80,10 @@ MODE_PROFILE_MAP = {
 
 _PROFILE_PINNED_INITIAL_ROUTING = "explicit_agent_first"
 _PROFILE_PINNED_FINALIZATION = "pass_through"
+_MAX_ROOM_HISTORY_MESSAGES = 10
+_MAX_ROOM_HISTORY_CHARS_PER_MESSAGE = 4_000
+
+RoomMemoryReader = Callable[[str], Awaitable[dict[str, Any] | None]]
 
 
 class UnsupportedEnvelopeError(ValueError):
@@ -790,11 +797,13 @@ class DualRuntimeRouter:
         envelope_source: RoomEnvelopeSource | None = None,
         run_factory: RunFactory | None = None,
         webhook_token_verifier: WebhookTokenVerifier | None = None,
+        room_memory_reader: RoomMemoryReader | None = None,
     ) -> None:
         self._runtime = runtime
         self._envelope_source = envelope_source
         self._run_factory = run_factory or DefaultRunFactory()
         self._webhook_token_verifier = webhook_token_verifier
+        self._room_memory_reader = room_memory_reader
 
     # -- Ingress routing -------------------------------------------------
 
@@ -1274,6 +1283,10 @@ class DualRuntimeRouter:
             ),
             created_at=datetime.now(UTC),
         )
+        conversation_history = await self._load_conversation_history(
+            room_id,
+            current_message_id=request.room_user_message_id or "",
+        )
         await session_host.create_session(
             room_id=room_id,
             profile=profile,
@@ -1281,6 +1294,7 @@ class DualRuntimeRouter:
             requesting_subject_id=requesting_subject_id,
             frozen_catalog=prepared.snapshot,
             resource_manifest=resource_manifest,
+            conversation_history=conversation_history,
             run_factory=_PreparedRunFactory(run_id, self._run_factory),
         )
 
@@ -1303,6 +1317,49 @@ class DualRuntimeRouter:
             success=True,
             status_code=200,
         )
+
+    async def _load_conversation_history(
+        self,
+        room_id: str,
+        *,
+        current_message_id: str,
+    ) -> tuple[ModelMessage, ...]:
+        if self._room_memory_reader is None:
+            return ()
+        document = await self._room_memory_reader(room_id)
+        if not document:
+            return ()
+        state = normalize_room_memory(document)
+        current_turn_id = f"message:{current_message_id}"
+        messages: list[ModelMessage] = []
+        for turn in state.conversation_history:
+            if turn.turn_id == current_turn_id:
+                continue
+            content = turn.content or turn.brief_summary
+            if not isinstance(content, str) or not content.strip():
+                continue
+            content = content.strip()[:_MAX_ROOM_HISTORY_CHARS_PER_MESSAGE]
+            if turn.role == "user":
+                messages.append(
+                    ModelMessage(
+                        role="user",
+                        content=[ModelTextPart(text=content)],
+                    )
+                )
+                continue
+            if turn.role == "supervisor" or (
+                turn.role == "agent" and turn.agent_id == "system:hybro"
+            ):
+                messages.append(
+                    ModelMessage(
+                        role="assistant",
+                        content=[ModelTextPart(text=content)],
+                    )
+                )
+        messages = messages[-_MAX_ROOM_HISTORY_MESSAGES:]
+        while messages and messages[0].role != "user":
+            messages.pop(0)
+        return tuple(messages)
 
 
 __all__ = [

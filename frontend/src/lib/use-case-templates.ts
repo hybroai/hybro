@@ -80,7 +80,7 @@ export const useCaseTemplates: UseCaseTemplate[] = [
       },
     ],
     prefillMessage:
-      "Generate a travel plan for 7-days travel with 4 people to Hawaii and Also check the weather in Hawaii in the past month",
+      "Plan a 7-day trip to Oahu, Hawaii, for four people, and check Honolulu's weather forecast for the next 7 days",
     tag: "new",
   },
   {

@@ -99,4 +99,13 @@ describe("featured use cases", () => {
   it("includes the hybro travel and story templates, not SaaS creator discovery", () => {
     expect(useCaseTemplates.map((t) => t.id)).toEqual(["travel-planner", "story-and-image"])
   })
+
+  it("asks the travel agents for a supported location-specific forecast", () => {
+    const travel = useCaseTemplates.find((template) => template.id === "travel-planner")
+
+    expect(travel?.prefillMessage).toBe(
+      "Plan a 7-day trip to Oahu, Hawaii, for four people, and check Honolulu's weather forecast for the next 7 days",
+    )
+    expect(travel?.prefillMessage).not.toContain("past month")
+  })
 })
