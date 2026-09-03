@@ -22,7 +22,6 @@ from common.dto import (
     ExecutionRequest,
     ExecutionResult,
     FileMetadata,
-    GatewayRoute,
     HITLRequest,
     HITLRequestEvent,
     HITLResolvedEvent,
@@ -39,7 +38,6 @@ from common.dto import (
     PaginationParams,
     ProcessingStatusEvent,
     QueryFilter,
-    RateLimitInfo,
     RoomCreated,
     RoomCreationParams,
     RoomInfo,
@@ -189,7 +187,6 @@ def test_common_dtos_can_be_instantiated():
         capabilities=[],
         max_context_tokens=1,
     )
-    RateLimitInfo(limit=10, remaining=9, reset_at=now)
     FileMetadata(
         file_id="f1",
         room_id="r1",
@@ -201,13 +198,31 @@ def test_common_dtos_can_be_instantiated():
         sha256="0" * 64,
         status="ready",
     )
-    GatewayRoute(agent_id="a1", gateway_url="/gateway/a1")
     QueryFilter(criteria={"room_id": "r1"})
     PaginationParams(page=1, limit=10)
     SortOrder(field="created_at", direction="desc")
     InternalDomainEvent(timestamp=now)
     AgentRegistered(agent_id="a1", timestamp=now)
     RoomCreated(room_id="r1", owner_id="u1", timestamp=now)
+
+
+def test_removed_gateway_discovery_and_rate_limit_dtos_are_not_exported():
+    import common.dto as dto
+
+    removed_names = {
+        "GatewayDiscoveryAgentResult",
+        "GatewayDiscoveryResponse",
+        "GatewayRequest",
+        "GatewayResponse",
+        "GatewayRoute",
+        "RateLimitInfo",
+        "RateLimitResult",
+    }
+
+    assert removed_names.isdisjoint(dto.__all__)
+    assert removed_names.isdisjoint(vars(dto))
+    assert dto.FileInfo
+    assert dto.FileMetadata
 
 
 def test_room_creation_params_default_seed_does_not_weaken_create_request():

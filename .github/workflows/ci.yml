@@ -157,7 +157,7 @@ jobs:
           timeout 180s bash -c 'until curl -sf http://localhost:8000/health; do sleep 2; done'
           echo "Backend container is healthy and ready!"
           echo "Waiting for agents registration..."
-          timeout 90s bash -c 'until curl -sf http://localhost:8000/api/v1/agent/getAllActiveAgents | grep -qi "Travel Planner"; do sleep 2; done'
+          timeout 90s bash -c 'until curl -sf http://localhost:8000/api/v1/agent/getAllAgents?active_only=true | grep -qi "Travel Planner"; do sleep 2; done'
           echo "Agents successfully registered!"
 
       - name: Run Backend Functional Tests Against Live Containers

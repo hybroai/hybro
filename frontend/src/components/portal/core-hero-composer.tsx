@@ -4,11 +4,10 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useUser, useAuth } from '@/lib/auth'
 import { RoomChatInput } from '@/components/room-chat-input'
 import { banner } from '@/components/ui/banner'
-import { getAllActiveAgents } from '@/lib/api/agent'
+import { getAllAgents } from '@/lib/api/agent'
 import { useChatRoomCreation } from '@/hooks/useChatRoomCreation'
 import {
   buildTemplateDemoMessage,
-  resolveTemplateAgents,
   useCaseTemplates,
   type UseCaseTemplate,
 } from '@/lib/use-case-templates'
@@ -46,7 +45,7 @@ export function CoreHeroComposer() {
     let cancelled = false
     void (async () => {
       try {
-        const response = await getAllActiveAgents(undefined, undefined, getToken)
+        const response = await getAllAgents({ activeOnly: true, getToken })
         if (!cancelled && response.success && response.agents) {
           setAvailableAgents(response.agents)
         }
@@ -147,7 +146,6 @@ export function CoreHeroComposer() {
       currentTemplate,
       sendFromTemplate,
       createAndNavigate,
-      availableAgents,
     ],
   )
 

@@ -5,7 +5,7 @@ import {
 } from '@/lib/api/room'
 import { banner } from '@/components/ui/banner'
 import type { Agent } from '@/lib/types/agent'
-import type { Room, RoomAgentRefWire, ActiveRunRefWire } from '@/lib/types/response'
+import type { Room, ActiveRunRefWire } from '@/lib/types/response'
 import { roomUsesSupervisorByDefault } from '@/lib/types/chat-mode'
 
 export type RoomWithActiveRuns = Room & { active_runs?: ActiveRunRefWire[] | null }
@@ -17,7 +17,6 @@ export function useRoomData(
   allAgentsData: Agent[] | undefined,
 ) {
   const activeRoomLoad = useRef<string | null>(null)
-  const resolvedAgentsRef = useRef<RoomAgentRefWire[] | null>(null)
 
   const roomQuery = useQuery({
     queryKey: ['room', roomId],
@@ -32,7 +31,6 @@ export function useRoomData(
         if (!response.success || !response.room) {
           throw new Error(response.error || 'Failed to load room')
         }
-        resolvedAgentsRef.current = response.resolved_agents ?? null
         // Pre-populate agent name cache
         if (response.room.room_agent_set) {
           const entries: Record<string, string> = {}
@@ -72,27 +70,6 @@ export function useRoomData(
 
   const loading = roomQuery.isLoading
 
-  const getAgentList = useCallback(() => {
-    if (!room?.room_agent_set) return []
-    return Object.entries(room.room_agent_set).map(([id, name]) => ({ id, name }))
-  }, [room])
-
-  const getRoomFormData = useCallback(() => {
-    if (!room) return null
-    return {
-      roomName: room.room_name || '',
-      roomId: room.room_id || '',
-      selectedAgents: room.room_agent_set || {},
-      roomOwnerId: room.room_owner_id || '',
-      roomOwnerName: room.room_owner_name || '',
-      resolvedAgents: resolvedAgentsRef.current,
-    }
-  }, [room])
-
-  const refreshRoomSetting = useCallback(async () => {
-    await roomQuery.refetch()
-  }, [roomQuery])
-
   // Surface query errors so we don't stay in "loading" forever
   useEffect(() => {
     if (roomQuery.isError) {
@@ -103,12 +80,7 @@ export function useRoomData(
 
   return {
     room,
-    roomQuery,
-    resolvedAgentsRef,
     loading,
     getSupervisorMode,
-    getAgentList,
-    getRoomFormData,
-    refreshRoomSetting,
   }
 }

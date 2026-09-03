@@ -10,7 +10,6 @@ import {
   getAgentCardFromUrl,
   getAgent,
   getAllAgents,
-  getAllActiveAgents,
 } from '@/lib/api/agent'
 
 const BASE = getApiUrl('agent')
@@ -240,8 +239,25 @@ describe('Agent API', () => {
       )
 
       await expect(
-        getAllAgents(controller.signal),
+        getAllAgents({ signal: controller.signal }),
       ).rejects.toThrow()
+    })
+
+    it('requests only active agents through the shared endpoint', async () => {
+      let activeOnly: string | null = null
+      const agents = [{ agent_id: 'a-1', agent_status: 'active' }]
+      server.use(
+        http.get(`${BASE}/getAllAgents`, ({ request }) => {
+          activeOnly = new URL(request.url).searchParams.get('active_only')
+          return HttpResponse.json({ success: true, agents })
+        }),
+      )
+
+      const result = await getAllAgents({ activeOnly: true })
+
+      expect(activeOnly).toBe('true')
+      expect(result.success).toBe(true)
+      expect(result.agents).toHaveLength(1)
     })
 
     it('should handle server errors', async () => {
@@ -252,49 +268,6 @@ describe('Agent API', () => {
       )
 
       await expect(getAllAgents()).rejects.toThrow()
-    })
-  })
-
-  // ─── getAllActiveAgents ──────────────────────────────────────
-
-  describe('getAllActiveAgents', () => {
-    it('should GET /getAllActiveAgents and return only active agents', async () => {
-      const agents = [{ agent_id: 'a-1', agent_status: 'active' }]
-      server.use(
-        http.get(`${BASE}/getAllActiveAgents`, () =>
-          HttpResponse.json({ success: true, agents }),
-        ),
-      )
-
-      const result = await getAllActiveAgents()
-
-      expect(result.success).toBe(true)
-      expect(result.agents).toHaveLength(1)
-    })
-
-    it('should support abort signal', async () => {
-      const controller = new AbortController()
-      server.use(
-        http.get(`${BASE}/getAllActiveAgents`, async () => {
-          controller.abort()
-          await delay('infinite')
-          return HttpResponse.json({ success: true, agents: [] })
-        }),
-      )
-
-      await expect(
-        getAllActiveAgents(controller.signal),
-      ).rejects.toThrow()
-    })
-
-    it('should handle server errors', async () => {
-      server.use(
-        http.get(`${BASE}/getAllActiveAgents`, () =>
-          HttpResponse.json({ error: 'fail' }, { status: 500 }),
-        ),
-      )
-
-      await expect(getAllActiveAgents()).rejects.toThrow()
     })
   })
 })

@@ -13,7 +13,7 @@ vi.mock('@/lib/auth', () => ({
 }))
 
 vi.mock('@/lib/api/agent', () => ({
-  getAllActiveAgents: vi.fn().mockResolvedValue({ success: true, agents: [] }),
+  getAllAgents: vi.fn().mockResolvedValue({ success: true, agents: [] }),
 }))
 
 const creationOptions: { current?: { onRequireAuth?: unknown } } = {}

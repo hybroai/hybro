@@ -1112,7 +1112,6 @@ async def _runtime_lifespan(app: Any, runtime: ApplicationRuntime):  # noqa: C90
                 exclusion_reader=CapabilityIssueExclusionReader(
                     agent_capability_issue_service
                 ),
-                gateway_base_url=runtime.settings.gateway_base_url,
             )
             _agent_facade = _agent_deps.agent_registry
             local_agent_config = LocalAgentDiscoveryConfig(
@@ -1720,15 +1719,6 @@ async def _runtime_lifespan(app: Any, runtime: ApplicationRuntime):  # noqa: C90
             route_room_reader = SimpleNamespace(
                 get_room_by_room_id=agent_room_store.get_room_by_room_id,
             )
-            a2a_task_status_reader = SimpleNamespace(
-                get_room_agent_message_by_message_id=(
-                    message_store.get_room_agent_message_by_message_id
-                ),
-                get_task_messages_for_room=task_store.get_task_messages_for_room,
-                get_pending_task_messages_for_user=(
-                    task_store.get_pending_task_messages_for_user
-                ),
-            )
             sse_state_reader = SimpleNamespace(
                 get_room_by_room_id=agent_room_store.get_room_by_room_id,
                 get_room_user_message_by_message_id=(
@@ -2137,22 +2127,15 @@ async def _runtime_lifespan(app: Any, runtime: ApplicationRuntime):  # noqa: C90
         bind_api_gateway_deps(
             app,
             APIGatewayDeps(
-                task_store=a2a_task_status_reader,
                 agent_center=route_agent_center,
                 agent_service=_agent_deps.agent_registry,
                 capability_issue_service=agent_capability_issue_service,
                 agent_liveness_checker=agent_liveness_checker,
                 agent_group_store=agent_room_store,
-                api_key_store=None,
-                discovery_service=None,
-                discovery_rate_limiter=None,
-                discovery_default_limit=runtime.settings.discovery_default_limit,
                 file_storage=file_storage,
                 room_ownership_reader=_room_deps.room_registry,
                 hitl_manager=_execution_deps.hitl_manager,
                 inspection_center=route_inspection_center,
-                gateway_service=None,
-                gateway_rate_limiter=None,
                 room_center=route_room_center,
                 room_store=route_room_reader,
                 agent_selection_service=agent_selection_service,
@@ -4258,14 +4241,12 @@ def create_agent_deps(
     mongo: MongoDAL,
     card_resolver: AgentCardResolver,
     exclusion_reader: AgentExclusionReader | None = None,
-    gateway_base_url: str | None = None,
 ) -> AgentDeps:
     repository = AgentMongoRepository(mongo=mongo)
     facade = AgentFacade(
         repository=repository,
         card_resolver=card_resolver,
         exclusion_reader=exclusion_reader,
-        gateway_base_url=gateway_base_url,
         id_factory=lambda: uuid4().hex,
         now=utcnow,
     )

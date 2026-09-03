@@ -13,6 +13,7 @@ dependencies = [
     "uvicorn[standard]",
     "sse-starlette>=2.3.6",
     "starlette>=0.46.2",
+    "python-multipart>=0.0.20",
     # A2A protocol
     "a2a-sdk>=0.3.25,<1",
     # Database
@@ -22,7 +23,6 @@ dependencies = [
     # AI / LLM
     "openai>=1.86.0",
     "tiktoken>=0.9.0",
-    "mcp>=1.9.4",
     # HTTP clients
     "aiohttp>=3.12.13",
     "httpx>=0.28.1",
@@ -47,7 +47,6 @@ dependencies = [
 
 [project.scripts]
 hybro-backend = "main:main"
-discover = "scripts.discovery_cli:main"
 
 [project.optional-dependencies]
 dev = [
@@ -106,15 +105,11 @@ ignore = ["E501"]
 "a2a_adapter/webhook_payloads.py" = ["C901"]
 "agent/facade.py" = ["C901"]
 "api_gateway/registry.py" = ["C901"]
-"api_gateway/routes/a2a_task_routes.py" = ["B008"]
 "api_gateway/routes/agent_group_routes.py" = ["B008"]
 "api_gateway/routes/agent_routes.py" = ["B008", "C901"]
-"api_gateway/routes/discovery_api_key_routes.py" = ["B008"]
-"api_gateway/routes/discovery_routes.py" = ["B008"]
 "api_gateway/routes/files_routes.py" = ["B008"]
 "api_gateway/routes/hitl_routes.py" = ["B008"]
 "api_gateway/routes/inspection_routes.py" = ["B008"]
-"api_gateway/routes/platform_gateway_routes.py" = ["B008"]
 "api_gateway/routes/room_routes.py" = ["B008", "C901"]
 "api_gateway/routes/sse_routes.py" = ["B008"]
 "api_gateway/routes/webhook_routes.py" = ["B008"]
@@ -132,7 +127,6 @@ ignore = ["E501"]
 "context_memory/compaction.py" = ["C901"]
 "context_memory/models.py" = ["UP042"]
 "delivery/translator.py" = ["C901"]
-"common/protocols/hub_protocols.py" = ["UP040"]
 "execution/dispatch/task_notifications.py" = ["C901"]
 "execution/hitl/service.py" = ["C901"]
 "execution/orchestration/queue_executor.py" = ["C901", "UP042"]
@@ -153,7 +147,6 @@ ignore = ["E501"]
 "models/hitl.py" = ["UP042"]
 "models/memory.py" = ["UP042"]
 "models/response.py" = ["UP046"]
-"scripts/_discovery_client.py" = ["C901"]
 "tests/test_api_thin_adapters.py" = ["C901"]
 "tests/test_compaction_service.py" = ["C901"]
 "tests/test_context_memory_repository.py" = ["C901"]

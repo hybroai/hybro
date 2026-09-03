@@ -51,7 +51,7 @@ export default function AgentsPage() {
 
   const discoveredQuery = useQuery<AgentCenterResponse>({
     queryKey: ['agents', 'discovered'],
-    queryFn: () => getAllAgents(undefined, undefined, getToken),
+    queryFn: () => getAllAgents({ getToken }),
     refetchInterval: 30_000,
     refetchOnWindowFocus: true,
   })

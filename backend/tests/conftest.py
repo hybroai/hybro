@@ -619,12 +619,6 @@ def make_api_gateway_deps(
     from api_gateway.dependencies import APIGatewayDeps
     from common.dto import ExecutionAck
 
-    def _rate_limiter():
-        mock = MagicMock()
-        mock.check_rate_limit = AsyncMock()
-        mock.record_request = AsyncMock()
-        return mock
-
     def _make(**overrides):
         execution_engine = MagicMock()
         execution_engine.execute = AsyncMock(
@@ -648,35 +642,19 @@ def make_api_gateway_deps(
         room_ownership_reader = MagicMock()
         room_ownership_reader.get_room_owner = AsyncMock(return_value=None)
 
-        discovery_service = MagicMock()
-        discovery_service.discover_agents = AsyncMock()
-
-        gateway_service = MagicMock()
-        gateway_service.discover_agents = AsyncMock()
-        gateway_service.send_message = AsyncMock()
-        gateway_service.prepare_stream = AsyncMock()
-        gateway_service.get_agent_card = AsyncMock()
-
         agent_selection_service = MagicMock()
         agent_selection_service.suggest_agents = AsyncMock()
 
         defaults = {
-            "task_store": mock_db_service,
             "agent_center": mock_agent_center,
             "agent_service": agent_service,
             "capability_issue_service": capability_issue_service,
             "agent_liveness_checker": AsyncMock(side_effect=lambda agent: agent),
             "agent_group_store": mock_db_service,
-            "api_key_store": MagicMock(),
-            "discovery_service": discovery_service,
-            "discovery_rate_limiter": _rate_limiter(),
-            "discovery_default_limit": 10,
             "file_storage": mock_s3_service,
             "room_ownership_reader": room_ownership_reader,
             "hitl_manager": mock_hitl_service,
             "inspection_center": MagicMock(),
-            "gateway_service": gateway_service,
-            "gateway_rate_limiter": _rate_limiter(),
             "room_center": mock_room_center,
             "room_store": mock_db_service,
             "agent_selection_service": agent_selection_service,
@@ -708,7 +686,6 @@ def patch_sse_deps(
         "hitl_service": mock_hitl_service,
         "execution_engine": execution_engine,
         "deps": make_api_gateway_deps(
-            task_store=mock_db_service,
             sse_store=mock_db_service,
             sse_transport=mock_sse_transport,
             hitl_manager=mock_hitl_service,
@@ -734,7 +711,6 @@ def patch_room_center_deps(mock_db_service, mock_room_center, make_api_gateway_d
         "room_center": mock_room_center,
         "execution_engine": execution_engine,
         "deps": make_api_gateway_deps(
-            task_store=mock_db_service,
             room_store=mock_db_service,
             room_center=mock_room_center,
             execution_engine=execution_engine,

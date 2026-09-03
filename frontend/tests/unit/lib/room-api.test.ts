@@ -10,7 +10,6 @@ import {
   SendMessage,
   inquiryRoomMessagesByRoomId,
   updateRoomAgentSet,
-  updateRoomName,
   suggestAgents,
   listRoomHistory,
   updateRoomHistoryItem,
@@ -483,25 +482,6 @@ describe('Room API', () => {
       expect(capturedBody).toMatchObject({
         room_id: 'room-1',
         room_agent_set: { 'a-1': 'Agent One', 'a-2': 'Agent Two' },
-      })
-    })
-  })
-
-  describe('updateRoomName', () => {
-    it('should send new name in request body', async () => {
-      let capturedBody: Record<string, unknown> | null = null
-      server.use(
-        http.post(`${roomCenter}/updateRoomName`, async ({ request }) => {
-          capturedBody = await request.json() as Record<string, unknown>
-          return HttpResponse.json({ success: true })
-        })
-      )
-
-      await updateRoomName('room-1', 'New Room Name')
-
-      expect(capturedBody).toMatchObject({
-        room_id: 'room-1',
-        room_name: 'New Room Name',
       })
     })
   })

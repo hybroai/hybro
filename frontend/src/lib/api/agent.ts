@@ -94,31 +94,25 @@ export async function getAgent(
   )
 }
 
-// Get all agents - PUBLIC, with optional timeout override
-export async function getAllAgents(
-  signal?: AbortSignal, 
-  timeoutMs?: number,
+export interface GetAllAgentsOptions {
+  activeOnly?: boolean
+  signal?: AbortSignal
+  timeoutMs?: number
   getToken?: () => Promise<string | null>
-): Promise<AgentCenterResponse> {
-  return apiGet<AgentCenterResponse>(
-    `${API_BASE_URL}/getAllAgents`,
-    getToken,
-    signal,
-    timeoutMs
-  )
 }
 
-// Get all active agents - PUBLIC, with optional timeout override
-// Returns only agents with active status, filtering out inactive and deleted agents
-export async function getAllActiveAgents(
-  signal?: AbortSignal, 
-  timeoutMs?: number,
-  getToken?: () => Promise<string | null>
+// Get visible agents, optionally filtering to active agents.
+export async function getAllAgents(
+  options: GetAllAgentsOptions = {}
 ): Promise<AgentCenterResponse> {
+  const url = new URL(`${API_BASE_URL}/getAllAgents`)
+  if (options.activeOnly) {
+    url.searchParams.set('active_only', 'true')
+  }
   return apiGet<AgentCenterResponse>(
-    `${API_BASE_URL}/getAllActiveAgents`,
-    getToken,
-    signal,
-    timeoutMs
+    url.toString(),
+    options.getToken,
+    options.signal,
+    options.timeoutMs
   )
 }

@@ -27,7 +27,6 @@ venv/
 config.py
 !delivery/config.py
 !execution/cancellation/config.py
-!hub_runtime_bridge/config.py
 !llm_gateway/config.py
 !local_agents/config.py
 

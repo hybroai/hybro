@@ -27,12 +27,10 @@ vi.mock('@/lib/api/room', () => ({
   SendMessage: vi.fn().mockResolvedValue({ success: true, message_id: 'msg-1' }),
   inquiryRoomMessagesByRoomId: vi.fn().mockResolvedValue({ success: true, message_list: [] }),
   updateRoomAgentSet: vi.fn().mockResolvedValue({ success: true }),
-  updateRoomName: vi.fn().mockResolvedValue({ success: true }),
 }))
 
 vi.mock('@/lib/api/agent', () => ({
   getAllAgents: vi.fn().mockResolvedValue({ success: true, agents: [] }),
-  getAllActiveAgents: vi.fn().mockResolvedValue({ success: true, agents: [] }),
 }))
 
 vi.mock('@/lib/api/sse', () => ({
@@ -93,12 +91,9 @@ describe('useRoomWebhook consumer contract', () => {
       'cancelHitlRequest',
       'cancelProcessing',
       'cancelling',
-      'getAgentList',
-      'getRoomFormData',
       'loading',
       'processing',
       'refreshMessages',
-      'refreshRoomSetting',
       'respondToHitlBatch',
       'room',
       'sendUserMessage',
@@ -109,8 +104,6 @@ describe('useRoomWebhook consumer contract', () => {
       'sseError',
       'supervisorMode',
       'toggleSSE',
-      'updateRoomSettings',
-      'updatingRoom',
     ])
   })
 
@@ -133,11 +126,7 @@ describe('useRoomWebhook consumer contract', () => {
     const functionKeys = [
       'sendUserMessage',
       'cancelProcessing',
-      'updateRoomSettings',
       'refreshMessages',
-      'refreshRoomSetting',
-      'getAgentList',
-      'getRoomFormData',
       'toggleSSE',
     ] as const
 
@@ -166,7 +155,6 @@ describe('useRoomWebhook consumer contract', () => {
     expect(typeof result.current.sending).toBe('boolean')
     expect(typeof result.current.processing).toBe('boolean')
     expect(typeof result.current.cancelling).toBe('boolean')
-    expect(typeof result.current.updatingRoom).toBe('boolean')
     expect(typeof result.current.sseEnabled).toBe('boolean')
     expect(typeof result.current.supervisorMode).toBe('boolean')
 

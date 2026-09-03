@@ -163,27 +163,6 @@ class Settings(BaseSettings):
     # Agent Capability Issue Tracking
     capability_issue_threshold: int = 2  # Exclude agents with >= this many open issues
 
-    # Discovery API Settings
-    discovery_default_limit: int = 5  # Default number of agents to return
-    discovery_rate_limit_per_key: int | None = (
-        100  # Requests per API key per hour (None = unlimited)
-    )
-    discovery_rate_limit_global: int | None = (
-        10000  # Total requests per hour across all keys (None = unlimited)
-    )
-    hybro_timeout_seconds: float = 45.0
-
-    # Gateway API Settings
-    gateway_base_url: str = (
-        ""  # e.g. https://api.hybro.ai/api/v1 - if empty, derived at runtime
-    )
-    gateway_rate_limit_per_key: int | None = (
-        200  # Requests per API key per hour (None = unlimited)
-    )
-    gateway_rate_limit_global: int | None = (
-        20000  # Total requests per hour across all keys (None = unlimited)
-    )
-
     # A2A Long-Running Tasks Settings
     webhook_base_url: str = (
         ""  # Public URL where agents send webhooks (e.g., https://api.example.com)
@@ -331,6 +310,17 @@ class Settings(BaseSettings):
             # Split comma-separated string into list
             return [url.strip() for url in v.split(",") if url.strip()]
         return v
+
+    @field_validator(
+        "orchestrator_fast_thinking_level",
+        "orchestrator_ultimate_thinking_level",
+        mode="before",
+    )
+    @classmethod
+    def normalize_optional_thinking_level(cls, value):
+        if value is None or str(value).strip() == "":
+            return None
+        return str(value).strip()
 
     @field_validator("log_level", mode="before")
     @classmethod

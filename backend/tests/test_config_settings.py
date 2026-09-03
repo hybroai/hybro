@@ -21,6 +21,29 @@ def _clear_runtime_config_env(monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.delenv(name, raising=False)
 
 
+def test_removed_public_gateway_settings_are_not_exposed():
+    removed_fields = {
+        "discovery_default_limit",
+        "discovery_rate_limit_per_key",
+        "discovery_rate_limit_global",
+        "hybro_timeout_seconds",
+        "gateway_base_url",
+        "gateway_rate_limit_per_key",
+        "gateway_rate_limit_global",
+    }
+
+    assert removed_fields.isdisjoint(Settings.model_fields)
+    assert {
+        "local_agent_discovery_enabled",
+        "local_agent_discovery_host",
+        "local_agent_discovery_port_start",
+        "local_agent_discovery_port_end",
+        "local_agent_discovery_interval_seconds",
+        "local_agent_discovery_connect_timeout_seconds",
+        "local_agent_discovery_probe_timeout_seconds",
+    }.issubset(Settings.model_fields)
+
+
 def test_canonical_lifecycle_has_no_runtime_admission_or_worker_switches():
     settings = Settings(_env_file=None)
 
@@ -90,6 +113,18 @@ def test_feature_run_event_sse_parses_legacy_values(raw: str, expected: bool) ->
     settings = Settings(_env_file=None, feature_run_event_sse=raw)
 
     assert settings.feature_run_event_sse is expected
+
+
+@pytest.mark.parametrize("raw", [None, "", "   "])
+def test_blank_orchestrator_thinking_level_normalizes_to_none(raw: str | None) -> None:
+    settings = Settings(
+        _env_file=None,
+        orchestrator_fast_thinking_level=raw,
+        orchestrator_ultimate_thinking_level=raw,
+    )
+
+    assert settings.orchestrator_fast_thinking_level is None
+    assert settings.orchestrator_ultimate_thinking_level is None
 
 
 def test_runtime_config_unification_env_overrides(

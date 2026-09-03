@@ -92,17 +92,7 @@ from common.dto.llm_workflows import (
     RoomMemoryGenerationInput,
     RoomMessageSummary,
 )
-from common.dto.platform import (
-    FileInfo,
-    FileMetadata,
-    GatewayDiscoveryAgentResult,
-    GatewayDiscoveryResponse,
-    GatewayRequest,
-    GatewayResponse,
-    GatewayRoute,
-    RateLimitInfo,
-    RateLimitResult,
-)
+from common.dto.platform import FileInfo, FileMetadata
 from common.dto.room import (
     AgentMessageInput,
     CreateRoomRequest,
@@ -185,12 +175,7 @@ __all__ = [
     "ExplicitAgentMention",
     "FileInfo",
     "FileMetadata",
-    "GatewayDiscoveryAgentResult",
-    "GatewayDiscoveryResponse",
     "FrozenDTO",
-    "GatewayRequest",
-    "GatewayResponse",
-    "GatewayRoute",
     "HITLAnswer",
     "HITLAnswerKind",
     "HITLApplicationRoute",
@@ -235,8 +220,6 @@ __all__ = [
     "ParsedUserMessageRequest",
     "ProcessingStatusEvent",
     "QueryFilter",
-    "RateLimitInfo",
-    "RateLimitResult",
     "RoomCreated",
     "RoomCreationParams",
     "RoomInfo",

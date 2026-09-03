@@ -1,3 +1,4 @@
+import inspect
 from datetime import UTC, datetime
 
 import pytest
@@ -82,6 +83,11 @@ def _facade(repo: Repository, exclusion_reader=None) -> AgentFacade:
         id_factory=lambda: "new",
         now=lambda: datetime.now(UTC),
     )
+
+
+def test_gateway_public_url_configuration_is_not_exposed():
+    assert "gateway_base_url" not in inspect.signature(AgentFacade).parameters
+    assert not hasattr(AgentFacade, "_gateway_public_url")
 
 
 @pytest.mark.asyncio

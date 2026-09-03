@@ -26,7 +26,6 @@ from api_gateway.routes.room_routes import (
     inquiry_room_setting,
     suggest_agents,
     update_room_agent_set,
-    update_room_name,
     verify_room_ownership,
 )
 from common.dto import RoomTimelineEntry, RoomTimelinePage
@@ -881,44 +880,6 @@ class TestUpdateRoomAgentSet:
         assert call_args.requesting_user_id == mock_user.user_id
 
 
-class TestUpdateRoomName:
-    """Tests for update_room_name endpoint."""
-
-    @pytest.mark.asyncio
-    async def test_updates_room_name_for_owner(
-        self, mock_user, sample_room, patch_room_center_deps
-    ):
-        """Should update room name when user is owner."""
-        mock_request = MagicMock()
-        mock_request.json = AsyncMock(
-            return_value={
-                "room_id": sample_room.room_id,
-                "room_name": "New Room Name",
-            }
-        )
-
-        patch_room_center_deps[
-            "db_service"
-        ].get_room_by_room_id.return_value = sample_room
-        expected_response = RoomCenterRoomSettingResponse(success=True)
-        patch_room_center_deps[
-            "room_center"
-        ].update_room_name.return_value = expected_response
-
-        response = await update_room_name(
-            mock_request,
-            mock_user,
-            store=patch_room_center_deps["db_service"],
-            center=patch_room_center_deps["room_center"],
-        )
-
-        assert response.success is True
-        call_args = patch_room_center_deps["room_center"].update_room_name.call_args[0][
-            0
-        ]
-        assert call_args.room_name == "New Room Name"
-
-
 class TestUpdateEndpointsRejectNonOwner:
     """Non-owner is rejected for all update endpoints."""
 
@@ -927,7 +888,6 @@ class TestUpdateEndpointsRejectNonOwner:
         "endpoint_fn,payload",
         [
             (update_room_agent_set, {"room_id": "test-room-001", "room_agent_set": {}}),
-            (update_room_name, {"room_id": "test-room-001", "room_name": "X"}),
         ],
     )
     async def test_rejects_non_owner(

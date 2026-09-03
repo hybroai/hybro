@@ -1,12 +1,4 @@
 {
-  "a2a_task": {
-    "api_key": false,
-    "auth": "clerk-route-level",
-    "cors": "default",
-    "tags": [
-      "a2a_tasks"
-    ]
-  },
   "agent": {
     "api_key": false,
     "auth": "mixed-route-level",
@@ -21,22 +13,6 @@
     "cors": "default",
     "tags": [
       "agent_group"
-    ]
-  },
-  "discovery": {
-    "api_key": true,
-    "auth": "api-key-route-level",
-    "cors": "open",
-    "tags": [
-      "discovery"
-    ]
-  },
-  "discovery_api_key": {
-    "api_key": false,
-    "auth": "clerk-route-level",
-    "cors": "default",
-    "tags": [
-      "api_keys"
     ]
   },
   "files": {
@@ -61,14 +37,6 @@
     "cors": "default",
     "tags": [
       "inspection"
-    ]
-  },
-  "platform_gateway": {
-    "api_key": true,
-    "auth": "api-key-route-level",
-    "cors": "open",
-    "tags": [
-      "gateway"
     ]
   },
   "room": {

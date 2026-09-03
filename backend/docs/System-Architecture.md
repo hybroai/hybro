@@ -128,7 +128,6 @@ currently present in this repository.
 The backend is a FastAPI monolith that coordinates:
 
 - A web app API for rooms, agents, messages, HITL, files, and SSE.
-- A Hub relay path for locally connected hub agents.
 - A2A agent communication, including synchronous, streaming, and webhook-based
   long-running task updates.
 - Context memory projection, search, and compaction.
@@ -157,12 +156,8 @@ flowchart TD
     SupervisorExecutor --> AgentMessageProcessor
 
     AgentMessageProcessor --> DirectTransport[DirectTransport]
-    AgentMessageProcessor --> RelayTransport[RelayTransport]
     DirectTransport --> A2A[a2a_adapter / remote A2A agents]
-    RelayTransport --> HubRelay[hub_runtime_bridge / relay service]
-
     DirectTransport --> ResponseHandler[AgentResponseHandler]
-    RelayTransport --> ResponseHandler
     Webhook[webhook route] --> ResponseHandler
 
     ResponseHandler --> Mongo[(MongoDB)]
@@ -210,13 +205,13 @@ Startup has three practical phases:
      is served. Explicitly degradable attachment/context
      capabilities do not fail startup.
    - Serve `/health` and `/api/v1/*`.
-   - On shutdown, stop Relay ingress before jobs and in-flight execution, then
-     stop internal eventing before Delivery/SSE, cancellation, Redis, and MongoDB.
+   - On shutdown, stop jobs and in-flight execution, then stop internal eventing
+     before Delivery/SSE, cancellation, Redis, and MongoDB.
      Cleanup stages are failure-isolated: the first error is preserved while
      later resource owners still receive their close call. Startup rollback uses
      the reverse dependency order and bounds every cleanup stage with owned tasks
      plus `asyncio.wait`; a cancellation-resistant close is detached observably
-     without blocking later Relay/Eventing/Delivery cleanup.
+     without blocking later Eventing/Delivery cleanup.
 
 The application router is mounted from `api_gateway.router` under the configured
 API prefix, defaulting to `/api/v1`.
@@ -230,7 +225,6 @@ groups around protocol interfaces from `common.protocols`:
 - `RoomDeps`
 - `DeliveryDeps`
 - `ExecutionDeps`
-- `HubDeps`
 
 The codebase is built around facade/protocol boundaries.
 
@@ -262,9 +256,6 @@ Examples:
 - Agent route compatibility is owned by `agent.route_adapter.AgentRouteAdapter`
   and `agent.service.AgentService`, both constructed directly by `container.py`
   over `agent.AgentFacade`.
-- Relay route behavior lives in `hub_runtime_bridge.compat.relay_service`;
-  relay behavior is owned by `hub_runtime_bridge.HubFacade` and HubRuntimeBridge
-  adapters.
 - A2A compatibility-shaped runtime behavior lives in
   `a2a_adapter.runtime_service`. A2A SDK transport/coercion work stays in
   `a2a_adapter`, while task-tracking behavior and persistence remain
@@ -319,9 +310,7 @@ Important route groups:
 - `sse_routes.py`: room SSE stream, SSE status, message cancellation.
 - `hitl_routes.py`: human-in-the-loop request and response APIs.
 - `files_routes.py`: file upload for room message attachments.
-- `relay_routes.py`: hub daemon registration, event stream, publish, sync, status.
 - `webhook_routes.py`: A2A task webhook callbacks.
-- `a2a_task_routes.py`: long-running A2A task inspection.
 
 Saved Team creation accepts an optional owner-scoped `preset_key`. The gateway
 maps it to a deterministic `group_id`, returns an existing Team for repeated
@@ -333,8 +322,7 @@ preset key keeps random IDs.
 Frontend-facing routes use Clerk auth when `AUTH_MODE=clerk`. In the default
 self-hosted `AUTH_MODE=mock` mode, `main.py` overrides every user-auth dependency,
 including the dual user/service dependency used by agent registration, with the
-stable local developer identity. Relay routes use API-key auth from
-`common.api_key_auth`.
+stable local developer identity.
 
 ### `common`
 
@@ -342,7 +330,7 @@ stable local developer identity. Relay routes use API-key auth from
 
 - `common.dto`: immutable data transfer objects used across module boundaries.
 - `common.protocols`: structural interfaces for facades, repositories, delivery,
-  execution, hub, platform, LLM, and DAL dependencies.
+  execution, platform, LLM, and DAL dependencies.
 - `common.config.settings`: environment-backed settings.
 - `common.errors`: typed domain/platform errors.
 - `common.utils`: time, A2A helpers, context utilities, streaming helpers, and a
@@ -400,8 +388,8 @@ Hybro and are never sent to agents.
 `A2A_INLINE_MESSAGE_MAX_ENCODED_BYTES` limits aggregate encoded file bytes in
 one outbound A2A message. Attachment preflight failures create failed agent
 tasks before transport dispatch in both queue and supervisor execution paths,
-so validation failures are persisted and surfaced without attempting direct or
-relay transport.
+so validation failures are persisted and surfaced without attempting direct
+transport.
 
 ### `llm_gateway`
 
@@ -461,9 +449,8 @@ compatibility facades.
 - Match agents with Mongo text search plus an application fallback for Latin
   words and CJK ideographs.
 - Respect visibility rules for public/private agents.
-- Merge hub liveness into agent status when hub agents are involved.
-- Allow registered Remote agents to be removed while rejecting deletion of
-  Hub-discovered Local agents, whose lifecycle is owned by discovery.
+- Allow registered Remote agents to be removed while keeping discovered Local
+  agent lifecycle under the local discovery service.
 
 Mongo persistence is implemented by `agent.repository.mongo.AgentMongoRepository`.
 Route-facing compatibility, legacy request/response translation, resolver
@@ -480,7 +467,7 @@ implementations directly from `container.py`.
   seeds.
 - Persist user and agent messages.
 - Read room history and message threads.
-- Verify room ownership and hub publish lineage.
+- Verify room ownership and message lineage.
 
 On history read, Room may auto-fail legacy working agent tasks that are past the
 stale threshold. Agent messages stamped with `extend_info.orchestrator_run_id`
@@ -517,10 +504,9 @@ Key components:
 - `SupervisorExecutor`: adaptive supervisor loop for rooms with
   `extend_info.use_supervisor`.
 - `AgentMessageProcessor`: transport router shared by queue and supervisor
-  execution. It builds the A2A message, runs dispatch middleware, selects
-  `direct` or `relay`, and returns a `ProcessingResult`.
+  execution. It builds the A2A message, runs dispatch middleware, and sends
+  through direct A2A transport.
 - `DirectTransport`: sends work directly to remote A2A agents.
-- `RelayTransport`: sends work through the hub relay path.
 - `WebhookTransport`: handles inbound A2A webhook callbacks for long-running
   tasks.
 - `AgentResponseHandler`: single place that normalizes agent events, persists
@@ -532,8 +518,8 @@ Key components:
   messages.
 
 A2A response ingestion and finalization are Execution-owned. Direct transport
-normalizes terminal results and persists them through `TaskStateManager`; relay
-and webhook events flow through `AgentResponseHandler`, which uses the injected
+normalizes terminal results and persists them through `TaskStateManager`;
+webhook events flow through `AgentResponseHandler`, which uses the injected
 message/task writers. `room.compat.runtime` does not own a second A2A response
 handler; its room responsibilities begin at the explicit ports invoked by
 Execution.
@@ -575,7 +561,7 @@ pre-observation materialization under the epoch-fenced artifact owner write leas
 (`orchestrator-v3-a2a-artifact`), converting raw binary data to room file content URLs
 (`/api/v1/files/{file_id}/content`) before constructing observations to enforce the
 256KB observation limit, with `BoundedResourceMaterializer` allowing owned content URLs
-to pass through safely. Authenticated direct, relay, webhook, and inspection evidence
+to pass through safely. Authenticated direct, webhook, and inspection evidence
 converges through an immutable observation inbox before generic `ToolObservation` delivery.
 Typed V2 HITL routes use trusted call-bound auth-reference verification and an answer-applied
 reconciler that closes answer-to-command crash windows; frozen resource manifests and
@@ -862,7 +848,7 @@ is appended exactly once afterward as its own metadata-bearing A2A `TextPart`;
 JSON data and files retain their typed `DataPart` and file-part handling. Selected
 resources therefore do not consume the ContextMemory assembly budget and remain
 independent of assembly success or truncation. The A2A message model and both
-local and relay transports preserve this ordered multi-part input. Upstream
+the direct transport preserves this ordered multi-part input. Upstream
 materialization still enforces the existing per-resource text limit
 (`max_resource_text_chars`, 120,000 characters by default), so this separation
 is not an unbounded-payload promise. The action validator also
@@ -1199,19 +1185,16 @@ handler has its own bounded FIFO and exactly one worker, preserving per-handler
 order while allowing different handlers to run concurrently. Queue admission,
 handler, fan-out, and deserialization failures use the eventing dead-letter path.
 Trace context is captured in envelopes and restored for local and remote handler
-execution. Startup registers `MessageCommitted`, `RunStateChanged`, and
-`HubAgentResponseInternal` models plus ContextMemory and Hub handlers before
-starting the bus; start freezes the registry. Public publication remains closed
-until transport startup and health finish, while already-received remote
-callbacks wait on that startup transition instead of being dropped. The Hub
-handler waits on an explicit relay-ready gate, so remote startup-window events
-remain in its bounded FIFO until the concrete relay router is bound. Legacy
+execution. Startup registers the current event models and ContextMemory handlers
+before starting the bus; start freezes the registry. Public publication remains
+closed until transport startup and health finish, while already-received remote
+callbacks wait on that startup transition instead of being dropped. Legacy
 remote envelopes without the envelope timestamp hydrate it from the internal
 event timestamp (or an explicit UTC-now fallback); newly serialized envelopes
 always include it. Dead letters never retain event bodies and instead use an
-8-KiB-capped size/hash/key/allow-listed-identifier projection. Shutdown stops
-Relay ingress first, keeps eventing live while remaining publishers drain, and
-then stops eventing before Delivery. Worker cancellation/join uses the remaining shutdown deadline;
+8-KiB-capped size/hash/key/allow-listed-identifier projection. Shutdown keeps
+internal eventing live while remaining publishers drain, then stops eventing
+before Delivery. Worker cancellation/join uses the remaining shutdown deadline;
 a handler that suppresses `CancelledError` is abandoned observably without
 blocking publishers or queue/completion cleanup. Timeout/caller-canceled transport
 operations are canceled and joined; cancellation-resistant inner tasks remain in
@@ -1499,49 +1482,6 @@ artifact materialization, cleanup, and room-deletion coordination. Route and
 runtime consumers use its storage protocols; filesystem paths do not cross the
 module boundary.
 
-### `hub_runtime_bridge` and Relay
-
-`hub_runtime_bridge.HubFacade` owns hub connection management, relay dispatch,
-agent sync, liveness, offline queue behavior, task ownership, and internal hub
-response routing. `hub_runtime_bridge.compat.relay_service.RelayService`
-provides the legacy relay method surface for APIKey/request adaptation and
-delegates Hub behavior through facade public methods. Its runtime binding uses
-`RelayHubStore` under HubRuntimeBridge ownership, `HubMongoRepository`,
-`AgentRepository`, and the `RelayOfflineFailureAdapter` instead of the broad
-legacy Mongo/database singletons. Route-facing Delivery transport state is no
-longer part of `RelayService` construction; offline failures enter Delivery
-through `RelayOfflineFailureAdapter`, and stream/leader bindings are
-owner-protocol pass-throughs rather than Redis runtime concrete dependencies.
-Relay transport binding is stored once and exposed through the legacy
-`relay_transport` compatibility accessor rather than duplicated private
-transport state.
-
-Hub relay responsibilities:
-
-- Register hub daemons.
-- Maintain hub liveness and heartbeat state.
-- Provide an SSE event stream to hub daemons.
-- Sync hub-owned agents into the agent registry.
-- Dispatch user messages/cancel/reply commands to hub agents.
-- Accept published hub agent responses.
-- Journal internal responses and replay them if needed.
-- Maintain task ownership leases for multi-worker safety.
-- Own legacy hub publish authorization and cancellation-reader adapters used by
-  relay publish processing; HubRuntimeBridge compat wiring injects these
-  adapters into `HubFacade` instead of querying room/agent message state
-  directly.
-- Own legacy relay lifecycle adapter behavior for hub registration,
-  owner/room authorization, heartbeat validation, hub status aggregation, and
-  disconnect bookkeeping. HubRuntimeBridge keeps relay compatibility method
-  names and delegates these operations to its adapters.
-
-When Redis Streams are available, relay events use streams for durable-ish hub
-event delivery through `hub_runtime_bridge.transport.RelayStreamService`, which
-consumes DAL `RedisStreams` rows and optional DAL `RedisKV` heartbeat state.
-Redis stream and heartbeat failures are logged and degrade to empty reads,
-missing entry ids, or dead liveness checks so the facade can fall back to
-in-memory/offline queues for single-process/degraded operation.
-
 ### `a2a_adapter`
 
 `a2a_adapter` isolates A2A protocol details:
@@ -1650,14 +1590,10 @@ Important Mongo collections include:
 - `cancelled_messages`
 - `runs`
 - `room_files`
-- `api_keys`
-- `hubs`
 - `runs`
 - `run_events`
 - `cancelled_messages`
 - `agent_requests`
-- `discovery_api_requests`
-- `gateway_api_requests`
 - `agent_capability_issues`
 
 Mongo text indexes support Agent lexical matching for discovery/suggestion
@@ -1687,11 +1623,9 @@ The former application-shell package directory has been deleted. New code must
 not introduce that package, import path, singleton registry, or compatibility
 shim.
 
-A2A-facing API routes bind narrow readers from `common.protocols`:
-`A2ATaskStatusReader` for task inspection, `RoomRouteReader` for room ownership
-checks, and `SSEStateReader` for SSE status and cancellation lookup. These
-replace the older combined room compatibility reader in route modules while
-leaving legacy room protocol shims available for non-route migration work.
+Room and SSE routes bind narrow readers from `common.protocols`:
+`RoomRouteReader` handles room ownership checks, while `SSEStateReader` supports
+SSE status and cancellation lookup.
 
 ### `jobs` and Runtime Infrastructure
 
@@ -1832,9 +1766,6 @@ committed file references.
 10. Agent responses flow into `AgentResponseHandler`, which:
     - public-projects remote A2A task/event payloads before persistence,
       Delivery/SSE, lifecycle emission, or orchestration ingestion,
-    - treats Hub terminal `processing_status` close-out as a terminal agent
-      result only after the same state-aware projection used by response/error
-      events; raw details are not persisted, emitted, or ingested,
     - persists nonterminal artifact updates into a private durable journal for
       terminal recovery without broadcasting them publicly,
     - updates task state on `room_agent_messages`,
@@ -1998,15 +1929,10 @@ Both queue and supervisor execution use `AgentMessageProcessor`.
 1. Load current room memory from the database.
 2. Ask `RoomServices.process_agent_message` to build the outbound A2A message.
 3. Build a `DispatchContext`.
-4. Run pre-dispatch middleware:
-   - cloud health checks for direct cloud agents,
-   - hub transport selection for hub-backed agents.
-5. Select transport:
-   - `direct`: call remote A2A agent directly.
-   - `relay`: send a command to a connected hub agent.
-6. Dispatch the message.
-7. Run post-dispatch middleware.
-8. Return `ProcessingResult` to the executor.
+4. Run pre-dispatch middleware, including health checks for remote agents.
+5. Call the target agent through direct A2A transport.
+6. Run post-dispatch middleware.
+7. Return `ProcessingResult` to the executor.
 
 Direct dispatch can complete synchronously, stream artifacts, or pause for
 webhook continuation depending on the agent/task behavior.
@@ -2032,7 +1958,7 @@ The route:
 
 This keeps all final task state, artifact persistence, and SSE emission logic
 in one response handler regardless of whether the response came from direct
-transport, relay, or webhook.
+transport or webhook.
 
 Task lifecycle data access for A2A task submission, webhook token validation,
 cancellation persistence, HITL lifecycle, task notification persistence, webhook
@@ -2040,9 +1966,8 @@ response handling, and stale-task cleanup is routed through focused runtime-stor
 ports assembled in `container.py`. The runtime-store repository aggregate backs those
 ports with module repositories and `MongoDAL` collections, but production
 bindings use scoped `dal.runtime_store.parts` surfaces or focused startup
-adapters wherever a narrower port is sufficient. Relay route registration, hub
-status, and liveness use explicit repository-backed owner adapters. Remaining
-runtime-store aggregate use is limited to documented compatibility shims rather
+adapters wherever a narrower port is sufficient. Remaining runtime-store
+aggregate use is limited to documented compatibility shims rather
 than new production business owners.
 
 Task notification persistence is a distinct execution port. `ResponseTaskWriter`
@@ -2105,27 +2030,6 @@ boundary as `extend_info.public_dispatch_text`, alongside the short
 projection, but not private planner reasoning or separately transported resource
 payload bodies. It reuses the existing room-message `extend_info` document and
 does not add a persistence model.
-
-## Hub Relay Workflow
-
-Hub-connected local agents use API-key authenticated relay endpoints.
-
-1. A hub daemon registers through `/relay/hub/register`.
-2. It opens `/relay/hub/{hub_id}/events` as an SSE stream.
-3. It periodically calls `/relay/hub/{hub_id}/heartbeat`.
-4. It syncs available local agents through `/relay/hub/{hub_id}/agents/sync`.
-5. When a room message targets a hub-backed agent, dispatch middleware selects
-   `relay` transport.
-6. `RelayTransport` sends a `HubDispatchCommand` through `RelayService` and
-   `HubFacade`.
-7. The hub daemon receives the event, performs local agent work, and publishes
-   results to `/relay/hub/{hub_id}/publish`.
-8. The publish path validates lineage/cancellation, journals internal response
-   events, and routes them into the same `AgentResponseHandler` used by direct
-   agents.
-
-This design lets hub agents participate in the normal room execution pipeline
-while keeping hub transport details isolated from queue/supervisor orchestration.
 
 ## SSE and Cancellation Workflow
 
@@ -2322,14 +2226,14 @@ Single-process development:
 
 - `uvicorn main:app`
 - Redis is optional.
-- SSE/cancellation/relay can operate in local or degraded modes.
+- SSE and cancellation can operate in local or degraded modes.
 
 Multi-worker production:
 
 - Gunicorn-style multi-worker startup is allowed only when Redis-dependent
   services are connected.
-- `check_multi_worker_safety` fails startup if Redis Pub/Sub, Redis KV, relay
-  streams, DAL Redis runtime, or cancellation change streams are missing.
+- `check_multi_worker_safety` fails startup if Redis Pub/Sub, Redis KV, DAL
+  Redis runtime, or cancellation change streams are missing.
 - MongoDB 4.2 or newer is required for atomic aggregation update pipelines
   (`docker-compose.yml` currently pins MongoDB 7.0).
 - The terminal task writer-fencing release requires a coordinated drain: stop or
@@ -2342,7 +2246,6 @@ This guard exists because without Redis:
 - SSE broadcast is process-local.
 - Background jobs would run in every worker.
 - Room locks would not coordinate across workers.
-- Relay messages could be lost across worker boundaries.
 
 ## Error and Recovery Model
 
@@ -2354,8 +2257,6 @@ The codebase uses several recovery mechanisms:
 - Queue cleanup cancels remaining descendants when execution exits early.
 - Cancellation state is persisted and broadcast.
 - `runs` and `run_events` provide lifecycle tracking and startup healing.
-- Hub response journaling and task ownership leases support replay and
-  multi-worker safety for relay responses.
 - Stale task checker handles expired, orphaned, and stuck task states.
 
 The normal terminal states seen by clients are:
@@ -2417,7 +2318,6 @@ Focused tests are organized by module and workflow:
 - `tests/test_context_memory_*`: memory projection, assembly, compaction, search.
 - `tests/test_delivery_*`: SSE, event bus, cancellation, delivery protocols.
 - `tests/test_execution_*` and related orchestration tests: execution flows.
-- `tests/test_hub_runtime_bridge_*`: hub relay behavior.
 - `tests/test_api_gateway_*` and `tests/test_files_routes.py`: gateway boundaries and file routes.
 - `tests/test_service_*`: service-level runtime compatibility and behavior.
 

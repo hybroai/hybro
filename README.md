@@ -120,7 +120,7 @@ Compose and CI.
 
 The repository is split into these primary components:
 - `backend/`: A FastAPI orchestration engine using MongoDB for persistence and optional Redis services for cross-process coordination.
-- `frontend/`: A Next.js 16 (Turbopack) application for chat, agent discovery, agent management, Hub status, and inspection.
+- `frontend/`: A Next.js 16 (Turbopack) application for chat, local agent discovery, agent management, and inspection.
 - `default_agents/`: A collection of ready-to-use A2A agents, each running as its own container, plus a one-shot `registrar` that registers them with the backend on startup.
 
 ## API keys

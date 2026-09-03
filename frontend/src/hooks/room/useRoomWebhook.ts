@@ -5,7 +5,6 @@ import {
   useRoomProcessing,
   useRoomSending,
   useRoomCancelling,
-  useRoomUpdating,
   useRoomSseEnabled,
 } from '@/stores/room-ui-store'
 import { useMessageStore } from '@/stores/message-store'
@@ -25,7 +24,6 @@ export function useRoomWebhook({ roomId, userId, userName, getToken }: UseRoomWe
   // Read per-room flags reactively through narrow selectors.
   const sending = useRoomSending(roomId)
   const cancelling = useRoomCancelling(roomId)
-  const updatingRoom = useRoomUpdating(roomId)
   const sseEnabled = useRoomSseEnabled(roomId)
   const processing = useRoomProcessing(roomId)
 
@@ -38,9 +36,6 @@ export function useRoomWebhook({ roomId, userId, userName, getToken }: UseRoomWe
 
   const setRoomCancelling = useRoomUiStore(s => s.setCancelling)
   const setCancelling = useCallback((v: boolean) => setRoomCancelling(roomId, v), [roomId, setRoomCancelling])
-
-  const setRoomUpdatingRoom = useRoomUiStore(s => s.setUpdatingRoom)
-  const setUpdatingRoom = useCallback((v: boolean) => setRoomUpdatingRoom(roomId, v), [roomId, setRoomUpdatingRoom])
 
   const setRoomSseEnabled = useRoomUiStore(s => s.setSseEnabled)
   const setSseEnabled = useCallback((v: boolean) => setRoomSseEnabled(roomId, v), [roomId, setRoomSseEnabled])
@@ -62,12 +57,8 @@ export function useRoomWebhook({ roomId, userId, userName, getToken }: UseRoomWe
 
   const {
     room,
-    roomQuery,
     loading,
     getSupervisorMode,
-    getAgentList,
-    getRoomFormData,
-    refreshRoomSetting,
   } = useRoomData(roomId, getToken, primeAgentNameCache, allAgentsData)
 
   // Processing lifecycle: one instance per roomId, keyed in a Map.
@@ -192,12 +183,11 @@ export function useRoomWebhook({ roomId, userId, userName, getToken }: UseRoomWe
     cancelProcessing,
     respondToHitlBatch,
     cancelHitlRequest,
-    updateRoomSettings,
     refreshMessages,
     toggleSSE,
   } = useRoomActions(
-    roomId, room, getToken, lifecycle, hitlRequestIndex, roomQuery,
-    reconcileWithDb, setCancelling, setUpdatingRoom,
+    roomId, getToken, lifecycle, hitlRequestIndex,
+    reconcileWithDb, setCancelling,
     sseEnabled, setSseEnabled,
     getAgentName, getAgentSource,
     requestCanonicalSnapshot,
@@ -210,7 +200,6 @@ export function useRoomWebhook({ roomId, userId, userName, getToken }: UseRoomWe
     sending,
     processing,
     cancelling,
-    updatingRoom,
 
     // SSE State
     sseConnected: sseConnectedFromSSE,
@@ -226,11 +215,7 @@ export function useRoomWebhook({ roomId, userId, userName, getToken }: UseRoomWe
     cancelProcessing,
     respondToHitlBatch,
     cancelHitlRequest,
-    updateRoomSettings,
     refreshMessages,
-    refreshRoomSetting,
-    getAgentList,
-    getRoomFormData,
     toggleSSE,
     availableAgents,
   }

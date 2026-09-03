@@ -22,8 +22,6 @@ vi.mock("@/hooks/useRoomWebhook", () => ({
     cancelling: false,
     sendUserMessage: mockSendUserMessage,
     cancelProcessing: vi.fn(),
-    getRoomFormData: () => ({}),
-    refreshRoomSetting: vi.fn(),
     sseConnected: true,
     sseConnecting: false,
     sseEnabled: true,

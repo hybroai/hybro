@@ -1,26 +1,5 @@
 [
   {
-    "path": "/api/v1/a2a-tasks/{message_id}",
-    "methods": [
-      "GET"
-    ],
-    "name": "get_task_status",
-    "endpoint_module": "api_gateway.routes.a2a_task_routes",
-    "declared_owner": "api_gateway.routes.a2a_task_routes",
-    "tags": [
-      "a2a_tasks"
-    ],
-    "status_code": null,
-    "dependencies": [
-      "get_current_user",
-      "get_task_store"
-    ],
-    "auth_dependencies": [
-      "get_current_user"
-    ],
-    "include_in_schema": true
-  },
-  {
     "path": "/api/v1/agent/capability-issues/{issue_id}/resolve",
     "methods": [
       "POST"
@@ -122,27 +101,6 @@
       "get_agent_center"
     ],
     "auth_dependencies": [],
-    "include_in_schema": true
-  },
-  {
-    "path": "/api/v1/agent/getAllActiveAgents",
-    "methods": [
-      "GET"
-    ],
-    "name": "get_all_active_agents",
-    "endpoint_module": "api_gateway.routes.agent_routes",
-    "declared_owner": "api_gateway.routes.agent_routes",
-    "tags": [
-      "agent"
-    ],
-    "status_code": null,
-    "dependencies": [
-      "get_agent_center",
-      "get_optional_user"
-    ],
-    "auth_dependencies": [
-      "get_optional_user"
-    ],
     "include_in_schema": true
   },
   {
@@ -636,6 +594,7 @@
     "dependencies": [
       "get_current_user",
       "get_execution_engine",
+      "get_room_center",
       "get_room_store"
     ],
     "auth_dependencies": [
@@ -680,49 +639,6 @@
       "get_current_user",
       "get_room_center",
       "get_room_store"
-    ],
-    "auth_dependencies": [
-      "get_current_user"
-    ],
-    "include_in_schema": true
-  },
-  {
-    "path": "/api/v1/roomCenter/updateRoomName",
-    "methods": [
-      "POST"
-    ],
-    "name": "update_room_name",
-    "endpoint_module": "api_gateway.routes.room_routes",
-    "declared_owner": "api_gateway.routes.room_routes",
-    "tags": [
-      "room"
-    ],
-    "status_code": null,
-    "dependencies": [
-      "get_current_user",
-      "get_room_center",
-      "get_room_store"
-    ],
-    "auth_dependencies": [
-      "get_current_user"
-    ],
-    "include_in_schema": true
-  },
-  {
-    "path": "/api/v1/rooms/{room_id}/a2a-tasks",
-    "methods": [
-      "GET"
-    ],
-    "name": "list_room_tasks",
-    "endpoint_module": "api_gateway.routes.a2a_task_routes",
-    "declared_owner": "api_gateway.routes.a2a_task_routes",
-    "tags": [
-      "a2a_tasks"
-    ],
-    "status_code": null,
-    "dependencies": [
-      "get_current_user",
-      "get_task_store"
     ],
     "auth_dependencies": [
       "get_current_user"
@@ -903,27 +819,6 @@
     ],
     "auth_dependencies": [
       "get_current_user_with_query_token"
-    ],
-    "include_in_schema": true
-  },
-  {
-    "path": "/api/v1/users/me/a2a-tasks",
-    "methods": [
-      "GET"
-    ],
-    "name": "list_user_pending_tasks",
-    "endpoint_module": "api_gateway.routes.a2a_task_routes",
-    "declared_owner": "api_gateway.routes.a2a_task_routes",
-    "tags": [
-      "a2a_tasks"
-    ],
-    "status_code": null,
-    "dependencies": [
-      "get_current_user",
-      "get_task_store"
-    ],
-    "auth_dependencies": [
-      "get_current_user"
     ],
     "include_in_schema": true
   },

@@ -3,7 +3,7 @@ import { useRouter } from 'next/navigation'
 import { createNewRoom, suggestAgents, SuggestAgentsResponse } from '@/lib/api/room'
 import { getActiveQueryClient } from '@/components/providers/query-provider'
 import { roomHistoryQueryKey } from '@/lib/room-history-query'
-import { getAllActiveAgents } from '@/lib/api/agent'
+import { getAllAgents } from '@/lib/api/agent'
 import { banner } from "@/components/ui/banner"
 import { useRoomUiStore } from '@/stores/room-ui-store'
 import type { Agent } from '@/lib/types/agent'
@@ -50,7 +50,7 @@ export function useChatRoomCreation({ userId, userName, getToken, onRequireAuth 
   const loadDefaultAgents = useCallback(async () => {
     try {
       setLoadingAgents(true)
-      const response = await getAllActiveAgents(undefined, undefined, getToken)
+      const response = await getAllAgents({ activeOnly: true, getToken })
       
       if (response.success && response.agents && response.agents.length > 0) {
         setDefaultAgents(response.agents)

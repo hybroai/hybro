@@ -686,11 +686,6 @@ def test_protocol_methods_match_design_doc():
             "get_pending_hitl",
             "cancel_hitl_interaction",
         },
-        protocols.A2ATaskStatusReader: {
-            "get_room_agent_message_by_message_id",
-            "get_task_messages_for_room",
-            "get_pending_task_messages_for_user",
-        },
         protocols.RoomRouteReader: {"get_room_by_room_id"},
         protocols.SSEStateReader: {"get_room_user_message_by_message_id"},
         protocols.EventPublisher: {"emit"},
@@ -712,17 +707,6 @@ def test_protocol_methods_match_design_doc():
             "get_saved_group",
             "list_current_agents",
         },
-        protocols.APIKeyStore: {
-            "add_api_key",
-            "deactivate_api_key",
-            "get_api_key_by_id",
-            "get_api_keys_by_user",
-        },
-        protocols.APIKeyValidationStore: {
-            "get_api_key_by_hash",
-            "update_api_key_usage",
-        },
-        protocols.APIKeyRateLimiter: {"check_rate_limit", "record_request"},
         protocols.AttachmentCleanupPort: {"delete_for_room"},
         protocols.AttachmentMetadataReader: {"get_for_room_file"},
         protocols.AttachmentContentReader: {"get_bytes"},
@@ -889,15 +873,6 @@ def test_protocol_methods_match_design_doc():
         },
         protocols.AgentCallCounter: {"increment_agent_call_count"},
         protocols.MessageCancellationReader: {"is_message_cancelled"},
-        protocols.GatewayService: {
-            "discover_agents",
-            "get_agent_card",
-            "prepare_stream",
-            "send_message",
-            "stream_message",
-        },
-        protocols.GatewayDiscoveryProvider: {"discover_agents"},
-        protocols.RateLimiter: {"check", "check_global"},
         protocols.FileStorage: {
             "upload",
             "get_url",
@@ -909,8 +884,6 @@ def test_protocol_methods_match_design_doc():
         },
         protocols.PreparedFileStream: {"aclose"},
         protocols.AgentTransport: {"send_message", "stream_message"},
-        protocols.APIKeyPrincipal: set(),
-        protocols.APIKeyAuthenticator: {"validate_api_key"},
         protocols.AgentCardResolver: {
             "resolve_card",
             "supports_push_notifications",
@@ -1089,9 +1062,6 @@ def test_protocol_methods_match_design_doc():
         and getattr(getattr(protocols, name), "_is_protocol", False)
     }
     marker_protocols = {
-        protocols.APIKeyPrincipal,
-        protocols.APIKeyRecord,
-        protocols.A2ATaskStatusMessage,
         protocols.HealthCheck,
         protocols.LLMGateway,
         protocols.MongoChangeStream,
@@ -1103,6 +1073,20 @@ def test_protocol_methods_match_design_doc():
 
     assert not hasattr(protocols, "CrudRepository")
     assert not hasattr(protocols, "TaskRepository")
+    assert not hasattr(protocols, "A2ATaskStatusReader")
+    assert not hasattr(protocols, "A2ATaskStatusMessage")
+    for removed_name in (
+        "APIKeyAuthenticator",
+        "APIKeyPrincipal",
+        "APIKeyRateLimiter",
+        "APIKeyRecord",
+        "APIKeyStore",
+        "APIKeyValidationStore",
+        "GatewayDiscoveryProvider",
+        "GatewayService",
+        "RateLimiter",
+    ):
+        assert not hasattr(protocols, removed_name)
     _assert_params(
         protocols.AgentMatcher.match_agents,
         [

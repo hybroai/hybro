@@ -338,8 +338,22 @@
           "agent"
         ],
         "summary": "Get Agent List",
-        "description": "Get all agents - PUBLIC (authentication optional)",
+        "description": "Get visible agents, optionally filtering to active agents.",
         "operationId": "get_agent_list_api_v1_agent_getAllAgents_get",
+        "parameters": [
+          {
+            "name": "active_only",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean",
+              "description": "Return only active agents when true",
+              "default": false,
+              "title": "Active Only"
+            },
+            "description": "Return only active agents when true"
+          }
+        ],
         "responses": {
           "200": {
             "description": "Successful Response",
@@ -348,24 +362,14 @@
                 "schema": {}
               }
             }
-          }
-        }
-      }
-    },
-    "/api/v1/agent/getAllActiveAgents": {
-      "get": {
-        "tags": [
-          "agent"
-        ],
-        "summary": "Get All Active Agents",
-        "description": "Get all active agents - PUBLIC (authentication optional)\n\nReturns only agents with active status, filtering out inactive and deleted agents.\nIf authenticated, also includes the user's private agents.",
-        "operationId": "get_all_active_agents_api_v1_agent_getAllActiveAgents_get",
-        "responses": {
-          "200": {
-            "description": "Successful Response",
+          },
+          "422": {
+            "description": "Validation Error",
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
               }
             }
           }
@@ -627,26 +631,6 @@
         "summary": "Update Room Agent Set",
         "description": "Update room agent set - PROTECTED (requires room ownership)",
         "operationId": "update_room_agent_set_api_v1_roomCenter_updateRoomAgentSet_post",
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/v1/roomCenter/updateRoomName": {
-      "post": {
-        "tags": [
-          "room"
-        ],
-        "summary": "Update Room Name",
-        "description": "Update room name - PROTECTED (requires room ownership)",
-        "operationId": "update_room_name_api_v1_roomCenter_updateRoomName_post",
         "responses": {
           "200": {
             "description": "Successful Response",
@@ -1406,130 +1390,6 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/v1/a2a-tasks/{message_id}": {
-      "get": {
-        "tags": [
-          "a2a_tasks"
-        ],
-        "summary": "Get Task Status",
-        "description": "Get the status of a long-running A2A task.\n\nArgs:\n    message_id: The message ID (used for task tracking)\n    current_user: Authenticated user\n\nReturns:\n    Task status with optional retry_after_seconds hint",
-        "operationId": "get_task_status_api_v1_a2a_tasks__message_id__get",
-        "parameters": [
-          {
-            "name": "message_id",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "title": "Message Id"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "additionalProperties": true,
-                  "title": "Response Get Task Status Api V1 A2A Tasks  Message Id  Get"
-                }
-              }
-            }
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/v1/rooms/{room_id}/a2a-tasks": {
-      "get": {
-        "tags": [
-          "a2a_tasks"
-        ],
-        "summary": "List Room Tasks",
-        "description": "List all A2A tasks for a room.\n\nArgs:\n    room_id: The room ID\n    limit: Maximum number of tasks to return\n    current_user: Authenticated user\n\nReturns:\n    List of tasks for the room",
-        "operationId": "list_room_tasks_api_v1_rooms__room_id__a2a_tasks_get",
-        "parameters": [
-          {
-            "name": "room_id",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "title": "Room Id"
-            }
-          },
-          {
-            "name": "limit",
-            "in": "query",
-            "required": false,
-            "schema": {
-              "type": "integer",
-              "default": 50,
-              "title": "Limit"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "additionalProperties": true,
-                  "title": "Response List Room Tasks Api V1 Rooms  Room Id  A2A Tasks Get"
-                }
-              }
-            }
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/v1/users/me/a2a-tasks": {
-      "get": {
-        "tags": [
-          "a2a_tasks"
-        ],
-        "summary": "List User Pending Tasks",
-        "description": "List all pending A2A tasks for the current user.\n\nArgs:\n    current_user: Authenticated user\n\nReturns:\n    List of pending tasks for the user",
-        "operationId": "list_user_pending_tasks_api_v1_users_me_a2a_tasks_get",
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "additionalProperties": true,
-                  "type": "object",
-                  "title": "Response List User Pending Tasks Api V1 Users Me A2A Tasks Get"
                 }
               }
             }

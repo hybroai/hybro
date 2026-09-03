@@ -239,7 +239,7 @@ class TestAgentHTTPIntegration:
 
     @pytest.mark.asyncio
     async def test_get_active_agents_returns_json(self, http_client, integration_app):
-        """GET /agent/getAllActiveAgents should serialize correctly."""
+        """GET /agent/getAllAgents?active_only=true should serialize correctly."""
         mock_ac = MagicMock()
         mock_ac.list_visible_agents_for_route = AsyncMock(
             return_value=AgentCenterResponse(success=True, agents=[])
@@ -251,13 +251,17 @@ class TestAgentHTTPIntegration:
             mock_ac
         )
         try:
-            resp = await http_client.get("/api/v1/agent/getAllActiveAgents")
+            resp = await http_client.get("/api/v1/agent/getAllAgents?active_only=true")
         finally:
             integration_app.dependency_overrides.pop(agent_api.get_agent_center, None)
 
         assert resp.status_code == 200
         body = resp.json()
         assert body["success"] is True
+        mock_ac.list_visible_agents_for_route.assert_awaited_once_with(
+            user_id="integ_user_001",
+            active_only=True,
+        )
 
     @pytest.mark.asyncio
     async def test_register_agent_validates_missing_url(

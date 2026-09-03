@@ -12,22 +12,15 @@ def _deps(**overrides):
     from api_gateway.dependencies import APIGatewayDeps
 
     values = {
-        "task_store": MagicMock(),
         "agent_center": MagicMock(),
         "agent_service": MagicMock(),
         "capability_issue_service": MagicMock(),
         "agent_liveness_checker": AsyncMock(),
         "agent_group_store": MagicMock(),
-        "api_key_store": MagicMock(),
-        "discovery_service": MagicMock(),
-        "discovery_rate_limiter": MagicMock(),
-        "discovery_default_limit": 10,
         "file_storage": MagicMock(),
         "room_ownership_reader": MagicMock(),
         "hitl_manager": MagicMock(),
         "inspection_center": MagicMock(),
-        "gateway_service": MagicMock(),
-        "gateway_rate_limiter": MagicMock(),
         "room_center": MagicMock(),
         "room_store": MagicMock(),
         "agent_selection_service": MagicMock(),
@@ -51,22 +44,15 @@ def _request_with_state(**state_values):
 
 
 PROVIDER_FIELD_NAMES = [
-    ("get_task_store", "task_store"),
     ("get_agent_center", "agent_center"),
     ("get_agent_service", "agent_service"),
     ("get_capability_issue_service", "capability_issue_service"),
     ("get_agent_liveness_checker", "agent_liveness_checker"),
     ("get_agent_group_store", "agent_group_store"),
-    ("get_api_key_store", "api_key_store"),
-    ("get_discovery_service", "discovery_service"),
-    ("get_discovery_rate_limiter", "discovery_rate_limiter"),
-    ("get_discovery_default_limit", "discovery_default_limit"),
     ("get_file_storage", "file_storage"),
     ("get_room_ownership_reader", "room_ownership_reader"),
     ("get_hitl_manager", "hitl_manager"),
     ("get_inspection_center", "inspection_center"),
-    ("get_gateway_service", "gateway_service"),
-    ("get_gateway_rate_limiter", "gateway_rate_limiter"),
     ("get_room_center", "room_center"),
     ("get_room_store", "room_store"),
     ("get_agent_selection_service", "agent_selection_service"),
@@ -74,6 +60,31 @@ PROVIDER_FIELD_NAMES = [
     ("get_sse_store", "sse_store"),
     ("get_sse_transport", "sse_transport"),
 ]
+
+
+def test_removed_route_dependencies_are_not_exposed():
+    from api_gateway import dependencies
+
+    removed_names = {
+        "get_task_store",
+        "get_api_key_store",
+        "get_discovery_service",
+        "get_discovery_rate_limiter",
+        "get_discovery_default_limit",
+        "get_gateway_service",
+        "get_gateway_rate_limiter",
+    }
+
+    assert removed_names.isdisjoint(vars(dependencies))
+    assert {
+        "task_store",
+        "api_key_store",
+        "discovery_service",
+        "discovery_rate_limiter",
+        "discovery_default_limit",
+        "gateway_service",
+        "gateway_rate_limiter",
+    }.isdisjoint(inspect.signature(dependencies.APIGatewayDeps).parameters)
 
 
 def test_api_gateway_deps_report_missing_required_fields():

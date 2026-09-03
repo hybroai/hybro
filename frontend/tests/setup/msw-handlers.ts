@@ -2,7 +2,6 @@ import { http, HttpResponse } from 'msw'
 import { getApiUrl } from '@/lib/utils'
 
 const roomCenter = getApiUrl('roomCenter')
-const agentCenter = getApiUrl('agentCenter')
 const agent = getApiUrl('agent')
 const orchestrationCenter = getApiUrl('orchestrationCenter')
 const task = getApiUrl('task')
@@ -88,14 +87,6 @@ export const handlers = [
     })
   }),
 
-  http.post(`${roomCenter}/updateRoomName`, async ({ request }) => {
-    const body = await request.json() as Record<string, unknown>
-    return HttpResponse.json({
-      success: true,
-      room_id: body.room_id,
-    })
-  }),
-
   http.post(`${roomCenter}/suggestAgents`, async () => {
     return HttpResponse.json({
       success: true,
@@ -106,26 +97,6 @@ export const handlers = [
           agent_id: 'agent-1',
           name: 'Test Agent',
           reason: 'Best match for the query',
-        },
-      ],
-    })
-  }),
-
-  // Agent Center API handlers
-  http.post(`${agentCenter}/getAllActiveAgents`, async () => {
-    return HttpResponse.json({
-      success: true,
-      agents: [
-        {
-          agent_id: 'agent-1',
-          provider_id: 'provider-1',
-          agent_status: 'active',
-          agent_card: {
-            name: 'Test Agent',
-            description: 'A test agent for testing',
-            url: 'http://localhost:8001',
-            version: '1.0.0',
-          },
         },
       ],
     })
@@ -173,10 +144,6 @@ export const handlers = [
   }),
 
   http.get(`${agent}/getAllAgents`, async () => {
-    return HttpResponse.json({ success: true, agents: [] })
-  }),
-
-  http.get(`${agent}/getAllActiveAgents`, async () => {
     return HttpResponse.json({ success: true, agents: [] })
   }),
 

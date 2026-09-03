@@ -123,8 +123,7 @@ The `/agents` inventory merges visible registered agents with locally available
 agents. Its **Discover Local Agents** action calls the authenticated
 `POST /api/v1/local-agents/discovery` endpoint, waits for the backend discovery
 cycle, and then invalidates both agent inventory queries. Directly discovered
-`source=local` agents are displayed while active and use the same Local source
-badge as Hub agents; Hub availability additionally depends on Hub liveness.
+`source=local` agents are displayed while active.
 
 ### Provider hierarchy
 
@@ -456,7 +455,7 @@ Trace disclosure and scroll-follow state lives separately in
 `turn-presentation-store` and is never snapshot-owned.
 
 
-- sending / processing / cancelling / updating flags
+- sending / processing / cancelling flags
 - SSE enabled / connected / error state
 - initial hydration marker
 - pending room handoff data
@@ -524,7 +523,7 @@ src/hooks/room/sse-handlers/
 - Connection/system: `connected`, `heartbeat`, `error`, `run_event`, `cancellation`.
 - Turn and task updates: `processing_status`, `task_submitted`, `task_update`, `artifact_update`.
 - Agent output: `agent_response_partial`, `agent_response`.
-- HITL and orchestration: `hitl_request`, `hitl_response`, `hub_agent_event`, `debate_round`.
+- HITL and orchestration: `hitl_request`, `hitl_response`.
 
 Legacy `user_message`, `turn_event`, `hitl_input_requested`, and `hitl_status_update` frames are not part of the handled room SSE contract. Unknown frame types are ignored after a debug log.
 
@@ -678,7 +677,6 @@ src/lib/api/
 |-- room.ts
 |-- sse.ts
 |-- inspection.ts
-|-- a2a-tasks.ts
 |-- files.ts
 `-- hitl.ts
 ```
@@ -744,8 +742,8 @@ segment.
 - `/about`, `/pricing`: public pages.
 
 Remote agents use the persisted backend `agent_status` without frontend health
-probing. Local agents are shown only while `source === "hub"`, status is active,
-and the hub is online; stale Local agents are hidden. Agent-detail chat actions
+probing. Directly discovered Local agents are shown only while
+`source === "local"` and status is active. Agent-detail chat actions
 write a one-shot `pendingChatHandoff` to `room-ui-store` (optional draft text plus
 `seedAgents`) and navigate to `/chat`. That handoff seeds room membership with
 the selected Agent and uses `room_default` scope on send; it is not an `@mention`.

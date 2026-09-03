@@ -28,15 +28,6 @@ class PaginationParams(BaseModel):
         return (self.page - 1) * self.limit
 
 
-class APIKeyCreateRequest(BaseModel):
-    name: str = Field(
-        ...,
-        min_length=1,
-        max_length=100,
-        description="Friendly name for the API key",
-    )
-
-
 class FilterParams(BaseModel):
     # all nullable
     filters: dict[str, Any] | None = Field(

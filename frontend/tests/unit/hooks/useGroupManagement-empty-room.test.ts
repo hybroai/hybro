@@ -2,15 +2,14 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { renderHook, act, cleanup, waitFor } from '@testing-library/react'
 
 const mockListAgentGroups = vi.fn()
-const mockGetAllActiveAgents = vi.fn()
+const mockGetAllAgents = vi.fn()
 
 vi.mock('@/lib/api/agent-group', () => ({
   listAgentGroups: (...args: unknown[]) => mockListAgentGroups(...args),
 }))
 
 vi.mock('@/lib/api/agent', () => ({
-  getAllAgents: vi.fn().mockResolvedValue({ success: true, agents: [] }),
-  getAllActiveAgents: (...args: unknown[]) => mockGetAllActiveAgents(...args),
+  getAllAgents: (...args: unknown[]) => mockGetAllAgents(...args),
 }))
 
 import { useGroupManagement } from '@/hooks/useGroupManagement'
@@ -32,7 +31,7 @@ describe('useGroupManagement – default team behavior', () => {
     vi.clearAllMocks()
     localStorage.clear()
     mockListAgentGroups.mockResolvedValue({ success: true, groups: [] })
-    mockGetAllActiveAgents.mockResolvedValue({ success: true, agents: [] })
+    mockGetAllAgents.mockResolvedValue({ success: true, agents: [] })
   })
 
   afterEach(() => {

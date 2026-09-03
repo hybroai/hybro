@@ -49,7 +49,6 @@ new version's guarantees.
 - `agent/`, `room/`, `execution/`, `context_memory/`, `delivery/`: domain modules.
 - `a2a_adapter/`: A2A SDK boundary.
 - `llm_gateway/`: LLM provider boundary.
-- `hub_runtime_bridge/`: local Hub relay runtime.
 - `local_agents/`: Docker-host A2A Agent discovery and lifecycle coordination.
 - `dal/`: MongoDB and Redis adapters.
 - `room_files/`: room-owned file metadata and local content storage.

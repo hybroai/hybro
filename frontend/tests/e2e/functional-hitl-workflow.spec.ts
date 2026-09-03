@@ -9,7 +9,7 @@ const DEFAULT_TRAVEL_PLANNER_AGENT_ID = '575ee896f1e24823943a1e98aee111c9'
  */
 async function getTravelPlannerAgentId(request: APIRequestContext): Promise<string> {
   try {
-    const resp = await request.get(`${BACKEND_URL}/agent/getAllActiveAgents`)
+    const resp = await request.get(`${BACKEND_URL}/agent/getAllAgents?active_only=true`)
     if (resp.ok()) {
       const data = await resp.json()
       const agents = data.agents || []

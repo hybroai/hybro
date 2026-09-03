@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback, useMemo } from "react"
 import { listAgentGroups } from "@/lib/api/agent-group"
-import { getAllActiveAgents } from "@/lib/api/agent"
+import { getAllAgents } from "@/lib/api/agent"
 import type { AgentGroup, TargetModeDispatchInput } from "@/lib/types/agent-group"
 import type { Agent } from "@/lib/types/agent"
 import {
@@ -219,7 +219,7 @@ export function useGroupManagement(
     setLoadingAgents(true)
     setAgentsError(null)
     try {
-      const response = await getAllActiveAgents(undefined, undefined, getToken)
+      const response = await getAllAgents({ activeOnly: true, getToken })
       if (response.success && response.agents) {
         setAvailableAgents(response.agents)
       } else {

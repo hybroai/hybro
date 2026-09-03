@@ -9,7 +9,7 @@ vi.mock('@/lib/api/agent-group', () => ({
 }))
 
 vi.mock('@/lib/api/agent', () => ({
-  getAllActiveAgents: vi.fn(),
+  getAllAgents: vi.fn(),
 }))
 
 import { useGroupManagement } from '@/hooks/useGroupManagement'

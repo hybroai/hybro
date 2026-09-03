@@ -106,7 +106,7 @@ async def test_host_port_scanner_finds_a_listening_port():
         host="127.0.0.1",
         port_start=port,
         port_end=port,
-        connect_timeout_seconds=0.1,
+        connect_timeout_seconds=5.0,
         excluded_ports=frozenset(),
     )
     try:

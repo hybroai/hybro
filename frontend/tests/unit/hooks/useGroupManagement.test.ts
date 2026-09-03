@@ -2,15 +2,14 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { renderHook, act, cleanup, waitFor } from '@testing-library/react'
 
 const mockListAgentGroups = vi.fn()
-const mockGetAllActiveAgents = vi.fn()
+const mockGetAllAgents = vi.fn()
 
 vi.mock('@/lib/api/agent-group', () => ({
   listAgentGroups: (...args: unknown[]) => mockListAgentGroups(...args),
 }))
 
 vi.mock('@/lib/api/agent', () => ({
-  getAllAgents: vi.fn().mockResolvedValue({ success: true, agents: [] }),
-  getAllActiveAgents: (...args: unknown[]) => mockGetAllActiveAgents(...args),
+  getAllAgents: (...args: unknown[]) => mockGetAllAgents(...args),
 }))
 
 import { useGroupManagement } from '@/hooks/useGroupManagement'
@@ -48,7 +47,7 @@ describe('useGroupManagement', () => {
     vi.clearAllMocks()
     localStorage.clear()
     mockListAgentGroups.mockResolvedValue({ success: true, groups: [] })
-    mockGetAllActiveAgents.mockResolvedValue({ success: true, agents: [] })
+    mockGetAllAgents.mockResolvedValue({ success: true, agents: [] })
   })
 
   afterEach(() => {
@@ -57,7 +56,7 @@ describe('useGroupManagement', () => {
 
   it('should return empty groups initially before fetch resolves', () => {
     mockListAgentGroups.mockReturnValue(new Promise(() => {}))
-    mockGetAllActiveAgents.mockReturnValue(new Promise(() => {}))
+    mockGetAllAgents.mockReturnValue(new Promise(() => {}))
 
     const { result } = renderHook(() => useGroupManagement(defaultOptions()))
 
@@ -203,7 +202,7 @@ describe('useGroupManagement', () => {
     mockListAgentGroups.mockReturnValue(
       new Promise(r => { resolveGroups = r })
     )
-    mockGetAllActiveAgents.mockReturnValue(
+    mockGetAllAgents.mockReturnValue(
       new Promise(r => { resolveAgents = r })
     )
 

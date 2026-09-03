@@ -12,12 +12,10 @@ Tests cover:
 1. Room lifecycle (create -> send message -> get messages)
 2. Agent lifecycle (register -> query -> delete)
 3. HITL flow (request -> list pending -> cancel)
-4. A2A task flow (poll status -> list pending)
-5. Message cancellation
-6. Error handling
+4. Message cancellation
+5. Error handling
 """
 
-from datetime import datetime
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -25,9 +23,6 @@ from a2a.types import (
     AgentCapabilities,
     AgentCard,
     AgentSkill,
-    Task,
-    TaskState,
-    TaskStatus,
 )
 
 from common.auth import ClerkUser
@@ -40,7 +35,7 @@ from models.response import (
     RoomCenterRoomSettingResponse,
     RoomCenterUserMessageResponse,
 )
-from models.room import MessageContent, Room, RoomAgentMessage, RoomUserMessage
+from models.room import MessageContent, Room, RoomUserMessage
 
 pytestmark = pytest.mark.core
 
@@ -409,85 +404,6 @@ class TestAgentLifecycleFlow:
         )
         assert stranger_resp.success is False
         assert stranger_resp.status_code == 404
-
-
-# =============================================================================
-# HITL Flow Tests
-# =============================================================================
-
-
-class TestA2ATaskFlow:
-    """Flow tests that call real A2A task endpoint functions."""
-
-    @pytest.mark.asyncio
-    async def test_task_status_polling_flow(self, flow_user):
-        """get_task_status through the real endpoint."""
-        from api_gateway.routes.a2a_task_routes import get_task_status
-
-        msg_id = "task-flow-msg"
-        mock_task = Task(
-            id="task-flow-001",
-            contextId="ctx-flow-001",
-            status=TaskStatus(state=TaskState.working),
-        )
-        mock_msg = RoomAgentMessage(
-            room_id="room-t",
-            message_id=msg_id,
-            agent_id="agent-t",
-            user_id=flow_user.user_id,
-            message_content=MessageContent(
-                message_text="Working...",
-                message_task=mock_task,
-            ),
-            has_task_tracking=True,
-            task_created_at=datetime.now(),
-        )
-
-        mock_db = MagicMock()
-        mock_db.get_room_agent_message_by_message_id = AsyncMock(
-            return_value=mock_msg,
-        )
-
-        result = await get_task_status(msg_id, flow_user, db=mock_db)
-
-        assert result["message_id"] == msg_id
-        assert result["status"] == "working"
-
-    @pytest.mark.asyncio
-    async def test_list_user_pending_tasks(self, flow_user):
-        """list_user_pending_tasks through the real endpoint."""
-        from api_gateway.routes.a2a_task_routes import list_user_pending_tasks
-
-        msgs = []
-        for i in range(3):
-            t = Task(
-                id=f"t-{i}",
-                contextId=f"c-{i}",
-                status=TaskStatus(state=TaskState.working),
-            )
-            msgs.append(
-                RoomAgentMessage(
-                    room_id=f"r-{i}",
-                    message_id=f"m-{i}",
-                    agent_id=f"a-{i}",
-                    user_id=flow_user.user_id,
-                    message_content=MessageContent(
-                        message_text="...",
-                        message_task=t,
-                    ),
-                    has_task_tracking=True,
-                    task_created_at=datetime.now(),
-                )
-            )
-
-        mock_db = MagicMock()
-        mock_db.get_pending_task_messages_for_user = AsyncMock(
-            return_value=msgs,
-        )
-
-        result = await list_user_pending_tasks(flow_user, db=mock_db)
-
-        assert len(result["tasks"]) == 3
 
 
 # =============================================================================

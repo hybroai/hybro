@@ -5,8 +5,6 @@ from fastapi.routing import APIRoute
 
 FIXTURE_DIR = Path(__file__).parent / "fixtures"
 AUTH_DEPENDENCY_NAMES = {
-    "get_api_key",
-    "get_api_key_no_track",
     "get_current_user",
     "get_current_user_or_service",
     "get_current_user_with_query_token",
@@ -82,10 +80,15 @@ def test_removed_routes_are_absent_from_checked_in_openapi():
     openapi = _load_fixture("../../openapi.json")
 
     assert {
+        "/api/v1/a2a-tasks/{message_id}",
+        "/api/v1/agent/getAllActiveAgents",
         "/api/v1/agents",
         "/api/v1/agents/{item_id}",
         "/api/v1/roomCenter/inquiryRoomsByRoomOwnerId",
         "/api/v1/roomCenter/updateRoomExtendInfo",
+        "/api/v1/roomCenter/updateRoomName",
+        "/api/v1/rooms/{room_id}/a2a-tasks",
+        "/api/v1/users/me/a2a-tasks",
     }.isdisjoint(openapi["paths"])
     schemas = openapi.get("components", {}).get("schemas", {})
     assert {

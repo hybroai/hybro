@@ -5,13 +5,6 @@ from pydantic import Field, JsonValue
 from common.dto.base import FrozenDTO
 
 
-class RateLimitInfo(FrozenDTO):
-    limit: int
-    remaining: int
-    reset_at: datetime
-    scope: str | None = None
-
-
 class FileMetadata(FrozenDTO):
     file_id: str
     room_id: str
@@ -26,43 +19,6 @@ class FileMetadata(FrozenDTO):
     metadata: dict[str, JsonValue] = Field(default_factory=dict)
 
 
-class GatewayRoute(FrozenDTO):
-    agent_id: str
-    gateway_url: str
-    methods: list[str] = Field(default_factory=list)
-
-
-class GatewayRequest(FrozenDTO):
-    agent_id: str
-    payload: dict[str, JsonValue] = Field(default_factory=dict)
-    user_id: str | None = None
-    room_id: str | None = None
-
-
-class GatewayResponse(FrozenDTO):
-    status_code: int
-    payload: dict[str, JsonValue] = Field(default_factory=dict)
-    headers: dict[str, str] = Field(default_factory=dict)
-
-
-class GatewayDiscoveryAgentResult(FrozenDTO):
-    agent_id: str
-    agent_card: dict[str, JsonValue] = Field(default_factory=dict)
-    match_score: float
-
-
-class GatewayDiscoveryResponse(FrozenDTO):
-    query: str
-    agents: list[GatewayDiscoveryAgentResult] = Field(default_factory=list)
-    count: int = 0
-
-
-class RateLimitResult(FrozenDTO):
-    allowed: bool
-    info: RateLimitInfo | None = None
-    reason: str | None = None
-
-
 class FileInfo(FrozenDTO):
     file_id: str
     file_name: str
@@ -74,11 +30,4 @@ class FileInfo(FrozenDTO):
 __all__ = [
     "FileInfo",
     "FileMetadata",
-    "GatewayDiscoveryAgentResult",
-    "GatewayDiscoveryResponse",
-    "GatewayRequest",
-    "GatewayResponse",
-    "GatewayRoute",
-    "RateLimitInfo",
-    "RateLimitResult",
 ]

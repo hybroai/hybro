@@ -1,5 +1,5 @@
-import type { A2ATaskStatus } from '@/lib/api/a2a-tasks'
-import { extractTaskContent, extractTaskError } from '@/lib/api/a2a-tasks'
+import type { A2ATaskStatus } from '@/lib/a2a-task-projection'
+import { extractTaskContent, extractTaskError } from '@/lib/a2a-task-projection'
 import type { RoomMessage } from '@/lib/types/response'
 import type { TaskState } from '@/lib/types/sse'
 import { isInteractiveState, isTerminalState, TASK_STATE } from '@/lib/types/sse'

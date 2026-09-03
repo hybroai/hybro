@@ -38,28 +38,14 @@ def route_group_for_path(path: str) -> str:
     def matches(prefix: str) -> bool:
         return normalized == prefix or normalized.startswith(f"{prefix}/")
 
-    if (
-        matches("/a2a-tasks")
-        or matches("/users/me/a2a-tasks")
-        or (matches("/rooms") and normalized.endswith("/a2a-tasks"))
-    ):
-        return "a2a_task"
     if matches("/local-agents"):
         return "agent"
-    if matches("/api-keys"):
-        return "discovery_api_key"
     if matches("/agentGroups"):
         return "agent_group"
     if matches("/agent"):
         return "agent"
-    if matches("/discovery/api-keys"):
-        return "discovery_api_key"
-    if matches("/discovery"):
-        return "discovery"
     if matches("/files"):
         return "files"
-    if matches("/gateway"):
-        return "platform_gateway"
     if matches("/inspectionCenter"):
         return "inspection"
     if matches("/roomCenter"):
@@ -77,20 +63,6 @@ def route_group_for_path(path: str) -> str:
 
 def expected_owner_for_group(group: str) -> str:
     return f"api_gateway.routes.{group}_routes"
-
-
-def open_cors_path_prefixes(api_prefix: str) -> tuple[str, ...]:
-    from api_gateway.policies import open_cors_groups
-
-    suffixes = {
-        "discovery": "/discovery",
-        "platform_gateway": "/gateway",
-    }
-    return tuple(
-        f"{api_prefix}{suffixes[group]}"
-        for group in sorted(open_cors_groups())
-        if group in suffixes
-    )
 
 
 def route_groups_for_paths(paths: Iterable[str]) -> set[str]:

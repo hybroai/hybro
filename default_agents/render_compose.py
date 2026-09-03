@@ -39,7 +39,7 @@ API_PREFIX = "/api/v1"
 
 # Only these keys are forwarded from the host / repo-root .env into default-agent
 # containers. Backend/frontend secrets (Mongo creds, WEBHOOK_SIGNING_KEY,
-# CLERK_SECRET_KEY, HYBRO_API_KEY, etc.) MUST NOT be exposed here — see the
+# CLERK_SECRET_KEY, etc.) MUST NOT be exposed here — see the
 # comment on the x-agent anchor in docker-compose.yml.
 AGENT_ENV_INTERPOLATIONS: tuple[tuple[str, str], ...] = (
     ("OPENAI_API_KEY", ""),

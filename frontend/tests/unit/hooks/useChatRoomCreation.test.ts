@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { renderHook, act, cleanup, waitFor } from '@testing-library/react'
+import { renderHook, act, cleanup } from '@testing-library/react'
 
 const mockPush = vi.fn()
 vi.mock('next/navigation', () => ({
@@ -15,7 +15,6 @@ import type { SuggestAgentsResponse } from '@/lib/api/room'
 
 vi.mock('@/lib/api/agent', () => ({
   getAllAgents: vi.fn(),
-  getAllActiveAgents: vi.fn(),
 }))
 
 vi.mock('@/components/ui/banner', () => ({
@@ -23,14 +22,14 @@ vi.mock('@/components/ui/banner', () => ({
 }))
 
 import { createNewRoom, suggestAgents } from '@/lib/api/room'
-import { getAllActiveAgents } from '@/lib/api/agent'
+import { getAllAgents } from '@/lib/api/agent'
 import { banner } from '@/components/ui/banner'
 import { useChatRoomCreation } from '@/hooks/useChatRoomCreation'
 import { useRoomUiStore } from '@/stores/room-ui-store'
 import type { Agent } from '@/lib/types/agent'
 
 const mockCreateNewRoom = createNewRoom as ReturnType<typeof vi.fn>
-const mockGetAllActiveAgents = getAllActiveAgents as ReturnType<typeof vi.fn>
+const mockGetAllAgents = getAllAgents as ReturnType<typeof vi.fn>
 const mockSuggestAgents = suggestAgents as ReturnType<typeof vi.fn>
 
 const mockAgent: Agent = {
@@ -69,7 +68,7 @@ describe('useChatRoomCreation', () => {
 
   describe('loadDefaultAgents', () => {
     it('should load and store active agents', async () => {
-      mockGetAllActiveAgents.mockResolvedValue({
+      mockGetAllAgents.mockResolvedValue({
         success: true,
         agents: [mockAgent],
       })
@@ -86,7 +85,7 @@ describe('useChatRoomCreation', () => {
     })
 
     it('should show error and return empty array on failure', async () => {
-      mockGetAllActiveAgents.mockRejectedValue(new Error('Network'))
+      mockGetAllAgents.mockRejectedValue(new Error('Network'))
 
       const { result } = renderHook(() => useChatRoomCreation(defaultProps))
 

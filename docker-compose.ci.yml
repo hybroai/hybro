@@ -7,8 +7,6 @@ services:
     command: python -u /scripts/mock_llm_server.py 8080
     volumes:
       - ./scripts/mock_llm_server.py:/scripts/mock_llm_server.py:ro
-    ports:
-      - "8080:8080"
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0) if urllib.request.urlopen('http://localhost:8080/health', timeout=3).status == 200 else sys.exit(1)"]
       interval: 3s
@@ -24,6 +22,8 @@ services:
       - SUPERVISOR_MODEL=gpt-4o
       - LEAD_AI_MODEL=gpt-4o
       - CLASSIFIER_AI_MODEL=gpt-4o-mini
+      - ORCHESTRATOR_FAST_THINKING_LEVEL=
+      - ORCHESTRATOR_ULTIMATE_THINKING_LEVEL=
       - DEFAULT_AGENT_REGISTRAR_TOKEN=ci-service-registrar-token
     depends_on:
       mock-llm:

@@ -7,7 +7,6 @@ import { handleProcessingStatus } from './handlers/processing-status'
 import {
   handleCancellation,
   handleError,
-  handleHubAgentEvent,
   handleRunEvent,
 } from './handlers/misc'
 import { handleTaskSubmitted } from './handlers/task-submitted'
@@ -37,7 +36,6 @@ export const HANDLED_ROOM_SSE_TYPES = {
   hitl_request: true,
   hitl_response: true,
   cancellation: true,
-  hub_agent_event: true,
 } satisfies Record<RoomSSEType, true>
 
 /** Frames the reducer routes as deltas (ordering is reducer-owned). */
@@ -213,9 +211,6 @@ async function foldDelta(deps: SSEHandlerDeps, roomMessage: DeltaMessage): Promi
       break
     case 'cancellation':
       handleCancellation(deps, roomMessage)
-      break
-    case 'hub_agent_event':
-      handleHubAgentEvent(roomMessage)
       break
     default:
       roomMessage satisfies never

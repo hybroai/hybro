@@ -17,7 +17,7 @@
         "docs"
     ],
     "notes": {
-        "scripts": "CLI tools with their own env var needs (HYBRO_API_KEY etc.)",
+        "scripts": "CLI tools may have their own environment variable needs",
         "tests": "Test code legitimately uses os.environ for monkeypatch/conditional skips"
     }
 }

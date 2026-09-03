@@ -10,11 +10,6 @@ from common.dto import (
 
 
 @runtime_checkable
-class A2ATaskStatusMessage(Protocol):
-    pass
-
-
-@runtime_checkable
 class RoomRouteRecord(Protocol):
     pass
 
@@ -53,19 +48,6 @@ class AgentCardResolver(Protocol):
 
 
 @runtime_checkable
-class A2ATaskStatusReader(Protocol):
-    async def get_room_agent_message_by_message_id(
-        self, message_id: str
-    ) -> A2ATaskStatusMessage | None: ...
-    async def get_task_messages_for_room(
-        self, room_id: str, *, limit: int = 50
-    ) -> list[A2ATaskStatusMessage]: ...
-    async def get_pending_task_messages_for_user(
-        self, user_id: str, states: list[str]
-    ) -> list[A2ATaskStatusMessage]: ...
-
-
-@runtime_checkable
 class RoomRouteReader(Protocol):
     async def get_room_by_room_id(self, room_id: str) -> RoomRouteRecord | None: ...
 
@@ -78,8 +60,6 @@ class SSEStateReader(RoomRouteReader, Protocol):
 
 
 __all__ = [
-    "A2ATaskStatusReader",
-    "A2ATaskStatusMessage",
     "AgentCardResolver",
     "AgentTransport",
     "RoomRouteRecord",

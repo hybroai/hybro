@@ -260,31 +260,18 @@ async def get_agent(
 
 @router.get("/agent/getAllAgents")
 async def get_agent_list(
+    active_only: bool = Query(
+        False,
+        description="Return only active agents when true",
+    ),
     user: ClerkUser | None = Depends(get_optional_user),
     center: AgentCenterCompatibility = Depends(get_agent_center),
 ):
-    """Get all agents - PUBLIC (authentication optional)"""
+    """Get visible agents, optionally filtering to active agents."""
     user_id = user.user_id if user else None
     return await center.list_visible_agents_for_route(
         user_id=user_id,
-        active_only=False,
-    )
-
-
-@router.get("/agent/getAllActiveAgents")
-async def get_all_active_agents(
-    user: ClerkUser | None = Depends(get_optional_user),
-    center: AgentCenterCompatibility = Depends(get_agent_center),
-):
-    """Get all active agents - PUBLIC (authentication optional)
-
-    Returns only agents with active status, filtering out inactive and deleted agents.
-    If authenticated, also includes the user's private agents.
-    """
-    user_id = user.user_id if user else None
-    return await center.list_visible_agents_for_route(
-        user_id=user_id,
-        active_only=True,
+        active_only=active_only,
     )
 
 

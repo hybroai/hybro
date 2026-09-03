@@ -55,10 +55,9 @@ function renderActions(
   return {
     reconcile,
     hook: renderHook(() => useRoomActions(
-      'room-1', null, async () => null, lifecycle as never,
-      hitlRequestIndex, { refetch: vi.fn() } as never, reconcile,
-      vi.fn(), vi.fn(), true, vi.fn(), async () => 'Agent', () => 'local',
-      requestSnapshot,
+      'room-1', async () => null, lifecycle as never,
+      hitlRequestIndex, reconcile, vi.fn(), true, vi.fn(),
+      async () => 'Agent', () => 'local', requestSnapshot,
     )),
     requestSnapshot,
   }

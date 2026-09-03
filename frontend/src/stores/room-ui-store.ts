@@ -55,7 +55,6 @@ export interface RoomFlags {
   sending: boolean
   processing: boolean
   cancelling: boolean
-  updatingRoom: boolean
   sseEnabled: boolean
   sseConnected: boolean
   sseError: string | null
@@ -68,7 +67,6 @@ export const DEFAULT_ROOM_FLAGS: RoomFlags = {
   sending: false,
   processing: false,
   cancelling: false,
-  updatingRoom: false,
   sseEnabled: true,
   sseConnected: false,
   sseError: null,
@@ -97,7 +95,6 @@ interface RoomUiState {
   setSending: (roomId: RoomId, v: boolean) => void
   setProcessing: (roomId: RoomId, v: boolean) => void
   setCancelling: (roomId: RoomId, v: boolean) => void
-  setUpdatingRoom: (roomId: RoomId, v: boolean) => void
   setSseEnabled: (roomId: RoomId, v: boolean) => void
   setSseConnected: (roomId: RoomId, v: boolean) => void
   setSseError: (roomId: RoomId, v: string | null) => void
@@ -145,7 +142,6 @@ export const useRoomUiStore = create<RoomUiState>((set, get) => ({
       : { processing: false, activeRunTriggerMessageIds: [] }),
   })),
   setCancelling: (roomId, v) => set(s => ({ rooms: patchRoom(s.rooms, roomId, { cancelling: v }) })),
-  setUpdatingRoom: (roomId, v) => set(s => ({ rooms: patchRoom(s.rooms, roomId, { updatingRoom: v }) })),
   setSseEnabled: (roomId, v) => set(s => ({ rooms: patchRoom(s.rooms, roomId, { sseEnabled: v }) })),
   setSseConnected: (roomId, v) => set(s => ({ rooms: patchRoom(s.rooms, roomId, { sseConnected: v }) })),
   setSseError: (roomId, v) => set(s => ({ rooms: patchRoom(s.rooms, roomId, { sseError: v }) })),
@@ -266,10 +262,6 @@ export function useRoomSending(roomId: string): boolean {
 
 export function useRoomCancelling(roomId: string): boolean {
   return useRoomUiStore((s) => (s.rooms[roomId] ?? DEFAULT_ROOM_FLAGS).cancelling)
-}
-
-export function useRoomUpdating(roomId: string): boolean {
-  return useRoomUiStore((s) => (s.rooms[roomId] ?? DEFAULT_ROOM_FLAGS).updatingRoom)
 }
 
 export function useRoomSseEnabled(roomId: string): boolean {

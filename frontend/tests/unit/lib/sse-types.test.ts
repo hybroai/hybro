@@ -15,7 +15,7 @@ describe('final room SSE types', () => {
     expect(isRoomSSEType('agent_response_partial')).toBe(true)
     expect(isRoomSSEType('hitl_request')).toBe(true)
     expect(isRoomSSEType('hitl_response')).toBe(true)
-    expect(isRoomSSEType('hub_agent_event')).toBe(true)
+    expect(isRoomSSEType('hub_agent_event')).toBe(false)
     expect(isRoomSSEType('debate_round')).toBe(false)
     expect(isRoomSSEType('hitl_input_requested')).toBe(false)
     expect(isRoomSSEType('hitl_status_update')).toBe(false)

@@ -10,9 +10,7 @@ from common.observability.bootstrap import settings as _logging_settings  # noqa
 from common.config.settings import settings
 
 import api_gateway
-from api_gateway.registry import open_cors_path_prefixes
 from common.auth import bind_auth_config
-from common.middleware.discovery_cors_middleware import DiscoveryCORSMiddleware
 from common.middleware.request_logging import RequestLoggingMiddleware
 from common.middleware.request_size import RequestBodyLimitMiddleware
 from container import (
@@ -130,10 +128,6 @@ def create_app(
         expose_headers=["X-Request-ID"],
     )
     app.add_middleware(
-        DiscoveryCORSMiddleware,
-        open_cors_path_prefixes=open_cors_path_prefixes(settings.api_prefix),
-    )
-    app.add_middleware(
         RequestBodyLimitMiddleware,
         path=f"{settings.api_prefix}/files/upload",
         max_bytes=6 * 1024 * 1024,
@@ -158,11 +152,6 @@ def create_app(
 app = create_app()
 
 if settings.auth_mode == "mock":
-    from common.api_key_auth import (
-        MockAPIKeyPrincipal,
-        get_api_key,
-        get_api_key_no_track,
-    )
     from common.auth import (
         ClerkUser,
         get_current_user,
@@ -178,15 +167,10 @@ if settings.auth_mode == "mock":
             claims={"email": "local@developer.com", "username": "local_dev"},
         )
 
-    def mock_get_api_key():
-        return MockAPIKeyPrincipal()
-
     app.dependency_overrides[get_current_user] = mock_get_current_user
     app.dependency_overrides[get_current_user_or_service] = mock_get_current_user
     app.dependency_overrides[get_current_user_with_query_token] = mock_get_current_user
     app.dependency_overrides[get_optional_user] = mock_get_current_user
-    app.dependency_overrides[get_api_key] = mock_get_api_key
-    app.dependency_overrides[get_api_key_no_track] = mock_get_api_key
 
 
 def main() -> None:

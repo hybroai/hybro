@@ -110,9 +110,8 @@ def test_protocol_import_tolerates_json_log_format_without_creating_log_file(
             sys.executable,
             "-c",
             (
-                "from common.protocols import RuntimeAgentRoomStore, "
-                "APIKeyAuthenticator; "
-                "print(RuntimeAgentRoomStore.__name__, APIKeyAuthenticator.__name__)"
+                "from common.protocols import RuntimeAgentRoomStore; "
+                "print(RuntimeAgentRoomStore.__name__)"
             ),
         ],
         check=False,
@@ -122,7 +121,7 @@ def test_protocol_import_tolerates_json_log_format_without_creating_log_file(
     )
 
     assert result.returncode == 0, result.stderr
-    assert "RuntimeAgentRoomStore APIKeyAuthenticator" in result.stdout
+    assert "RuntimeAgentRoomStore" in result.stdout
     assert not legacy_log_path.exists()
 
 

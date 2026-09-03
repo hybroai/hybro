@@ -1,95 +1,15 @@
 from collections.abc import AsyncIterator
-from datetime import datetime
 from typing import Protocol, runtime_checkable
 
 from fastapi import Request
 from fastapi.responses import JSONResponse
 
-from common.dto import (
-    FileInfo,
-    GatewayDiscoveryResponse,
-    GatewayResponse,
-    InternalAgentMessage,
-    RateLimitResult,
-)
-
-
-@runtime_checkable
-class APIKeyPrincipal(Protocol):
-    key_id: str
-    user_id: str
-    name: str
-    is_active: bool
-
-
-@runtime_checkable
-class APIKeyRecord(APIKeyPrincipal, Protocol):
-    created_at: datetime
-    last_used_at: datetime | None
-    usage_count: int
-    key_hash: str
-
-
-@runtime_checkable
-class APIKeyAuthenticator(Protocol):
-    async def validate_api_key(
-        self, api_key: str, *, track_usage: bool = True
-    ) -> APIKeyPrincipal: ...
-
-
-@runtime_checkable
-class APIKeyStore(Protocol):
-    async def get_api_keys_by_user(self, user_id: str) -> list[APIKeyRecord]: ...
-    async def add_api_key(self, api_key: APIKeyRecord) -> str: ...
-    async def get_api_key_by_id(self, key_id: str) -> APIKeyRecord | None: ...
-    async def deactivate_api_key(self, key_id: str) -> bool: ...
-
-
-@runtime_checkable
-class APIKeyValidationStore(Protocol):
-    async def get_api_key_by_hash(self, key_hash: str) -> APIKeyRecord | None: ...
-    async def update_api_key_usage(self, key_hash: str) -> bool: ...
+from common.dto import FileInfo
 
 
 @runtime_checkable
 class HealthCheck(Protocol):
     async def check(self, request: Request) -> JSONResponse: ...
-
-
-@runtime_checkable
-class GatewayDiscoveryProvider(Protocol):
-    async def discover_agents(
-        self, query: str, limit: int | None = None
-    ) -> GatewayDiscoveryResponse: ...
-
-
-@runtime_checkable
-class GatewayService(Protocol):
-    async def discover_agents(
-        self, query: str, limit: int | None, user_id: str
-    ) -> GatewayDiscoveryResponse: ...
-    async def get_agent_card(self, agent_id: str, user_id: str) -> GatewayResponse: ...
-    async def send_message(
-        self, agent_id: str, message: InternalAgentMessage, user_id: str
-    ) -> GatewayResponse: ...
-    async def prepare_stream(
-        self, agent_id: str, message: InternalAgentMessage, user_id: str
-    ) -> AsyncIterator[GatewayResponse]: ...
-    async def stream_message(
-        self, agent_id: str, message: InternalAgentMessage, user_id: str
-    ) -> AsyncIterator[GatewayResponse]: ...
-
-
-@runtime_checkable
-class RateLimiter(Protocol):
-    async def check(self, key: str, limit: int, window: int) -> RateLimitResult: ...
-    async def check_global(self, limit: int, window: int) -> RateLimitResult: ...
-
-
-@runtime_checkable
-class APIKeyRateLimiter(RateLimiter, Protocol):
-    async def check_rate_limit(self, api_key: APIKeyPrincipal) -> None: ...
-    async def record_request(self, api_key: APIKeyPrincipal) -> None: ...
 
 
 @runtime_checkable
@@ -144,19 +64,10 @@ class AttachmentCleanupPort(Protocol):
 
 
 __all__ = [
-    "APIKeyAuthenticator",
-    "APIKeyRateLimiter",
-    "APIKeyPrincipal",
-    "APIKeyRecord",
-    "APIKeyStore",
-    "APIKeyValidationStore",
-    "FileStorage",
-    "PreparedFileStream",
-    "GatewayDiscoveryProvider",
-    "HealthCheck",
     "AttachmentCleanupPort",
     "AttachmentContentReader",
     "AttachmentMetadataReader",
-    "GatewayService",
-    "RateLimiter",
+    "FileStorage",
+    "HealthCheck",
+    "PreparedFileStream",
 ]

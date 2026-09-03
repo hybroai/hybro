@@ -54,7 +54,6 @@ class AgentFacade:
         repository: AgentRepository,
         card_resolver: AgentCardResolver,
         exclusion_reader: AgentExclusionReader | None = None,
-        gateway_base_url: str | None = None,
         public_url_base_domain: str = "hybro.ai",
         public_url_protocol: str = "https",
         id_factory: Callable[[], str],
@@ -64,7 +63,6 @@ class AgentFacade:
         self._repository = repository
         self._card_resolver = card_resolver
         self._exclusion_reader = exclusion_reader
-        self._gateway_base_url = gateway_base_url
         self._public_url_base_domain = public_url_base_domain
         self._public_url_protocol = public_url_protocol
         self._id_factory = id_factory
@@ -365,12 +363,6 @@ class AgentFacade:
             base_domain=self._public_url_base_domain,
             protocol=self._public_url_protocol,
             id_factory=self._id_factory,
-        )
-
-    def _gateway_public_url(self, agent_id: str) -> str:
-        return (
-            f"{self._gateway_base_url.rstrip('/')}"
-            f"/gateway/agents/{agent_id}/message/send"
         )
 
     async def _match_agent_records(

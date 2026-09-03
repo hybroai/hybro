@@ -85,15 +85,7 @@ test('streaming agent turn never displays internal dispatch prompt', async ({ pa
 
   await installInternalPromptLeakWatcher(page)
 
-  await page.route('**/api/v1/agent/getAllAgents', async route => {
-    await route.fulfill({
-      status: 200,
-      contentType: 'application/json',
-      body: JSON.stringify({ success: true, agents: [agentFixture()] }),
-    })
-  })
-
-  await page.route('**/api/v1/agent/getAllActiveAgents', async route => {
+  await page.route('**/api/v1/agent/getAllAgents*', async route => {
     await route.fulfill({
       status: 200,
       contentType: 'application/json',

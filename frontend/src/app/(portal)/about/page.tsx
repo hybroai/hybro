@@ -1,6 +1,5 @@
 import type { Metadata } from 'next'
 import {
-  Network,
   MessageSquare,
   GitBranch,
   Terminal,
@@ -122,7 +121,7 @@ export default function AboutPage() {
                     <span className="text-[hsl(var(--color-hybro-bro))] mt-1 shrink-0">
                       &#x2192;
                     </span>
-                    Run locally with Hybro Hub or deploy to the cloud
+                    Run agents locally or deploy them remotely
                   </li>
                 </ul>
               </div>
@@ -182,11 +181,10 @@ export default function AboutPage() {
                     Local + remote hybrid model
                   </h3>
                   <p className="text-muted-foreground leading-relaxed">
-                    Run privacy-sensitive agents on your own machine with{" "}
-                    <strong>Hybro Hub</strong>, while tapping into cloud agents
-                    for capabilities you don&apos;t have locally. Hub handles
-                    auto-discovery, health monitoring, and seamless bridging to
-                    the network.
+                    Run privacy-sensitive agents on your own machine while
+                    connecting directly to remote agents for capabilities you
+                    don&apos;t have locally. Hybro discovers local A2A agents and
+                    coordinates both through the same execution flow.
                   </p>
                 </div>
               </div>
@@ -228,7 +226,7 @@ export default function AboutPage() {
             </p>
           </FadeInSection>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+          <div className="max-w-2xl">
             <FadeInSection delay={100}>
               <a
                 href="https://github.com/hybroai/a2a-adapter"
@@ -250,31 +248,6 @@ export default function AboutPage() {
                 </p>
                 <code className="text-xs text-muted-foreground font-mono">
                   pip install a2a-adapter
-                </code>
-              </a>
-            </FadeInSection>
-
-            <FadeInSection delay={200}>
-              <a
-                href="https://github.com/hybroai/hybro-hub"
-                target="_blank"
-                rel="noopener noreferrer"
-                className="group block p-6 rounded-xl border border-border/60 hover:border-[hsl(var(--color-hybro-bro)/0.5)] hover:-translate-y-1 hover:shadow-lg transition-all duration-300"
-              >
-                <div className="flex items-center gap-3 mb-3">
-                  <Network className="h-5 w-5 text-[hsl(var(--color-hybro-bro))]" />
-                  <h3 className="text-lg font-semibold group-hover:text-[hsl(var(--color-hybro-bro))] transition-colors">
-                    hybro-hub
-                  </h3>
-                  <ExternalLink className="h-4 w-4 text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity" />
-                </div>
-                <p className="text-sm text-muted-foreground leading-relaxed mb-3">
-                  Bridge local agents to the Hybro network. Auto-discovery,
-                  health monitoring, tunnel management. Your agents, your
-                  machine, connected to the world.
-                </p>
-                <code className="text-xs text-muted-foreground font-mono">
-                  pip install hybro-hub
                 </code>
               </a>
             </FadeInSection>

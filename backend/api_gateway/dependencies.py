@@ -16,14 +16,9 @@ from agent.protocols import (
     AgentSuggestionService,
 )
 from common.protocols import (
-    A2ATaskStatusReader,
     AgentRegistry,
-    APIKeyRateLimiter,
-    APIKeyStore,
     ExecutionEngine,
     FileStorage,
-    GatewayDiscoveryProvider,
-    GatewayService,
     HITLManager,
     RoomOwnershipReader,
     RoomRouteReader,
@@ -36,22 +31,15 @@ from room.protocols import RoomCenterCompatibility
 
 @dataclass(frozen=True, slots=True)
 class APIGatewayDeps:
-    task_store: A2ATaskStatusReader
     agent_center: AgentCenterCompatibility
     agent_service: AgentRegistry
     capability_issue_service: AgentCapabilityIssueStore
     agent_liveness_checker: AgentLivenessChecker
     agent_group_store: AgentGroupStoreCompatibility
-    api_key_store: APIKeyStore | None
-    discovery_service: GatewayDiscoveryProvider | None
-    discovery_rate_limiter: APIKeyRateLimiter | None
-    discovery_default_limit: int
     file_storage: FileStorage
     room_ownership_reader: RoomOwnershipReader
     hitl_manager: HITLManager
     inspection_center: AgentInspection
-    gateway_service: GatewayService | None
-    gateway_rate_limiter: APIKeyRateLimiter | None
     room_center: RoomCenterCompatibility
     room_store: RoomRouteReader
     agent_selection_service: AgentSuggestionService
@@ -65,14 +53,7 @@ def missing_required_deps(deps: APIGatewayDeps | None) -> list[str]:
     if deps is None:
         return ["app.state.api_gateway_deps"]
 
-    optional_fields = {
-        "api_key_store",
-        "discovery_service",
-        "discovery_rate_limiter",
-        "gateway_service",
-        "gateway_rate_limiter",
-        "local_agent_discovery",
-    }
+    optional_fields = {"local_agent_discovery"}
 
     return [
         field.name
@@ -102,12 +83,6 @@ _API_GATEWAY_DEPS_DEPENDENCY = Depends(get_api_gateway_deps)
 def is_bound(app: Any) -> bool:
     deps = getattr(app.state, "api_gateway_deps", None)
     return deps is not None and not missing_required_deps(deps)
-
-
-def get_task_store(
-    deps: APIGatewayDeps = _API_GATEWAY_DEPS_DEPENDENCY,
-) -> A2ATaskStatusReader:
-    return deps.task_store
 
 
 def get_agent_center(
@@ -140,30 +115,6 @@ def get_agent_group_store(
     return deps.agent_group_store
 
 
-def get_api_key_store(
-    deps: APIGatewayDeps = _API_GATEWAY_DEPS_DEPENDENCY,
-) -> APIKeyStore:
-    return deps.api_key_store
-
-
-def get_discovery_service(
-    deps: APIGatewayDeps = _API_GATEWAY_DEPS_DEPENDENCY,
-) -> GatewayDiscoveryProvider:
-    return deps.discovery_service
-
-
-def get_discovery_rate_limiter(
-    deps: APIGatewayDeps = _API_GATEWAY_DEPS_DEPENDENCY,
-) -> APIKeyRateLimiter:
-    return deps.discovery_rate_limiter
-
-
-def get_discovery_default_limit(
-    deps: APIGatewayDeps = _API_GATEWAY_DEPS_DEPENDENCY,
-) -> int:
-    return deps.discovery_default_limit
-
-
 def get_local_agent_discovery(
     deps: APIGatewayDeps = _API_GATEWAY_DEPS_DEPENDENCY,
 ) -> LocalAgentDiscovery | None:
@@ -192,18 +143,6 @@ def get_inspection_center(
     deps: APIGatewayDeps = _API_GATEWAY_DEPS_DEPENDENCY,
 ) -> AgentInspection:
     return deps.inspection_center
-
-
-def get_gateway_service(
-    deps: APIGatewayDeps = _API_GATEWAY_DEPS_DEPENDENCY,
-) -> GatewayService:
-    return deps.gateway_service
-
-
-def get_gateway_rate_limiter(
-    deps: APIGatewayDeps = _API_GATEWAY_DEPS_DEPENDENCY,
-) -> APIKeyRateLimiter:
-    return deps.gateway_rate_limiter
 
 
 def get_room_center(

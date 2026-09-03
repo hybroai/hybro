@@ -21,7 +21,6 @@ from api_gateway.routes.agent_routes import (
     get_agent_by_provider,
     get_agent_card_from_url,
     get_agent_list,
-    get_all_active_agents,
     register_agent,
 )
 from local_agents.models import DiscoveryTrigger, LocalAgentDiscoveryResult
@@ -253,50 +252,45 @@ class TestGetAgentList:
 
     @pytest.mark.asyncio
     async def test_returns_all_agents(self, patch_agent_deps, sample_agent):
-        """Should return all agents."""
         expected_response = AgentCenterResponse(
             success=True,
             agents=[sample_agent],
         )
         patch_agent_deps.get_all_agents.return_value = expected_response
 
-        response = await get_agent_list(user=None, center=patch_agent_deps)
-
-        assert response.success is True
-
-
-class TestGetAllActiveAgents:
-    """Tests for get_all_active_agents endpoint."""
-
-    @pytest.mark.asyncio
-    async def test_returns_only_active_agents(self, patch_agent_deps, sample_agent):
-        """Should return only active agents."""
-        expected_response = AgentCenterResponse(
-            success=True,
-            agents=[sample_agent],
+        response = await get_agent_list(
+            active_only=False,
+            user=None,
+            center=patch_agent_deps,
         )
-        patch_agent_deps.get_all_active_agents.return_value = expected_response
-
-        response = await get_all_active_agents(user=None, center=patch_agent_deps)
 
         assert response.success is True
+        patch_agent_deps.list_visible_agents_for_route.assert_awaited_once_with(
+            user_id=None,
+            active_only=False,
+        )
 
     @pytest.mark.asyncio
-    async def test_includes_private_agents_for_owner(
+    async def test_filters_active_agents_for_owner(
         self, mock_user, patch_agent_deps, sample_agent, sample_private_agent
     ):
-        """Should include user's private agents when authenticated."""
         expected_response = AgentCenterResponse(
             success=True,
             agents=[sample_agent, sample_private_agent],
         )
         patch_agent_deps.get_all_active_agents.return_value = expected_response
 
-        await get_all_active_agents(user=mock_user, center=patch_agent_deps)
+        response = await get_agent_list(
+            active_only=True,
+            user=mock_user,
+            center=patch_agent_deps,
+        )
 
-        # Verify user_id was passed for visibility filtering
-        call_args = patch_agent_deps.get_all_active_agents.call_args[0][0]
-        assert call_args.user_id == mock_user.user_id
+        assert response.success is True
+        patch_agent_deps.list_visible_agents_for_route.assert_awaited_once_with(
+            user_id=mock_user.user_id,
+            active_only=True,
+        )
 
 
 # =============================================================================

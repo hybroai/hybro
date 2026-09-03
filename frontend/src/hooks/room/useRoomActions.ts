@@ -1,8 +1,6 @@
 import { useCallback } from 'react'
 import type { MutableRefObject } from 'react'
-import type { UseQueryResult } from '@tanstack/react-query'
 import { cancelMessage } from '@/lib/api/sse'
-import { updateRoomAgentSet, updateRoomName } from '@/lib/api/room'
 import { ApiError } from '@/lib/api-client'
 import { banner } from '@/components/ui/banner'
 import { useRoomUiStore } from '@/stores/room-ui-store'
@@ -19,79 +17,17 @@ import { acquireHitlSubmissionFence } from './hitl-submission-fence'
 
 export function useRoomActions(
   roomId: string,
-  room: { room_name?: string; room_agent_set?: Record<string, string> | null; extend_info?: unknown } | null,
   getToken: (() => Promise<string | null>) | undefined,
   lifecycle: ProcessingLifecycle,
   hitlRequestIndex: MutableRefObject<Map<string, string>>,
-  roomQuery: UseQueryResult<unknown, Error>,
   reconcileWithDb: (roomId: string) => Promise<void>,
   setCancelling: (v: boolean) => void,
-  setUpdatingRoom: (v: boolean) => void,
   sseEnabled: boolean,
   setSseEnabled: (v: boolean) => void,
   getAgentName?: (agentId: string) => Promise<string>,
   getAgentSource?: (agentId: string | undefined) => 'cloud' | 'local' | 'hub' | undefined,
   requestCanonicalSnapshot?: () => void,
 ) {
-  // Update room name and membership. Execution mode is request-scoped.
-  const updateRoomSettings = useCallback(async (
-    roomName: string,
-    membershipAgentIds: string[],
-  ) => {
-    if (!room) {
-      banner.error('Room data not available')
-      return false
-    }
-
-    try {
-      setUpdatingRoom(true)
-
-      // Update room name if changed
-      if (roomName !== room.room_name) {
-        const nameResponse = await updateRoomName(roomId, roomName)
-        if (!nameResponse.success) {
-          throw new Error(`Failed to update room name: ${nameResponse.error}`)
-        }
-      }
-
-      // Only update membership when the set actually changed.
-      // This avoids backend rejection of deleted stale members when the user
-      // only changed the room name.
-      const currentAgentIds = new Set(Object.keys(room.room_agent_set || {}))
-      const newAgentIds = new Set(membershipAgentIds)
-      const membershipChanged = currentAgentIds.size !== newAgentIds.size
-        || [...currentAgentIds].some(id => !newAgentIds.has(id))
-
-      if (membershipChanged) {
-        const agentResponse = await updateRoomAgentSet(
-          roomId, {}, getToken,
-          { membership_seed_input: "manual", room_agent_ids: membershipAgentIds },
-        )
-        if (!agentResponse.success) {
-          const errMsg = agentResponse.error || 'Unknown error'
-          if (errMsg.includes('Unknown or deleted agent')) {
-            banner.error('Some agents have been deleted. Remove them before saving membership changes.')
-            return false
-          }
-          throw new Error(`Failed to update room agents: ${errMsg}`)
-        }
-      }
-
-      // Reload room settings to get updated data from backend
-      await roomQuery.refetch()
-
-      banner.success('Room settings updated successfully')
-      return true
-
-    } catch (error) {
-      console.error('Error updating room settings:', error)
-      banner.error(`Failed to update room settings: ${error instanceof Error ? error.message : 'Unknown error'}`)
-      return false
-    } finally {
-      setUpdatingRoom(false)
-    }
-  }, [room, roomId, roomQuery, setUpdatingRoom, getToken])
-
   // Cancel ongoing message processing
   const cancelProcessing = useCallback(async () => {
     const messageId = lifecycle.getMessageId()
@@ -348,7 +284,6 @@ export function useRoomActions(
   }, [setSseEnabled, sseEnabled])
 
   return {
-    updateRoomSettings,
     cancelProcessing,
     respondToHitlBatch,
     cancelHitlRequest,

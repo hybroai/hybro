@@ -42,15 +42,6 @@ export function PortalFooter() {
             a2a-adapter
           </a>
           <a
-            href="https://github.com/hybroai/hybro-hub"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors py-2"
-          >
-            <GithubIcon className="h-4 w-4" />
-            hybro-hub
-          </a>
-          <a
             href="https://discord.gg/2S5pCKzUmJ"
             target="_blank"
             rel="noopener noreferrer"

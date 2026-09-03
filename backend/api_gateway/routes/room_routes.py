@@ -488,28 +488,6 @@ async def update_room_agent_set(
     return room_center_response
 
 
-@router.post("/roomCenter/updateRoomName")
-async def update_room_name(
-    request: Request,
-    user: ClerkUser = Depends(get_current_user),
-    store: RoomRouteReader = Depends(get_room_store),
-    center: RoomCenterCompatibility = Depends(get_room_center),
-):
-    """Update room name - PROTECTED (requires room ownership)"""
-    request_data = await request.json()
-    room_id = request_data.get("room_id")
-    room_name = request_data.get("room_name")
-
-    # Verify user owns the room
-    await verify_room_ownership(room_id, user, store)
-
-    room_center_request = RoomCenterRoomSettingRequest(
-        room_id=room_id, room_name=room_name
-    )
-    room_center_response = await center.update_room_name(room_center_request)
-    return room_center_response
-
-
 @router.get(
     "/rooms/{room_id}/agent-calls/{run_id}/{public_call_id}/detail",
     response_model=None,

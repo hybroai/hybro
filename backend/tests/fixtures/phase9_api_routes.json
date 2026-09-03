@@ -4,30 +4,6 @@
       "get_current_user"
     ],
     "dependencies": [
-      "get_current_user",
-      "get_task_store"
-    ],
-    "methods": [
-      "GET"
-    ],
-    "module": "api_gateway.routes.a2a_task_routes",
-    "name": "get_task_status",
-    "openapi_response_codes": [
-      "200",
-      "422"
-    ],
-    "owning_protocol": "common.protocols.A2ATaskStatusReader",
-    "path": "/api/v1/a2a-tasks/{message_id}",
-    "response_class": null,
-    "response_model": "dict",
-    "status_code": null,
-    "streaming_response": null
-  },
-  {
-    "auth_dependencies": [
-      "get_current_user"
-    ],
-    "dependencies": [
       "get_agent_service",
       "get_capability_issue_service",
       "get_current_user"
@@ -157,32 +133,10 @@
       "GET"
     ],
     "module": "api_gateway.routes.agent_routes",
-    "name": "get_all_active_agents",
-    "openapi_response_codes": [
-      "200"
-    ],
-    "owning_protocol": "agent.protocols.AgentCenterCompatibility",
-    "path": "/api/v1/agent/getAllActiveAgents",
-    "response_class": null,
-    "response_model": null,
-    "status_code": null,
-    "streaming_response": null
-  },
-  {
-    "auth_dependencies": [
-      "get_optional_user"
-    ],
-    "dependencies": [
-      "get_agent_center",
-      "get_optional_user"
-    ],
-    "methods": [
-      "GET"
-    ],
-    "module": "api_gateway.routes.agent_routes",
     "name": "get_agent_list",
     "openapi_response_codes": [
-      "200"
+      "200",
+      "422"
     ],
     "owning_protocol": "agent.protocols.AgentCenterCompatibility",
     "path": "/api/v1/agent/getAllAgents",
@@ -814,57 +768,6 @@
     ],
     "dependencies": [
       "get_current_user",
-      "get_room_center",
-      "get_room_store"
-    ],
-    "methods": [
-      "POST"
-    ],
-    "module": "api_gateway.routes.room_routes",
-    "name": "update_room_name",
-    "openapi_response_codes": [
-      "200"
-    ],
-    "owning_protocol": "room.protocols.RoomCenterCompatibility",
-    "path": "/api/v1/roomCenter/updateRoomName",
-    "response_class": null,
-    "response_model": null,
-    "status_code": null,
-    "streaming_response": null,
-    "supporting_protocols": [
-      "common.protocols.RoomRouteReader"
-    ]
-  },
-  {
-    "auth_dependencies": [
-      "get_current_user"
-    ],
-    "dependencies": [
-      "get_current_user",
-      "get_task_store"
-    ],
-    "methods": [
-      "GET"
-    ],
-    "module": "api_gateway.routes.a2a_task_routes",
-    "name": "list_room_tasks",
-    "openapi_response_codes": [
-      "200",
-      "422"
-    ],
-    "owning_protocol": "common.protocols.A2ATaskStatusReader",
-    "path": "/api/v1/rooms/{room_id}/a2a-tasks",
-    "response_class": null,
-    "response_model": "dict",
-    "status_code": null,
-    "streaming_response": null
-  },
-  {
-    "auth_dependencies": [
-      "get_current_user"
-    ],
-    "dependencies": [
-      "get_current_user",
       "get_room_store"
     ],
     "methods": [
@@ -1086,29 +989,6 @@
     "supporting_protocols": [
       "common.protocols.SSEStateReader"
     ]
-  },
-  {
-    "auth_dependencies": [
-      "get_current_user"
-    ],
-    "dependencies": [
-      "get_current_user",
-      "get_task_store"
-    ],
-    "methods": [
-      "GET"
-    ],
-    "module": "api_gateway.routes.a2a_task_routes",
-    "name": "list_user_pending_tasks",
-    "openapi_response_codes": [
-      "200"
-    ],
-    "owning_protocol": "common.protocols.A2ATaskStatusReader",
-    "path": "/api/v1/users/me/a2a-tasks",
-    "response_class": null,
-    "response_model": "dict",
-    "status_code": null,
-    "streaming_response": null
   },
   {
     "auth_dependencies": [],

@@ -45,7 +45,8 @@ class HostPortScanner:
                 finally:
                     queue.task_done()
 
-        workers = [asyncio.create_task(worker()) for _ in range(_SCAN_CONCURRENCY)]
+        worker_count = min(_SCAN_CONCURRENCY, queue.qsize())
+        workers = [asyncio.create_task(worker()) for _ in range(worker_count)]
         await asyncio.gather(*workers)
         return sorted(open_ports)
 

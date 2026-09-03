@@ -200,24 +200,6 @@ export async function updateRoomAgentSet(
   )
 }
 
-// Update room name
-export async function updateRoomName(
-  room_id: string,
-  room_name: string,
-  getToken?: () => Promise<string | null>
-): Promise<RoomCenterRoomSettingResponse> {
-  const requestData: RoomCenterRoomSettingRequest = {
-    room_id,
-    room_name
-  }
-
-  return apiPost<RoomCenterRoomSettingResponse>(
-    `${API_BASE_URL}/updateRoomName`,
-    requestData,
-    getToken
-  )
-}
-
 // Query room messages
 export interface RoomTimelinePagination {
   limit?: number

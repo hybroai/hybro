@@ -62,10 +62,6 @@ export function handleCancellation(
   console.debug('Room SSE cancellation event:', sseMessage.data)
 }
 
-export function handleHubAgentEvent(sseMessage: RoomSSEFrameMap['hub_agent_event']): void {
-  console.debug('Room SSE hub_agent_event:', sseMessage.data)
-}
-
 export function handleRunEvent(
   ctx: SSEHandlerDeps,
   lifecycle: ProcessingLifecycle,

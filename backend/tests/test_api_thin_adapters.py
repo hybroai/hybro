@@ -306,8 +306,6 @@ def test_phase9_route_inventory_matches_live_app_routes():
             for dependency in dependencies
             if dependency
             in {
-                "get_api_key",
-                "get_api_key_no_track",
                 "get_current_user",
                 "get_current_user_or_service",
                 "get_current_user_with_query_token",
@@ -342,8 +340,6 @@ def test_phase9_route_inventory_matches_live_app_routes():
 
 def test_route_inventory_auth_dependencies_are_only_auth_dependencies():
     auth_dependency_names = {
-        "get_api_key",
-        "get_api_key_no_track",
         "get_current_user",
         "get_current_user_or_service",
         "get_current_user_with_query_token",
@@ -537,21 +533,6 @@ def test_phase9_route_inventory_supporting_protocols_are_protocol_symbols():
     )
 
 
-def test_api_key_management_routes_are_owned_by_store_protocol():
-    routes = json.loads(Path("tests/fixtures/phase9_api_routes.json").read_text())
-    violations = [
-        f"{route['path']} {route['name']}: {route['owning_protocol']}"
-        for route in routes
-        if route["module"] == "api_gateway.routes.discovery_api_key_routes"
-        and route["owning_protocol"] != "common.protocols.APIKeyStore"
-    ]
-
-    assert not violations, (
-        "API-key management routes must use APIKeyStore owner:\n"
-        + "\n".join(violations)
-    )
-
-
 def test_room_center_route_inventory_records_live_protocol_owners():
     routes = json.loads(Path("tests/fixtures/phase9_api_routes.json").read_text())
     by_name = {
@@ -579,10 +560,6 @@ def test_room_center_route_inventory_records_live_protocol_owners():
             "supporting": {"common.protocols.RoomRouteReader"},
         },
         "update_room_agent_set": {
-            "owner": "room.protocols.RoomCenterCompatibility",
-            "supporting": {"common.protocols.RoomRouteReader"},
-        },
-        "update_room_name": {
             "owner": "room.protocols.RoomCenterCompatibility",
             "supporting": {"common.protocols.RoomRouteReader"},
         },
@@ -715,7 +692,6 @@ def test_route_owner_protocols_match_handler_calls():
         AgentLivenessChecker,
     )
     from common.protocols import (
-        A2ATaskStatusReader,
         AgentRegistry,
         HealthCheck,
         RoomRouteReader,
@@ -755,11 +731,6 @@ def test_route_owner_protocols_match_handler_calls():
             "get_agent_group_by_id",
             "get_agent_groups_by_owner",
             "update_agent_group",
-        },
-        A2ATaskStatusReader: {
-            "get_pending_task_messages_for_user",
-            "get_room_agent_message_by_message_id",
-            "get_task_messages_for_room",
         },
         RoomRouteReader: {"get_room_by_room_id"},
         SSEStateReader: {
@@ -873,7 +844,6 @@ def test_agent_routes_expose_typed_dependency_providers():
             "liveness_checker": AgentLivenessChecker,
         },
         agent.get_agent_list: {"center": AgentCenterCompatibility},
-        agent.get_all_active_agents: {"center": AgentCenterCompatibility},
     }
     missing: list[str] = []
     for handler, expected_params in route_expectations.items():
@@ -910,7 +880,6 @@ def test_agent_route_inventory_records_live_protocol_owners():
             {"agent.protocols.AgentLivenessChecker"},
         ),
         "get_agent_card_from_url": ("agent.protocols.AgentCenterCompatibility", set()),
-        "get_all_active_agents": ("agent.protocols.AgentCenterCompatibility", set()),
         "get_agent_list": ("agent.protocols.AgentCenterCompatibility", set()),
         "register_agent": ("agent.protocols.AgentCenterCompatibility", set()),
         "get_capability_issues": (
@@ -974,25 +943,6 @@ def test_file_upload_route_inventory_records_room_ownership_support():
     assert route["owning_protocol"] == "common.protocols.FileStorage"
     assert "common.protocols.RoomOwnershipReader" in set(
         route.get("supporting_protocols") or []
-    )
-
-
-def test_gateway_and_discovery_routes_record_rate_limit_support():
-    routes = json.loads(Path("tests/fixtures/phase9_api_routes.json").read_text())
-    violations = [
-        f"{route['module']}.{route['name']}"
-        for route in routes
-        if route["module"]
-        in {
-            "api_gateway.routes.platform_gateway_routes",
-            "api_gateway.routes.discovery_routes",
-        }
-        and "common.protocols.APIKeyRateLimiter"
-        not in set(route.get("supporting_protocols") or [])
-    ]
-
-    assert not violations, (
-        "Gateway/discovery routes omit rate limiter support:\n" + "\n".join(violations)
     )
 
 
@@ -1166,7 +1116,6 @@ async def test_health_check_service_fails_closed_when_index_state_is_missing():
 def test_route_protocol_surfaces_are_specific():
     from agent.protocols import AgentGroupStoreCompatibility, AgentInspection
     from common.protocols import (
-        A2ATaskStatusReader,
         RoomRouteReader,
         SSEStateReader,
         WebhookReceiver,
@@ -1175,7 +1124,6 @@ def test_route_protocol_surfaces_are_specific():
     for protocol in (
         AgentInspection,
         AgentGroupStoreCompatibility,
-        A2ATaskStatusReader,
         RoomRouteReader,
         SSEStateReader,
         WebhookReceiver,
@@ -1198,16 +1146,9 @@ def test_route_owner_protocols_do_not_expose_any_annotations():
     from typing import Any
 
     from agent.protocols import AgentGroupStoreCompatibility
-    from common.protocols import (
-        A2ATaskStatusReader,
-        APIKeyStore,
-        RoomRouteReader,
-        SSEStateReader,
-    )
+    from common.protocols import RoomRouteReader, SSEStateReader
 
     protocols = (
-        A2ATaskStatusReader,
-        APIKeyStore,
         RoomRouteReader,
         SSEStateReader,
         AgentGroupStoreCompatibility,
@@ -1235,7 +1176,6 @@ def test_route_protocols_do_not_expose_broad_annotations():
     import room.protocols as room_protocols
     from agent.protocols import AgentGroupStoreCompatibility
     from common.protocols import (
-        A2ATaskStatusReader,
         HealthCheck,
         RoomRouteReader,
         SSEStateReader,
@@ -1247,7 +1187,7 @@ def test_route_protocols_do_not_expose_broad_annotations():
         for name in module.__all__
         if isinstance(getattr(module, name, None), type)
     ]
-    protocols.extend([A2ATaskStatusReader, RoomRouteReader, SSEStateReader])
+    protocols.extend([RoomRouteReader, SSEStateReader])
     protocols.append(AgentGroupStoreCompatibility)
     protocols.append(HealthCheck)
     violations: list[str] = []
@@ -1277,46 +1217,23 @@ def test_route_protocols_do_not_expose_broad_annotations():
 def test_platform_route_protocols_do_not_expose_any_or_wildcard_params():
     from typing import Any
 
-    from common.protocols import (
-        APIKeyRateLimiter,
-        FileStorage,
-        GatewayDiscoveryProvider,
-        GatewayService,
-        RateLimiter,
-    )
+    from common.protocols import FileStorage
 
-    protocols = (
-        APIKeyRateLimiter,
-        FileStorage,
-        GatewayDiscoveryProvider,
-        GatewayService,
-        RateLimiter,
-    )
     violations: list[str] = []
-
-    for protocol in protocols:
-        for name, value in protocol.__dict__.items():
-            if not callable(value) or name.startswith("_"):
-                continue
-            signature = inspect.signature(value)
-            if signature.return_annotation in {Any, inspect.Signature.empty}:
-                violations.append(f"{protocol.__name__}.{name} return")
-            if protocol in {GatewayDiscoveryProvider, GatewayService}:
-                if _annotation_contains_broad_object(signature.return_annotation):
-                    violations.append(f"{protocol.__name__}.{name} return")
-            for parameter in signature.parameters.values():
-                if parameter.kind in {
-                    inspect.Parameter.VAR_POSITIONAL,
-                    inspect.Parameter.VAR_KEYWORD,
-                }:
-                    violations.append(f"{protocol.__name__}.{name}.{parameter.name}")
-                if parameter.annotation is Any:
-                    violations.append(f"{protocol.__name__}.{name}.{parameter.name}")
-                if protocol in {GatewayDiscoveryProvider, GatewayService}:
-                    if _annotation_contains_broad_object(parameter.annotation):
-                        violations.append(
-                            f"{protocol.__name__}.{name}.{parameter.name}"
-                        )
+    for name, value in FileStorage.__dict__.items():
+        if not callable(value) or name.startswith("_"):
+            continue
+        signature = inspect.signature(value)
+        if signature.return_annotation in {Any, inspect.Signature.empty}:
+            violations.append(f"FileStorage.{name} return")
+        for parameter in signature.parameters.values():
+            if parameter.kind in {
+                inspect.Parameter.VAR_POSITIONAL,
+                inspect.Parameter.VAR_KEYWORD,
+            }:
+                violations.append(f"FileStorage.{name}.{parameter.name}")
+            if parameter.annotation is Any:
+                violations.append(f"FileStorage.{name}.{parameter.name}")
 
     assert not violations, (
         "Platform route protocols expose broad shapes:\n" + "\n".join(violations)

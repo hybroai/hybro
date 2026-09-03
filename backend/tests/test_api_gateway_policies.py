@@ -25,12 +25,6 @@ def test_route_policy_matrix_matches_fixture():
     assert current == _fixture_matrix()
 
 
-def test_open_cors_groups_are_explicitly_limited():
-    from api_gateway.policies import open_cors_groups
-
-    assert open_cors_groups() == frozenset({"discovery", "platform_gateway"})
-
-
 def test_every_public_route_group_has_policy():
     from api_gateway.policies import ROUTE_POLICIES
     from api_gateway.registry import route_group_for_path
@@ -54,8 +48,6 @@ def test_route_group_matching_is_segment_bounded():
     assert route_group_for_path("/api/v1/local-agents/discovery") == "agent"
     assert route_group_for_path("/api/v1/agent/getAgent/abc") == "agent"
     assert route_group_for_path("/api/v1/agentGroups") == "agent_group"
-    assert route_group_for_path("/api/v1/rooms/abc/a2a-tasks") == "a2a_task"
-
     assert route_group_for_path("/api/v1/local-agents-something") == "unknown"
     assert route_group_for_path("/api/v1/agentGroups-v2") == "unknown"
     assert route_group_for_path("/api/v1/agentish") == "unknown"

@@ -25,7 +25,7 @@ export function useAgentCatalog(userId?: string, getToken?: () => Promise<string
     enabled: !!userId,
     queryFn: async ({ signal }): Promise<Agent[]> => {
       try {
-        const res = await getAllAgents(signal, 15000, getToken)
+        const res = await getAllAgents({ signal, timeoutMs: 15000, getToken })
         if (!res.success || !res.agents) {
           throw new Error(res.error || 'Failed to load agents')
         }

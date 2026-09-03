@@ -1,9 +1,0 @@
-[
-  {"methods": ["POST"], "path": "/relay/hub/register"},
-  {"methods": ["GET"], "path": "/relay/hub/{hub_id}/events"},
-  {"methods": ["POST"], "path": "/relay/hub/{hub_id}/publish"},
-  {"methods": ["POST"], "path": "/relay/hub/{hub_id}/agents/sync"},
-  {"methods": ["GET"], "path": "/relay/hub/status"},
-  {"methods": ["POST"], "path": "/relay/hub/{hub_id}/heartbeat"},
-  {"methods": ["GET"], "path": "/hub/my-status"}
-]

@@ -1,37 +1,32 @@
-# Repository Guidelines
+# Backend Rules
 
-## Project Structure & Module Organization
+These rules apply to `backend/` in addition to the repository-root `AGENTS.md`.
 
-This directory is the current repository's canonical Python FastAPI backend. All backend references in these instructions refer to this `backend/` directory. The app entry points are `main.py`, `__main__.py`, and the console script `hybro-backend`. HTTP route adapters live only in `api_gateway/`; do not recreate the removed `api/` compatibility package. Domain modules are organized by capability, including `agent/`, `room/`, `execution/`, `delivery/`, `context_memory/`, `hub_runtime_bridge/`, and `llm_gateway/`. Shared contracts are in `common/`, persistence adapters in `dal/`, room-owned content storage in `room_files/`, background tasks in `jobs/`, helpers in `scripts/`, and current architecture notes in `docs/System-Architecture.md`. Tests live in `tests/`.
+## Structure and Conventions
 
-## Build, Test, and Development Commands
+- This is the canonical Python 3.12 FastAPI backend.
+- Keep HTTP routes in `api_gateway/` thin; put business behavior in existing domain, service, facade, repository, translator, or orchestration modules.
+- Shared contracts live in `common/`, persistence adapters in `dal/`, remote A2A protocol and transport adapters in `a2a_adapter/`, and tests in `tests/`.
+- A2A response ingestion and finalization remain owned by `execution/`.
+- Use explicit type hints and async I/O. Follow Ruff's configured 88-character line length and existing naming conventions.
 
-- From the monorepo root, `docker compose up -d --build` starts the local product stack.
-- `uv sync`: install dependencies from `uv.lock`.
-- `uv sync --extra dev`: install runtime and development test dependencies.
-- `uvicorn main:app --reload`: run the API locally at `http://localhost:8000`.
-- `uv run pytest`: run the full test suite.
-- `uv run pytest tests/test_agent_repository.py`: run one focused test file.
-- `uv run ruff check .`: lint imports, bugbear rules, pyupgrade checks, and complexity.
-- `uv run ruff format .`: format Python code with the configured Ruff formatter.
+## Commands
 
-## Coding Style & Naming Conventions
+Run from `backend/`:
 
-Use Python 3.12+ and prefer explicit, typed, async-aware code for I/O paths. Ruff targets Python 3.12, uses an 88-character line length, and enforces `E`, `F`, `B`, `I`, `UP`, and `C90` while ignoring `E501`. Name modules and functions with `snake_case`, classes with `PascalCase`, and tests with `test_*`. Keep route/viewset code thin; put business behavior in service, facade, repository, or translator modules.
+```bash
+uv sync --extra dev
+uv run pytest
+uv run ruff format --check .
+uv run ruff check .
+```
 
-## Testing Guidelines
+Run focused tests for the changed path before broader suites. If formatting fails, run `uv run ruff format .`, then repeat both Ruff gates.
 
-Pytest is configured in `pyproject.toml` with `tests/` as the test root, `test_*.py` files, `Test*` classes, and `test_*` functions. Async tests run with `pytest-asyncio` in auto mode. Supported markers are `core` for the critical product-flow baseline, `integration` for tests requiring an explicitly configured external service, and `asyncio` for explicit async marking where needed. Add focused tests next to related coverage patterns, for example `tests/test_api_gateway_*.py` for gateway behavior or `tests/test_module_*.py` for module boundary checks. See `tests/README.md` for test lanes and cleanup conventions.
+When adding, removing, or renaming a public method on a `Protocol`, repository port, facade port, or compatibility interface, update the relevant exact method inventory in `tests/test_common_foundation.py` and run:
 
-## Architecture Documentation
+```bash
+uv run pytest tests/test_common_foundation.py::test_protocol_methods_match_design_doc
+```
 
-After completing code changes, update architecture documentation within the `docs/` folder. Use `docs/System-Architecture.md` for system-level changes and other files in `docs/` for module-specific decisions, migrations, or design notes.
-Do not commit `docs/superpowers/` or superpowers planning documents unless explicitly requested.
-
-## Commit & Pull Request Guidelines
-
-Recent history uses short imperative commits plus prefixes such as `docs:`, `chore:`, `test:`, and `refactor(scope):`. Keep messages specific, for example `test: cover relay cancellation path`. Pull requests should include a summary, linked issue or context, test evidence, and API or migration notes when behavior, schemas, or persistence change.
-
-## Security & Configuration Tips
-
-Copy the repo-root `.env.example` to `.env` for local configuration and never commit secrets; `.env*` is ignored except `.env.example`. Keep generated logs, caches, coverage output, and virtual environments out of commits.
+For API contract changes, update affected route/schema tests and the tracked `openapi.json` snapshot. Review `docs/System-Architecture.md` for architecture-impacting changes and `tests/README.md` for test lanes and cleanup conventions.

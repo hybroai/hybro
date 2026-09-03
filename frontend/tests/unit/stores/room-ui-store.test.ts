@@ -14,7 +14,6 @@ describe('RoomUiStore', () => {
       expect(f.sending).toBe(false)
       expect(f.processing).toBe(false)
       expect(f.cancelling).toBe(false)
-      expect(f.updatingRoom).toBe(false)
       expect(f.sseEnabled).toBe(true)
       expect(f.sseConnected).toBe(false)
       expect(f.sseError).toBeNull()
@@ -35,11 +34,6 @@ describe('RoomUiStore', () => {
     it('should update cancelling flag', () => {
       useRoomUiStore.getState().setCancelling('room-1', true)
       expect(flags().cancelling).toBe(true)
-    })
-
-    it('should update updatingRoom flag', () => {
-      useRoomUiStore.getState().setUpdatingRoom('room-1', true)
-      expect(flags().updatingRoom).toBe(true)
     })
 
     it('should update SSE flags', () => {
@@ -85,7 +79,6 @@ describe('RoomUiStore', () => {
       store.setSending('room-1', true)
       store.setProcessing('room-1', true)
       store.setCancelling('room-1', true)
-      store.setUpdatingRoom('room-1', true)
       store.setSseEnabled('room-1', false)
       store.setSseConnected('room-1', true)
       store.setSseError('room-1', 'error')
@@ -97,7 +90,6 @@ describe('RoomUiStore', () => {
       expect(f.sending).toBe(false)
       expect(f.processing).toBe(false)
       expect(f.cancelling).toBe(false)
-      expect(f.updatingRoom).toBe(false)
       expect(f.sseEnabled).toBe(true)
       expect(f.sseConnected).toBe(false)
       expect(f.sseError).toBeNull()

@@ -51,7 +51,7 @@ async def travel_planner_agent_id(functional_client: httpx.AsyncClient) -> str:
     """Resolves the live Travel Planner Agent ID, polling until registered."""
     for _ in range(20):
         try:
-            resp = await functional_client.get("/agent/getAllActiveAgents")
+            resp = await functional_client.get("/agent/getAllAgents?active_only=true")
             if resp.status_code == 200:
                 agents = resp.json().get("agents", [])
                 for a in agents:
@@ -70,7 +70,7 @@ async def weather_agent_id(functional_client: httpx.AsyncClient) -> str:
     """Resolves the live Weather Agent ID, polling until registered."""
     for _ in range(20):
         try:
-            resp = await functional_client.get("/agent/getAllActiveAgents")
+            resp = await functional_client.get("/agent/getAllAgents?active_only=true")
             if resp.status_code == 200:
                 agents = resp.json().get("agents", [])
                 for a in agents:
