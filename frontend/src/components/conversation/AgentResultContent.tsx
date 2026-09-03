@@ -33,7 +33,7 @@ export function AgentResultContent({
     <div className="flex flex-col" style={{ gap: 'var(--conversation-gap-block)' }}>
       <AgentCard
         messageId={result.messageId}
-        agentId={result.agentId ?? result.messageId}
+        agentId={result.agentId}
         agentName={result.agentName}
         taskDescription={
           taskDescription

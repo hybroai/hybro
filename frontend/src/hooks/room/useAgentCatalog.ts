@@ -1,10 +1,17 @@
 import { useCallback, useEffect, useMemo, useRef } from 'react'
-import { useQuery } from '@tanstack/react-query'
+import { skipToken, useQuery } from '@tanstack/react-query'
 import { getAllAgents } from '@/lib/api/agent'
 import { SYSTEM_AGENTS } from '@/lib/system-agents'
 import type { Agent } from '@/lib/types/agent'
 
 const AGENT_CATALOG_KEY = ['agents', 'all'] as const
+
+export function useCachedAgentCatalog(): Agent[] | undefined {
+  return useQuery<Agent[]>({
+    queryKey: AGENT_CATALOG_KEY,
+    queryFn: skipToken,
+  }).data
+}
 
 export function useAgentCatalog(userId?: string, getToken?: () => Promise<string | null>) {
   const agentNameCache = useRef<{ [agentId: string]: string }>({})

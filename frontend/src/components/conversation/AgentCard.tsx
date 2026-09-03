@@ -1,7 +1,7 @@
 'use client'
 
 import Link from 'next/link'
-import { useQueryClient } from '@tanstack/react-query'
+import { useCachedAgentCatalog } from '@/hooks/room/useAgentCatalog'
 import type { AgentDisplayProps, AgentTheme } from '@/lib/selectors/conversation-types'
 import { getAgentAvatarUri } from '@/lib/agent-avatar'
 import { AgentSourceBadge } from '@/components/agent-source-badge'
@@ -28,26 +28,27 @@ interface AgentCardProps {
   lifecycleStatus?: 'running' | 'awaiting_input' | 'completed' | 'failed' | 'canceled'
 }
 
-function useAgentFromCatalog(agentId: string | undefined): Agent | undefined {
-  const qc = useQueryClient()
-  const agents = qc.getQueryData<Agent[]>(['agents', 'all'])
-  return agentId ? agents?.find(a => a.agent_id === agentId) : undefined
+function useAgentFromCatalog(agentId: string | undefined, agentName: string): Agent | undefined {
+  const agents = useCachedAgentCatalog()
+  if (agentId) return agents?.find(a => a.agent_id === agentId)
+
+  const matchingAgents = agents?.filter(a => a.agent_card.name === agentName)
+  return matchingAgents?.length === 1 ? matchingAgents[0] : undefined
 }
 
 function AgentAvatar({
-  agentId,
+  avatarId,
+  iconUrl,
   theme,
   isAnimated,
   compact,
 }: {
-  agentId: string
+  avatarId: string
+  iconUrl?: string
   theme: AgentTheme
   isAnimated?: boolean
   compact?: boolean
 }) {
-  const catalogAgent = useAgentFromCatalog(agentId)
-  const iconUrl = catalogAgent?.agent_card?.iconUrl || undefined
-
   return (
     <div className={cn('shrink-0 relative', compact ? 'w-6 h-6' : 'w-8 h-8', isAnimated && 'conversation-avatar-working')}>
       <div
@@ -67,7 +68,7 @@ function AgentAvatar({
           />
         ) : null}
         <img
-          src={getAgentAvatarUri(agentId)}
+          src={getAgentAvatarUri(avatarId)}
           alt=""
           className="w-full h-full"
           style={{ display: iconUrl ? 'none' : 'block' }}
@@ -93,7 +94,9 @@ export function AgentCard({
   statusSuffix,
   lifecycleStatus,
 }: AgentCardProps) {
-  const catalogAgent = useAgentFromCatalog(agentId)
+  const catalogAgent = useAgentFromCatalog(agentId, agentName)
+  const profileAgentId = agentId ?? catalogAgent?.agent_id
+  const iconUrl = catalogAgent?.agent_card?.iconUrl || undefined
   const isHubOnline = catalogAgent?.is_hub_online
 
   const toneColors: Record<AgentDisplayProps['tone'], string> = {
@@ -126,13 +129,23 @@ export function AgentCard({
       : 'none',
   }
   const content = (
-    <>
-      <div className={cn('flex items-center gap-2.5', compact && 'gap-2')} style={{ position: 'relative', zIndex: 1 }}>
-        <AgentAvatar agentId={agentId ?? agentName} theme={theme} isAnimated={display.isAnimated} compact={compact} />
-        {agentId && !canOpen ? (
+    <div className={cn('relative z-[1]', canOpen && 'pointer-events-none')}>
+      <div className={cn('flex items-center gap-2.5', compact && 'gap-2')}>
+        {profileAgentId ? (
           <Link
-            href={`/agents/${encodeURIComponent(agentId)}`}
-            className="text-[13px] font-medium hover:underline focus-visible:outline-none"
+            href={`/agents/${encodeURIComponent(profileAgentId)}`}
+            aria-label={`View ${agentName} profile`}
+            className="pointer-events-auto block shrink-0 rounded-[var(--chat-input-radius)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-300/35"
+          >
+            <AgentAvatar avatarId={profileAgentId} iconUrl={iconUrl} theme={theme} isAnimated={display.isAnimated} compact={compact} />
+          </Link>
+        ) : (
+          <AgentAvatar avatarId={agentName} iconUrl={iconUrl} theme={theme} isAnimated={display.isAnimated} compact={compact} />
+        )}
+        {profileAgentId ? (
+          <Link
+            href={`/agents/${encodeURIComponent(profileAgentId)}`}
+            className="pointer-events-auto text-[13px] font-medium hover:underline focus-visible:outline-none"
             style={{ color: 'var(--conversation-text-primary)' }}
           >
             {agentName}
@@ -162,38 +175,21 @@ export function AgentCard({
           {compact && statusSuffix ? ` · ${statusSuffix}` : null}
         </span>
         {rightAction && (
-          <span className="conversation-agent-card-action">
+          <span className="conversation-agent-card-action pointer-events-auto">
             {rightAction}
           </span>
         )}
       </div>
       {!compact && taskDescription && (
-        <div className="conversation-agent-task-row flex items-start gap-1.5 pl-[42px]" style={{ position: 'relative', zIndex: 1 }}>
+        <div className="conversation-agent-task-row flex items-start gap-1.5 pl-[42px]">
           <span className="text-sm leading-none mt-px shrink-0" style={{ color: 'var(--conversation-text-dim)' }}>&#x2514;</span>
           <span className="conversation-agent-task-text text-[13px] font-medium truncate" style={{ color: 'var(--conversation-text-primary)' }}>
             {taskDescription}
           </span>
         </div>
       )}
-    </>
+    </div>
   )
-
-  if (canOpen) {
-    return (
-      <button
-        type="button"
-        aria-label={`${selected ? 'Close' : 'Open'} ${agentName} response`}
-        data-call-id={messageId?.split(':').at(-1)}
-        data-status={lifecycleStatus}
-        data-selected={selected ? 'true' : undefined}
-        className={className}
-        style={style}
-        onClick={() => onOpen(messageId)}
-      >
-        {content}
-      </button>
-    )
-  }
 
   return (
     <div
@@ -203,6 +199,14 @@ export function AgentCard({
       className={className}
       style={style}
     >
+      {canOpen && (
+        <button
+          type="button"
+          aria-label={`${selected ? 'Close' : 'Open'} ${agentName} response`}
+          className="absolute inset-0 z-0 w-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-cyan-300/35"
+          onClick={() => onOpen?.(messageId!)}
+        />
+      )}
       {content}
     </div>
   )
