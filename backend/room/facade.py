@@ -173,6 +173,19 @@ class RoomFacade:
         updated = await self._repository.update_fields(room_id, dict(updates))
         return room_info_from_doc(updated) if updated is not None else None
 
+    async def update_room_default_mode(
+        self,
+        room_id: str,
+        *,
+        use_supervisor: bool,
+    ) -> bool:
+        """Atomically update only the persisted room-mode flag."""
+        updated = await self._repository.update_fields(
+            room_id,
+            {"extend_info.use_supervisor": use_supervisor},
+        )
+        return updated is not None
+
     async def update_membership(
         self, room_id: str, request: MembershipUpdateRequest
     ) -> RoomInfo:

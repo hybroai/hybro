@@ -144,10 +144,12 @@ def test_agent_registered(agent_id: str) -> None:
         _fail_missing_stack(f"{agent_id} not reachable; cannot compare registration")
     expected_name = card.get("name")
 
-    resp = requests.get(f"{BACKEND_URL}{API_PREFIX}/agents", timeout=15)
+    resp = requests.get(
+        f"{BACKEND_URL}{API_PREFIX}/agent/getAllAgents", timeout=15
+    )
     assert resp.status_code == 200, f"HTTP {resp.status_code}: {resp.text[:300]}"
     data = resp.json()
-    items = data.get("items", data) if isinstance(data, dict) else data
+    items = data.get("agents", data) if isinstance(data, dict) else data
     names = []
     for item in items or []:
         if not isinstance(item, dict):

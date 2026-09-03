@@ -58,10 +58,7 @@ def test_api_gateway_does_not_import_forbidden_concrete_modules():
 
 def test_gateway_routes_import_only_module_protocol_surfaces():
     violations = []
-    paths = [
-        *Path("api_gateway/routes").glob("*.py"),
-        *Path("api_gateway/viewsets").glob("*.py"),
-    ]
+    paths = list(Path("api_gateway/routes").glob("*.py"))
 
     for path in sorted(paths):
         tree = ast.parse(path.read_text(), filename=str(path))
@@ -104,7 +101,6 @@ def test_gateway_route_modules_do_not_hold_business_dependency_globals():
         "hub_relay_service",
         "inspection_center",
         "relay_service",
-        "repository_provider",
         "room_center",
         "room_ownership_reader",
         "room_store",
@@ -113,10 +109,7 @@ def test_gateway_route_modules_do_not_hold_business_dependency_globals():
         "task_store",
         "webhook_receiver",
     }
-    paths = [
-        *Path("api_gateway/routes").glob("*.py"),
-        *Path("api_gateway/viewsets").glob("*.py"),
-    ]
+    paths = list(Path("api_gateway/routes").glob("*.py"))
     violations: list[str] = []
 
     for path in sorted(paths):
@@ -158,8 +151,6 @@ def test_container_does_not_call_route_level_dependency_binders():
         ".bind_room_dependencies(",
         ".bind_room_ownership_reader(",
         ".bind_sse_dependencies(",
-        ".bind_viewset_dependencies(",
-        ".bind_agent_viewset_dependencies(",
         ".bind_webhook_dependencies(",
     )
     source = Path("container.py").read_text()
@@ -233,7 +224,7 @@ def test_room_route_owner_protocol_covers_room_route_calls():
         "inquiry_active_runs",
         "update_room_agent_set",
         "update_room_name",
-        "update_room_extend_info",
+        "update_room_default_mode",
     }
 
     assert required_methods.issubset(set(protocols.RoomCenterCompatibility.__dict__))
@@ -248,7 +239,6 @@ def test_api_gateway_packages_are_registered_for_distribution():
     assert {
         "api_gateway",
         "api_gateway.routes",
-        "api_gateway.viewsets",
         "common.client",
         "common.middleware",
         "common.server",

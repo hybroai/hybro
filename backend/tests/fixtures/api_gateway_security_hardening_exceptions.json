@@ -1,39 +1,5 @@
 [
   {
-    "path": "/api/v1/agents",
-    "methods": [
-      "GET"
-    ],
-    "name": "list_endpoint",
-    "reason": "Agent ViewSet reads intentionally filter private agents to public-or-owned results and mask direct agent_card URLs.",
-    "expected_contract": {
-      "dependencies": [
-        "get_optional_user",
-        "get_viewset_repository"
-      ],
-      "auth_dependencies": [
-        "get_optional_user"
-      ]
-    }
-  },
-  {
-    "path": "/api/v1/agents/{item_id}",
-    "methods": [
-      "GET"
-    ],
-    "name": "retrieve_endpoint",
-    "reason": "Agent ViewSet reads intentionally reject private agents for non-owners and mask direct agent_card URLs.",
-    "expected_contract": {
-      "dependencies": [
-        "get_optional_user",
-        "get_viewset_repository"
-      ],
-      "auth_dependencies": [
-        "get_optional_user"
-      ]
-    }
-  },
-  {
     "path": "/api/v1/sse/room/{room_id}/status",
     "methods": [
       "GET"

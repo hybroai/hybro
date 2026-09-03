@@ -163,6 +163,31 @@ async def _get_verified_room(
     return room
 
 
+async def _persist_room_mode_if_changed(
+    *,
+    room_id: str,
+    room,
+    mode: str,
+    center: RoomCenterCompatibility,
+) -> None:
+    room_extend_info = getattr(room, "extend_info", None)
+    extend_info = room_extend_info if isinstance(room_extend_info, dict) else {}
+    current_uses_supervisor = extend_info.get("use_supervisor") is not False
+    requested_uses_supervisor = mode == "supervisor"
+    if current_uses_supervisor == requested_uses_supervisor:
+        return
+
+    updated = await center.update_room_default_mode(
+        room_id,
+        use_supervisor=requested_uses_supervisor,
+    )
+    if not updated:
+        raise HTTPException(
+            status_code=500,
+            detail="Failed to persist the room execution mode",
+        )
+
+
 @router.post("/roomCenter/createNewRoom")
 async def create_new_room(
     request: Request,
@@ -264,27 +289,6 @@ async def inquiry_active_runs(
         error=None,
         status_code=200,
     )
-
-
-@router.post("/roomCenter/inquiryRoomsByRoomOwnerId")
-async def inquiry_rooms_by_room_owner_id(
-    request: Request,
-    user: ClerkUser = Depends(get_current_user),
-    center: RoomCenterCompatibility = Depends(get_room_center),
-):
-    request_data = await request.json()
-    room_owner_id = request_data.get("room_owner_id")
-
-    # Verify user is requesting their own rooms
-    if room_owner_id != user.user_id:
-        raise HTTPException(
-            status_code=403, detail="You do not have permission to access these rooms"
-        )
-    room_center_request = RoomCenterRoomSettingRequest(room_owner_id=room_owner_id)
-    room_center_response = await center.inquiry_rooms_by_room_owner_id(
-        room_center_request
-    )
-    return room_center_response
 
 
 @router.get("/roomCenter/history", response_model=RoomHistoryResponse)
@@ -506,28 +510,6 @@ async def update_room_name(
     return room_center_response
 
 
-@router.post("/roomCenter/updateRoomExtendInfo")
-async def update_room_extend_info(
-    request: Request,
-    user: ClerkUser = Depends(get_current_user),
-    store: RoomRouteReader = Depends(get_room_store),
-    center: RoomCenterCompatibility = Depends(get_room_center),
-):
-    """Update room extended info - PROTECTED (requires room ownership)"""
-    request_data = await request.json()
-    room_id = request_data.get("room_id")
-    extend_info = request_data.get("extend_info")
-
-    # Verify user owns the room
-    await verify_room_ownership(room_id, user, store)
-
-    room_center_request = RoomCenterRoomSettingRequest(
-        room_id=room_id, extend_info=extend_info
-    )
-    room_center_response = await center.update_room_extend_info(room_center_request)
-    return room_center_response
-
-
 @router.get(
     "/rooms/{room_id}/agent-calls/{run_id}/{public_call_id}/detail",
     response_model=None,
@@ -590,13 +572,16 @@ async def send_message(
     user: ClerkUser = Depends(get_current_user),
     store: RoomRouteReader = Depends(get_room_store),
     engine: ExecutionEngine = Depends(get_execution_engine),
+    center: RoomCenterCompatibility = Depends(get_room_center),
 ) -> RoomCenterUserMessageResponse:
     """Send message to room - PROTECTED (requires room ownership)
 
     This endpoint:
     1. Creates the user message and generates agent messages
-    2. Automatically queues background processing of agent messages
+    2. Persists a changed request mode as the room's next-message default
+    3. Automatically queues background processing of agent messages
 
+    The mode write completes before a successful acknowledgement is returned.
     The frontend no longer needs to call processRoomUserMessage separately.
     Processing happens atomically to prevent orphaned messages on page refresh.
     """
@@ -746,7 +731,7 @@ async def send_message(
             status_code=400,
         )
 
-    await _get_verified_room(room_id, user, store)
+    room = await _get_verified_room(room_id, user, store)
     mentioned_agent_ids = normalized_scope.get("agent_ids")
     attachments, inline_file_ids, err = _extract_attachments(request_data, message)
     if err is not None:
@@ -781,6 +766,12 @@ async def send_message(
         parent_message_id=related_message_id or None,
         mode=mode,
         agent_scope=normalized_scope,
+    )
+    await _persist_room_mode_if_changed(
+        room_id=room_id,
+        room=room,
+        mode=mode,
+        center=center,
     )
     ack = await engine.execute(execution_request)
     logger.info(

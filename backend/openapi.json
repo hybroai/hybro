@@ -21,328 +21,6 @@
         }
       }
     },
-    "/api/v1/agents": {
-      "get": {
-        "tags": [
-          "agent",
-          "Agents"
-        ],
-        "summary": "List Endpoint",
-        "operationId": "list_endpoint_api_v1_agents_get",
-        "parameters": [
-          {
-            "name": "page",
-            "in": "query",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "integer",
-                  "minimum": 1
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "description": "Page number (1-indexed)",
-              "title": "Page"
-            },
-            "description": "Page number (1-indexed)"
-          },
-          {
-            "name": "limit",
-            "in": "query",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "integer",
-                  "maximum": 100,
-                  "minimum": 1
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "description": "Number of items per page",
-              "title": "Limit"
-            },
-            "description": "Number of items per page"
-          },
-          {
-            "name": "sort_by",
-            "in": "query",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "description": "Field to sort by",
-              "title": "Sort By"
-            },
-            "description": "Field to sort by"
-          },
-          {
-            "name": "sort_order",
-            "in": "query",
-            "required": false,
-            "schema": {
-              "type": "integer",
-              "description": "Sort order: 1 for ascending, -1 for descending",
-              "default": -1,
-              "title": "Sort Order"
-            },
-            "description": "Sort order: 1 for ascending, -1 for descending"
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/PaginatedResponse_AgentResponse_"
-                }
-              }
-            }
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
-          }
-        }
-      },
-      "post": {
-        "tags": [
-          "agent",
-          "Agents"
-        ],
-        "summary": "Create Endpoint",
-        "operationId": "create_endpoint_api_v1_agents_post",
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/AgentCreate"
-              }
-            }
-          }
-        },
-        "responses": {
-          "201": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/AgentResponse"
-                }
-              }
-            }
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/v1/agents/{item_id}": {
-      "get": {
-        "tags": [
-          "agent",
-          "Agents"
-        ],
-        "summary": "Retrieve Endpoint",
-        "operationId": "retrieve_endpoint_api_v1_agents__item_id__get",
-        "parameters": [
-          {
-            "name": "item_id",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "title": "Item Id"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/AgentResponse"
-                }
-              }
-            }
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
-          }
-        }
-      },
-      "delete": {
-        "tags": [
-          "agent",
-          "Agents"
-        ],
-        "summary": "Delete Endpoint",
-        "operationId": "delete_endpoint_api_v1_agents__item_id__delete",
-        "parameters": [
-          {
-            "name": "item_id",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "title": "Item Id"
-            }
-          }
-        ],
-        "responses": {
-          "204": {
-            "description": "Successful Response"
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
-          }
-        }
-      },
-      "put": {
-        "tags": [
-          "agent",
-          "Agents"
-        ],
-        "summary": "Update Endpoint",
-        "operationId": "update_endpoint_api_v1_agents__item_id__put",
-        "parameters": [
-          {
-            "name": "item_id",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "title": "Item Id"
-            }
-          }
-        ],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/AgentUpdate"
-              }
-            }
-          }
-        },
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/AgentResponse"
-                }
-              }
-            }
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
-          }
-        }
-      },
-      "patch": {
-        "tags": [
-          "agent",
-          "Agents"
-        ],
-        "summary": "Patch Endpoint",
-        "operationId": "patch_endpoint_api_v1_agents__item_id__patch",
-        "parameters": [
-          {
-            "name": "item_id",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "title": "Item Id"
-            }
-          }
-        ],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/AgentPatch"
-              }
-            }
-          }
-        },
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/AgentResponse"
-                }
-              }
-            }
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
     "/api/v1/local-agents/discovery": {
       "post": {
         "tags": [
@@ -419,57 +97,6 @@
             "content": {
               "application/json": {
                 "schema": {}
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/v1/agent/updateAgent/{agent_id}": {
-      "put": {
-        "tags": [
-          "agent"
-        ],
-        "summary": "Update Agent",
-        "description": "Update an agent's settings - PROTECTED (requires authentication and ownership)\n\nAllows updating agent settings including rate limits:\n- rate_limit_per_user_per_hour: Max requests per user per hour (null = unlimited)\n- rate_limit_system_per_hour: Max total requests per hour (null = unlimited)\n- agent_status: Agent status (active/inactive)",
-        "operationId": "update_agent_api_v1_agent_updateAgent__agent_id__put",
-        "parameters": [
-          {
-            "name": "agent_id",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "title": "Agent Id"
-            }
-          }
-        ],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/AgentSettingsUpdateRequest"
-              }
-            }
-          }
-        },
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            }
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
               }
             }
           }
@@ -745,26 +372,6 @@
         }
       }
     },
-    "/api/v1/agent/getAgentListWithConditions": {
-      "post": {
-        "tags": [
-          "agent"
-        ],
-        "summary": "Get Agent List With Conditions",
-        "description": "Get agents with conditions - PUBLIC (authentication optional)",
-        "operationId": "get_agent_list_with_conditions_api_v1_agent_getAgentListWithConditions_post",
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            }
-          }
-        }
-      }
-    },
     "/api/v1/inspectionCenter/inspectAgentCard": {
       "post": {
         "tags": [
@@ -850,25 +457,6 @@
         "summary": "Inquiry Active Runs",
         "description": "List non-terminal orchestration runs for a room \u2014 same auth as inquiryRoomSetting.",
         "operationId": "inquiry_active_runs_api_v1_roomCenter_inquiryActiveRuns_post",
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/v1/roomCenter/inquiryRoomsByRoomOwnerId": {
-      "post": {
-        "tags": [
-          "room"
-        ],
-        "summary": "Inquiry Rooms By Room Owner Id",
-        "operationId": "inquiry_rooms_by_room_owner_id_api_v1_roomCenter_inquiryRoomsByRoomOwnerId_post",
         "responses": {
           "200": {
             "description": "Successful Response",
@@ -1071,20 +659,59 @@
         }
       }
     },
-    "/api/v1/roomCenter/updateRoomExtendInfo": {
-      "post": {
+    "/api/v1/rooms/{room_id}/agent-calls/{run_id}/{public_call_id}/detail": {
+      "get": {
         "tags": [
           "room"
         ],
-        "summary": "Update Room Extend Info",
-        "description": "Update room extended info - PROTECTED (requires room ownership)",
-        "operationId": "update_room_extend_info_api_v1_roomCenter_updateRoomExtendInfo_post",
+        "summary": "Get Canonical Agent Call Detail",
+        "description": "Return authenticated private Tool output by opaque canonical identity.",
+        "operationId": "get_canonical_agent_call_detail_api_v1_rooms__room_id__agent_calls__run_id___public_call_id__detail_get",
+        "parameters": [
+          {
+            "name": "room_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Room Id"
+            }
+          },
+          {
+            "name": "run_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Run Id"
+            }
+          },
+          {
+            "name": "public_call_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Public Call Id"
+            }
+          }
+        ],
         "responses": {
           "200": {
             "description": "Successful Response",
             "content": {
               "application/json": {
                 "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
               }
             }
           }
@@ -1117,7 +744,7 @@
           "room"
         ],
         "summary": "Send Message",
-        "description": "Send message to room - PROTECTED (requires room ownership)\n\nThis endpoint:\n1. Creates the user message and generates agent messages\n2. Automatically queues background processing of agent messages\n\nThe frontend no longer needs to call processRoomUserMessage separately.\nProcessing happens atomically to prevent orphaned messages on page refresh.",
+        "description": "Send message to room - PROTECTED (requires room ownership)\n\nThis endpoint:\n1. Creates the user message and generates agent messages\n2. Persists a changed request mode as the room's next-message default\n3. Automatically queues background processing of agent messages\n\nThe mode write completes before a successful acknowledgement is returned.\nThe frontend no longer needs to call processRoomUserMessage separately.\nProcessing happens atomically to prevent orphaned messages on page refresh.",
         "operationId": "send_message_api_v1_roomCenter_sendMessage_post",
         "responses": {
           "200": {
@@ -1308,34 +935,13 @@
         }
       }
     },
-    "/api/v1/hub/my-status": {
-      "get": {
-        "tags": [
-          "hub"
-        ],
-        "summary": "Hub Status For User",
-        "operationId": "hub_status_for_user_api_v1_hub_my_status_get",
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HubStatusResponse"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
     "/api/v1/sse/room/{room_id}/stream": {
       "get": {
         "tags": [
           "sse"
         ],
         "summary": "Stream Room Messages",
-        "description": "create SSE message stream for specified room\n\nArgs:\n    room_id: room ID\n    user: Authenticated user (from header or query param token)\n\nReturns:\n    StreamingResponse: SSE stream response",
+        "description": "create SSE message stream for specified room\n\nThe stream is snapshot-driven (Room Stream Snapshot plan \u00a74): the\n``connected`` handshake carries the room's latest contiguous ``room_seq``\nand a ``snapshot`` frame follows as the first frame. ``?snapshot=1``\nforces a fresh fold from the authoritative room event log (gap recovery).\nWithout a bound snapshot service the stream degrades to the legacy\nnotification-driven behavior with an unchanged envelope.\n\nArgs:\n    room_id: room ID\n    user: Authenticated user (from header or query param token)\n\nReturns:\n    StreamingResponse: SSE stream response",
         "operationId": "stream_room_messages_api_v1_sse_room__room_id__stream_get",
         "parameters": [
           {
@@ -1348,6 +954,22 @@
               "title": "Room Id"
             },
             "description": "room ID"
+          },
+          {
+            "name": "snapshot",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Snapshot"
+            }
           }
         ],
         "responses": {
@@ -1391,6 +1013,72 @@
               "title": "Room Id"
             },
             "description": "room ID"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/sse/room/{room_id}/events": {
+      "get": {
+        "tags": [
+          "sse"
+        ],
+        "summary": "Get Room Events",
+        "description": "Replay persisted public room events (Room Stream Snapshot plan \u00a75).\n\nThis is a fallback read path, not a delivery channel: the primary\nlive-recovery path remains re-requesting a snapshot over the stream.\nCold hydration (no ``after`` yet) is ``after=0``. Auth is identical to\nthe SSE stream route.",
+        "operationId": "get_room_events_api_v1_sse_room__room_id__events_get",
+        "parameters": [
+          {
+            "name": "room_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "description": "room ID",
+              "title": "Room Id"
+            },
+            "description": "room ID"
+          },
+          {
+            "name": "after",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 0,
+              "default": 0,
+              "title": "After"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 1000,
+              "minimum": 1,
+              "default": 500,
+              "title": "Limit"
+            }
           }
         ],
         "responses": {
@@ -1849,257 +1537,6 @@
         }
       }
     },
-    "/api/v1/relay/hub/register": {
-      "post": {
-        "tags": [
-          "relay"
-        ],
-        "summary": "Relay Register",
-        "operationId": "relay_register_api_v1_relay_hub_register_post",
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/RegisterHubRequest"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/RegisterHubResponse"
-                }
-              }
-            }
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/v1/relay/hub/{hub_id}/events": {
-      "get": {
-        "tags": [
-          "relay"
-        ],
-        "summary": "Relay Events",
-        "operationId": "relay_events_api_v1_relay_hub__hub_id__events_get",
-        "parameters": [
-          {
-            "name": "hub_id",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "title": "Hub Id"
-            }
-          },
-          {
-            "name": "last_event_id",
-            "in": "query",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Last Event Id"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            }
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/v1/relay/hub/{hub_id}/publish": {
-      "post": {
-        "tags": [
-          "relay"
-        ],
-        "summary": "Relay Publish",
-        "operationId": "relay_publish_api_v1_relay_hub__hub_id__publish_post",
-        "parameters": [
-          {
-            "name": "hub_id",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "title": "Hub Id"
-            }
-          }
-        ],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/HubPublishRequest"
-              }
-            }
-          }
-        },
-        "responses": {
-          "204": {
-            "description": "Successful Response"
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/v1/relay/hub/{hub_id}/agents/sync": {
-      "post": {
-        "tags": [
-          "relay"
-        ],
-        "summary": "Relay Sync Agents",
-        "operationId": "relay_sync_agents_api_v1_relay_hub__hub_id__agents_sync_post",
-        "parameters": [
-          {
-            "name": "hub_id",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "title": "Hub Id"
-            }
-          }
-        ],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/HubAgentSyncRequest"
-              }
-            }
-          }
-        },
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HubAgentSyncResponse"
-                }
-              }
-            }
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/v1/relay/hub/status": {
-      "get": {
-        "tags": [
-          "relay"
-        ],
-        "summary": "Relay Status",
-        "operationId": "relay_status_api_v1_relay_hub_status_get",
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HubStatusResponse"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/v1/relay/hub/{hub_id}/heartbeat": {
-      "post": {
-        "tags": [
-          "relay"
-        ],
-        "summary": "Relay Heartbeat",
-        "description": "Lightweight liveness signal from the hub daemon.",
-        "operationId": "relay_heartbeat_api_v1_relay_hub__hub_id__heartbeat_post",
-        "parameters": [
-          {
-            "name": "hub_id",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "title": "Hub Id"
-            }
-          }
-        ],
-        "responses": {
-          "204": {
-            "description": "Successful Response"
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
     "/api/v1/webhooks/a2a/{message_id}": {
       "post": {
         "tags": [
@@ -2164,875 +1601,6 @@
   },
   "components": {
     "schemas": {
-      "AgentAuthentication": {
-        "properties": {
-          "schemes": {
-            "items": {
-              "type": "string"
-            },
-            "type": "array",
-            "title": "Schemes"
-          },
-          "credentials": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Credentials"
-          }
-        },
-        "type": "object",
-        "required": [
-          "schemes"
-        ],
-        "title": "AgentAuthentication"
-      },
-      "AgentCapabilities": {
-        "properties": {
-          "streaming": {
-            "anyOf": [
-              {
-                "type": "boolean"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Streaming",
-            "default": false
-          },
-          "pushNotifications": {
-            "anyOf": [
-              {
-                "type": "boolean"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Pushnotifications",
-            "default": false
-          },
-          "stateTransitionHistory": {
-            "anyOf": [
-              {
-                "type": "boolean"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Statetransitionhistory",
-            "default": false
-          },
-          "extensions": {
-            "anyOf": [
-              {
-                "items": {
-                  "additionalProperties": true,
-                  "type": "object"
-                },
-                "type": "array"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Extensions"
-          }
-        },
-        "type": "object",
-        "title": "AgentCapabilities"
-      },
-      "AgentCard": {
-        "properties": {
-          "name": {
-            "type": "string",
-            "title": "Name"
-          },
-          "description": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Description"
-          },
-          "url": {
-            "type": "string",
-            "title": "Url"
-          },
-          "provider": {
-            "anyOf": [
-              {
-                "$ref": "#/components/schemas/AgentProvider"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
-          "version": {
-            "type": "string",
-            "title": "Version"
-          },
-          "documentationUrl": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Documentationurl"
-          },
-          "iconUrl": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Iconurl"
-          },
-          "capabilities": {
-            "$ref": "#/components/schemas/AgentCapabilities"
-          },
-          "authentication": {
-            "anyOf": [
-              {
-                "$ref": "#/components/schemas/AgentAuthentication"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
-          "defaultInputModes": {
-            "items": {
-              "type": "string"
-            },
-            "type": "array",
-            "title": "Defaultinputmodes",
-            "default": [
-              "text"
-            ]
-          },
-          "defaultOutputModes": {
-            "items": {
-              "type": "string"
-            },
-            "type": "array",
-            "title": "Defaultoutputmodes",
-            "default": [
-              "text"
-            ]
-          },
-          "skills": {
-            "items": {
-              "$ref": "#/components/schemas/AgentSkill"
-            },
-            "type": "array",
-            "title": "Skills"
-          },
-          "protocolVersion": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Protocolversion"
-          },
-          "preferredTransport": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Preferredtransport"
-          },
-          "additionalInterfaces": {
-            "anyOf": [
-              {
-                "items": {
-                  "additionalProperties": true,
-                  "type": "object"
-                },
-                "type": "array"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Additionalinterfaces"
-          },
-          "security": {
-            "anyOf": [
-              {
-                "items": {
-                  "additionalProperties": {
-                    "items": {
-                      "type": "string"
-                    },
-                    "type": "array"
-                  },
-                  "type": "object"
-                },
-                "type": "array"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Security"
-          },
-          "securitySchemes": {
-            "anyOf": [
-              {
-                "additionalProperties": true,
-                "type": "object"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Securityschemes"
-          },
-          "signatures": {
-            "anyOf": [
-              {
-                "items": {
-                  "additionalProperties": true,
-                  "type": "object"
-                },
-                "type": "array"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Signatures"
-          },
-          "supportsAuthenticatedExtendedCard": {
-            "anyOf": [
-              {
-                "type": "boolean"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Supportsauthenticatedextendedcard"
-          }
-        },
-        "type": "object",
-        "required": [
-          "name",
-          "url",
-          "version",
-          "capabilities",
-          "skills"
-        ],
-        "title": "AgentCard"
-      },
-      "AgentCreate": {
-        "properties": {
-          "agent_url": {
-            "type": "string",
-            "title": "Agent Url"
-          },
-          "agent_card": {
-            "$ref": "#/components/schemas/AgentCard"
-          },
-          "call_count": {
-            "anyOf": [
-              {
-                "type": "integer"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Call Count",
-            "default": 0
-          },
-          "call_success_count": {
-            "anyOf": [
-              {
-                "type": "integer"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Call Success Count",
-            "default": 0
-          },
-          "like_count": {
-            "anyOf": [
-              {
-                "type": "integer"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Like Count",
-            "default": 0
-          },
-          "dislike_count": {
-            "anyOf": [
-              {
-                "type": "integer"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Dislike Count",
-            "default": 0
-          },
-          "agent_status": {
-            "anyOf": [
-              {
-                "$ref": "#/components/schemas/AgentStatus"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
-          "rate_limit_per_user_per_hour": {
-            "anyOf": [
-              {
-                "type": "integer"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Rate Limit Per User Per Hour"
-          },
-          "rate_limit_system_per_hour": {
-            "anyOf": [
-              {
-                "type": "integer"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Rate Limit System Per Hour"
-          },
-          "is_public": {
-            "anyOf": [
-              {
-                "type": "boolean"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Is Public"
-          },
-          "agent_id": {
-            "anyOf": [
-              {
-                "type": "string",
-                "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Agent Id",
-            "description": "Must be a valid UUID string"
-          }
-        },
-        "type": "object",
-        "required": [
-          "agent_url",
-          "agent_card"
-        ],
-        "title": "AgentCreate"
-      },
-      "AgentPatch": {
-        "properties": {
-          "agent_url": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Agent Url"
-          },
-          "agent_card": {
-            "anyOf": [
-              {
-                "$ref": "#/components/schemas/AgentCard"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
-          "call_count": {
-            "anyOf": [
-              {
-                "type": "integer"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Call Count",
-            "default": 0
-          },
-          "call_success_count": {
-            "anyOf": [
-              {
-                "type": "integer"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Call Success Count",
-            "default": 0
-          },
-          "like_count": {
-            "anyOf": [
-              {
-                "type": "integer"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Like Count",
-            "default": 0
-          },
-          "dislike_count": {
-            "anyOf": [
-              {
-                "type": "integer"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Dislike Count",
-            "default": 0
-          },
-          "agent_status": {
-            "anyOf": [
-              {
-                "$ref": "#/components/schemas/AgentStatus"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
-          "rate_limit_per_user_per_hour": {
-            "anyOf": [
-              {
-                "type": "integer"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Rate Limit Per User Per Hour"
-          },
-          "rate_limit_system_per_hour": {
-            "anyOf": [
-              {
-                "type": "integer"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Rate Limit System Per Hour"
-          },
-          "is_public": {
-            "anyOf": [
-              {
-                "type": "boolean"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Is Public"
-          }
-        },
-        "type": "object",
-        "title": "AgentPatch"
-      },
-      "AgentProvider": {
-        "properties": {
-          "organization": {
-            "type": "string",
-            "title": "Organization"
-          },
-          "url": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Url"
-          }
-        },
-        "type": "object",
-        "required": [
-          "organization"
-        ],
-        "title": "AgentProvider"
-      },
-      "AgentResponse": {
-        "properties": {
-          "agent_id": {
-            "type": "string",
-            "title": "Agent Id"
-          },
-          "agent_card": {
-            "$ref": "#/components/schemas/AgentCard"
-          },
-          "agent_status": {
-            "$ref": "#/components/schemas/AgentStatus",
-            "default": "active"
-          },
-          "call_count": {
-            "type": "integer",
-            "title": "Call Count",
-            "default": 0
-          },
-          "call_success_count": {
-            "type": "integer",
-            "title": "Call Success Count",
-            "default": 0
-          },
-          "like_count": {
-            "type": "integer",
-            "title": "Like Count",
-            "default": 0
-          },
-          "dislike_count": {
-            "type": "integer",
-            "title": "Dislike Count",
-            "default": 0
-          }
-        },
-        "type": "object",
-        "required": [
-          "agent_id",
-          "agent_card"
-        ],
-        "title": "AgentResponse"
-      },
-      "AgentSettingsUpdateRequest": {
-        "properties": {
-          "rate_limit_per_user_per_hour": {
-            "anyOf": [
-              {
-                "type": "integer"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Rate Limit Per User Per Hour"
-          },
-          "rate_limit_system_per_hour": {
-            "anyOf": [
-              {
-                "type": "integer"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Rate Limit System Per Hour"
-          },
-          "agent_status": {
-            "anyOf": [
-              {
-                "$ref": "#/components/schemas/AgentStatus"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
-          "is_public": {
-            "anyOf": [
-              {
-                "type": "boolean"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Is Public"
-          }
-        },
-        "type": "object",
-        "title": "AgentSettingsUpdateRequest",
-        "description": "Request model for updating agent settings (rate limits, status, visibility)."
-      },
-      "AgentSkill": {
-        "properties": {
-          "id": {
-            "type": "string",
-            "title": "Id"
-          },
-          "name": {
-            "type": "string",
-            "title": "Name"
-          },
-          "description": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Description"
-          },
-          "tags": {
-            "anyOf": [
-              {
-                "items": {
-                  "type": "string"
-                },
-                "type": "array"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Tags"
-          },
-          "examples": {
-            "anyOf": [
-              {
-                "items": {
-                  "type": "string"
-                },
-                "type": "array"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Examples"
-          },
-          "inputModes": {
-            "anyOf": [
-              {
-                "items": {
-                  "type": "string"
-                },
-                "type": "array"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Inputmodes"
-          },
-          "outputModes": {
-            "anyOf": [
-              {
-                "items": {
-                  "type": "string"
-                },
-                "type": "array"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Outputmodes"
-          }
-        },
-        "type": "object",
-        "required": [
-          "id",
-          "name"
-        ],
-        "title": "AgentSkill"
-      },
-      "AgentStatus": {
-        "type": "string",
-        "enum": [
-          "active",
-          "inactive",
-          "deleted"
-        ],
-        "title": "AgentStatus"
-      },
-      "AgentUpdate": {
-        "properties": {
-          "agent_url": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Agent Url"
-          },
-          "agent_card": {
-            "anyOf": [
-              {
-                "$ref": "#/components/schemas/AgentCard"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
-          "call_count": {
-            "anyOf": [
-              {
-                "type": "integer"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Call Count"
-          },
-          "call_success_count": {
-            "anyOf": [
-              {
-                "type": "integer"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Call Success Count"
-          },
-          "like_count": {
-            "anyOf": [
-              {
-                "type": "integer"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Like Count"
-          },
-          "dislike_count": {
-            "anyOf": [
-              {
-                "type": "integer"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Dislike Count"
-          },
-          "agent_status": {
-            "anyOf": [
-              {
-                "$ref": "#/components/schemas/AgentStatus"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
-          "rate_limit_per_user_per_hour": {
-            "anyOf": [
-              {
-                "type": "integer"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Rate Limit Per User Per Hour"
-          },
-          "rate_limit_system_per_hour": {
-            "anyOf": [
-              {
-                "type": "integer"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Rate Limit System Per Hour"
-          },
-          "is_public": {
-            "anyOf": [
-              {
-                "type": "boolean"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Is Public"
-          },
-          "agent_id": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Agent Id"
-          }
-        },
-        "type": "object",
-        "required": [
-          "agent_card",
-          "call_count",
-          "call_success_count",
-          "like_count",
-          "dislike_count",
-          "agent_status",
-          "agent_id"
-        ],
-        "title": "AgentUpdate"
-      },
       "Artifact": {
         "properties": {
           "artifactId": {
@@ -3347,201 +1915,6 @@
         "type": "object",
         "title": "HTTPValidationError"
       },
-      "HubAgentSync": {
-        "properties": {
-          "local_agent_id": {
-            "type": "string",
-            "title": "Local Agent Id"
-          },
-          "name": {
-            "type": "string",
-            "title": "Name"
-          },
-          "description": {
-            "type": "string",
-            "title": "Description"
-          },
-          "capabilities": {
-            "items": {
-              "type": "string"
-            },
-            "type": "array",
-            "title": "Capabilities",
-            "default": []
-          },
-          "agent_card": {
-            "additionalProperties": true,
-            "type": "object",
-            "title": "Agent Card"
-          }
-        },
-        "type": "object",
-        "required": [
-          "local_agent_id",
-          "name",
-          "description",
-          "agent_card"
-        ],
-        "title": "HubAgentSync",
-        "description": "Single agent entry in a sync request."
-      },
-      "HubAgentSyncRequest": {
-        "properties": {
-          "agents": {
-            "items": {
-              "$ref": "#/components/schemas/HubAgentSync"
-            },
-            "type": "array",
-            "title": "Agents"
-          },
-          "prune_missing": {
-            "type": "boolean",
-            "title": "Prune Missing",
-            "default": true
-          }
-        },
-        "type": "object",
-        "required": [
-          "agents"
-        ],
-        "title": "HubAgentSyncRequest",
-        "description": "POST /relay/hub/{hub_id}/agents/sync body."
-      },
-      "HubAgentSyncResponse": {
-        "properties": {
-          "synced": {
-            "items": {
-              "additionalProperties": true,
-              "type": "object"
-            },
-            "type": "array",
-            "title": "Synced"
-          }
-        },
-        "type": "object",
-        "required": [
-          "synced"
-        ],
-        "title": "HubAgentSyncResponse",
-        "description": "Response from the agent sync endpoint."
-      },
-      "HubPublishEvent": {
-        "properties": {
-          "type": {
-            "type": "string",
-            "enum": [
-              "task_submitted",
-              "agent_response",
-              "agent_error",
-              "processing_status",
-              "artifact_update",
-              "task_status",
-              "task_interactive"
-            ],
-            "title": "Type"
-          },
-          "agent_message_id": {
-            "type": "string",
-            "title": "Agent Message Id"
-          },
-          "data": {
-            "additionalProperties": true,
-            "type": "object",
-            "title": "Data"
-          }
-        },
-        "type": "object",
-        "required": [
-          "type",
-          "agent_message_id",
-          "data"
-        ],
-        "title": "HubPublishEvent",
-        "description": "Single event in a publish batch from hub to cloud."
-      },
-      "HubPublishRequest": {
-        "properties": {
-          "room_id": {
-            "type": "string",
-            "title": "Room Id"
-          },
-          "events": {
-            "items": {
-              "$ref": "#/components/schemas/HubPublishEvent"
-            },
-            "type": "array",
-            "title": "Events"
-          }
-        },
-        "type": "object",
-        "required": [
-          "room_id",
-          "events"
-        ],
-        "title": "HubPublishRequest",
-        "description": "POST /relay/hub/{hub_id}/publish body."
-      },
-      "HubStatus": {
-        "properties": {
-          "hub_id": {
-            "type": "string",
-            "title": "Hub Id"
-          },
-          "is_online": {
-            "type": "boolean",
-            "title": "Is Online"
-          },
-          "last_connected_at": {
-            "anyOf": [
-              {
-                "type": "string",
-                "format": "date-time"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Last Connected At"
-          },
-          "agent_count": {
-            "type": "integer",
-            "title": "Agent Count",
-            "default": 0
-          },
-          "active_agent_count": {
-            "type": "integer",
-            "title": "Active Agent Count",
-            "default": 0
-          },
-          "inactive_agent_count": {
-            "type": "integer",
-            "title": "Inactive Agent Count",
-            "default": 0
-          }
-        },
-        "type": "object",
-        "required": [
-          "hub_id",
-          "is_online"
-        ],
-        "title": "HubStatus"
-      },
-      "HubStatusResponse": {
-        "properties": {
-          "hubs": {
-            "items": {
-              "$ref": "#/components/schemas/HubStatus"
-            },
-            "type": "array",
-            "title": "Hubs"
-          }
-        },
-        "type": "object",
-        "required": [
-          "hubs"
-        ],
-        "title": "HubStatusResponse"
-      },
       "LocalAgentDiscoveryResult": {
         "properties": {
           "trigger": {
@@ -3709,64 +2082,6 @@
         ],
         "title": "MessageRole"
       },
-      "PaginatedResponse_AgentResponse_": {
-        "properties": {
-          "items": {
-            "items": {
-              "$ref": "#/components/schemas/AgentResponse"
-            },
-            "type": "array",
-            "title": "Items"
-          },
-          "meta": {
-            "$ref": "#/components/schemas/PaginationMeta"
-          }
-        },
-        "type": "object",
-        "required": [
-          "items",
-          "meta"
-        ],
-        "title": "PaginatedResponse[AgentResponse]"
-      },
-      "PaginationMeta": {
-        "properties": {
-          "page": {
-            "type": "integer",
-            "title": "Page"
-          },
-          "limit": {
-            "type": "integer",
-            "title": "Limit"
-          },
-          "total": {
-            "type": "integer",
-            "title": "Total"
-          },
-          "total_pages": {
-            "type": "integer",
-            "title": "Total Pages"
-          },
-          "has_next": {
-            "type": "boolean",
-            "title": "Has Next"
-          },
-          "has_prev": {
-            "type": "boolean",
-            "title": "Has Prev"
-          }
-        },
-        "type": "object",
-        "required": [
-          "page",
-          "limit",
-          "total",
-          "total_pages",
-          "has_next",
-          "has_prev"
-        ],
-        "title": "PaginationMeta"
-      },
       "Part": {
         "oneOf": [
           {
@@ -3817,37 +2132,6 @@
         ],
         "title": "QuoteSourceKind",
         "description": "Provenance for a quote; dispatch uses snapshot text, not re-resolution."
-      },
-      "RegisterHubRequest": {
-        "properties": {
-          "hub_id": {
-            "type": "string",
-            "title": "Hub Id"
-          }
-        },
-        "type": "object",
-        "required": [
-          "hub_id"
-        ],
-        "title": "RegisterHubRequest"
-      },
-      "RegisterHubResponse": {
-        "properties": {
-          "hub_id": {
-            "type": "string",
-            "title": "Hub Id"
-          },
-          "user_id": {
-            "type": "string",
-            "title": "User Id"
-          }
-        },
-        "type": "object",
-        "required": [
-          "hub_id",
-          "user_id"
-        ],
-        "title": "RegisterHubResponse"
       },
       "RoomArtifactPart": {
         "properties": {

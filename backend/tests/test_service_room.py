@@ -244,9 +244,6 @@ async def test_room_services_bind_facade_delegates_room_lifecycle_methods():
     rename_response = await svc.update_room_name(
         RoomCenterRoomSettingRequest(room_id="r1", room_name="Renamed")
     )
-    extend_response = await svc.update_room_extend_info(
-        RoomCenterRoomSettingRequest(room_id="r1", extend_info={"x": 1})
-    )
     delete_response = await svc.delete_room_by_room_id(
         RoomCenterRoomSettingRequest(room_id="r1", requesting_user_id="owner")
     )
@@ -258,7 +255,6 @@ async def test_room_services_bind_facade_delegates_room_lifecycle_methods():
     assert history_response.room_list[0].room_id == "r1"
     assert replace_response.success is True
     assert rename_response.success is True
-    assert extend_response.success is True
     assert delete_response.success is True
     facade.create_room.assert_awaited_once()
     create_request = facade.create_room.await_args.args[0]
@@ -267,8 +263,7 @@ async def test_room_services_bind_facade_delegates_room_lifecycle_methods():
     facade.list_rooms_for_owner.assert_awaited_once_with("owner")
     facade.list_room_history_for_owner.assert_awaited_once_with("owner", limit=100)
     facade.replace_membership.assert_awaited_once()
-    facade.update_room.assert_any_await("r1", {"room_name": "Renamed"})
-    facade.update_room.assert_any_await("r1", {"extend_info": {"x": 1}})
+    facade.update_room.assert_awaited_once_with("r1", {"room_name": "Renamed"})
     facade.delete_room.assert_awaited_once_with("r1", "owner")
 
 
@@ -355,7 +350,6 @@ def test_room_services_migrated_crud_methods_do_not_keep_legacy_store_branches()
         "inquiry_room_history_by_owner_id": {"get_rooms_by_room_owner_id"},
         "update_room_agent_set": {"get_room_by_room_id", "update_room_by_room_id"},
         "update_room_name": {"get_room_by_room_id", "update_room_by_room_id"},
-        "update_room_extend_info": {"get_room_by_room_id", "update_room_by_room_id"},
     }
     source = _ROOT / "room" / "compat" / "runtime.py"
     tree = ast.parse(source.read_text())

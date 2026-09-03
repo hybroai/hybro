@@ -13,7 +13,6 @@ from api_gateway.dependencies import (
     get_local_agent_discovery,
 )
 from api_gateway.registry import mark_declared_owner as _mark_declared_owner
-from api_gateway.viewsets.agent import AgentViewSet
 from common.auth import (
     ClerkUser,
     get_current_user,
@@ -24,12 +23,9 @@ from common.protocols import AgentRegistry
 from local_agents.models import DiscoveryTrigger, LocalAgentDiscoveryResult
 from local_agents.protocols import LocalAgentDiscovery
 from models.agent import IssueStatus
-from models.request import AgentSettingsUpdateRequest
 from models.response import AgentCenterResponse
 
 router = APIRouter()
-agent_viewset = AgentViewSet()
-router.include_router(agent_viewset.get_router())
 
 
 # ============= PROTECTED ENDPOINTS (Auth Required) =============
@@ -111,41 +107,6 @@ async def delete_agent(
         provider_id=user.user_id,
     )
     if not agent_center_response.success and agent_center_response.status_code in {
-        403,
-        404,
-    }:
-        raise HTTPException(
-            status_code=agent_center_response.status_code,
-            detail=agent_center_response.error,
-        )
-
-    return agent_center_response
-
-
-@router.put("/agent/updateAgent/{agent_id}")
-async def update_agent(
-    agent_id: str,
-    request_body: AgentSettingsUpdateRequest,
-    user: ClerkUser = Depends(get_current_user),
-    center: AgentCenterCompatibility = Depends(get_agent_center),
-):
-    """
-    Update an agent's settings - PROTECTED (requires authentication and ownership)
-
-    Allows updating agent settings including rate limits:
-    - rate_limit_per_user_per_hour: Max requests per user per hour (null = unlimited)
-    - rate_limit_system_per_hour: Max total requests per hour (null = unlimited)
-    - agent_status: Agent status (active/inactive)
-    """
-    if not agent_id or not agent_id.strip():
-        raise HTTPException(status_code=400, detail="agent_id is required")
-    agent_center_response = await center.update_agent_settings_from_route(
-        agent_id=agent_id,
-        provider_id=user.user_id,
-        settings=request_body,
-    )
-    if not agent_center_response.success and agent_center_response.status_code in {
-        400,
         403,
         404,
     }:
@@ -324,18 +285,6 @@ async def get_all_active_agents(
     return await center.list_visible_agents_for_route(
         user_id=user_id,
         active_only=True,
-    )
-
-
-@router.post("/agent/getAgentListWithConditions")
-async def get_agent_list_with_conditions(
-    user: ClerkUser | None = Depends(get_optional_user),
-    center: AgentCenterCompatibility = Depends(get_agent_center),
-):
-    """Get agents with conditions - PUBLIC (authentication optional)"""
-    user_id = user.user_id if user else None
-    return await center.list_agents_with_conditions_for_route(
-        user_id=user_id,
     )
 
 

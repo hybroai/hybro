@@ -154,29 +154,6 @@
       "get_optional_user"
     ],
     "methods": [
-      "POST"
-    ],
-    "module": "api_gateway.routes.agent_routes",
-    "name": "get_agent_list_with_conditions",
-    "openapi_response_codes": [
-      "200"
-    ],
-    "owning_protocol": "agent.protocols.AgentCenterCompatibility",
-    "path": "/api/v1/agent/getAgentListWithConditions",
-    "response_class": null,
-    "response_model": null,
-    "status_code": null,
-    "streaming_response": null
-  },
-  {
-    "auth_dependencies": [
-      "get_optional_user"
-    ],
-    "dependencies": [
-      "get_agent_center",
-      "get_optional_user"
-    ],
-    "methods": [
       "GET"
     ],
     "module": "api_gateway.routes.agent_routes",
@@ -232,30 +209,6 @@
     ],
     "owning_protocol": "agent.protocols.AgentCenterCompatibility",
     "path": "/api/v1/agent/registerAgent",
-    "response_class": null,
-    "response_model": null,
-    "status_code": null,
-    "streaming_response": null
-  },
-  {
-    "auth_dependencies": [
-      "get_current_user"
-    ],
-    "dependencies": [
-      "get_agent_center",
-      "get_current_user"
-    ],
-    "methods": [
-      "PUT"
-    ],
-    "module": "api_gateway.routes.agent_routes",
-    "name": "update_agent",
-    "openapi_response_codes": [
-      "200",
-      "422"
-    ],
-    "owning_protocol": "agent.protocols.AgentCenterCompatibility",
-    "path": "/api/v1/agent/updateAgent/{agent_id}",
     "response_class": null,
     "response_model": null,
     "status_code": null,
@@ -433,154 +386,6 @@
     "path": "/api/v1/agentGroups/{group_id}",
     "response_class": null,
     "response_model": null,
-    "status_code": null,
-    "streaming_response": null
-  },
-  {
-    "auth_dependencies": [
-      "get_optional_user"
-    ],
-    "dependencies": [
-      "get_optional_user",
-      "get_viewset_repository"
-    ],
-    "methods": [
-      "GET"
-    ],
-    "module": "api_gateway.viewsets.agent",
-    "name": "list_endpoint",
-    "openapi_response_codes": [
-      "200",
-      "422"
-    ],
-    "owning_protocol": "common.protocols.ViewSetRepository",
-    "path": "/api/v1/agents",
-    "response_class": null,
-    "response_model": "PaginatedResponse[AgentResponse]",
-    "status_code": null,
-    "streaming_response": null
-  },
-  {
-    "auth_dependencies": [
-      "get_current_user"
-    ],
-    "dependencies": [
-      "get_current_user",
-      "get_viewset_repository",
-      "get_viewset_repository_provider"
-    ],
-    "methods": [
-      "POST"
-    ],
-    "module": "api_gateway.viewsets.agent",
-    "name": "create_endpoint",
-    "openapi_response_codes": [
-      "201",
-      "422"
-    ],
-    "owning_protocol": "common.protocols.ViewSetRepository",
-    "path": "/api/v1/agents",
-    "response_class": null,
-    "response_model": "AgentResponse",
-    "status_code": 201,
-    "streaming_response": null
-  },
-  {
-    "auth_dependencies": [
-      "get_current_user"
-    ],
-    "dependencies": [
-      "get_current_user",
-      "get_viewset_repository",
-      "get_viewset_repository_provider"
-    ],
-    "methods": [
-      "DELETE"
-    ],
-    "module": "api_gateway.viewsets.agent",
-    "name": "delete_endpoint",
-    "openapi_response_codes": [
-      "204",
-      "422"
-    ],
-    "owning_protocol": "common.protocols.ViewSetRepository",
-    "path": "/api/v1/agents/{item_id}",
-    "response_class": null,
-    "response_model": null,
-    "status_code": 204,
-    "streaming_response": null
-  },
-  {
-    "auth_dependencies": [
-      "get_optional_user"
-    ],
-    "dependencies": [
-      "get_optional_user",
-      "get_viewset_repository"
-    ],
-    "methods": [
-      "GET"
-    ],
-    "module": "api_gateway.viewsets.agent",
-    "name": "retrieve_endpoint",
-    "openapi_response_codes": [
-      "200",
-      "422"
-    ],
-    "owning_protocol": "common.protocols.ViewSetRepository",
-    "path": "/api/v1/agents/{item_id}",
-    "response_class": null,
-    "response_model": "AgentResponse",
-    "status_code": null,
-    "streaming_response": null
-  },
-  {
-    "auth_dependencies": [
-      "get_current_user"
-    ],
-    "dependencies": [
-      "get_current_user",
-      "get_viewset_repository",
-      "get_viewset_repository_provider"
-    ],
-    "methods": [
-      "PATCH"
-    ],
-    "module": "api_gateway.viewsets.agent",
-    "name": "patch_endpoint",
-    "openapi_response_codes": [
-      "200",
-      "422"
-    ],
-    "owning_protocol": "common.protocols.ViewSetRepository",
-    "path": "/api/v1/agents/{item_id}",
-    "response_class": null,
-    "response_model": "AgentResponse",
-    "status_code": null,
-    "streaming_response": null
-  },
-  {
-    "auth_dependencies": [
-      "get_current_user"
-    ],
-    "dependencies": [
-      "get_current_user",
-      "get_viewset_repository",
-      "get_viewset_repository_provider"
-    ],
-    "methods": [
-      "PUT"
-    ],
-    "module": "api_gateway.viewsets.agent",
-    "name": "update_endpoint",
-    "openapi_response_codes": [
-      "200",
-      "422"
-    ],
-    "owning_protocol": "common.protocols.ViewSetRepository",
-    "path": "/api/v1/agents/{item_id}",
-    "response_class": null,
-    "response_model": "AgentResponse",
     "status_code": null,
     "streaming_response": null
   },
@@ -930,30 +735,8 @@
     ],
     "dependencies": [
       "get_current_user",
-      "get_room_center"
-    ],
-    "methods": [
-      "POST"
-    ],
-    "module": "api_gateway.routes.room_routes",
-    "name": "inquiry_rooms_by_room_owner_id",
-    "openapi_response_codes": [
-      "200"
-    ],
-    "owning_protocol": "room.protocols.RoomCenterCompatibility",
-    "path": "/api/v1/roomCenter/inquiryRoomsByRoomOwnerId",
-    "response_class": null,
-    "response_model": null,
-    "status_code": null,
-    "streaming_response": null
-  },
-  {
-    "auth_dependencies": [
-      "get_current_user"
-    ],
-    "dependencies": [
-      "get_current_user",
       "get_execution_engine",
+      "get_room_center",
       "get_room_store"
     ],
     "methods": [
@@ -971,7 +754,8 @@
     "status_code": null,
     "streaming_response": null,
     "supporting_protocols": [
-      "common.protocols.RoomRouteReader"
+      "common.protocols.RoomRouteReader",
+      "room.protocols.RoomCenterCompatibility"
     ]
   },
   {
@@ -1016,33 +800,6 @@
     ],
     "owning_protocol": "room.protocols.RoomCenterCompatibility",
     "path": "/api/v1/roomCenter/updateRoomAgentSet",
-    "response_class": null,
-    "response_model": null,
-    "status_code": null,
-    "streaming_response": null,
-    "supporting_protocols": [
-      "common.protocols.RoomRouteReader"
-    ]
-  },
-  {
-    "auth_dependencies": [
-      "get_current_user"
-    ],
-    "dependencies": [
-      "get_current_user",
-      "get_room_center",
-      "get_room_store"
-    ],
-    "methods": [
-      "POST"
-    ],
-    "module": "api_gateway.routes.room_routes",
-    "name": "update_room_extend_info",
-    "openapi_response_codes": [
-      "200"
-    ],
-    "owning_protocol": "room.protocols.RoomCenterCompatibility",
-    "path": "/api/v1/roomCenter/updateRoomExtendInfo",
     "response_class": null,
     "response_model": null,
     "status_code": null,

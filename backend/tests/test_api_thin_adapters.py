@@ -5,7 +5,7 @@ import json
 from dataclasses import fields, is_dataclass
 from pathlib import Path
 from types import SimpleNamespace
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import MagicMock
 
 import pytest
 from fastapi.routing import APIRoute
@@ -127,12 +127,7 @@ def _load_allowlist() -> set[tuple[str, str]]:
 
 
 def _gateway_python_files() -> list[Path]:
-    return sorted(
-        [
-            *Path("api_gateway/routes").glob("*.py"),
-            *Path("api_gateway/viewsets").glob("*.py"),
-        ]
-    )
+    return sorted(Path("api_gateway/routes").glob("*.py"))
 
 
 def _api_import_violations() -> list[str]:
@@ -368,76 +363,6 @@ def test_route_inventory_auth_dependencies_are_only_auth_dependencies():
     )
 
 
-def test_agent_viewset_mutations_require_clerk_auth():
-    from common.auth import get_current_user
-    from main import app
-
-    mutation_methods = {"POST", "PUT", "PATCH", "DELETE"}
-    violations: list[str] = []
-    for route in app.routes:
-        if (
-            not isinstance(route, APIRoute)
-            or route.path not in {"/api/v1/agents", "/api/v1/agents/{item_id}"}
-            or not mutation_methods.intersection(route.methods)
-        ):
-            continue
-        if all(
-            dependency.call is not get_current_user
-            for dependency in route.dependant.dependencies
-        ):
-            methods = ",".join(sorted(mutation_methods.intersection(route.methods)))
-            violations.append(f"{methods} {route.path} {route.name}")
-
-    assert not violations, (
-        "Agent ViewSet mutation routes lack Clerk auth:\n" + "\n".join(violations)
-    )
-
-
-def test_agent_viewset_read_routes_use_optional_user_visibility_dependency():
-    from common.auth import get_optional_user
-    from main import app
-
-    violations = []
-    for route in app.routes:
-        if getattr(route, "path", "") not in {
-            "/api/v1/agents",
-            "/api/v1/agents/{item_id}",
-        } or "GET" not in getattr(route, "methods", set()):
-            continue
-        dependency_calls = {dep.call for dep in route.dependant.dependencies}
-        if get_optional_user not in dependency_calls:
-            violations.append(route.path)
-
-    assert not violations, (
-        "Agent ViewSet read routes lack optional-user visibility dependency:\n"
-        + "\n".join(violations)
-    )
-
-
-@pytest.mark.asyncio
-async def test_agent_viewset_mutations_reject_non_owner(mock_user_2, sample_agent):
-    from fastapi import HTTPException
-
-    from api_gateway.viewsets import base as viewset
-    from api_gateway.viewsets.agent import AgentViewSet
-
-    repo = MagicMock()
-    repo.pk_field = "agent_id"
-    repo.get = AsyncMock(return_value=sample_agent.model_dump(mode="json"))
-    repo.update = AsyncMock()
-    with pytest.raises(HTTPException) as exc_info:
-        await AgentViewSet()._handle_operation(
-            viewset.UPDATE,
-            repo,
-            sample_agent.agent_id,
-            sample_agent,
-            user=mock_user_2,
-        )
-
-    assert exc_info.value.status_code == 403
-    repo.update.assert_not_called()
-
-
 def test_live_routes_do_not_duplicate_clerk_auth_dependency():
     from common.auth import get_current_user
     from main import app
@@ -627,29 +552,6 @@ def test_api_key_management_routes_are_owned_by_store_protocol():
     )
 
 
-def test_agent_viewset_mutations_have_no_external_index_side_effects():
-    routes = json.loads(Path("tests/fixtures/phase9_api_routes.json").read_text())
-    violations: list[str] = []
-
-    for route in routes:
-        if route["path"] not in {"/api/v1/agents", "/api/v1/agents/{item_id}"}:
-            continue
-        mutation_methods = set(route["methods"]) & {"POST", "PUT", "PATCH", "DELETE"}
-        if not mutation_methods:
-            continue
-        supporting = set(route.get("supporting_protocols") or [])
-        if supporting:
-            violations.append(
-                f"{route['path']} {','.join(route['methods'])}: "
-                f"unexpected supporting protocols={sorted(supporting)}"
-            )
-
-    assert not violations, (
-        "Agent mutation routes still declare external index side effects:\n"
-        + "\n".join(violations)
-    )
-
-
 def test_room_center_route_inventory_records_live_protocol_owners():
     routes = json.loads(Path("tests/fixtures/phase9_api_routes.json").read_text())
     by_name = {
@@ -684,13 +586,12 @@ def test_room_center_route_inventory_records_live_protocol_owners():
             "owner": "room.protocols.RoomCenterCompatibility",
             "supporting": {"common.protocols.RoomRouteReader"},
         },
-        "update_room_extend_info": {
-            "owner": "room.protocols.RoomCenterCompatibility",
-            "supporting": {"common.protocols.RoomRouteReader"},
-        },
         "send_message": {
             "owner": "common.protocols.ExecutionEngine",
-            "supporting": {"common.protocols.RoomRouteReader"},
+            "supporting": {
+                "common.protocols.RoomRouteReader",
+                "room.protocols.RoomCenterCompatibility",
+            },
         },
         "suggest_agents": {
             "owner": "agent.protocols.AgentSuggestionService",
@@ -792,51 +693,6 @@ def test_room_active_runs_inventory_records_execution_support():
     )
 
 
-def test_agent_viewset_routes_inject_repository_protocol_not_raw_database():
-    from main import app
-
-    violations: list[str] = []
-    for route in app.routes:
-        if not isinstance(route, APIRoute) or route.path not in {
-            "/api/v1/agents",
-            "/api/v1/agents/{item_id}",
-        }:
-            continue
-        dependencies = sorted(
-            getattr(dependency.call, "__name__", repr(dependency.call))
-            for dependency in route.dependant.dependencies
-        )
-        if "get_viewset_db" in dependencies:
-            violations.append(f"{route.path} {route.name}: raw db dependency")
-        if "get_viewset_repository" not in dependencies:
-            violations.append(
-                f"{route.path} {route.name}: missing repository protocol dependency"
-            )
-
-    assert not violations, (
-        "Agent viewset routes bypass repository protocol:\n" + "\n".join(violations)
-    )
-
-
-def test_viewset_route_adapter_does_not_manage_repository_construction_or_sessions():
-    source = (
-        Path("api_gateway/viewsets/base.py").read_text()
-        + "\n"
-        + Path("api_gateway/viewsets/agent.py").read_text()
-    )
-    forbidden = (
-        "Depends(get_viewset_db)",
-        "db=Depends(",
-        ".client.start_session",
-    )
-    violations = [value for value in forbidden if value in source]
-
-    assert not violations, (
-        "ViewSet route adapters still manage datastore details:\n"
-        + "\n".join(violations)
-    )
-
-
 def test_legacy_410_routes_are_not_bound_to_legacy_execution_centers_at_startup():
     source = Path("main.py").read_text()
     forbidden = (
@@ -864,7 +720,6 @@ def test_route_owner_protocols_match_handler_calls():
         HealthCheck,
         RoomRouteReader,
         SSEStateReader,
-        ViewSetRepository,
         WebhookReceiver,
     )
 
@@ -881,10 +736,8 @@ def test_route_owner_protocols_match_handler_calls():
             "get_agent_card_from_url_for_route",
             "get_agents_by_provider_for_route",
             "get_visible_agent_for_route",
-            "list_agents_with_conditions_for_route",
             "list_visible_agents_for_route",
             "register_agent_from_route",
-            "update_agent_settings_from_route",
         },
         AgentLivenessChecker: {
             "__call__",
@@ -912,14 +765,6 @@ def test_route_owner_protocols_match_handler_calls():
         SSEStateReader: {
             "get_room_by_room_id",
             "get_room_user_message_by_message_id",
-        },
-        ViewSetRepository: {
-            "create",
-            "delete",
-            "get",
-            "get_all",
-            "patch",
-            "update",
         },
         WebhookReceiver: {"authenticate_webhook", "handle_webhook"},
         HealthCheck: {"check"},
@@ -1010,9 +855,6 @@ def test_agent_routes_expose_typed_dependency_providers():
         agent.delete_agent: {
             "center": AgentCenterCompatibility,
         },
-        agent.update_agent: {
-            "center": AgentCenterCompatibility,
-        },
         agent.get_capability_issues: {
             "agent_lookup": AgentRegistry,
             "issue_store": AgentCapabilityIssueStore,
@@ -1032,7 +874,6 @@ def test_agent_routes_expose_typed_dependency_providers():
         },
         agent.get_agent_list: {"center": AgentCenterCompatibility},
         agent.get_all_active_agents: {"center": AgentCenterCompatibility},
-        agent.get_agent_list_with_conditions: {"center": AgentCenterCompatibility},
     }
     missing: list[str] = []
     for handler, expected_params in route_expectations.items():
@@ -1069,17 +910,9 @@ def test_agent_route_inventory_records_live_protocol_owners():
             {"agent.protocols.AgentLivenessChecker"},
         ),
         "get_agent_card_from_url": ("agent.protocols.AgentCenterCompatibility", set()),
-        "get_agent_list_with_conditions": (
-            "agent.protocols.AgentCenterCompatibility",
-            set(),
-        ),
         "get_all_active_agents": ("agent.protocols.AgentCenterCompatibility", set()),
         "get_agent_list": ("agent.protocols.AgentCenterCompatibility", set()),
         "register_agent": ("agent.protocols.AgentCenterCompatibility", set()),
-        "update_agent": (
-            "agent.protocols.AgentCenterCompatibility",
-            set(),
-        ),
         "get_capability_issues": (
             "agent.protocols.AgentCapabilityIssueStore",
             {"common.protocols.AgentRegistry"},
@@ -1336,13 +1169,11 @@ def test_route_protocol_surfaces_are_specific():
         A2ATaskStatusReader,
         RoomRouteReader,
         SSEStateReader,
-        ViewSetRepository,
         WebhookReceiver,
     )
 
     for protocol in (
         AgentInspection,
-        ViewSetRepository,
         AgentGroupStoreCompatibility,
         A2ATaskStatusReader,
         RoomRouteReader,
@@ -1372,7 +1203,6 @@ def test_route_owner_protocols_do_not_expose_any_annotations():
         APIKeyStore,
         RoomRouteReader,
         SSEStateReader,
-        ViewSetRepository,
     )
 
     protocols = (
@@ -1380,7 +1210,6 @@ def test_route_owner_protocols_do_not_expose_any_annotations():
         APIKeyStore,
         RoomRouteReader,
         SSEStateReader,
-        ViewSetRepository,
         AgentGroupStoreCompatibility,
     )
     violations: list[str] = []

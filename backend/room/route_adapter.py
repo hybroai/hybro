@@ -95,10 +95,16 @@ class RoomRouteAdapter:
     ) -> RoomCenterRoomSettingResponse:
         return await self._require_room_services().update_room_history_fields(request)
 
-    async def update_room_extend_info(
-        self, request: RoomCenterRoomSettingRequest
-    ) -> RoomCenterRoomSettingResponse:
-        return await self._require_room_services().update_room_extend_info(request)
+    async def update_room_default_mode(
+        self,
+        room_id: str,
+        *,
+        use_supervisor: bool,
+    ) -> bool:
+        return await self._require_room_services().update_room_default_mode(
+            room_id,
+            use_supervisor=use_supervisor,
+        )
 
     async def inquiry_room_messages_by_room_id(
         self, request: RoomCenterRoomMessageRequest

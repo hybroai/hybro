@@ -1,28 +1,12 @@
 from datetime import datetime
-from typing import Any, Generic, Literal, TypeVar
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field, field_validator
 
 from common.a2a_constants import CommonTaskState
 from common.types import AgentCard
-from models.agent import Agent, AgentStatus, coerce_legacy_agent_card
+from models.agent import Agent, coerce_legacy_agent_card
 from models.room import Room, RoomAgentMessage, RoomMessage, RoomUserMessage
-
-T = TypeVar("T")
-
-
-class PaginationMeta(BaseModel):
-    page: int
-    limit: int
-    total: int
-    total_pages: int
-    has_next: bool
-    has_prev: bool
-
-
-class PaginatedResponse(BaseModel, Generic[T]):
-    items: list[T]
-    meta: PaginationMeta
 
 
 class Step(BaseModel):
@@ -115,34 +99,6 @@ class AgentCenterResponse(BaseModel):
     @classmethod
     def _coerce_agent_card(cls, value: Any) -> Any:
         return coerce_legacy_agent_card(value)
-
-
-class AgentResponse(BaseModel):
-    # Primary identification field
-    agent_id: str
-
-    # Agent card
-    agent_card: AgentCard
-
-    @field_validator("agent_card", mode="before")
-    @classmethod
-    def _coerce_agent_card(cls, value: Any) -> Any:
-        return coerce_legacy_agent_card(value)
-
-    # Agent status
-    agent_status: AgentStatus = AgentStatus.active
-
-    # Count for agent usage
-    call_count: int = 0
-
-    # Count for agent success usage
-    call_success_count: int = 0
-
-    # Like count from user
-    like_count: int = 0
-
-    # Dislike count from user
-    dislike_count: int = 0
 
 
 class ChatResponse(BaseModel):

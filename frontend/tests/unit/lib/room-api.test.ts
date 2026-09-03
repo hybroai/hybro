@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, vi } from 'vitest'
+import { describe, it, expect, beforeEach } from 'vitest'
 import { http, HttpResponse } from 'msw'
 import { server } from '../../setup/msw-server'
 import { errorHandlers } from '../../setup/msw-handlers'
@@ -7,7 +7,6 @@ import {
   createNewRoom,
   inquiryActiveRuns,
   inquiryRoomSetting,
-  inquiryRoomsByRoomOwnerId,
   SendMessage,
   inquiryRoomMessagesByRoomId,
   updateRoomAgentSet,
@@ -116,27 +115,6 @@ describe('Room API', () => {
       expect(result.success).toBe(true)
       expect(result.active_runs).toHaveLength(1)
       expect(capturedBody).toMatchObject({ room_id: 'room-42' })
-    })
-  })
-
-  describe('inquiryRoomsByRoomOwnerId', () => {
-    it('should fetch rooms with correct owner_id', async () => {
-      let capturedBody: Record<string, unknown> | null = null
-      server.use(
-        http.post(`${roomCenter}/inquiryRoomsByRoomOwnerId`, async ({ request }) => {
-          capturedBody = await request.json() as Record<string, unknown>
-          return HttpResponse.json({
-            success: true,
-            room_list: [{ room_id: 'room-1', room_name: 'Room 1' }],
-          })
-        })
-      )
-
-      const result = await inquiryRoomsByRoomOwnerId('user-1')
-
-      expect(result.success).toBe(true)
-      expect(result.room_list).toHaveLength(1)
-      expect(capturedBody).toMatchObject({ room_owner_id: 'user-1' })
     })
   })
 

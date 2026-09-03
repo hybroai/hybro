@@ -169,22 +169,6 @@ export async function inquiryActiveRuns(
   )
 }
 
-// Inquiry rooms by room owner ID
-export async function inquiryRoomsByRoomOwnerId(
-  room_owner_id: string,
-  getToken?: () => Promise<string | null>
-): Promise<RoomCenterRoomSettingResponse> {
-  const requestData: RoomCenterRoomSettingRequest = {
-    room_owner_id
-  }
-
-  return apiPost<RoomCenterRoomSettingResponse>(
-    `${API_BASE_URL}/inquiryRoomsByRoomOwnerId`,
-    requestData,
-    getToken
-  )
-}
-
 export async function updateRoomAgentSet(
   room_id: string,
   room_agent_set: { [k: string]: string },
@@ -229,24 +213,6 @@ export async function updateRoomName(
 
   return apiPost<RoomCenterRoomSettingResponse>(
     `${API_BASE_URL}/updateRoomName`,
-    requestData,
-    getToken
-  )
-}
-
-
-export async function updateRoomExtendInfo(
-  room_id: string,
-  extend_info: { [k: string]: unknown } | null,
-  getToken?: () => Promise<string | null>
-): Promise<RoomCenterRoomSettingResponse> {
-  const requestData: RoomCenterRoomSettingRequest = {
-    room_id,
-    extend_info
-  }
-
-  return apiPost<RoomCenterRoomSettingResponse>(
-    `${API_BASE_URL}/updateRoomExtendInfo`,
     requestData,
     getToken
   )

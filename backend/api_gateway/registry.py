@@ -44,7 +44,7 @@ def route_group_for_path(path: str) -> str:
         or (matches("/rooms") and normalized.endswith("/a2a-tasks"))
     ):
         return "a2a_task"
-    if matches("/agents") or matches("/local-agents"):
+    if matches("/local-agents"):
         return "agent"
     if matches("/api-keys"):
         return "discovery_api_key"

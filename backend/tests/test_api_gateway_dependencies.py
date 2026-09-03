@@ -34,7 +34,6 @@ def _deps(**overrides):
         "execution_engine": MagicMock(),
         "sse_store": MagicMock(),
         "sse_transport": MagicMock(),
-        "repository_provider": MagicMock(),
     }
     values.update(overrides)
     return APIGatewayDeps(**values)
@@ -74,7 +73,6 @@ PROVIDER_FIELD_NAMES = [
     ("get_execution_engine", "execution_engine"),
     ("get_sse_store", "sse_store"),
     ("get_sse_transport", "sse_transport"),
-    ("get_viewset_repository_provider", "repository_provider"),
 ]
 
 

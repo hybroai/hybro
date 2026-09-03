@@ -125,27 +125,6 @@
     "include_in_schema": true
   },
   {
-    "path": "/api/v1/agent/getAgentListWithConditions",
-    "methods": [
-      "POST"
-    ],
-    "name": "get_agent_list_with_conditions",
-    "endpoint_module": "api_gateway.routes.agent_routes",
-    "declared_owner": "api_gateway.routes.agent_routes",
-    "tags": [
-      "agent"
-    ],
-    "status_code": null,
-    "dependencies": [
-      "get_agent_center",
-      "get_optional_user"
-    ],
-    "auth_dependencies": [
-      "get_optional_user"
-    ],
-    "include_in_schema": true
-  },
-  {
     "path": "/api/v1/agent/getAllActiveAgents",
     "methods": [
       "GET"
@@ -205,27 +184,6 @@
     ],
     "auth_dependencies": [
       "get_current_user_or_service"
-    ],
-    "include_in_schema": true
-  },
-  {
-    "path": "/api/v1/agent/updateAgent/{agent_id}",
-    "methods": [
-      "PUT"
-    ],
-    "name": "update_agent",
-    "endpoint_module": "api_gateway.routes.agent_routes",
-    "declared_owner": "api_gateway.routes.agent_routes",
-    "tags": [
-      "agent"
-    ],
-    "status_code": null,
-    "dependencies": [
-      "get_agent_center",
-      "get_current_user"
-    ],
-    "auth_dependencies": [
-      "get_current_user"
     ],
     "include_in_schema": true
   },
@@ -372,142 +330,6 @@
     "dependencies": [
       "get_agent_group_store",
       "get_current_user"
-    ],
-    "auth_dependencies": [
-      "get_current_user"
-    ],
-    "include_in_schema": true
-  },
-  {
-    "path": "/api/v1/agents",
-    "methods": [
-      "GET"
-    ],
-    "name": "list_endpoint",
-    "endpoint_module": "api_gateway.viewsets.agent",
-    "declared_owner": "api_gateway.routes.agent_routes",
-    "tags": [
-      "agent",
-      "Agents"
-    ],
-    "status_code": null,
-    "dependencies": [
-      "get_optional_user",
-      "get_viewset_repository"
-    ],
-    "auth_dependencies": [
-      "get_optional_user"
-    ],
-    "include_in_schema": true
-  },
-  {
-    "path": "/api/v1/agents",
-    "methods": [
-      "POST"
-    ],
-    "name": "create_endpoint",
-    "endpoint_module": "api_gateway.viewsets.agent",
-    "declared_owner": "api_gateway.routes.agent_routes",
-    "tags": [
-      "agent",
-      "Agents"
-    ],
-    "status_code": 201,
-    "dependencies": [
-      "get_current_user",
-      "get_viewset_repository",
-      "get_viewset_repository_provider"
-    ],
-    "auth_dependencies": [
-      "get_current_user"
-    ],
-    "include_in_schema": true
-  },
-  {
-    "path": "/api/v1/agents/{item_id}",
-    "methods": [
-      "DELETE"
-    ],
-    "name": "delete_endpoint",
-    "endpoint_module": "api_gateway.viewsets.agent",
-    "declared_owner": "api_gateway.routes.agent_routes",
-    "tags": [
-      "agent",
-      "Agents"
-    ],
-    "status_code": 204,
-    "dependencies": [
-      "get_current_user",
-      "get_viewset_repository",
-      "get_viewset_repository_provider"
-    ],
-    "auth_dependencies": [
-      "get_current_user"
-    ],
-    "include_in_schema": true
-  },
-  {
-    "path": "/api/v1/agents/{item_id}",
-    "methods": [
-      "GET"
-    ],
-    "name": "retrieve_endpoint",
-    "endpoint_module": "api_gateway.viewsets.agent",
-    "declared_owner": "api_gateway.routes.agent_routes",
-    "tags": [
-      "agent",
-      "Agents"
-    ],
-    "status_code": null,
-    "dependencies": [
-      "get_optional_user",
-      "get_viewset_repository"
-    ],
-    "auth_dependencies": [
-      "get_optional_user"
-    ],
-    "include_in_schema": true
-  },
-  {
-    "path": "/api/v1/agents/{item_id}",
-    "methods": [
-      "PATCH"
-    ],
-    "name": "patch_endpoint",
-    "endpoint_module": "api_gateway.viewsets.agent",
-    "declared_owner": "api_gateway.routes.agent_routes",
-    "tags": [
-      "agent",
-      "Agents"
-    ],
-    "status_code": null,
-    "dependencies": [
-      "get_current_user",
-      "get_viewset_repository",
-      "get_viewset_repository_provider"
-    ],
-    "auth_dependencies": [
-      "get_current_user"
-    ],
-    "include_in_schema": true
-  },
-  {
-    "path": "/api/v1/agents/{item_id}",
-    "methods": [
-      "PUT"
-    ],
-    "name": "update_endpoint",
-    "endpoint_module": "api_gateway.viewsets.agent",
-    "declared_owner": "api_gateway.routes.agent_routes",
-    "tags": [
-      "agent",
-      "Agents"
-    ],
-    "status_code": null,
-    "dependencies": [
-      "get_current_user",
-      "get_viewset_repository",
-      "get_viewset_repository_provider"
     ],
     "auth_dependencies": [
       "get_current_user"
@@ -800,27 +622,6 @@
     "include_in_schema": true
   },
   {
-    "path": "/api/v1/roomCenter/inquiryRoomsByRoomOwnerId",
-    "methods": [
-      "POST"
-    ],
-    "name": "inquiry_rooms_by_room_owner_id",
-    "endpoint_module": "api_gateway.routes.room_routes",
-    "declared_owner": "api_gateway.routes.room_routes",
-    "tags": [
-      "room"
-    ],
-    "status_code": null,
-    "dependencies": [
-      "get_current_user",
-      "get_room_center"
-    ],
-    "auth_dependencies": [
-      "get_current_user"
-    ],
-    "include_in_schema": true
-  },
-  {
     "path": "/api/v1/roomCenter/sendMessage",
     "methods": [
       "POST"
@@ -835,6 +636,7 @@
     "dependencies": [
       "get_current_user",
       "get_execution_engine",
+      "get_room_center",
       "get_room_store"
     ],
     "auth_dependencies": [
@@ -869,28 +671,6 @@
       "POST"
     ],
     "name": "update_room_agent_set",
-    "endpoint_module": "api_gateway.routes.room_routes",
-    "declared_owner": "api_gateway.routes.room_routes",
-    "tags": [
-      "room"
-    ],
-    "status_code": null,
-    "dependencies": [
-      "get_current_user",
-      "get_room_center",
-      "get_room_store"
-    ],
-    "auth_dependencies": [
-      "get_current_user"
-    ],
-    "include_in_schema": true
-  },
-  {
-    "path": "/api/v1/roomCenter/updateRoomExtendInfo",
-    "methods": [
-      "POST"
-    ],
-    "name": "update_room_extend_info",
     "endpoint_module": "api_gateway.routes.room_routes",
     "declared_owner": "api_gateway.routes.room_routes",
     "tags": [

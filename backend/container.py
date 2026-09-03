@@ -16,7 +16,6 @@ from api_gateway.dependencies import (
     bind_api_gateway_deps,
     missing_required_deps,
 )
-from api_gateway.viewsets.repository import DALViewSetRepositoryProvider
 from common.config.settings import settings
 from common.dto import AgentMessageFinal, DeliveryEmitStatus
 from common.eventing import (
@@ -2160,7 +2159,6 @@ async def _runtime_lifespan(app: Any, runtime: ApplicationRuntime):  # noqa: C90
                 execution_engine=_execution_deps.execution_engine,
                 sse_store=sse_state_reader,
                 sse_transport=_delivery_facade,
-                repository_provider=DALViewSetRepositoryProvider(mongo=mongo_dal),
                 local_agent_discovery=_local_agent_service,
             ),
         )

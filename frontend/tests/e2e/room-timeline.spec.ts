@@ -16,13 +16,6 @@ test.describe('Room Timeline', () => {
         }),
       })
     })
-    await page.route('**/api/v1/roomCenter/inquiryRoomsByRoomOwnerId', (route) =>
-      route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify({ success: true, room_list: [] }),
-      })
-    )
     await page.route('**/api/v1/agent/getAllAgents', (route) =>
       route.fulfill({
         status: 200,

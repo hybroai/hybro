@@ -817,41 +817,18 @@ class RoomServices:
             )
         return self._room_setting_response_from_info(info)
 
-    async def update_room_extend_info(
-        self, request: RoomCenterRoomSettingRequest
-    ) -> RoomCenterRoomSettingResponse:
-        facade = self._require_facade()
-        if request.room_id is None:
-            return RoomCenterRoomSettingResponse(
-                room_id=None,
-                room=None,
-                success=False,
-                error="Room id is required",
-                status_code=400,
+    async def update_room_default_mode(
+        self,
+        room_id: str,
+        *,
+        use_supervisor: bool,
+    ) -> bool:
+        return bool(
+            await self._require_facade().update_room_default_mode(
+                room_id,
+                use_supervisor=use_supervisor,
             )
-
-        room_id = request.room_id
-        if request.extend_info is None:
-            return RoomCenterRoomSettingResponse(
-                room_id=None,
-                room=None,
-                success=False,
-                error="Extend info is required",
-                status_code=400,
-            )
-        try:
-            info = await facade.update_room(
-                room_id, {"extend_info": request.extend_info}
-            )
-        except ValueError as exc:
-            return self._room_error_response(room_id=room_id, error=str(exc))
-        if info is None:
-            return self._room_error_response(
-                room_id=None,
-                error="Room not found",
-                status_code=404,
-            )
-        return self._room_setting_response_from_info(info)
+        )
 
     async def delete_room_by_room_id(
         self, request: RoomCenterRoomSettingRequest

@@ -5,7 +5,7 @@ Tests cover:
 - Room creation
 - Room settings inquiry
 - Room ownership verification
-- Room updates (agent set, name, extend info)
+- Room updates (agent set and name)
 - Message creation and retrieval
 - Authorization checks
 """
@@ -24,10 +24,8 @@ from api_gateway.routes.room_routes import (
     inquiry_active_runs,
     inquiry_room_messages,
     inquiry_room_setting,
-    inquiry_rooms_by_room_owner_id,
     suggest_agents,
     update_room_agent_set,
-    update_room_extend_info,
     update_room_name,
     verify_room_ownership,
 )
@@ -837,49 +835,6 @@ class TestInquiryActiveRuns:
 
 
 # =============================================================================
-# Room List by Owner Tests
-# =============================================================================
-
-
-class TestInquiryRoomsByRoomOwnerId:
-    """Tests for inquiry_rooms_by_room_owner_id endpoint."""
-
-    @pytest.mark.asyncio
-    async def test_returns_rooms_for_own_user_id(
-        self, mock_user, mock_room_center, sample_room
-    ):
-        """Should return rooms when requesting own rooms."""
-        mock_request = MagicMock()
-        mock_request.json = AsyncMock(return_value={"room_owner_id": mock_user.user_id})
-
-        expected_response = RoomCenterRoomSettingResponse(
-            success=True,
-            room_list=[sample_room],
-        )
-        mock_room_center.inquiry_rooms_by_room_owner_id.return_value = expected_response
-
-        response = await inquiry_rooms_by_room_owner_id(
-            mock_request, mock_user, center=mock_room_center
-        )
-
-        assert response.success is True
-        assert len(response.room_list) == 1
-
-    @pytest.mark.asyncio
-    async def test_raises_403_for_other_user_rooms(self, mock_user):
-        """Should raise 403 when requesting another user's rooms."""
-        mock_request = MagicMock()
-        mock_request.json = AsyncMock(return_value={"room_owner_id": "other-user-id"})
-
-        with pytest.raises(HTTPException) as exc_info:
-            await inquiry_rooms_by_room_owner_id(
-                mock_request, mock_user, center=MagicMock()
-            )
-
-        assert exc_info.value.status_code == 403
-
-
-# =============================================================================
 # Room Update Tests
 # =============================================================================
 
@@ -964,44 +919,6 @@ class TestUpdateRoomName:
         assert call_args.room_name == "New Room Name"
 
 
-class TestUpdateRoomExtendInfo:
-    """Tests for update_room_extend_info endpoint."""
-
-    @pytest.mark.asyncio
-    async def test_updates_extend_info_for_owner(
-        self, mock_user, sample_room, patch_room_center_deps
-    ):
-        """Should update extend info when user is owner."""
-        mock_request = MagicMock()
-        mock_request.json = AsyncMock(
-            return_value={
-                "room_id": sample_room.room_id,
-                "extend_info": {"custom_field": "custom_value"},
-            }
-        )
-
-        patch_room_center_deps[
-            "db_service"
-        ].get_room_by_room_id.return_value = sample_room
-        expected_response = RoomCenterRoomSettingResponse(success=True)
-        patch_room_center_deps[
-            "room_center"
-        ].update_room_extend_info.return_value = expected_response
-
-        response = await update_room_extend_info(
-            mock_request,
-            mock_user,
-            store=patch_room_center_deps["db_service"],
-            center=patch_room_center_deps["room_center"],
-        )
-
-        assert response.success is True
-        call_args = patch_room_center_deps[
-            "room_center"
-        ].update_room_extend_info.call_args[0][0]
-        assert call_args.extend_info == {"custom_field": "custom_value"}
-
-
 class TestUpdateEndpointsRejectNonOwner:
     """Non-owner is rejected for all update endpoints."""
 
@@ -1011,7 +928,6 @@ class TestUpdateEndpointsRejectNonOwner:
         [
             (update_room_agent_set, {"room_id": "test-room-001", "room_agent_set": {}}),
             (update_room_name, {"room_id": "test-room-001", "room_name": "X"}),
-            (update_room_extend_info, {"room_id": "test-room-001", "extend_info": {}}),
         ],
     )
     async def test_rejects_non_owner(

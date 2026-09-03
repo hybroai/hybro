@@ -2,16 +2,11 @@ from datetime import datetime
 from typing import Any
 from uuid import uuid4
 
-from pydantic import (
-    BaseModel,
-    ConfigDict,
-    Field,
-    field_validator,
-)
+from pydantic import BaseModel, Field, field_validator
 
 from common.idempotency import MAX_CLIENT_REQUEST_ID_LENGTH
 from common.types import AgentCard, Message, MessageRole, Part, Task, TextPart
-from models.agent import Agent, AgentStatus, coerce_legacy_agent_card
+from models.agent import Agent, coerce_legacy_agent_card
 from models.room import (
     Room,
     RoomAgentMessage,
@@ -176,65 +171,6 @@ class AgentCenterRequest(BaseModel):
     @classmethod
     def _coerce_agent_card(cls, value: Any) -> Any:
         return coerce_legacy_agent_card(value)
-
-
-class BaseAgent(BaseModel):
-    agent_url: str | None = None
-    agent_card: AgentCard | None = None
-    call_count: int | None = 0
-    call_success_count: int | None = 0
-    like_count: int | None = 0
-    dislike_count: int | None = 0
-    agent_status: AgentStatus | None = None
-    # Rate limiting configuration
-    rate_limit_per_user_per_hour: int | None = None
-    rate_limit_system_per_hour: int | None = None
-    # Visibility: True = public (everyone can see/use), False = private (owner only)
-    is_public: bool | None = None
-    model_config = ConfigDict(use_enum_values=True)
-
-    @field_validator("agent_card", mode="before")
-    @classmethod
-    def _coerce_agent_card(cls, value: Any) -> Any:
-        return coerce_legacy_agent_card(value)
-
-
-class AgentCreate(BaseAgent):
-    agent_id: str | None = Field(
-        default_factory=lambda: str(uuid4()),
-        pattern=r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
-        description="Must be a valid UUID string",
-    )
-    agent_url: str
-    agent_card: AgentCard
-
-
-class AgentUpdate(BaseAgent):
-    agent_id: str | None
-    # agent_url: str | None
-    agent_card: AgentCard | None
-    call_count: int | None
-    call_success_count: int | None
-    like_count: int | None
-    dislike_count: int | None
-    agent_status: AgentStatus | None
-    rate_limit_per_user_per_hour: int | None = None
-    rate_limit_system_per_hour: int | None = None
-    is_public: bool | None = None
-
-
-class AgentPatch(BaseAgent):
-    pass
-
-
-class AgentSettingsUpdateRequest(BaseModel):
-    """Request model for updating agent settings (rate limits, status, visibility)."""
-
-    rate_limit_per_user_per_hour: int | None = None
-    rate_limit_system_per_hour: int | None = None
-    agent_status: AgentStatus | None = None
-    is_public: bool | None = None
-    model_config = ConfigDict(use_enum_values=True)
 
 
 class ChatRequest(BaseModel):

@@ -322,10 +322,9 @@ def test_room_info_preserves_legacy_membership_status_default():
 def test_protocols_are_runtime_checkable():
     import common.protocols as protocols
 
-    non_protocol_exports = {"ViewSetFilterParams", "ViewSetPaginationParams"}
     for name in protocols.__all__:
         obj = getattr(protocols, name)
-        if inspect.isclass(obj) and name not in non_protocol_exports:
+        if inspect.isclass(obj):
             assert getattr(obj, "_is_runtime_protocol", False), name
 
 
@@ -741,23 +740,6 @@ def test_protocol_methods_match_design_doc():
             "generate",
             "generate_structured",
         },
-        protocols.ViewSetTransaction: {"start_transaction"},
-        protocols.ViewSetSessionContext: {"__aenter__", "__aexit__"},
-        protocols.ViewSetDatabaseClient: {"start_session"},
-        protocols.ViewSetDatabaseProvider: {"__call__"},
-        protocols.ViewSetRepositoryFactory: {"__call__"},
-        protocols.ViewSetRepositoryProvider: {
-            "get_repository",
-            "run_in_transaction",
-        },
-        protocols.ViewSetRepository: {
-            "create",
-            "delete",
-            "get",
-            "get_all",
-            "patch",
-            "update",
-        },
         protocols.QuoteRepository: {
             "delete_by_id",
             "delete_for_room",
@@ -1115,7 +1097,6 @@ def test_protocol_methods_match_design_doc():
         protocols.MongoChangeStream,
         protocols.RoomRouteRecord,
         protocols.SSEUserMessageRecord,
-        protocols.ViewSetDatabase,
     }
     missing_coverage = protocol_exports - set(expected_methods) - marker_protocols
     assert not missing_coverage, {protocol.__name__ for protocol in missing_coverage}
@@ -1170,35 +1151,6 @@ def test_protocol_methods_match_design_doc():
         protocols.WebhookReceiver.handle_webhook,
         ["self", "message_id", "payload", "token"],
     )
-    _assert_params(protocols.ViewSetTransaction.start_transaction, ["self"])
-    _assert_params(protocols.ViewSetSessionContext.__aenter__, ["self"])
-    _assert_params(
-        protocols.ViewSetSessionContext.__aexit__,
-        ["self", "exc_type", "exc", "traceback"],
-    )
-    _assert_params(protocols.ViewSetDatabaseClient.start_session, ["self"])
-    _assert_params(protocols.ViewSetDatabaseProvider.__call__, ["self"])
-    _assert_params(
-        protocols.ViewSetRepositoryFactory.__call__,
-        ["self", "collection_name", "db", "pk_field"],
-    )
-    _assert_params(
-        protocols.ViewSetRepositoryProvider.get_repository,
-        ["self", "collection_name", "pk_field"],
-    )
-    _assert_params(
-        protocols.ViewSetRepositoryProvider.run_in_transaction,
-        ["self", "operation"],
-    )
-    _assert_params(protocols.ViewSetRepository.create, ["self", "data"])
-    _assert_params(protocols.ViewSetRepository.delete, ["self", "item_id"])
-    _assert_params(protocols.ViewSetRepository.get, ["self", "item_id"])
-    _assert_params(
-        protocols.ViewSetRepository.get_all,
-        ["self", "pagination", "filters"],
-    )
-    _assert_params(protocols.ViewSetRepository.patch, ["self", "item_id", "data"])
-    _assert_params(protocols.ViewSetRepository.update, ["self", "item_id", "data"])
     _assert_params(protocols.MongoCollection.find, ["self", "query", "kwargs"])
     _assert_params(protocols.DistributedLock.acquire, ["self", "key", "owner", "ttl"])
 

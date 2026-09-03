@@ -118,6 +118,7 @@ class TestRoomLifecycleFlow:
                 message_id=message_id,
             )
         )
+        mock_rc.update_room_default_mode = AsyncMock(return_value=True)
         mock_rc.inquiry_room_messages_by_room_id = AsyncMock(
             return_value=RoomCenterRoomMessageResponse(
                 success=True,
@@ -178,7 +179,11 @@ class TestRoomLifecycleFlow:
             }
         )
         send_resp = await send_message(
-            req3, flow_user, store=mock_db, engine=mock_execution_engine
+            req3,
+            flow_user,
+            store=mock_db,
+            engine=mock_execution_engine,
+            center=mock_rc,
         )
         assert send_resp.success is True
         assert send_resp.message_id == message_id

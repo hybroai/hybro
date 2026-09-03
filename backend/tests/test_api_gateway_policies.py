@@ -51,13 +51,12 @@ def test_every_public_route_group_has_policy():
 def test_route_group_matching_is_segment_bounded():
     from api_gateway.registry import route_group_for_path
 
-    assert route_group_for_path("/api/v1/agents") == "agent"
-    assert route_group_for_path("/api/v1/agents/abc") == "agent"
+    assert route_group_for_path("/api/v1/local-agents/discovery") == "agent"
     assert route_group_for_path("/api/v1/agent/getAgent/abc") == "agent"
     assert route_group_for_path("/api/v1/agentGroups") == "agent_group"
     assert route_group_for_path("/api/v1/rooms/abc/a2a-tasks") == "a2a_task"
 
-    assert route_group_for_path("/api/v1/agents-something") == "unknown"
+    assert route_group_for_path("/api/v1/local-agents-something") == "unknown"
     assert route_group_for_path("/api/v1/agentGroups-v2") == "unknown"
     assert route_group_for_path("/api/v1/agentish") == "unknown"
 

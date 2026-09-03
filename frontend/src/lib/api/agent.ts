@@ -6,7 +6,7 @@ import type {
 } from '@/lib/types'
 
 import { getApiUrl } from '../utils'
-import { apiGet, apiPost, apiPut } from '../api-client'
+import { apiGet, apiPost } from '../api-client'
 
 const API_BASE_URL = getApiUrl('agent')
 const LOCAL_AGENTS_BASE_URL = getApiUrl('local-agents')
@@ -53,26 +53,6 @@ export async function getAgentsByProviderId(
 ): Promise<AgentCenterResponse> {
   return apiGet<AgentCenterResponse>(
     `${API_BASE_URL}/getAgent/me`,
-    getToken
-  )
-}
-
-// Update agent settings (rate limits, status, etc.)
-export interface UpdateAgentRequest {
-  rate_limit_per_user_per_hour?: number | null
-  rate_limit_system_per_hour?: number | null
-  agent_status?: 'active' | 'inactive'
-  is_public?: boolean
-}
-
-export async function updateAgent(
-  agentId: string,
-  request: UpdateAgentRequest,
-  getToken?: () => Promise<string | null>
-): Promise<AgentCenterResponse> {
-  return apiPut<AgentCenterResponse>(
-    `${API_BASE_URL}/updateAgent/${agentId}`,
-    request,
     getToken
   )
 }
@@ -140,17 +120,5 @@ export async function getAllActiveAgents(
     getToken,
     signal,
     timeoutMs
-  )
-}
-
-// Get agent list with conditions - PUBLIC
-export async function getAgentListWithConditions(
-  request: AgentCenterRequest,
-  getToken?: () => Promise<string | null>
-): Promise<AgentCenterResponse> {
-  return apiPost<AgentCenterResponse>(
-    `${API_BASE_URL}/getAgentListWithConditions`,
-    request,
-    getToken
   )
 }

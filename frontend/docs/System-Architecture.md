@@ -853,12 +853,16 @@ type AgentScopeInput =
   | { source: 'saved_group'; group_id: string }
 ```
 
-Fast maps to `direct`; Ultimate maps to `supervisor`. The room's historical
-`use_supervisor` value only selects the initial UI mode. Changing the selector does
-not update Room settings and cannot race the subsequent send. `SendMessage` emits
-only `mode` and `agent_scope`; saved-team member IDs are expanded and authorized by
-the backend. Existing `client_request_id` optimistic-message replacement and early
-SSE buffering remain unchanged.
+Fast maps to `direct`; Ultimate maps to `supervisor`. Changing the selector remains
+local until the user sends a message. `SendMessage` emits `mode` and `agent_scope`;
+before handing a valid, authorized send attempt to Execution, the backend atomically
+persists a changed mode as `room.extend_info.use_supervisor` without replacing other
+room metadata. The mode write completes before any Execution acknowledgement, so a
+hard refresh initializes the selector from the most recent send attempt, even when
+that attempt is an idempotent replay or is later rejected by Execution. A missing
+flag still defaults to Ultimate. Saved-team member IDs are expanded and authorized
+by the backend. Existing `client_request_id` optimistic-message replacement and
+early SSE buffering remain unchanged.
 
 Debate is not a `ChatMode`, Room setting, request flag, or handled SSE event. The
 ModeSelector retains one disabled `Debate (Coming Soon)` row as display-only UI;

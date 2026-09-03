@@ -118,8 +118,6 @@ ignore = ["E501"]
 "api_gateway/routes/room_routes.py" = ["B008", "C901"]
 "api_gateway/routes/sse_routes.py" = ["B008"]
 "api_gateway/routes/webhook_routes.py" = ["B008"]
-"api_gateway/viewsets/agent.py" = ["B008"]
-"api_gateway/viewsets/base.py" = ["B008"]
 "agent/health.py" = ["C901"]
 "agent/service.py" = ["C901"]
 "room/compat/runtime.py" = ["C901", "UP042"]
@@ -202,7 +200,6 @@ packages = [
     "local_agents",
     "api_gateway",
     "api_gateway.routes",
-    "api_gateway.viewsets",
     "models",
     "common",
     "common.client",

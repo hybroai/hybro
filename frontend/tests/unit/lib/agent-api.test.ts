@@ -6,13 +6,11 @@ import {
   discoverLocalAgents,
   registerAgent,
   getAgentsByProviderId,
-  updateAgent,
   deleteAgent,
   getAgentCardFromUrl,
   getAgent,
   getAllAgents,
   getAllActiveAgents,
-  getAgentListWithConditions,
 } from '@/lib/api/agent'
 
 const BASE = getApiUrl('agent')
@@ -101,39 +99,6 @@ describe('Agent API', () => {
       )
 
       await expect(getAgentsByProviderId()).rejects.toThrow()
-    })
-  })
-
-  // ─── updateAgent ─────────────────────────────────────────────
-
-  describe('updateAgent', () => {
-    it('should PUT to /updateAgent/:agentId with the request body', async () => {
-      let capturedBody: Record<string, unknown> | null = null
-      let capturedUrl = ''
-      server.use(
-        http.put(`${BASE}/updateAgent/:agentId`, async ({ request }) => {
-          capturedUrl = request.url
-          capturedBody = (await request.json()) as Record<string, unknown>
-          return HttpResponse.json({ success: true })
-        }),
-      )
-
-      const req = { agent_status: 'active' as const, is_public: true }
-      const result = await updateAgent('agent-42', req)
-
-      expect(result.success).toBe(true)
-      expect(capturedUrl).toContain('/updateAgent/agent-42')
-      expect(capturedBody).toMatchObject(req)
-    })
-
-    it('should handle server errors', async () => {
-      server.use(
-        http.put(`${BASE}/updateAgent/:agentId`, () =>
-          HttpResponse.json({ error: 'fail' }, { status: 500 }),
-        ),
-      )
-
-      await expect(updateAgent('x', {} as never)).rejects.toThrow()
     })
   })
 
@@ -330,50 +295,6 @@ describe('Agent API', () => {
       )
 
       await expect(getAllActiveAgents()).rejects.toThrow()
-    })
-  })
-
-  // ─── getAgentListWithConditions ──────────────────────────────
-
-  describe('getAgentListWithConditions', () => {
-    it('should POST to /getAgentListWithConditions with the request body', async () => {
-      let capturedBody: Record<string, unknown> | null = null
-      server.use(
-        http.post(`${BASE}/getAgentListWithConditions`, async ({ request }) => {
-          capturedBody = (await request.json()) as Record<string, unknown>
-          return HttpResponse.json({
-            success: true,
-            agents: [{ agent_id: 'a-1' }],
-          })
-        }),
-      )
-
-      const req = { status: 'active', page: 1 }
-      const result = await getAgentListWithConditions(req as never)
-
-      expect(result.success).toBe(true)
-      expect(result.agents).toHaveLength(1)
-      expect(capturedBody).toMatchObject(req)
-    })
-
-    it('should handle server errors', async () => {
-      server.use(
-        http.post(`${BASE}/getAgentListWithConditions`, () =>
-          HttpResponse.json({ error: 'fail' }, { status: 500 }),
-        ),
-      )
-
-      await expect(getAgentListWithConditions({} as never)).rejects.toThrow()
-    })
-
-    it('should handle network errors', async () => {
-      server.use(
-        http.post(`${BASE}/getAgentListWithConditions`, () =>
-          HttpResponse.error(),
-        ),
-      )
-
-      await expect(getAgentListWithConditions({} as never)).rejects.toThrow()
     })
   })
 })

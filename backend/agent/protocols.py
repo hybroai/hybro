@@ -6,7 +6,7 @@ from typing import Protocol, runtime_checkable
 from common.protocols.json_types import JsonValue
 from models.agent import Agent, AgentCapabilityIssue, IssueStatus
 from models.agent_group import AgentGroup
-from models.request import AgentSettingsUpdateRequest, InspectionCenterRequest
+from models.request import InspectionCenterRequest
 from models.response import AgentCenterResponse, InspectionCenterResponse
 
 
@@ -21,13 +21,6 @@ class AgentCenterCompatibility(Protocol):
     async def delete_agent_from_route(
         self, *, agent_id: str, provider_id: str
     ) -> AgentCenterResponse: ...
-    async def update_agent_settings_from_route(
-        self,
-        *,
-        agent_id: str,
-        provider_id: str,
-        settings: AgentSettingsUpdateRequest,
-    ) -> AgentCenterResponse: ...
     async def get_agent_card_from_url_for_route(
         self, *, agent_url: str
     ) -> AgentCenterResponse: ...
@@ -36,9 +29,6 @@ class AgentCenterCompatibility(Protocol):
     ) -> AgentCenterResponse: ...
     async def list_visible_agents_for_route(
         self, *, user_id: str | None, active_only: bool = False
-    ) -> AgentCenterResponse: ...
-    async def list_agents_with_conditions_for_route(
-        self, *, user_id: str | None
     ) -> AgentCenterResponse: ...
     def finalize_agent_response_for_route(
         self, response: AgentCenterResponse

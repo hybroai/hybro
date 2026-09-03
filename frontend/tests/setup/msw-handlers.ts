@@ -51,22 +51,6 @@ export const handlers = [
     })
   }),
 
-  http.post(`${roomCenter}/inquiryRoomsByRoomOwnerId`, async () => {
-    return HttpResponse.json({
-      success: true,
-      room_list: [
-        {
-          room_id: 'room-1',
-          room_name: 'Room 1',
-          room_owner_id: 'test-user',
-          room_owner_name: 'Test User',
-          room_agent_set: {},
-          room_created_at: new Date().toISOString(),
-        },
-      ],
-    })
-  }),
-
   http.post(`${roomCenter}/sendMessage`, async ({ request }) => {
     const body = await request.json() as Record<string, unknown>
     return HttpResponse.json({
@@ -105,14 +89,6 @@ export const handlers = [
   }),
 
   http.post(`${roomCenter}/updateRoomName`, async ({ request }) => {
-    const body = await request.json() as Record<string, unknown>
-    return HttpResponse.json({
-      success: true,
-      room_id: body.room_id,
-    })
-  }),
-
-  http.post(`${roomCenter}/updateRoomExtendInfo`, async ({ request }) => {
     const body = await request.json() as Record<string, unknown>
     return HttpResponse.json({
       success: true,
@@ -181,10 +157,6 @@ export const handlers = [
     return HttpResponse.json({ success: true, agents: [] })
   }),
 
-  http.put(`${agent}/updateAgent/:agentId`, async () => {
-    return HttpResponse.json({ success: true })
-  }),
-
   http.post(`${agent}/deleteAgent`, async () => {
     return HttpResponse.json({ success: true })
   }),
@@ -205,10 +177,6 @@ export const handlers = [
   }),
 
   http.get(`${agent}/getAllActiveAgents`, async () => {
-    return HttpResponse.json({ success: true, agents: [] })
-  }),
-
-  http.post(`${agent}/getAgentListWithConditions`, async () => {
     return HttpResponse.json({ success: true, agents: [] })
   }),
 

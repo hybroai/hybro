@@ -63,9 +63,12 @@ class RoomCenterCompatibility(Protocol):
     async def update_room_history_fields(
         self, request: RoomCenterRoomSettingRequest
     ) -> RoomCenterRoomSettingResponse: ...
-    async def update_room_extend_info(
-        self, request: RoomCenterRoomSettingRequest
-    ) -> RoomCenterRoomSettingResponse: ...
+    async def update_room_default_mode(
+        self,
+        room_id: str,
+        *,
+        use_supervisor: bool,
+    ) -> bool: ...
 
 
 __all__ = ["A2ATaskReaderCompatibility", "RoomCenterCompatibility"]

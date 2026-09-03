@@ -165,7 +165,14 @@ async def test_send_message_replay_does_not_schedule_again() -> None:
         schedule_orchestration=MagicMock(),
     )
 
-    response = await send_message(request, user, store=store, engine=engine)
+    center = SimpleNamespace(update_room_default_mode=AsyncMock(return_value=True))
+    response = await send_message(
+        request,
+        user,
+        store=store,
+        engine=engine,
+        center=center,
+    )
 
     assert response.message_id == "message-1"
     engine.schedule_orchestration.assert_not_called()

@@ -5,7 +5,6 @@ Tests cover:
 - Agent registration
 - Agent retrieval (by ID, by provider, all agents)
 - Agent deletion
-- Agent updates (rate limits, status, visibility)
 - Public vs private agent visibility
 - Authorization checks
 """
@@ -24,25 +23,9 @@ from api_gateway.routes.agent_routes import (
     get_agent_list,
     get_all_active_agents,
     register_agent,
-    update_agent,
 )
-from api_gateway.viewsets.agent import AgentViewSet
 from local_agents.models import DiscoveryTrigger, LocalAgentDiscoveryResult
-from models.agent import AgentStatus
-from models.request import AgentSettingsUpdateRequest
 from models.response import AgentCenterResponse
-
-
-def test_public_agent_mask_preserves_card_url_without_public_relay_url():
-    payload = {
-        "public_url": None,
-        "agent_card": {"url": "http://localhost:9060"},
-    }
-
-    masked = AgentViewSet()._mask_agent_payload(payload)
-
-    assert masked["agent_card"]["url"] == "http://localhost:9060"
-
 
 # =============================================================================
 # Local Agent Discovery Tests
@@ -400,147 +383,6 @@ class TestDeleteAgent:
 
         with pytest.raises(HTTPException) as exc_info:
             await delete_agent(mock_request, mock_user_2, center=patch_agent_deps)
-
-        assert exc_info.value.status_code == 403
-
-
-# =============================================================================
-# Agent Update Tests
-# =============================================================================
-
-
-class TestUpdateAgent:
-    """Tests for update_agent endpoint."""
-
-    @pytest.mark.asyncio
-    async def test_updates_rate_limits(self, mock_user, patch_agent_deps, sample_agent):
-        """Should update agent rate limits."""
-        request_body = AgentSettingsUpdateRequest(
-            rate_limit_per_user_per_hour=100,
-            rate_limit_system_per_hour=1000,
-        )
-
-        mock_agent_service = MagicMock()
-        mock_agent_service.get_agent_by_agent_id = AsyncMock(return_value=sample_agent)
-
-        expected_response = AgentCenterResponse(success=True)
-        patch_agent_deps.update_agent.return_value = expected_response
-
-        response = await update_agent(
-            sample_agent.agent_id, request_body, mock_user, center=patch_agent_deps
-        )
-
-        assert response.success is True
-
-    @pytest.mark.asyncio
-    async def test_updates_agent_status(
-        self, mock_user, patch_agent_deps, sample_agent
-    ):
-        """Should update agent status."""
-        request_body = AgentSettingsUpdateRequest(
-            agent_status=AgentStatus.inactive,
-        )
-
-        mock_agent_service = MagicMock()
-        mock_agent_service.get_agent_by_agent_id = AsyncMock(return_value=sample_agent)
-
-        expected_response = AgentCenterResponse(success=True)
-        patch_agent_deps.update_agent.return_value = expected_response
-
-        response = await update_agent(
-            sample_agent.agent_id, request_body, mock_user, center=patch_agent_deps
-        )
-
-        assert response.success is True
-
-    @pytest.mark.asyncio
-    async def test_updates_visibility(self, mock_user, patch_agent_deps, sample_agent):
-        """Should update agent visibility."""
-        request_body = AgentSettingsUpdateRequest(is_public=False)
-
-        mock_agent_service = MagicMock()
-        mock_agent_service.get_agent_by_agent_id = AsyncMock(return_value=sample_agent)
-
-        expected_response = AgentCenterResponse(success=True)
-        patch_agent_deps.update_agent.return_value = expected_response
-
-        response = await update_agent(
-            sample_agent.agent_id, request_body, mock_user, center=patch_agent_deps
-        )
-
-        assert response.success is True
-
-    @pytest.mark.asyncio
-    async def test_raises_400_for_invalid_rate_limit(
-        self, mock_user, sample_agent, patch_agent_deps
-    ):
-        """Should raise 400 when rate limit is less than 1."""
-        request_body = AgentSettingsUpdateRequest(
-            rate_limit_per_user_per_hour=0,  # Invalid: must be >= 1 or None
-        )
-
-        patch_agent_deps.update_agent_settings_from_route.side_effect = None
-        patch_agent_deps.update_agent_settings_from_route.return_value = (
-            AgentCenterResponse(
-                success=False,
-                error="rate_limit_per_user_per_hour must be null or >= 1",
-                status_code=400,
-            )
-        )
-
-        with pytest.raises(HTTPException) as exc_info:
-            await update_agent(
-                sample_agent.agent_id, request_body, mock_user, center=patch_agent_deps
-            )
-
-        assert exc_info.value.status_code == 400
-
-    @pytest.mark.asyncio
-    async def test_raises_400_when_no_fields_to_update(
-        self, mock_user, sample_agent, patch_agent_deps
-    ):
-        """Should raise 400 when no valid fields are provided."""
-        request_body = AgentSettingsUpdateRequest()  # Empty update
-
-        patch_agent_deps.update_agent_settings_from_route.side_effect = None
-        patch_agent_deps.update_agent_settings_from_route.return_value = (
-            AgentCenterResponse(
-                success=False,
-                error="No valid fields to update",
-                status_code=400,
-            )
-        )
-
-        with pytest.raises(HTTPException) as exc_info:
-            await update_agent(
-                sample_agent.agent_id, request_body, mock_user, center=patch_agent_deps
-            )
-
-        assert exc_info.value.status_code == 400
-
-    @pytest.mark.asyncio
-    async def test_raises_403_when_not_owner(
-        self, mock_user_2, sample_agent, patch_agent_deps
-    ):
-        """Should raise 403 when user is not the agent owner."""
-        request_body = AgentSettingsUpdateRequest(is_public=False)
-
-        patch_agent_deps.update_agent_settings_from_route.side_effect = None
-        patch_agent_deps.update_agent_settings_from_route.return_value = (
-            AgentCenterResponse(
-                success=False,
-                error="You do not have permission to update this agent",
-                status_code=403,
-            )
-        )
-
-        with pytest.raises(HTTPException) as exc_info:
-            await update_agent(
-                sample_agent.agent_id,
-                request_body,
-                mock_user_2,
-                center=patch_agent_deps,
-            )
 
         assert exc_info.value.status_code == 403
 

@@ -36,6 +36,26 @@ NOW = datetime(2026, 5, 11, tzinfo=UTC)
 
 
 @pytest.mark.asyncio
+async def test_update_room_default_mode_uses_atomic_nested_field_write():
+    facade, rooms, _, _, _ = _facade(
+        room_docs=[
+            {
+                "room_id": "r1",
+                "room_name": "Room",
+                "room_owner_id": "owner",
+                "room_owner_name": "Owner",
+                "extend_info": {"preserved": "value", "use_supervisor": False},
+            }
+        ]
+    )
+
+    updated = await facade.update_room_default_mode("r1", use_supervisor=True)
+
+    assert updated is True
+    assert rooms.update_field_calls == [("r1", {"extend_info.use_supervisor": True})]
+
+
+@pytest.mark.asyncio
 async def test_registry_and_ownership_methods_use_repository_and_agent_registry():
     facade, rooms, _, registry, _ = _facade(
         room_docs=[
@@ -1018,6 +1038,7 @@ class FakeRoomRepository:
         self.created_docs: list[dict] = []
         self.deleted_ids: list[str] = []
         self.membership_updates: list[dict] = []
+        self.update_field_calls: list[tuple[str, dict]] = []
 
     async def get_by_id(self, room_id: str) -> dict | None:
         self.get_by_id_calls.append(room_id)
@@ -1043,6 +1064,7 @@ class FakeRoomRepository:
         return True
 
     async def update_fields(self, room_id: str, updates: dict) -> dict | None:
+        self.update_field_calls.append((room_id, deepcopy(updates)))
         if room_id not in self.docs:
             return None
         self.docs[room_id].update(deepcopy(updates))
