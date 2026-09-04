@@ -1418,6 +1418,14 @@ async def _runtime_lifespan(app: Any, runtime: ApplicationRuntime):  # noqa: C90
                     or not run.client_request_id
                 ):
                     return
+                if kind == "run_resumed" and run.status in {
+                    "canceling",
+                    "completed",
+                    "failed",
+                    "canceled",
+                    "budget_exhausted",
+                }:
+                    return
                 boundary_at = datetime.now(UTC)
                 payload = (
                     {
@@ -1517,12 +1525,50 @@ async def _runtime_lifespan(app: Any, runtime: ApplicationRuntime):  # noqa: C90
                 run = await orchestrator_runtime.run_store.load(run_id)
                 return run.lifecycle_family if run is not None else "legacy"
 
+            async def read_canonical_run_state(run_id: str) -> str:
+                orchestrator_runtime = getattr(app.state, "orchestrator_runtime", None)
+                if orchestrator_runtime is None:
+                    return "missing"
+                run = await orchestrator_runtime.run_store.load(run_id)
+                return run.status if run is not None else "missing"
+
+            async def request_canonical_hitl_cancellation(run_id: str) -> str:
+                orchestrator_runtime = getattr(app.state, "orchestrator_runtime", None)
+                if orchestrator_runtime is None:
+                    return "missing"
+                run = await orchestrator_runtime.run_store.load(run_id)
+                if run is None or run.lifecycle_family != "canonical":
+                    return "missing"
+                command_id = f"cancel:{run_id}:user_requested"
+                for _attempt in range(4):
+                    result = await orchestrator_runtime.run_store.request_cancellation(
+                        run_id,
+                        expected_state_version=run.state_version,
+                        command_id=command_id,
+                        cause="user_requested",
+                        requested_at=datetime.now(UTC),
+                    )
+                    if result.run is None:
+                        return "missing"
+                    run = result.run
+                    if result.outcome in {"accepted", "replayed"} or run.status not in {
+                        "queued",
+                        "running",
+                        "waiting_external",
+                        "awaiting_user",
+                    }:
+                        return run.status
+                raise RuntimeError("canonical HITL cancellation CAS did not converge")
+
             async def terminalize_canonical_hitl_run(
                 request: Any,
                 *,
                 terminal_status: str,
                 reason: str,
             ) -> bool:
+                from execution.orchestrator.a2a_runtime.ledger import (
+                    TERMINAL_AGENT_CALL_STATES,
+                )
                 from execution.orchestrator.lifecycle import SessionEvent
 
                 orchestrator_runtime = getattr(app.state, "orchestrator_runtime", None)
@@ -1534,6 +1580,25 @@ async def _runtime_lifespan(app: Any, runtime: ApplicationRuntime):  # noqa: C90
                     return False
                 if run.tool_catalog is None:
                     raise RuntimeError("canonical HITL owner has no Tool catalog")
+                if terminal_status == "canceled":
+                    command_id = run.cancellation_command_id
+                    if run.status != "canceling" or command_id is None:
+                        return run.status == "canceled"
+                    results = (
+                        await orchestrator_runtime.cancellation_coordinator.cancel_run(
+                            run_id, reason="canonical_hitl_canceled"
+                        )
+                    )
+                    if any(
+                        state not in TERMINAL_AGENT_CALL_STATES
+                        for state in results.values()
+                    ):
+                        return True
+                    await orchestrator_runtime.session_host.reconcile_cancellation(run)
+                    await orchestrator_runtime.session_host.signal_run_cancellation(
+                        run, command_id
+                    )
+                    return True
 
                 async def emit(event_type, current, payload):
                     await _orchestrator_session_listener(
@@ -1624,6 +1689,14 @@ async def _runtime_lifespan(app: Any, runtime: ApplicationRuntime):  # noqa: C90
                 run = await orchestrator_runtime.run_store.load(run_id)
                 if run is None:
                     raise ContinuationLostError("orchestration run is missing")
+                if run.status in {
+                    "canceling",
+                    "completed",
+                    "failed",
+                    "canceled",
+                    "budget_exhausted",
+                }:
+                    return False
                 try:
                     observation = supervisor_answer_observation(
                         run_id,
@@ -1633,17 +1706,25 @@ async def _runtime_lifespan(app: Any, runtime: ApplicationRuntime):  # noqa: C90
                     )
                     session = orchestrator_runtime.session_host.get_session(run.room_id)
                     if session is not None and session.owns_run(run_id):
-                        await orchestrator_runtime.session_host.observe_tool(
-                            run.room_id, observation
+                        resume_result = (
+                            await orchestrator_runtime.session_host.observe_tool(
+                                run.room_id, observation
+                            )
                         )
                     else:
                         # Suspended Runs may outlive their process-local
                         # session (restart/recovery). The run-addressed sink
                         # re-enters the same kernel observation path with a
                         # fresh lifecycle emitter.
-                        await orchestrator_runtime.observation_sink.deliver(
-                            run_id, observation
+                        resume_result = (
+                            await orchestrator_runtime.observation_sink.deliver(
+                                run_id, observation
+                            )
                         )
+                    if getattr(resume_result, "outcome", None) == (
+                        "cancellation_pending"
+                    ):
+                        return False
                 except Exception as exc:
                     logger.warning(
                         "supervisor ask_user resume failed",
@@ -1676,7 +1757,9 @@ async def _runtime_lifespan(app: Any, runtime: ApplicationRuntime):  # noqa: C90
                 room_files=file_storage,
                 canonical_control_publisher=publish_canonical_hitl_control,
                 lifecycle_family_reader=read_orchestrator_lifecycle_family,
+                canonical_run_state_reader=read_canonical_run_state,
                 supervisor_resume=resume_supervisor_hitl_port,
+                canonical_cancellation_requester=request_canonical_hitl_cancellation,
                 public_secret_values=configured_public_secret_values(runtime.settings),
             )
 
@@ -2616,6 +2699,7 @@ async def _runtime_lifespan(app: Any, runtime: ApplicationRuntime):  # noqa: C90
                 canonical_event_reader=_read_canonical_run_events,
                 canonical_hitl_control=publish_orchestrator_hitl_control,
                 supervisor_hitl=request_supervisor_input_port,
+                supervisor_hitl_cancellation=(hitl_manager.cancel_requests_for_message),
             )
             missing = validate_orchestrator_runtime(app.state.orchestrator_runtime)
             if missing:
@@ -2728,6 +2812,7 @@ async def _runtime_lifespan(app: Any, runtime: ApplicationRuntime):  # noqa: C90
                     state = {
                         "queued": RunState.QUEUED,
                         "awaiting_user": RunState.AWAITING_INPUT,
+                        "canceling": "canceling",
                     }.get(status, RunState.PROCESSING)
                     request = document.get("request") or {}
                     return RunInfo(
@@ -3391,7 +3476,29 @@ async def _ensure_orchestrator_indexes(mongo: MongoDAL) -> None:
     from execution.orchestrator.a2a_runtime.persistence import (
         A2A_RUNTIME_COLLECTIONS,
     )
-    from execution.orchestrator.persistence import ORCHESTRATOR_COLLECTIONS
+    from execution.orchestrator.persistence import (
+        OBSOLETE_ORCHESTRATOR_RUN_INDEXES,
+        ORCHESTRATOR_COLLECTIONS,
+        ORCHESTRATOR_RUNS_COLLECTION,
+    )
+
+    runs = mongo.collection(ORCHESTRATOR_RUNS_COLLECTION)
+    existing_run_indexes = await runs.index_information()
+    for obsolete_name in OBSOLETE_ORCHESTRATOR_RUN_INDEXES:
+        if obsolete_name not in existing_run_indexes:
+            continue
+        try:
+            await runs.drop_index(obsolete_name)
+        except Exception as exc:
+            logger.error(
+                "Critical obsolete index removal failed for %s.%s",
+                ORCHESTRATOR_RUNS_COLLECTION,
+                obsolete_name,
+                exc_info=True,
+            )
+            raise RuntimeError(
+                "Critical obsolete orchestrator Run index removal failed"
+            ) from exc
 
     for collection_definition in (*ORCHESTRATOR_COLLECTIONS, *A2A_RUNTIME_COLLECTIONS):
         for index in collection_definition.indexes:

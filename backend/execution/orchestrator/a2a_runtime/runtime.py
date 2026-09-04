@@ -11,6 +11,7 @@ from typing import Any, Literal
 
 from common.dto.hitl import A2AInteractionSpec, HITLQuestionSpec
 
+from ..control import ClientCancellationRequested
 from ..models import (
     AgentToolInput,
     TextPart,
@@ -22,6 +23,7 @@ from ..models import (
     ToolSuspension,
 )
 from ..ports import CancellationSignal, InvocationCheckpointReader
+from .cancellation import persist_local_cancellation
 from .errors import (
     AgentCardContractError,
     AmbiguousRemoteEffectError,
@@ -149,6 +151,7 @@ class A2AAgentToolRuntime:
             prepared.room_id, prepared.room_epoch
         ):
             raise A2AAcceptanceDenied("Room epoch is not active")
+        await self._require_run_accepts_new_call(invocation.run_id)
         parsed = AgentToolInput.model_validate(invocation.arguments)
         resource_refs = [ref.ref_id for ref in prepared.resource_manifest.refs]
         decision = await self.authorization.authorize(
@@ -229,7 +232,36 @@ class A2AAgentToolRuntime:
         persisted = await self.ledger.load(invocation.run_id, invocation.invocation_id)
         if persisted is None or _record_acceptance_material(persisted) != identity:
             raise A2AAcceptanceConflict("persisted acceptance does not correlate")
+        await self._fence_accepted_call(persisted)
         return persisted.acceptance
+
+    async def _require_run_accepts_new_call(self, run_id: str) -> None:
+        if await self._run_blocks_new_call(run_id):
+            raise A2AAcceptanceDenied("owning Run is not accepting Agent calls")
+
+    async def _fence_accepted_call(self, call: AgentCallLedgerRecord) -> None:
+        if not await self._run_blocks_new_call(call.run_id):
+            return
+        canceled = await persist_local_cancellation(
+            self.ledger,
+            call,
+            reason="owning Run was canceled during Agent-call acceptance",
+        )
+        raise A2AAcceptanceDenied(
+            f"owning Run stopped while Agent call became {canceled.state}"
+        )
+
+    async def _run_blocks_new_call(self, run_id: str) -> bool:
+        if self.run_store is None:
+            return False
+        run = await self.run_store.load(run_id)
+        return run is None or run.status in {
+            "canceling",
+            "completed",
+            "failed",
+            "canceled",
+            "budget_exhausted",
+        }
 
     async def execute(
         self,
@@ -418,6 +450,16 @@ class A2AAgentToolRuntime:
             return _suspension(invocation)
 
         command = _dispatch_command(record, materialized_resources=materialized)
+        if self.run_store is not None:
+            owning_run = await self.run_store.load(invocation.run_id)
+            if owning_run is None or owning_run.status in {
+                "canceling",
+                "completed",
+                "failed",
+                "canceled",
+                "budget_exhausted",
+            }:
+                raise ClientCancellationRequested("owning Run is not dispatchable")
         try:
             receipt, record = await self._run_fenced_dispatch(
                 record, command, signal=signal
@@ -1206,7 +1248,7 @@ class A2AAgentToolRuntime:
             )
 
             if cancellation_task in done or (signal is not None and signal.cancelled):
-                raise RecoverableEpochError("dispatch cancelled by client signal")
+                raise ClientCancellationRequested("dispatch cancelled by client signal")
 
             if not stop_heartbeat.is_set() and dispatch_task not in done:
                 raise RecoverableEpochError(

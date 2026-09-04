@@ -412,7 +412,7 @@ async def test_replayed_active_client_request_does_not_start_second_kernel():
 
 
 @pytest.mark.asyncio
-async def test_concurrent_prompt_and_abort_settle_lifecycle_once():
+async def test_concurrent_prompt_and_abort_only_signals_durably_canceling_run():
     entered = asyncio.Event()
     store = InMemoryOrchestratorRunStore()
     events = []
@@ -423,7 +423,7 @@ async def test_concurrent_prompt_and_abort_settle_lifecycle_once():
             entered.set()
             await signal.wait()
             run = await store.load(run_id)
-            return KernelRunResult("aborted", run)
+            return KernelRunResult("cancellation_pending", run)
 
     async def listener(event):
         events.append(event.event_type)
@@ -445,11 +445,20 @@ async def test_concurrent_prompt_and_abort_settle_lifecycle_once():
         session.prompt(user_message(), client_request_id="request-1")
     )
     await entered.wait()
+    run = next(iter(store.runs.values()))
+    requested = await store.request_cancellation(
+        run.run_id,
+        expected_state_version=run.state_version,
+        command_id=f"cancel:{run.run_id}:user_requested",
+        cause="user_requested",
+        requested_at=FixedClock().now(),
+    )
+    assert requested.outcome == "accepted"
     abort_task = asyncio.create_task(session.abort())
     await asyncio.gather(prompt_task, abort_task)
     await asyncio.sleep(0)
 
-    assert events.count("run_canceled") == 1
+    assert events.count("run_canceled") == 0
     assert events.count("session_idle") == 1
 
 
@@ -493,10 +502,10 @@ async def test_abort_during_terminal_listener_does_not_start_second_kernel_task(
         session.prompt(user_message(), client_request_id="request-1")
     )
     await terminal_listener_entered.wait()
-    abort_task = asyncio.create_task(session.abort())
-    await asyncio.sleep(0)
+    with pytest.raises(SessionConflict, match="not been durably claimed"):
+        await session.abort()
     release_listener.set()
-    await asyncio.gather(prompt_task, abort_task)
+    await prompt_task
 
     assert kernel.calls == 1
     assert events.count("run_canceled") == 1

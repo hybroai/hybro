@@ -3,6 +3,7 @@ import type { ProcessingStatus, ProcessingStatusData, RoomSSEFrameMap } from '@/
 import { PROCESSING_STATUS, isProcessingDone, TASK_STATE } from '@/lib/types/sse'
 import { useMessageStore } from '@/stores/message-store'
 import type { MessageEntity } from '@/stores/message-store/types'
+import { useRoomUiStore } from '@/stores/room-ui-store'
 import {
   appendProcessingStatusLog,
   findProcessingStatusUserEntity,
@@ -156,6 +157,12 @@ export function handleProcessingStatus(
     }
 
     if (!belongsToCurrentTurn(lifecycle, clientReqId, processingUserEntity?.id)) {
+      return
+    }
+
+    // Durable cancellation owns the current turn. Ignore late forward-progress
+    // updates until a terminal processing status settles it.
+    if (useRoomUiStore.getState().getRoomFlags(roomId).cancelling) {
       return
     }
 

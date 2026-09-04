@@ -309,8 +309,14 @@ export async function cancelMessage(
   success: boolean
   message_id: string
   message: string
-  status?: 'completed' | 'failed' | 'canceled'
-  outcome?: 'canceled' | 'already_terminal'
+  status?:
+    | 'finalizing'
+    | 'completed'
+    | 'failed'
+    | 'canceled'
+    | 'budget_exhausted'
+    | 'cancellation_pending'
+  outcome?: 'canceled' | 'already_terminal' | 'pending_reconciliation'
 }> {
   const url = `${API_BASE_URL}/message/${messageId}/cancel`
   

@@ -385,6 +385,8 @@ class A2AContinuationCoordinator:
         call = await self.ledger.load_by_record_id(call_record_id)
         if call is None:
             raise KeyError(call_record_id)
+        if await self._run_blocks_continuation(call):
+            return "canceled"
         answer_digest = _digest_json(
             [answer.model_dump(mode="json") for answer in answers]
         )
@@ -473,6 +475,8 @@ class A2AContinuationCoordinator:
         call = await self.ledger.load_by_record_id(call_record_id)
         if call is None:
             raise KeyError(call_record_id)
+        if await self._run_blocks_continuation(call):
+            return "canceled"
         if call.terminal_result is not None:
             return await self._finalized_state(call)
         if call.continuation_command is not None:
@@ -509,6 +513,8 @@ class A2AContinuationCoordinator:
         call = await self.ledger.load_by_record_id(call_record_id)
         if call is None:
             raise KeyError(call_record_id)
+        if await self._run_blocks_continuation(call):
+            return "canceled"
         if call.terminal_result is not None:
             return await self._finalized_state(call)
         if call.continuation_command is None:
@@ -785,7 +791,7 @@ class A2AContinuationCoordinator:
             ),
         )
 
-    async def _create_or_replay_command(
+    async def _create_or_replay_command(  # noqa: C901
         self,
         call: AgentCallLedgerRecord,
         answer_record: DurableHITLAnswerRecord,
@@ -793,7 +799,11 @@ class A2AContinuationCoordinator:
         # The public response and run_resumed boundary must be durable before
         # continuation dispatch can synchronously produce a follow-up challenge.
         # Deterministic delivery identities make this replay-safe.
+        if await self._run_blocks_continuation(call):
+            return "canceled"
         await self._ensure_resumed_projection(call, answer_record)
+        if await self._run_blocks_continuation(call):
+            return "canceled"
         if call.continuation_command is not None:
             return await self.recover_call(call_record_id=call.call_record_id)
         binding = await self.bindings.load(call.binding_id)
@@ -935,6 +945,9 @@ class A2AContinuationCoordinator:
         self, call: AgentCallLedgerRecord, *, inspect: bool
     ) -> str:
         command = call.continuation_command
+        if await self._run_blocks_continuation(call):
+            await self._release(call)
+            return "canceled"
         if command is None:
             await self._release(call)
             return call.state
@@ -1473,6 +1486,18 @@ class A2AContinuationCoordinator:
             return None
         return renewed
 
+    async def _run_blocks_continuation(self, call: AgentCallLedgerRecord) -> bool:
+        if self.run_store is None:
+            return False
+        run = await self.run_store.load(call.run_id)
+        return run is None or run.status in {
+            "canceling",
+            "completed",
+            "failed",
+            "canceled",
+            "budget_exhausted",
+        }
+
     async def _run_fenced_continuation(
         self,
         call: AgentCallLedgerRecord,
@@ -1499,6 +1524,10 @@ class A2AContinuationCoordinator:
                     break
                 current_record[0] = renewed
 
+        if await self._run_blocks_continuation(call):
+            raise RecoverableCheckpointError(
+                "owning Run blocks HITL continuation dispatch"
+            )
         heartbeat_task = asyncio.create_task(_heartbeat_loop())
         continuation_task = asyncio.create_task(
             self.dispatch.inspect_continuation(command)

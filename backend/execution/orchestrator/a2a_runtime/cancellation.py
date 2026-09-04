@@ -1,19 +1,13 @@
-"""Durable-first external A2A call cancellation."""
+"""Durable local cancellation for external A2A calls."""
 
 from __future__ import annotations
 
 import json
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 from hashlib import sha256
 
 from ..models import TextPart
-from .errors import (
-    AgentCardContractError,
-    AmbiguousRemoteEffectError,
-    RecoverableAdapterError,
-    RecoverableCheckpointError,
-    RecoverableTransportError,
-)
+from .errors import RecoverableAdapterError, RecoverableCheckpointError
 from .ledger import TERMINAL_AGENT_CALL_STATES, apply_observation, transition_call
 from .models import (
     A2ACancellationCommand,
@@ -32,6 +26,8 @@ from .terminal_interactions import TerminalInteractionFinalizer
 
 
 class A2ACancellationCoordinator:
+    """Make local cancellation terminal without waiting for a remote Agent."""
+
     def __init__(
         self,
         *,
@@ -45,6 +41,8 @@ class A2ACancellationCoordinator:
     ) -> None:
         self.ledger = ledger
         self.room_epochs = room_epochs
+        # These ports remain constructor dependencies for composition compatibility.
+        # Cancellation no longer waits on either remote transport operation.
         self.dispatch = dispatch
         self.observations = observations
         self.terminal_interactions = TerminalInteractionFinalizer(hitl)
@@ -79,262 +77,35 @@ class A2ACancellationCoordinator:
             raise KeyError(call_record_id)
         if call.state in TERMINAL_AGENT_CALL_STATES:
             return await self._finalized_state(call)
-        if call.state == "cancel_pending" and call.cancellation_command is not None:
-            return await self.recover_call(call_record_id=call_record_id)
         if not await self._epoch_authorized(call, deletion_id):
             raise PermissionError("cancellation epoch fence rejected")
-        claimed = await self._claim(call)
-        if claimed is None:
-            return await self._load_finalized_state(call_record_id)
-        command_id = f"cancel-{_stable([claimed.call_record_id, reason[:1000], deletion_id or 'active'])}"
-        command = A2ACancellationCommand(
-            command_id=command_id,
-            transport_kind=claimed.transport_kind,
-            call_record_id=claimed.call_record_id,
-            reason=reason[:1000],
+        persisted = await persist_local_cancellation(
+            self.ledger,
+            call,
+            reason=reason,
             deletion_id=deletion_id,
-            created_at=datetime.now(UTC),
         )
-        pending = transition_call(
-            claimed,
-            to_state="cancel_pending",
-            updated_at=datetime.now(UTC),
-            cancellation_command=command,
-            cancellation_command_id=command_id,
-            cancellation_reason=reason[:1000],
-            cancellation_state="pending",
-        )
-        persisted = await self._cas_or_load_winner(
-            pending, expected_state_version=claimed.state_version
-        )
-        if (
-            persisted.cancellation_command != command
-            or persisted.state in TERMINAL_AGENT_CALL_STATES
-        ):
-            return await self._finalized_state(persisted)
-        return await self._deliver(persisted, inspect=False)
+        return await self._finalized_state(persisted)
 
     async def recover_call(self, *, call_record_id: str) -> str:
-        try:
-            return await self._recover_call(call_record_id=call_record_id)
-        except RecoverableAdapterError:
-            return "cancel_pending"
-
-    async def _recover_call(self, *, call_record_id: str) -> str:
         call = await self.ledger.load_by_record_id(call_record_id)
         if call is None:
             raise KeyError(call_record_id)
-        if call.state in TERMINAL_AGENT_CALL_STATES:
-            return await self._finalized_state(call)
-        if call.state != "cancel_pending" or call.cancellation_command is None:
-            return call.state
-        command = call.cancellation_command
-        if not await self._epoch_authorized(call, command.deletion_id):
-            return call.state
-        claimed = await self._claim(call)
-        if claimed is None:
-            return await self._load_finalized_state(call_record_id)
-        inspect = claimed.cancellation_state in {"dispatching", "delivery_uncertain"}
-        return await self._deliver(claimed, inspect=inspect)
-
-    async def _deliver(  # noqa: C901
-        self, call: AgentCallLedgerRecord, *, inspect: bool
-    ) -> str:
-        command = call.cancellation_command
-        if command is None:
-            await self._release(call)
-            return "cancel_pending"
-        if (
-            inspect
-            and call.cancellation_attempts
-            >= call.runtime_policy.max_uncertain_inspection_attempts
-        ):
-            return await self._expire(call)
-        call_record_id = call.call_record_id
-        call = await self._renew_and_verify(call, command.deletion_id)
-        if call is None:
-            return await self._load_finalized_state(call_record_id)
-        dispatching = call.model_copy(
-            update={
-                "cancellation_state": (
-                    "delivery_uncertain" if inspect else "dispatching"
-                ),
-                "cancellation_attempts": call.cancellation_attempts + 1,
-                "state_version": call.state_version + 1,
-                "updated_at": datetime.now(UTC),
-            }
+        deletion_id = (
+            call.cancellation_command.deletion_id
+            if call.cancellation_command is not None
+            else None
         )
-        persisted = await self._cas_or_load_winner(
-            dispatching, expected_state_version=call.state_version
+        return await self.cancel_call(
+            call_record_id=call_record_id,
+            reason="cancellation_recovery",
+            deletion_id=deletion_id,
         )
-        if persisted != dispatching:
-            return await self._finalized_state(persisted)
-        call = persisted
-        try:
-            receipt = (
-                await self.dispatch.inspect_cancellation(command)
-                if inspect
-                else await self.dispatch.cancel(command)
-            )
-        except AgentCardContractError:
-            renewed = await self._renew_and_verify(call, command.deletion_id)
-            if renewed is None:
-                return await self._load_finalized_state(call_record_id)
-            return await self._expire(
-                renewed,
-                error_code="agent_card_contract_error",
-                error_message="Agent Card could not be resolved for cancellation.",
-            )
-        except RecoverableTransportError:
-            renewed = await self._renew_and_verify(call, command.deletion_id)
-            if renewed is None:
-                return await self._load_finalized_state(call_record_id)
-            if inspect:
-                return await self._mark_uncertain(renewed)
-            return await self._retry_safe_cancellation(renewed)
-        except (
-            RecoverableAdapterError,
-            AmbiguousRemoteEffectError,
-            TimeoutError,
-        ):
-            renewed = await self._renew_and_verify(call, command.deletion_id)
-            if renewed is None:
-                return await self._load_finalized_state(call_record_id)
-            return await self._mark_uncertain(renewed)
-        call = await self._renew_and_verify(call, command.deletion_id)
-        if call is None:
-            return await self._load_finalized_state(call_record_id)
-        if receipt.outcome not in {"accepted", "terminal"}:
-            return await self._mark_uncertain(call)
-        observation = receipt.terminal_observation or _canceled_observation(
-            call, command
-        )
-        await self.observations.record(observation)
-        call = await self._renew_and_verify(call, command.deletion_id)
-        if call is None:
-            return await self._load_finalized_state(call_record_id)
-        terminal = apply_observation(
-            call,
-            observation,
-            recent_limit=call.runtime_policy.recent_observation_id_limit,
-        )
-        persisted = await self._cas_or_load_winner(
-            terminal, expected_state_version=call.state_version
-        )
-        return await self._finalized_state(persisted)
-
-    async def _expire(
-        self,
-        call: AgentCallLedgerRecord,
-        *,
-        error_code: str = "cancellation_uncertainty_exhausted",
-        error_message: str = "Cancellation delivery could not be reconciled.",
-    ) -> str:
-        command = call.cancellation_command
-        assert command is not None
-        observation = NormalizedA2AObservation(
-            observation_id=f"cancellation-expired-{command.command_id}",
-            call_record_id=call.call_record_id,
-            source_kind="inspection",
-            source_identity=f"cancellation-expired:{command.command_id}",
-            binding_scope=call.endpoint_scope_digest,
-            event_kind="terminal",
-            observed_at=datetime.now(UTC),
-            task_id=call.a2a_task_id,
-            context_id=call.a2a_context_id,
-            status="expired",
-            content=[TextPart(text="The Agent cancellation could not be reconciled.")],
-            error_code=error_code,
-            error_message=error_message,
-        )
-        await self.observations.record(observation)
-        renewed = await self._renew_and_verify(call, command.deletion_id)
-        if renewed is None:
-            return await self._load_finalized_state(call.call_record_id)
-        expired = apply_observation(
-            renewed,
-            observation,
-            recent_limit=renewed.runtime_policy.recent_observation_id_limit,
-        )
-        persisted = await self._cas_or_load_winner(
-            expired, expected_state_version=renewed.state_version
-        )
-        return await self._finalized_state(persisted)
-
-    async def _retry_safe_cancellation(self, call: AgentCallLedgerRecord) -> str:
-        if call.cancellation_attempts >= call.runtime_policy.max_transport_attempts:
-            return await self._expire(
-                call,
-                error_code="agent_card_transport_unavailable",
-                error_message="Agent Card remained unavailable after bounded retries.",
-            )
-        delay = min(
-            call.runtime_policy.retry_backoff_initial_seconds
-            * (2 ** max(call.cancellation_attempts - 1, 0)),
-            call.runtime_policy.retry_backoff_max_seconds,
-        )
-        retry = call.model_copy(
-            update={
-                "cancellation_state": "pending",
-                "claim_owner": None,
-                "claim_expires_at": None,
-                "next_attempt_at": datetime.now(UTC) + timedelta(seconds=delay),
-                "state_version": call.state_version + 1,
-                "updated_at": datetime.now(UTC),
-            }
-        )
-        persisted = await self._cas_or_load_winner(
-            retry, expected_state_version=call.state_version
-        )
-        return await self._finalized_state(persisted)
-
-    async def _mark_uncertain(self, call: AgentCallLedgerRecord) -> str:
-        uncertain = call.model_copy(
-            update={
-                "cancellation_state": "delivery_uncertain",
-                "claim_owner": None,
-                "claim_expires_at": None,
-                "next_attempt_at": datetime.now(UTC)
-                + timedelta(seconds=self.policy.retry_backoff_initial_seconds),
-                "state_version": call.state_version + 1,
-                "updated_at": datetime.now(UTC),
-            }
-        )
-        persisted = await self._cas_or_load_winner(
-            uncertain, expected_state_version=call.state_version
-        )
-        return await self._finalized_state(persisted)
 
     async def _finalized_state(self, record: AgentCallLedgerRecord) -> str:
         if record.state in TERMINAL_AGENT_CALL_STATES:
             await self.terminal_interactions.finalize(record)
         return record.state
-
-    async def _load_finalized_state(self, call_record_id: str) -> str:
-        return await self._finalized_state(
-            await self._load_durable_winner(call_record_id)
-        )
-
-    async def _cas_or_load_winner(
-        self,
-        candidate: AgentCallLedgerRecord,
-        *,
-        expected_state_version: int,
-    ) -> AgentCallLedgerRecord:
-        outcome = await self.ledger.cas(
-            candidate, expected_state_version=expected_state_version
-        )
-        if outcome in {"accepted", "replayed"}:
-            return candidate
-        return await self._load_durable_winner(candidate.call_record_id)
-
-    async def _load_durable_winner(self, call_record_id: str) -> AgentCallLedgerRecord:
-        winner = await self.ledger.load_by_record_id(call_record_id)
-        if winner is None:
-            raise RecoverableCheckpointError(
-                "cancellation CAS winner could not be classified"
-            )
-        return winner
 
     async def _epoch_authorized(
         self, call: AgentCallLedgerRecord, deletion_id: str | None
@@ -343,40 +114,6 @@ class A2ACancellationCoordinator:
             return await self.room_epochs.verify_active(call.room_id, call.room_epoch)
         return await self.room_epochs.verify_cleanup_epoch(
             call.room_id, call.room_epoch, deletion_id
-        )
-
-    async def _claim(self, call: AgentCallLedgerRecord) -> AgentCallLedgerRecord | None:
-        now = datetime.now(UTC)
-        return await self.ledger.claim(
-            call.call_record_id,
-            expected_state_version=call.state_version,
-            owner_id=self.worker_id,
-            lease_expires_at=now + timedelta(seconds=self.policy.claim_lease_seconds),
-            claimed_at=now,
-        )
-
-    async def _renew_and_verify(
-        self, call: AgentCallLedgerRecord, deletion_id: str | None
-    ) -> AgentCallLedgerRecord | None:
-        now = datetime.now(UTC)
-        renewed = await self.ledger.renew(
-            call.call_record_id,
-            expected_state_version=call.state_version,
-            owner_id=self.worker_id,
-            lease_expires_at=now + timedelta(seconds=self.policy.claim_lease_seconds),
-            renewed_at=now,
-        )
-        if renewed is None or not await self._epoch_authorized(renewed, deletion_id):
-            return None
-        return renewed
-
-    async def _release(self, call: AgentCallLedgerRecord) -> None:
-        await self.ledger.release(
-            call.call_record_id,
-            expected_state_version=call.state_version,
-            owner_id=self.worker_id,
-            next_attempt_at=datetime.now(UTC),
-            released_at=datetime.now(UTC),
         )
 
     async def cancel_run(
@@ -390,6 +127,72 @@ class A2ACancellationCoordinator:
                 deletion_id=deletion_id,
             )
         return results
+
+
+async def persist_local_cancellation(
+    ledger: AgentCallLedgerStore,
+    call: AgentCallLedgerRecord,
+    *,
+    reason: str,
+    deletion_id: str | None = None,
+) -> AgentCallLedgerRecord:
+    """Persist an absorbing canceled winner without remote transport I/O."""
+
+    for _attempt in range(8):
+        if call.state in TERMINAL_AGENT_CALL_STATES:
+            return call
+        if call.state != "cancel_pending":
+            command_id = f"cancel-{_stable([call.call_record_id, reason[:1000], deletion_id or 'active'])}"
+            command = A2ACancellationCommand(
+                command_id=command_id,
+                transport_kind=call.transport_kind,
+                call_record_id=call.call_record_id,
+                reason=reason[:1000],
+                deletion_id=deletion_id,
+                created_at=datetime.now(UTC),
+            )
+            pending = transition_call(
+                call,
+                to_state="cancel_pending",
+                updated_at=datetime.now(UTC),
+                cancellation_command=command,
+                cancellation_command_id=command_id,
+                cancellation_reason=reason[:1000],
+                cancellation_state="pending",
+            )
+            outcome = await ledger.cas(
+                pending, expected_state_version=call.state_version
+            )
+            if outcome in {"accepted", "replayed"}:
+                call = pending
+            else:
+                winner = await ledger.load_by_record_id(call.call_record_id)
+                if winner is None:
+                    raise RecoverableCheckpointError(
+                        "cancellation CAS winner could not be classified"
+                    )
+                call = winner
+                continue
+        command = call.cancellation_command
+        if command is None:
+            raise RecoverableCheckpointError(
+                "cancel-pending Agent call has no cancellation command"
+            )
+        terminal = apply_observation(
+            call,
+            _canceled_observation(call, command),
+            recent_limit=call.runtime_policy.recent_observation_id_limit,
+        )
+        outcome = await ledger.cas(terminal, expected_state_version=call.state_version)
+        if outcome in {"accepted", "replayed"}:
+            return terminal
+        winner = await ledger.load_by_record_id(call.call_record_id)
+        if winner is None:
+            raise RecoverableCheckpointError(
+                "cancellation terminal CAS winner could not be classified"
+            )
+        call = winner
+    raise RecoverableCheckpointError("Agent-call cancellation CAS did not converge")
 
 
 def _canceled_observation(

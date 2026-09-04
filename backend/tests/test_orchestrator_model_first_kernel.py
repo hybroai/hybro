@@ -1091,6 +1091,9 @@ async def test_terminal_preflight_reconciles_exact_public_outcome_for_all_status
     assert payload["is_error"] is expected_is_error
     if expected_failure is None:
         assert "failure_reason" not in payload
+        # Existing room-event translators may serialize an absent optional
+        # failure as JSON null. It is semantically equivalent to omission.
+        payload["failure_reason"] = None
     else:
         assert payload["failure_reason"] == expected_failure
 

@@ -1267,7 +1267,7 @@ export function RoomChatInput({
                         </span>
                       </TooltipTrigger>
                       <TooltipContent side="top">
-                        Cancelling...
+                        Stopping...
                       </TooltipContent>
                     </Tooltip>
                   </TooltipProvider>

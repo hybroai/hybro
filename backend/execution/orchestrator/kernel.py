@@ -18,6 +18,7 @@ from jsonschema.exceptions import ValidationError
 
 from .budget import BudgetExceeded, BudgetPolicy
 from .context import ContextCompiler, UnresolvedToolBatchError
+from .control import ClientCancellationRequested
 from .models import (
     ArtifactRefPart,
     AssistantMessage,
@@ -81,6 +82,7 @@ KernelOutcome = Literal[
     "final_answer",
     "waiting_external",
     "awaiting_user",
+    "cancellation_pending",
     "budget_exhausted",
     "aborted",
     "failed",
@@ -89,6 +91,10 @@ KernelOutcome = Literal[
 
 class KernelConflict(RuntimeError):
     pass
+
+
+class KernelCancellationPending(RuntimeError):
+    """Normal execution lost its CAS to durable cancellation."""
 
 
 REQUEST_USER_INPUT_TOOL_NAME = "request_user_input"
@@ -655,7 +661,10 @@ def _terminal_closure_plan(
                 or payload.get("outcome") != expected_outcome
                 or type(payload.get("is_error")) is not bool
                 or payload.get("is_error") is not expected_is_error
-                or (expected_failure_reason is None and "failure_reason" in payload)
+                or (
+                    expected_failure_reason is None
+                    and payload.get("failure_reason") is not None
+                )
                 or (
                     expected_failure_reason is not None
                     and (
@@ -902,12 +911,34 @@ class OrchestratorKernel:
         signal: CancellationSignal,
         lifecycle: KernelLifecycle | None = None,
     ) -> KernelRunResult:
+        current = await self._load(run_id)
+        if current.status == "canceling":
+            return KernelRunResult("cancellation_pending", current)
+        try:
+            return await self._run_normal(run_id, signal=signal, lifecycle=lifecycle)
+        except (KernelCancellationPending, ClientCancellationRequested):
+            current = await self._load(run_id)
+            if current.status == "canceling":
+                return KernelRunResult("cancellation_pending", current)
+            raise KernelConflict(
+                "cancellation control path observed without durable cancellation"
+            ) from None
+
+    async def _run_normal(
+        self,
+        run_id: str,
+        *,
+        signal: CancellationSignal,
+        lifecycle: KernelLifecycle | None = None,
+    ) -> KernelRunResult:
         self._lifecycle_context.set(lifecycle)
         invalid_observations = 0
         decision_provider_errors = 0
         recover_initial_state = True
         while True:
             run = await self._load(run_id)
+            if run.status == "canceling":
+                return KernelRunResult("cancellation_pending", run)
             if run.status in {"completed", "failed", "canceled", "budget_exhausted"}:
                 return KernelRunResult(_outcome_for_status(run.status), run)
             if (
@@ -973,8 +1004,11 @@ class OrchestratorKernel:
                     )
                 return await self._complete(run, assistant)
             if signal.cancelled:
-                return await self._terminate(
-                    run, status="canceled", reason="cancellation requested"
+                current = await self._load(run.run_id)
+                if current.status == "canceling":
+                    return KernelRunResult("cancellation_pending", current)
+                raise KernelConflict(
+                    "cancellation signal observed without durable cancellation"
                 )
             if run.status == "waiting_external":
                 return KernelRunResult("waiting_external", run)
@@ -1349,8 +1383,11 @@ class OrchestratorKernel:
                             pass
 
             if model_outcome.kind == "aborted":
-                return await self._terminate(
-                    run, status="canceled", reason="model request aborted"
+                current = await self._load(run.run_id)
+                if current.status == "canceling":
+                    return KernelRunResult("cancellation_pending", current)
+                raise KernelConflict(
+                    "model cancellation observed without durable cancellation"
                 )
             if model_outcome.kind == "context_overflow":
                 if (
@@ -1566,9 +1603,11 @@ class OrchestratorKernel:
             except asyncio.CancelledError:
                 if signal.cancelled:
                     current = await self._load(run.run_id)
-                    return await self._terminate(
-                        current, status="canceled", reason="tool execution canceled"
-                    )
+                    if current.status == "canceling":
+                        return KernelRunResult("cancellation_pending", current)
+                    raise KernelConflict(
+                        "tool cancellation observed without durable cancellation"
+                    ) from None
                 raise
             if result == "retry":
                 continue
@@ -1652,6 +1691,8 @@ class OrchestratorKernel:
     ) -> KernelRunResult:
         self._lifecycle_context.set(lifecycle)
         run = await self._load(run_id)
+        if run.status == "canceling":
+            raise KernelConflict("canceling Run cannot accept a tool observation")
         batch_index, entry_index = _find_invocation(run, observation.invocation_id)
         if batch_index is None or entry_index is None:
             raise KeyError(observation.invocation_id)
@@ -3451,7 +3492,7 @@ class OrchestratorKernel:
             return await self.tool_runtime.execute(
                 invocation, acceptance, signal=signal
             )
-        except asyncio.CancelledError:
+        except (asyncio.CancelledError, ClientCancellationRequested):
             raise
         except Exception as exc:
             return ToolResult(
@@ -4002,6 +4043,10 @@ class OrchestratorKernel:
         )
         if stored.run is None:
             raise KernelConflict("terminal completion CAS failed")
+        if stored.outcome not in {"accepted", "replayed"}:
+            if stored.run.status == "canceling":
+                return KernelRunResult("cancellation_pending", stored.run)
+            raise KernelConflict("terminal completion CAS lost")
         settled = await self.projection_driver.settle(run.run_id)
         return KernelRunResult("final_answer", settled)
 
@@ -4262,6 +4307,8 @@ class OrchestratorKernel:
         ) = None,
     ) -> KernelRunResult:
         current = await self._load(run.run_id)
+        if current.status == "canceling" and status != "canceled":
+            return KernelRunResult("cancellation_pending", current)
         if current.status in {"completed", "failed", "canceled", "budget_exhausted"}:
             return KernelRunResult(_outcome_for_status(current.status), current)
         run = current
@@ -4312,6 +4359,10 @@ class OrchestratorKernel:
         )
         if stored.run is None:
             raise KernelConflict("terminal status store CAS failed")
+        if stored.outcome not in {"accepted", "replayed"}:
+            if stored.run.status == "canceling" and status != "canceled":
+                return KernelRunResult("cancellation_pending", stored.run)
+            raise KernelConflict("terminal status store CAS lost")
         settled = await self.projection_driver.settle(run.run_id)
         return KernelRunResult(_outcome_for_status(status), settled)
 
@@ -4472,6 +4523,8 @@ class OrchestratorKernel:
             return result.run
         if result.outcome == "conflict":
             current = await self._load(run.run_id)
+            if current.status == "canceling":
+                raise KernelCancellationPending
             if command_id in current.processed_command_ids:
                 return current
         raise KernelConflict(f"checkpoint failed: {command_id}:{result.outcome}")

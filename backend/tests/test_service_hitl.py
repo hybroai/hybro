@@ -15,6 +15,7 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from common.dto.hitl import HITLPublicSource
+from execution.hitl.exceptions import HITLConflictError
 from execution.hitl.service import HITLService
 from models.hitl import (
     HITLEventType,
@@ -176,6 +177,74 @@ def test_bound_hitl_proxy_class_is_available_without_global_singleton():
 
     proxy = BoundHITLServiceProxy()
     assert proxy._service is None
+
+
+@pytest.mark.asyncio
+async def test_canonical_interaction_cancel_claims_run_before_hitl_mutation():
+    order: list[str] = []
+    interaction = {
+        "interaction_id": "interaction-1",
+        "room_id": "room-1",
+        "orchestration_run_id": "run-1",
+        "status": "materializing",
+        "version": 1,
+        "request_ids": [],
+    }
+    lifecycle = MagicMock()
+    lifecycle.get_interaction_strict = AsyncMock(
+        side_effect=[interaction, {**interaction, "status": "canceled", "version": 2}]
+    )
+
+    async def terminalize(*_args, **_kwargs):
+        order.append("hitl")
+        return {**interaction, "status": "canceled", "version": 2}
+
+    lifecycle.terminalize_interaction = terminalize
+
+    async def request_cancellation(run_id):
+        assert run_id == "run-1"
+        order.append("run")
+        return "canceling"
+
+    service = HITLService(
+        lifecycle=lifecycle,
+        lifecycle_family_reader=AsyncMock(return_value="canonical"),
+        canonical_cancellation_requester=request_cancellation,
+    )
+
+    version = await service.cancel_interaction_by_user(
+        room_id="room-1", interaction_id="interaction-1", expected_version=1
+    )
+
+    assert version == 2
+    assert order == ["run", "hitl"]
+
+
+@pytest.mark.asyncio
+async def test_canonical_interaction_cancel_loses_to_completed_run():
+    interaction = {
+        "interaction_id": "interaction-1",
+        "room_id": "room-1",
+        "orchestration_run_id": "run-1",
+        "status": "materializing",
+        "version": 1,
+        "request_ids": [],
+    }
+    lifecycle = MagicMock()
+    lifecycle.get_interaction_strict = AsyncMock(return_value=interaction)
+    lifecycle.terminalize_interaction = AsyncMock()
+    service = HITLService(
+        lifecycle=lifecycle,
+        lifecycle_family_reader=AsyncMock(return_value="canonical"),
+        canonical_cancellation_requester=AsyncMock(return_value="completed"),
+    )
+
+    with pytest.raises(HITLConflictError, match="lifecycle winner"):
+        await service.cancel_interaction_by_user(
+            room_id="room-1", interaction_id="interaction-1", expected_version=1
+        )
+
+    lifecycle.terminalize_interaction.assert_not_awaited()
 
 
 class TestEmitHitlEvent:

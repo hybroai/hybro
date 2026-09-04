@@ -139,6 +139,9 @@ async def test_terminal_continuation_proof_clears_initial_delivery_uncertainty()
         ),
     )
     runtime = SimpleNamespace(
+        run_store=SimpleNamespace(
+            load=AsyncMock(return_value=SimpleNamespace(status="running"))
+        ),
         hitl_port=SimpleNamespace(
             read_interaction=AsyncMock(return_value=(spec, route, "fingerprint"))
         ),
@@ -474,6 +477,7 @@ async def test_emit_hitl_resolved_events_precede_canonical_run_resume():
         emit=AsyncMock(side_effect=lambda event: emitted.append(event) or True)
     )
     run = SimpleNamespace(
+        status="running",
         lifecycle_family="canonical",
         request=SimpleNamespace(user_message_id="user-1"),
         client_request_id="cr-1",
@@ -520,7 +524,7 @@ async def test_emit_hitl_resolved_events_precede_canonical_run_resume():
 
 
 @pytest.mark.asyncio
-async def test_router_full_cancellation_closes_public_hitl_before_run_abort():
+async def test_router_full_cancellation_claims_run_before_descendant_cleanup():
     record = ledger_record(run_id="run-1", call_id="call-1").model_copy(
         update={"state": "input_required", "pending_interaction_id": "interaction-1"}
     )
@@ -533,6 +537,9 @@ async def test_router_full_cancellation_closes_public_hitl_before_run_abort():
         run_id="run-1",
         room_id="room-1",
         lifecycle_family="canonical",
+        status="running",
+        state_version=1,
+        cancellation_command_id=None,
         request=SimpleNamespace(user_message_id="user-1"),
         client_request_id="cr-1",
         tool_batches=[
@@ -545,7 +552,19 @@ async def test_router_full_cancellation_closes_public_hitl_before_run_abort():
             )
         ],
     )
+    canceling_run = SimpleNamespace(
+        **{
+            **run.__dict__,
+            "status": "canceling",
+            "state_version": 2,
+            "cancellation_command_id": "cancel:run-1:user_requested",
+        }
+    )
     order: list[str] = []
+
+    async def request_cancellation(*_args, **_kwargs):
+        order.append("cas")
+        return SimpleNamespace(outcome="accepted", run=canceling_run)
 
     async def emit_checked(_event):
         order.append("hitl_response")
@@ -555,8 +574,12 @@ async def test_router_full_cancellation_closes_public_hitl_before_run_abort():
         order.append("cancel_calls")
         return {"call-1": "canceled"}
 
-    async def abort_run(_run):
-        order.append("abort_run")
+    async def signal_run_cancellation(*_args):
+        order.append("signal")
+
+    async def reconcile_cancellation(_run):
+        order.append("reconcile")
+        return SimpleNamespace(run=SimpleNamespace(status="canceled"))
 
     router = DualRuntimeRouter.__new__(DualRuntimeRouter)
     router._runtime = SimpleNamespace(
@@ -569,17 +592,27 @@ async def test_router_full_cancellation_closes_public_hitl_before_run_abort():
         hitl_delivery=SimpleNamespace(emit_checked=emit_checked),
         run_store=SimpleNamespace(
             load_by_user_message_id=AsyncMock(return_value=run),
-            load=AsyncMock(return_value=run),
+            load=AsyncMock(return_value=canceling_run),
+            request_cancellation=request_cancellation,
         ),
         call_ledger=SimpleNamespace(load_by_record_id=AsyncMock(return_value=record)),
         continuation=SimpleNamespace(canonical_hitl_control=AsyncMock()),
         cancellation_coordinator=SimpleNamespace(cancel_run=cancel_run),
-        session_host=SimpleNamespace(abort_run=abort_run),
+        session_host=SimpleNamespace(
+            signal_run_cancellation=signal_run_cancellation,
+            reconcile_cancellation=reconcile_cancellation,
+        ),
     )
 
     await router.route_cancellation_by_user_message("user-1", reason="user:user-1")
 
-    assert order == ["hitl_response", "cancel_calls", "abort_run"]
+    assert order == [
+        "cas",
+        "cancel_calls",
+        "hitl_response",
+        "reconcile",
+        "signal",
+    ]
 
 
 @pytest.mark.asyncio
@@ -597,6 +630,9 @@ async def test_router_direct_hitl_cancellation_aborts_the_owning_run():
         run_id="run-1",
         room_id="room-1",
         lifecycle_family="canonical",
+        status="running",
+        state_version=1,
+        cancellation_command_id=None,
         request=SimpleNamespace(user_message_id="user-1"),
         client_request_id="cr-1",
         tool_batches=[
@@ -609,7 +645,19 @@ async def test_router_direct_hitl_cancellation_aborts_the_owning_run():
             )
         ],
     )
+    canceling_run = SimpleNamespace(
+        **{
+            **run.__dict__,
+            "status": "canceling",
+            "state_version": 2,
+            "cancellation_command_id": "cancel:run-1:user_requested",
+        }
+    )
     order: list[str] = []
+
+    async def request_cancellation(*_args, **_kwargs):
+        order.append("cas")
+        return SimpleNamespace(outcome="accepted", run=canceling_run)
 
     async def emit_checked(_event):
         order.append("hitl_response")
@@ -619,8 +667,12 @@ async def test_router_direct_hitl_cancellation_aborts_the_owning_run():
         order.append("cancel_calls")
         return {"call-1": "canceled"}
 
-    async def abort_run(_run):
-        order.append("abort_run")
+    async def signal_run_cancellation(*_args):
+        order.append("signal")
+
+    async def reconcile_cancellation(_run):
+        order.append("reconcile")
+        return SimpleNamespace(run=SimpleNamespace(status="canceled"))
 
     router = DualRuntimeRouter.__new__(DualRuntimeRouter)
     router._runtime = SimpleNamespace(
@@ -631,11 +683,17 @@ async def test_router_direct_hitl_cancellation_aborts_the_owning_run():
             abandon=AsyncMock(return_value="accepted"),
         ),
         hitl_delivery=SimpleNamespace(emit_checked=emit_checked),
-        run_store=SimpleNamespace(load=AsyncMock(return_value=run)),
+        run_store=SimpleNamespace(
+            load=AsyncMock(return_value=run),
+            request_cancellation=request_cancellation,
+        ),
         call_ledger=SimpleNamespace(load_by_record_id=AsyncMock(return_value=record)),
         continuation=SimpleNamespace(canonical_hitl_control=AsyncMock()),
         cancellation_coordinator=SimpleNamespace(cancel_run=cancel_run),
-        session_host=SimpleNamespace(abort_run=abort_run),
+        session_host=SimpleNamespace(
+            signal_run_cancellation=signal_run_cancellation,
+            reconcile_cancellation=reconcile_cancellation,
+        ),
     )
 
     version = await router.cancel_hitl_interaction(
@@ -645,7 +703,13 @@ async def test_router_direct_hitl_cancellation_aborts_the_owning_run():
     )
 
     assert version == 1
-    assert order == ["hitl_response", "cancel_calls", "abort_run"]
+    assert order == [
+        "cas",
+        "cancel_calls",
+        "hitl_response",
+        "reconcile",
+        "signal",
+    ]
 
 
 @pytest.mark.asyncio

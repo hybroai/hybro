@@ -34,7 +34,13 @@ class RunPreparedInvocationSnapshotReader:
         self, invocation: ToolInvocation
     ) -> PreparedInvocationSnapshot | None:
         run = await self.run_store.load(invocation.run_id)
-        if run is None:
+        if run is None or run.status in {
+            "canceling",
+            "completed",
+            "failed",
+            "canceled",
+            "budget_exhausted",
+        }:
             return None
         binding = await self.binding_store.load(invocation.tool.binding.binding_id)
         if (
@@ -70,7 +76,13 @@ class RunPreparedInvocationSnapshotReader:
         """Reload the exact durable invocation for background dispatch recovery."""
 
         run = await self.run_store.load(run_id)
-        if run is None:
+        if run is None or run.status in {
+            "canceling",
+            "completed",
+            "failed",
+            "canceled",
+            "budget_exhausted",
+        }:
             return None
         matches = [
             entry.invocation

@@ -66,29 +66,6 @@ class _RequestIdempotency:
     fingerprint_version: int | None = None
 
 
-def _orchestrator_cancellation_ack(results: dict[str, str]) -> CancellationAck:
-    """Translate per-call cancellation outcomes into an honest public ack.
-
-    The orchestrator cancellation coordinator returns one state per call. A
-    call still ``cancel_pending`` means its remote effect was not reconciled in
-    this attempt, so the Run-level ack must not claim full reconciliation.
-    """
-    if not results:
-        # A Run with no in-flight calls has nothing left to reconcile.
-        return CancellationAck(
-            status="canceled", cancellation_applied=True, reconciled=True
-        )
-    if any(state == "cancel_pending" for state in results.values()):
-        return CancellationAck(
-            status="cancellation_pending",
-            cancellation_applied=False,
-            reconciled=False,
-        )
-    return CancellationAck(
-        status="canceled", cancellation_applied=True, reconciled=True
-    )
-
-
 class RoomCenterPort(Protocol):
     async def get_idempotent_user_message(
         self,
@@ -687,16 +664,15 @@ class ExecutionFacade:
     ) -> bool | CancellationAck:
         router = self._orchestrator_router
         if router is not None:
-            # HITL ownership must clear before the Kernel exposes terminal Tool
-            # and Turn children. This path is idempotent when no request exists.
-            await self._hitl_message_cancellation.cancel_requests_for_message(
-                message_id
-            )
-            results = await router.route_cancellation_by_user_message(
+            return await router.route_cancellation_by_user_message(
                 message_id,
                 reason=f"user:{requested_by_user_id}",
+                post_claim_cleanup=lambda: (
+                    self._hitl_message_cancellation.cancel_requests_for_message(
+                        message_id
+                    )
+                ),
             )
-            return _orchestrator_cancellation_ack(results)
         return await self._cancellation_service.cancel(
             room_id=room_id,
             message_id=message_id,

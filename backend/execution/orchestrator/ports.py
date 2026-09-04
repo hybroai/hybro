@@ -7,6 +7,7 @@ from datetime import datetime
 from typing import Literal, Protocol
 
 from .models import (
+    CancellationCause,
     CompactionResult,
     ModelStreamEvent,
     ModelTurnRequest,
@@ -128,6 +129,18 @@ class OrchestratorRunStore(Protocol):
         expected_state_version: int,
         command_id: str,
     ) -> RunStoreResult: ...
+
+    async def request_cancellation(
+        self,
+        run_id: str,
+        *,
+        expected_state_version: int,
+        command_id: str,
+        cause: CancellationCause,
+        requested_at: datetime,
+    ) -> RunStoreResult: ...
+
+    async def repair_canceling_recovery(self, *, limit: int) -> int: ...
 
     async def claim_recovery(
         self,

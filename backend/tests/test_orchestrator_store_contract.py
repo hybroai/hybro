@@ -3,14 +3,18 @@ from __future__ import annotations
 import inspect
 from datetime import timedelta
 
+import pytest
+
 from dal.orchestrator.run_store import MongoOrchestratorRunStore
 from execution.orchestrator import (
     AssistantMessage,
     RecoveryClaim,
     TerminalCommitRequest,
     TerminalDecisionFacts,
+    TerminalStatusCommitRequest,
     TextPart,
     commit_terminal_decision,
+    commit_terminal_status,
 )
 from execution.orchestrator.contract_harness import InMemoryOrchestratorContractHarness
 from execution.orchestrator.in_memory import InMemoryOrchestratorRunStore
@@ -64,6 +68,7 @@ def test_recovery_store_signatures_have_exact_claim_and_release_inventory():
         "quarantine_reason",
     }
     assert set(RecoveryClaim.model_fields) == {
+        "kind",
         "owner_id",
         "lease_expires_at",
         "next_attempt_at",
@@ -322,6 +327,140 @@ def test_due_run_inventory_excludes_live_leases_and_terminal_runs():
     for run in (due, live, dormant, terminal):
         assert store.create(run) == "accepted"
     assert [run.run_id for run in store.list_due_runs(due_at=NOW, limit=10)] == ["due"]
+
+
+@pytest.mark.asyncio
+async def test_cancellation_request_is_durable_and_fences_stale_progress():
+    store = InMemoryOrchestratorRunStore()
+    run = _run("run-cancel", "room-cancel")
+    assert (await store.create(run, command_id="create")).outcome == "accepted"
+
+    command_id = f"cancel:{run.run_id}:user_requested"
+    requested = await store.request_cancellation(
+        run.run_id,
+        expected_state_version=run.state_version,
+        command_id=command_id,
+        cause="user_requested",
+        requested_at=NOW,
+    )
+
+    assert requested.outcome == "accepted"
+    assert requested.run is not None
+    assert requested.run.status == "canceling"
+    assert requested.run.cancellation_command_id == command_id
+    assert requested.run.cancellation_requested_at == NOW
+    assert requested.run.cancellation_cause == "user_requested"
+    assert requested.run.recovery_claim.kind == "cancellation"
+    assert requested.run.state_version == run.state_version + 1
+
+    stale = run.model_copy(
+        update={"status": "waiting_external", "state_version": run.state_version + 1}
+    )
+    conflict = await store.cas_mutate(
+        stale,
+        expected_state_version=run.state_version,
+        command_id="stale-progress",
+    )
+    assert conflict.outcome == "conflict"
+    assert conflict.run is not None and conflict.run.status == "canceling"
+
+    replay = await store.request_cancellation(
+        run.run_id,
+        expected_state_version=requested.run.state_version,
+        command_id=command_id,
+        cause="user_requested",
+        requested_at=NOW,
+    )
+    assert replay.outcome == "replayed"
+
+
+def test_canceling_run_rejects_incomplete_metadata():
+    run = _run("run-malformed", "room-malformed")
+
+    with pytest.raises(ValueError, match="complete cancellation metadata"):
+        type(run).model_validate(
+            {
+                **run.model_dump(mode="python"),
+                "status": "canceling",
+                "recovery_claim": RecoveryClaim(kind="cancellation"),
+            }
+        )
+
+
+@pytest.mark.asyncio
+async def test_repair_canceling_recovery_restores_cancellation_claim():
+    store = InMemoryOrchestratorRunStore()
+    run = _run("run-repair", "room-repair").model_copy(
+        update={
+            "status": "canceling",
+            "cancellation_command_id": "cancel:run-repair:user_requested",
+            "cancellation_requested_at": NOW,
+            "cancellation_cause": "user_requested",
+            "recovery_claim": RecoveryClaim(kind="execution"),
+        }
+    )
+    store.runs[run.run_id] = run
+
+    assert await store.repair_canceling_recovery(limit=10) == 1
+    repaired = await store.load(run.run_id)
+    assert repaired is not None
+    assert repaired.recovery_claim.kind == "cancellation"
+    assert repaired.recovery_claim.next_attempt_at is not None
+
+
+@pytest.mark.asyncio
+async def test_canceling_store_guard_allows_only_matching_canceled_exit():
+    store = InMemoryOrchestratorRunStore()
+    run = _run("run-exit", "room-exit")
+    await store.create(run, command_id="create")
+    command_id = f"cancel:{run.run_id}:user_requested"
+    requested = await store.request_cancellation(
+        run.run_id,
+        expected_state_version=run.state_version,
+        command_id=command_id,
+        cause="user_requested",
+        requested_at=NOW,
+    )
+    assert requested.run is not None
+    canceling = requested.run
+
+    rejected = await store.cas_mutate(
+        canceling.model_copy(
+            update={
+                "status": "running",
+                "state_version": canceling.state_version + 1,
+            }
+        ),
+        expected_state_version=canceling.state_version,
+        command_id="resume",
+    )
+    assert rejected.outcome == "conflict"
+
+    committed = commit_terminal_status(
+        canceling,
+        request=TerminalStatusCommitRequest(
+            expected_state_version=canceling.state_version,
+            command_id="settle-cancel",
+            event_id="cancel-event",
+            event_sequence=1,
+            event_intent_id="cancel-event-intent",
+            public_run_intent_id="cancel-run-intent",
+            public_run_target=canceling.run_id,
+            status="canceled",
+            terminal_reason="cancellation requested",
+            cancellation_cause="user_requested",
+            created_at=NOW,
+        ),
+    )
+    assert committed.outcome == "accepted"
+    stored = await store.cas_mutate(
+        committed.run,
+        expected_state_version=canceling.state_version,
+        command_id="settle-cancel",
+    )
+    assert stored.outcome == "accepted"
+    assert stored.run is not None and stored.run.status == "canceled"
+    assert stored.run.cancellation_command_id == command_id
 
 
 def test_crash_after_terminal_cas_repairs_outbox_idempotently():

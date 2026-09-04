@@ -19,6 +19,7 @@ import {
   isCanonicalHITLResponseData,
   validateCanonicalRunEventData,
 } from '@/lib/turn-lifecycle/contract'
+import { useMessageStore } from '@/stores/message-store'
 import { isCanonicalRoot, useTurnStore } from '@/stores/turn-store'
 
 export const HANDLED_ROOM_SSE_TYPES = {
@@ -105,7 +106,13 @@ function foldCanonicalDelta(deps: SSEHandlerDeps, roomMessage: DeltaMessage): 'c
         existingTurn.clientRequestId,
       )
     ) {
+      deps.lifecycle.markProcessingResolved()
       deps.lifecycle.stopProcessing()
+      deps.lifecycle.disarmCancelTimeout()
+      deps.setCancelling(false)
+      const messageStore = useMessageStore.getState()
+      messageStore.removeMessage(deps.lifecycle.placeholderId(deps.roomId))
+      deps.lifecycle.dismissPlaceholder()
     }
   } else if (roomMessage.type === 'hitl_request' && roomMessage.data.run_id) {
     if (!isCanonicalHITLRequestData(roomMessage.data)) {

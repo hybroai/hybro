@@ -49,6 +49,7 @@ async def test_ensure_orchestrator_indexes_registers_exact_metadata_inventory():
         if name not in collections:
             collection = MagicMock()
             collection.create_index = AsyncMock(return_value=f"{name}_idx")
+            collection.drop_index = AsyncMock()
             collection.index_information = AsyncMock(return_value={})
             collections[name] = collection
         return collections[name]
@@ -78,6 +79,74 @@ async def test_ensure_orchestrator_indexes_registers_exact_metadata_inventory():
                 list(index.keys),
                 **kwargs,
             ), f"{collection_definition.name}.{index.name}"
+
+
+@pytest.mark.asyncio
+async def test_ensure_orchestrator_indexes_removes_obsolete_active_room_index():
+    from container import _ensure_orchestrator_indexes
+
+    collections: dict[str, MagicMock] = {}
+
+    def _collection(name: str):
+        if name not in collections:
+            collection = MagicMock()
+            collection.create_index = AsyncMock(return_value=f"{name}_idx")
+            collection.drop_index = AsyncMock()
+            collection.index_information = AsyncMock(
+                return_value=(
+                    {"orchestrator_active_room_unique": {}}
+                    if name == "orchestrator_runs"
+                    else {}
+                )
+            )
+            collections[name] = collection
+        return collections[name]
+
+    mongo = MagicMock()
+    mongo.collection.side_effect = _collection
+
+    await _ensure_orchestrator_indexes(mongo)
+
+    runs = collections["orchestrator_runs"]
+    runs.drop_index.assert_awaited_once_with("orchestrator_active_room_unique")
+    assert _has_create_index(
+        runs,
+        [("room_id", 1)],
+        unique=True,
+        name="orchestrator_active_room_unique_canceling",
+        partialFilterExpression={
+            "status": {
+                "$in": [
+                    "queued",
+                    "running",
+                    "waiting_external",
+                    "awaiting_user",
+                    "canceling",
+                    "finalizing",
+                ]
+            }
+        },
+    )
+
+
+@pytest.mark.asyncio
+async def test_ensure_orchestrator_indexes_fails_if_obsolete_index_cannot_be_removed():
+    from container import _ensure_orchestrator_indexes
+
+    runs = MagicMock()
+    runs.index_information = AsyncMock(
+        return_value={"orchestrator_active_room_unique": {}}
+    )
+    runs.drop_index = AsyncMock(side_effect=RuntimeError("drop failed"))
+    mongo = MagicMock()
+    mongo.collection.return_value = runs
+
+    with pytest.raises(
+        RuntimeError, match="obsolete orchestrator Run index removal failed"
+    ):
+        await _ensure_orchestrator_indexes(mongo)
+
+    runs.create_index.assert_not_called()
 
 
 def _room_owned_collection_names() -> set[str]:

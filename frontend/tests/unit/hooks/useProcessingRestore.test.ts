@@ -64,6 +64,7 @@ describe('useProcessingRestore', () => {
       content: 'Continue work',
       senderName: 'User',
       timestamp: new Date().toISOString(),
+      clientRequestId: 'client-request-active',
     }, 'db')
   })
 
@@ -79,7 +80,7 @@ describe('useProcessingRestore', () => {
 
     renderHook(() => useProcessingRestore(
       'room-1',
-      { active_runs: [{ trigger_message_id: 'msg-active' }] },
+      { active_runs: [{ state: 'running', trigger_message_id: 'msg-active' }] },
       false,
       lifecycle,
       undefined,
@@ -90,7 +91,38 @@ describe('useProcessingRestore', () => {
         'Thinking...',
       ])
     })
-    expect(lifecycle.startProcessing).toHaveBeenCalledWith('msg-active')
+    expect(lifecycle.startProcessing).toHaveBeenCalledWith(
+      'msg-active',
+      'client-request-active',
+    )
+  })
+
+  it('restores a canceling run with stopping state and durable correlation', async () => {
+    const lifecycle = createLifecycle({
+      placeholderDismissed: false,
+      processingResolved: false,
+    })
+
+    renderHook(() => useProcessingRestore(
+      'room-1',
+      { active_runs: [{ state: 'canceling', trigger_message_id: 'msg-active' }] },
+      false,
+      lifecycle,
+      undefined,
+    ))
+
+    await waitFor(() => {
+      expect(lifecycle.startProcessing).toHaveBeenCalledWith(
+        'msg-active',
+        'client-request-active',
+      )
+      expect(useRoomUiStore.getState().getRoomFlags('room-1').cancelling).toBe(true)
+      expect(
+        useMessageStore.getState().entities['msg-active'].processingStatusLogs
+          ?.map(entry => entry.message),
+      ).toContain('Stopping...')
+    })
+    expect(lifecycle.stopProcessing).not.toHaveBeenCalled()
   })
 
   it('does not stop a live SSE lifecycle when the room active run snapshot is stale', async () => {

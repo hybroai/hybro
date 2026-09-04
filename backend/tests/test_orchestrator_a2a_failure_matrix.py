@@ -555,7 +555,7 @@ async def test_continuation_command_survives_ambiguous_send_and_recovers():
     assert len(dispatch.continuations) == 1
 
 
-async def test_cancellation_command_survives_ambiguous_send_and_recovers():
+async def test_cancellation_is_terminal_without_remote_transport():
     ledger = InMemoryAgentCallLedgerStore()
     call = transition_call(
         ledger_record(), to_state="ready_to_dispatch", updated_at=NOW
@@ -585,25 +585,16 @@ async def test_cancellation_command_survives_ambiguous_send_and_recovers():
         await coordinator.cancel_call(
             call_record_id=call.call_record_id, reason="cancel"
         )
-        == "cancel_pending"
+        == "canceled"
     )
     persisted = await ledger.load_by_record_id(call.call_record_id)
+    assert persisted is not None
     assert persisted.cancellation_command is not None
-    due = persisted.model_copy(
-        update={"next_attempt_at": None, "state_version": persisted.state_version + 1}
-    )
-    assert (
-        await ledger.cas(due, expected_state_version=persisted.state_version)
-        == "accepted"
-    )
-    dispatch.fail_cancellation = False
-    assert (
-        await coordinator.recover_call(call_record_id=call.call_record_id) == "canceled"
-    )
-    persisted = await ledger.load_by_record_id(call.call_record_id)
+    assert persisted.state == "canceled"
+    assert dispatch.cancellations == []
     assert (
         await inbox.load(f"cancel-observation-{persisted.cancellation_command_id}")
-        is not None
+        is None
     )
 
 

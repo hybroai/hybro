@@ -579,6 +579,7 @@ class RunRequestSnapshot(ContractModel):
 
 
 class RecoveryClaim(ContractModel):
+    kind: Literal["execution", "cancellation"] = "execution"
     owner_id: str | None = None
     lease_expires_at: datetime | None = None
     next_attempt_at: datetime | None = None
@@ -691,6 +692,7 @@ RunStatus = Literal[
     "running",
     "waiting_external",
     "awaiting_user",
+    "canceling",
     "finalizing",
     "completed",
     "failed",
@@ -737,6 +739,8 @@ class OrchestratorRunState(ContractModel):
     active_public_text: str = Field(default="", max_length=32_000)
     proposed_final_message_id: str | None
     terminal_reason: str | None
+    cancellation_command_id: str | None = None
+    cancellation_requested_at: datetime | None = None
     cancellation_cause: CancellationCause | None = None
     projection_state: Literal["pending", "settled", "blocked"]
     recovery_claim: RecoveryClaim
@@ -776,11 +780,29 @@ class OrchestratorRunState(ContractModel):
         ]
         if len(public_call_ids) != len(set(public_call_ids)):
             raise ValueError("opaque public call IDs must be unique")
-        if self.status == "canceled" and self.lifecycle_family == "canonical":
-            if self.cancellation_cause is None:
+        cancellation_metadata = (
+            self.cancellation_command_id,
+            self.cancellation_requested_at,
+            self.cancellation_cause,
+        )
+        if self.status == "canceling":
+            if any(value is None for value in cancellation_metadata):
+                raise ValueError(
+                    "canceling Runs require complete cancellation metadata"
+                )
+            if self.recovery_claim.kind != "cancellation":
+                raise ValueError("canceling Runs require cancellation recovery")
+        elif self.status == "canceled":
+            if self.lifecycle_family == "canonical" and self.cancellation_cause is None:
                 raise ValueError("canceled canonical Runs require a cancellation cause")
-        elif self.cancellation_cause is not None and self.status != "canceled":
-            raise ValueError("cancellation cause is valid only for canceled Runs")
+            if (self.cancellation_command_id is None) != (
+                self.cancellation_requested_at is None
+            ):
+                raise ValueError("canceled Run command metadata must be paired")
+        elif any(value is not None for value in cancellation_metadata):
+            raise ValueError(
+                "cancellation metadata is valid only for canceling or canceled Runs"
+            )
         if self.lifecycle_family == "canonical":
             if self.schema_version != 6:
                 raise ValueError("canonical Runs require schema version 6")

@@ -3,11 +3,12 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Literal
 
 from .events import canonicalize_orchestrator_event, evaluate_event_append
 from .models import (
+    CancellationCause,
     OrchestratorEvent,
     OrchestratorRunState,
     ProjectionIntent,
@@ -89,9 +90,70 @@ class InMemoryOrchestratorRunStore:
             return InMemoryRunStoreResult("conflict", current)
         if run.state_version != expected_state_version + 1:
             return InMemoryRunStoreResult("error", current)
+        if not _cancellation_transition_allowed(current, run):
+            return InMemoryRunStoreResult("conflict", current)
         self.runs[run.run_id] = run
         self.commands[command_key] = run
         return InMemoryRunStoreResult("accepted", run)
+
+    async def request_cancellation(
+        self,
+        run_id: str,
+        *,
+        expected_state_version: int,
+        command_id: str,
+        cause: CancellationCause,
+        requested_at: datetime,
+    ) -> InMemoryRunStoreResult:
+        run = self.runs.get(run_id)
+        if run is None:
+            return InMemoryRunStoreResult("error", None)
+        if (run_id, command_id) in self.commands:
+            return InMemoryRunStoreResult("replayed", run)
+        if run.state_version != expected_state_version or run.status not in {
+            "queued",
+            "running",
+            "waiting_external",
+            "awaiting_user",
+        }:
+            return InMemoryRunStoreResult("conflict", run)
+        candidate = run.model_copy(
+            update={
+                "status": "canceling",
+                "cancellation_command_id": command_id,
+                "cancellation_requested_at": requested_at,
+                "cancellation_cause": cause,
+                "recovery_claim": RecoveryClaim(
+                    kind="cancellation", next_attempt_at=requested_at
+                ),
+                "state_version": run.state_version + 1,
+                "updated_at": requested_at,
+            }
+        )
+        return await self.cas_mutate(
+            candidate,
+            expected_state_version=run.state_version,
+            command_id=command_id,
+        )
+
+    async def repair_canceling_recovery(self, *, limit: int) -> int:
+        repaired = 0
+        for run in sorted(
+            self.runs.values(), key=lambda item: (item.updated_at, item.run_id)
+        ):
+            if repaired >= max(limit, 0):
+                break
+            if run.status != "canceling" or run.recovery_claim.kind == "cancellation":
+                continue
+            self.runs[run.run_id] = run.model_copy(
+                update={
+                    "recovery_claim": RecoveryClaim(
+                        kind="cancellation", next_attempt_at=datetime.now(UTC)
+                    )
+                }
+            )
+            repaired += 1
+        return repaired
 
     async def claim_recovery(
         self,
@@ -185,6 +247,7 @@ class InMemoryOrchestratorRunStore:
             run.model_copy(
                 update={
                     "recovery_claim": RecoveryClaim(
+                        kind=run.recovery_claim.kind,
                         next_attempt_at=next_attempt_at,
                         failure_count=failure_count,
                         quarantined_at=quarantined_at,
@@ -465,6 +528,25 @@ class InMemoryProjectionDriver:
             if result.run is not None:
                 run = result.run
         return run
+
+
+def _cancellation_transition_allowed(
+    current: OrchestratorRunState, candidate: OrchestratorRunState
+) -> bool:
+    metadata = (
+        "cancellation_command_id",
+        "cancellation_requested_at",
+        "cancellation_cause",
+    )
+    if current.cancellation_command_id is not None and any(
+        getattr(current, field) != getattr(candidate, field) for field in metadata
+    ):
+        return False
+    if current.status != "canceling":
+        return True
+    return candidate.status in {"canceling", "canceled"} and all(
+        getattr(current, field) == getattr(candidate, field) for field in metadata
+    )
 
 
 def _intent(run: OrchestratorRunState | None, intent_id: str):

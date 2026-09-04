@@ -100,6 +100,20 @@ describe('handleTaskUpdate', () => {
     expect(JSON.stringify(entity)).not.toContain(privateTaskContent)
   })
 
+  it('does not settle room cancellation from a canceled child task', async () => {
+    const deps = makeDeps()
+    const disarmCancelTimeout = vi.spyOn(deps.lifecycle, 'disarmCancelTimeout')
+
+    await handleTaskUpdate(
+      deps,
+      makeTaskUpdate({ status: TASK_STATE.CANCELED }),
+      'req-1',
+    )
+
+    expect(deps.setCancelling).not.toHaveBeenCalled()
+    expect(disarmCancelTimeout).not.toHaveBeenCalled()
+  })
+
   it('populates taskUpdatedAt so delayed task_update frames are rejected', async () => {
     await handleTaskUpdate(
       makeDeps(),

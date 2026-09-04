@@ -23,7 +23,7 @@ test.describe('Authenticated flows', () => {
     const input = page.locator('[data-testid="chat-input"]')
     await input.waitFor({ timeout: 15_000 })
 
-    const canceledBefore = await page.locator('text=Task was canceled').count()
+    const canceledBefore = await page.getByText('Request stopped', { exact: true }).count()
 
     await input.fill('Write a long essay about quantum computing')
     await input.press('Enter')
@@ -33,7 +33,7 @@ test.describe('Authenticated flows', () => {
     await stopButton.click()
 
     await expect(stopButton).toBeHidden({ timeout: 10_000 })
-    await expect(page.locator('text=Task was canceled')).toHaveCount(canceledBefore + 1, {
+    await expect(page.getByText('Request stopped', { exact: true })).toHaveCount(canceledBefore + 1, {
       timeout: 10_000,
     })
   })

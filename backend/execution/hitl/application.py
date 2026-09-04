@@ -648,6 +648,10 @@ class HITLApplicationCoordinator:
     async def apply_interaction(  # noqa: C901
         self, service, interaction: dict[str, Any]
     ) -> dict[str, Any]:
+        allows_resume = getattr(service, "canonical_run_allows_resume", None)
+        if callable(allows_resume) and not await allows_resume(interaction):
+            rows = await self._request_rows(service, interaction)
+            return self._result(rows[0], status="canceled", interaction=interaction)
         interaction = await self.repair_persisted_answer_refs(service, interaction)
         interaction_id = interaction["interaction_id"]
         status = interaction.get("status")

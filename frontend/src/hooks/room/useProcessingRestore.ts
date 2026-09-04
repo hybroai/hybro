@@ -1,16 +1,20 @@
 import { useEffect } from 'react'
 import type { ProcessingLifecycle } from './processing-lifecycle'
-import { ensureInitialProcessingStatusLog } from './processing-status-log'
+import {
+  appendProcessingStatusLog,
+  ensureInitialProcessingStatusLog,
+} from './processing-status-log'
 import { useMessageStore } from '@/stores/message-store'
 import { useRoomUiStore } from '@/stores/room-ui-store'
 import { allAgentsTerminalForUserMessage } from '@/lib/room-timeline/turn-agent-terminal'
 import { ensureTurnTerminalStampedFromBackendTruth } from '@/lib/room-timeline/turn-terminal-stamp'
 import { inquiryActiveRuns } from '@/lib/api/room'
+import type { ActiveRunRefWire } from '@/lib/types/response'
 import { isTerminalState } from '@/lib/types/sse'
 import { isStale } from '@/lib/time'
 
 interface ProcessingSnapshotRoom {
-  active_runs?: Array<{ trigger_message_id?: string | null }> | null
+  active_runs?: ActiveRunRefWire[] | null
 }
 
 export function useProcessingRestore(
@@ -42,9 +46,11 @@ export function useProcessingRestore(
     const activeRunTriggerMessageIds = activeRuns
       .map(run => run.trigger_message_id)
       .filter((id): id is string => typeof id === 'string' && id.length > 0)
-    const activeRunTriggerMessageId = activeRunTriggerMessageIds[0] ?? null
+    const activeRun = activeRuns[0]
+    const activeRunTriggerMessageId = activeRun?.trigger_message_id ?? null
     const lifecycleMessageId = activeRunTriggerMessageId
     const hasActiveLifecycle = activeRuns.length > 0
+    const cancellationPending = activeRun?.state === 'canceling'
 
     useRoomUiStore.getState().setActiveRunTriggerMessageIds(
       roomId,
@@ -87,8 +93,21 @@ export function useProcessingRestore(
 
     // Check if room has an active processing state
     if (hasActiveLifecycle) {
-      // Always restore the message ID so cancellation works after refresh.
-      lifecycle.setMessageId(lifecycleMessageId)
+      const triggerMsg = lifecycleMessageId
+        ? store.entities[lifecycleMessageId]
+        : undefined
+
+      // Restore correlation before any stale/task early return so Stop remains
+      // attached to the same durable Run after refresh.
+      lifecycle.startProcessing(
+        lifecycleMessageId,
+        triggerMsg?.clientRequestId ?? null,
+      )
+      useRoomUiStore.getState().setCancelling(roomId, cancellationPending)
+      if (cancellationPending) {
+        ensureInitialProcessingStatusLog(roomId, triggerMsg)
+        appendProcessingStatusLog(roomId, triggerMsg, 'Stopping...')
+      }
 
       // Cached active_runs may be stale — verify with backend before stopping processing.
       if (lifecycleMessageId) {
@@ -102,18 +121,12 @@ export function useProcessingRestore(
         return
       }
 
-      // Check if the triggering user message is stale (> 2 min).
-      if (!lifecycleMessageId) {
-        lifecycle.startProcessing(null)
+      if (!lifecycleMessageId || !triggerMsg) {
         return
       }
 
       // Check if the triggering user message is stale (> 2 min).
       const PLACEHOLDER_STALE_MS = 2 * 60 * 1000
-      const triggerMsg = store.entities[lifecycleMessageId]
-      if (!triggerMsg) {
-        return
-      }
       if (isStale(triggerMsg.timestamp, PLACEHOLDER_STALE_MS)) {
         return
       }
@@ -129,8 +142,8 @@ export function useProcessingRestore(
 
       store.removeMessage(lifecycle.placeholderId(roomId))
       ensureInitialProcessingStatusLog(roomId, triggerMsg)
-      lifecycle.startProcessing(lifecycleMessageId)
     } else {
+      useRoomUiStore.getState().setCancelling(roomId, false)
       // Backend truth says no active processing — clean up lifecycle state left
       // behind by missed terminal SSE without deleting per-turn update history.
       // But don't wipe it if a message send is still in flight (the SSE events

@@ -179,7 +179,9 @@ class HITLService:
         room_files=None,
         canonical_control_publisher=None,
         lifecycle_family_reader=None,
+        canonical_run_state_reader=None,
         supervisor_resume=None,
+        canonical_cancellation_requester=None,
         public_secret_values=(),
     ) -> None:
         self._persistence: HITLPersistencePort | None = None
@@ -193,7 +195,9 @@ class HITLService:
         self._room_files = room_files
         self._canonical_control_publisher = canonical_control_publisher
         self._lifecycle_family_reader = lifecycle_family_reader
+        self._canonical_run_state_reader = canonical_run_state_reader
         self._supervisor_resume = supervisor_resume
+        self._canonical_cancellation_requester = canonical_cancellation_requester
         self._public_secret_values = tuple(
             value for value in public_secret_values if isinstance(value, str) and value
         )
@@ -1269,11 +1273,15 @@ class HITLService:
             raise ContinuationLostError(
                 "Supervisor HITL resume port has not been bound"
             )
-        await self._supervisor_resume(
+        resumed = await self._supervisor_resume(
             run_id=request.orchestration_run_id,
             call_id=call_id,
             answers=user_input,
         )
+        if resumed is False:
+            raise ContinuationLostError(
+                "Supervisor Run became non-resumable during HITL continuation"
+            )
 
     # ------------------------------------------------------------------
     # Queries
@@ -1715,6 +1723,19 @@ class HITLService:
             HITLInteractionStatus.PARTIALLY_ANSWERED.value,
         }:
             raise HITLConflictError("HITL interaction is no longer cancelable")
+        orchestration_run_id = interaction.get("orchestration_run_id")
+        if orchestration_run_id and await self._is_canonical_run(orchestration_run_id):
+            if self._canonical_cancellation_requester is None:
+                raise HITLRoutingFailedError(
+                    "canonical cancellation requester is required"
+                )
+            result = self._canonical_cancellation_requester(orchestration_run_id)
+            if inspect.isawaitable(result):
+                result = await result
+            if result not in {"canceling", "canceled"}:
+                raise HITLConflictError(
+                    "owning Run already has another lifecycle winner"
+                )
         request_ids = list(interaction.get("request_ids") or [])
         if request_ids:
             await self.cancel_request(request_ids[0], room_id=room_id)
@@ -2051,6 +2072,24 @@ class HITLService:
                         exc_info=True,
                     )
         return None
+
+    async def canonical_run_allows_resume(self, interaction: dict[str, Any]) -> bool:
+        run_id = interaction.get("orchestration_run_id")
+        if not await self._is_canonical_run(run_id):
+            return True
+        if self._canonical_run_state_reader is None:
+            return True
+        state = self._canonical_run_state_reader(run_id)
+        if inspect.isawaitable(state):
+            state = await state
+        return state not in {
+            "canceling",
+            "completed",
+            "failed",
+            "canceled",
+            "budget_exhausted",
+            "missing",
+        }
 
     async def _is_canonical_run(self, run_id: object) -> bool:
         if (

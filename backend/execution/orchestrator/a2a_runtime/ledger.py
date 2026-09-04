@@ -91,7 +91,7 @@ AGENT_CALL_TRANSITIONS: dict[AgentCallState, frozenset[AgentCallState]] = {
             "cancel_pending",
         }
     ),
-    "cancel_pending": frozenset({"canceled", "completed", "failed", "expired"}),
+    "cancel_pending": frozenset({"canceled"}),
     "completed": frozenset(),
     "failed": frozenset(),
     "canceled": frozenset(),
@@ -195,6 +195,10 @@ def apply_observation(
             persisted_digest=record.terminal_result_digest or "missing",
             conflicting_digest=conflicting,
         )
+    if record.state == "cancel_pending" and not (
+        observation.event_kind == "terminal" and observation.status == "canceled"
+    ):
+        return record
     if observation.event_kind in {"working", "artifact"} and record.state in {
         "accepted",
         "ready_to_dispatch",

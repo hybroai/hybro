@@ -10,6 +10,7 @@ from pymongo.errors import DuplicateKeyError
 
 from execution.orchestrator.a2a_runtime.errors import RecoverableAdapterError
 from execution.orchestrator.models import (
+    CancellationCause,
     OrchestratorRunState,
     ProjectionIntent,
     RecoveryClaim,
@@ -38,6 +39,7 @@ class MongoOrchestratorRunStore:
         recovery_collection: AsyncMongoCollection | None = None,
     ) -> None:
         self.collection = _bounded(collection)
+        self._recovery_collection_name = getattr(recovery_collection, "name", None)
         self._recovery_collection = (
             _bounded(recovery_collection) if recovery_collection is not None else None
         )
@@ -92,7 +94,9 @@ class MongoOrchestratorRunStore:
         return MongoRunStoreResult("accepted", candidate)
 
     async def load(self, run_id: str) -> OrchestratorRunState | None:
-        value = await self.collection.find_one({"run_id": run_id})
+        value = await self.collection.find_one(
+            {"run_id": run_id, "schema_version": {"$in": [5, 6]}}
+        )
         if not value:
             return None
         run = _run_from_document(value)
@@ -223,7 +227,10 @@ class MongoOrchestratorRunStore:
     ) -> OrchestratorRunState | None:
         """Correlate an orchestrator Run by its originating room user message."""
         value = await self.collection.find_one(
-            {"request.user_message_id": user_message_id}
+            {
+                "request.user_message_id": user_message_id,
+                "schema_version": {"$in": [5, 6]},
+            }
         )
         return _run_from_document(value) if value else None
 
@@ -237,7 +244,7 @@ class MongoOrchestratorRunStore:
         )
         return _run_from_document(value) if value else None
 
-    async def cas_mutate(
+    async def cas_mutate(  # noqa: C901
         self,
         run: OrchestratorRunState,
         *,
@@ -260,6 +267,8 @@ class MongoOrchestratorRunStore:
         candidate = _normalize_run_for_mongo(
             run.model_copy(update={"processed_command_ids": processed_command_ids})
         )
+        if not _cancellation_transition_allowed(current, candidate):
+            return MongoRunStoreResult("conflict", current)
         try:
             result = await self.collection.replace_one(
                 {"run_id": run.run_id, "state_version": expected_state_version},
@@ -280,6 +289,8 @@ class MongoOrchestratorRunStore:
         if (
             claim is not None
             and self._recovery_collection is not None
+            and candidate.recovery_claim.kind == "execution"
+            and claim.kind == "execution"
             and candidate.recovery_claim.owner_id == claim.owner_id
         ):
             # Renewal may race a slow execution CAS. Overlay only metadata for
@@ -288,6 +299,113 @@ class MongoOrchestratorRunStore:
             await self._mirror_recovery_claim(run.run_id, claim)
             candidate = candidate.model_copy(update={"recovery_claim": claim})
         return MongoRunStoreResult("accepted", candidate)
+
+    async def request_cancellation(
+        self,
+        run_id: str,
+        *,
+        expected_state_version: int,
+        command_id: str,
+        cause: CancellationCause,
+        requested_at: datetime,
+    ) -> MongoRunStoreResult:
+        run = await self.load(run_id)
+        if run is None:
+            return MongoRunStoreResult("error", None)
+        if command_id in run.processed_command_ids:
+            await self._replace_cancellation_recovery(run_id, requested_at=requested_at)
+            return MongoRunStoreResult("replayed", run)
+        if run.state_version != expected_state_version or run.status not in {
+            "queued",
+            "running",
+            "waiting_external",
+            "awaiting_user",
+        }:
+            return MongoRunStoreResult("conflict", run)
+        candidate = run.model_copy(
+            update={
+                "status": "canceling",
+                "cancellation_command_id": command_id,
+                "cancellation_requested_at": requested_at,
+                "cancellation_cause": cause,
+                "recovery_claim": RecoveryClaim(
+                    kind="cancellation", next_attempt_at=requested_at
+                ),
+                "state_version": run.state_version + 1,
+                "updated_at": requested_at,
+            }
+        )
+        stored = await self.cas_mutate(
+            candidate,
+            expected_state_version=run.state_version,
+            command_id=command_id,
+        )
+        if stored.outcome in {"accepted", "replayed"}:
+            await self._replace_cancellation_recovery(run_id, requested_at=requested_at)
+            latest = await self.load(run_id)
+            if latest is not None:
+                return MongoRunStoreResult(stored.outcome, latest)
+        return stored
+
+    async def _replace_cancellation_recovery(
+        self, run_id: str, *, requested_at: datetime
+    ) -> None:
+        claim = RecoveryClaim(kind="cancellation", next_attempt_at=requested_at)
+        if self._recovery_collection is None:
+            self._recovery_claims[run_id] = claim
+        else:
+            await self._recovery_collection.replace_one(
+                {"run_id": run_id},
+                {"run_id": run_id, **claim.model_dump(mode="python")},
+                upsert=True,
+            )
+        await self._mirror_recovery_claim(run_id, claim)
+
+    async def repair_canceling_recovery(self, *, limit: int) -> int:
+        if limit <= 0:
+            return 0
+        pipeline: list[dict[str, object]] = [
+            {
+                "$match": {
+                    "schema_version": {"$in": [5, 6]},
+                    "status": "canceling",
+                }
+            },
+            {"$sort": {"updated_at": 1, "run_id": 1}},
+        ]
+        if isinstance(self._recovery_collection_name, str):
+            pipeline.extend(
+                [
+                    {
+                        "$lookup": {
+                            "from": self._recovery_collection_name,
+                            "localField": "run_id",
+                            "foreignField": "run_id",
+                            "as": "scheduling_rows",
+                        }
+                    },
+                    {"$match": {"scheduling_rows.kind": {"$ne": "cancellation"}}},
+                    {"$limit": limit},
+                    {"$project": {"scheduling_rows": 0}},
+                ]
+            )
+        documents = await _to_list(self.collection.aggregate(pipeline))
+        repaired = 0
+        for value in documents:
+            run_id = value.get("run_id")
+            if not isinstance(run_id, str):
+                continue
+            claim = await self._load_recovery_claim(run_id)
+            if claim is not None and claim.kind == "cancellation":
+                continue
+            requested_at = value.get("cancellation_requested_at")
+            if not isinstance(requested_at, datetime):
+                requested_at = datetime.now(UTC)
+            await self._replace_cancellation_recovery(run_id, requested_at=requested_at)
+            repaired += 1
+            if repaired >= limit:
+                break
+        return repaired
 
     async def claim_recovery(
         self,
@@ -409,6 +527,7 @@ class MongoOrchestratorRunStore:
         ):
             return MongoRunStoreResult("conflict", run)
         claim = RecoveryClaim(
+            kind=run.recovery_claim.kind,
             next_attempt_at=next_attempt_at,
             failure_count=failure_count,
             quarantined_at=quarantined_at,
@@ -494,6 +613,7 @@ class MongoOrchestratorRunStore:
                 if isinstance(value.get("run_id"), str)
             }
         never_leased_query: dict[str, object] = {
+            "schema_version": {"$in": [5, 6]},
             "status": {"$in": list(RECOVERY_ELIGIBLE_RUN_STATUSES)},
             "$and": [
                 {
@@ -542,7 +662,9 @@ class MongoOrchestratorRunStore:
         # Fetch dedicated-due aggregates independently; stale aggregate mirrors
         # are deliberately irrelevant to this branch.
         for run_id in sorted(dedicated_due_ids):
-            value = await self.collection.find_one({"run_id": run_id})
+            value = await self.collection.find_one(
+                {"run_id": run_id, "schema_version": {"$in": [5, 6]}}
+            )
             if value is None:
                 continue
             run = _run_from_document(value)
@@ -759,6 +881,25 @@ class MongoOrchestratorRunStore:
         return await self.cas_mutate(
             candidate, expected_state_version=run.state_version, command_id=command_id
         )
+
+
+def _cancellation_transition_allowed(
+    current: OrchestratorRunState, candidate: OrchestratorRunState
+) -> bool:
+    metadata = (
+        "cancellation_command_id",
+        "cancellation_requested_at",
+        "cancellation_cause",
+    )
+    if current.cancellation_command_id is not None and any(
+        getattr(current, field) != getattr(candidate, field) for field in metadata
+    ):
+        return False
+    if current.status != "canceling":
+        return True
+    return candidate.status in {"canceling", "canceled"} and all(
+        getattr(current, field) == getattr(candidate, field) for field in metadata
+    )
 
 
 def _normalize_run_for_mongo(run: OrchestratorRunState) -> OrchestratorRunState:

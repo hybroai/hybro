@@ -3,6 +3,7 @@ import type { RoomSSEFrameMap, TaskState } from '@/lib/types/sse'
 import { isTerminalState, TASK_STATE } from '@/lib/types/sse'
 import { useMessageStore } from '@/stores/message-store'
 import { useStreamingStore } from '@/stores/streaming-store'
+import { useRoomUiStore } from '@/stores/room-ui-store'
 import { normalizeTimestampOrNow } from '@/lib/time'
 import { patchedPublicAgentName } from '@/lib/agent-display-name'
 import { appendEvent } from '@/lib/room-timeline/event-log'
@@ -108,8 +109,17 @@ export async function handleTaskUpdate(
   )
 
   if (isTerminalState(status)) {
+    const rootCancellationPending = useRoomUiStore
+      .getState()
+      .getRoomFlags(ctx.roomId)
+      .cancelling
     applyRoomCommands([
-      { type: 'remove_message', id: ctx.lifecycle.placeholderId(ctx.roomId) },
+      ...(!rootCancellationPending
+        ? [{
+          type: 'remove_message' as const,
+          id: ctx.lifecycle.placeholderId(ctx.roomId),
+        }]
+        : []),
       {
         type: 'upsert_message',
         source: 'sse',
@@ -123,7 +133,9 @@ export async function handleTaskUpdate(
       },
       { type: 'stream_clear', messageId },
     ])
-    ctx.lifecycle.dismissPlaceholder()
+    if (!rootCancellationPending) {
+      ctx.lifecycle.dismissPlaceholder()
+    }
 
     if (!canonical) {
       if (status === TASK_STATE.COMPLETED) {
@@ -147,11 +159,6 @@ export async function handleTaskUpdate(
           label: `${senderName} failed`,
           body: sseMessage.data.error ?? undefined,
         })
-      }
-
-      if (status === TASK_STATE.CANCELED) {
-        ctx.setCancelling(false)
-        ctx.lifecycle.disarmCancelTimeout()
       }
 
       if (!ctx.lifecycle.hasCancelTimedOut()) {

@@ -25,7 +25,7 @@ from datetime import UTC, datetime
 from typing import Any, Protocol
 from uuid import uuid4
 
-from common.dto.execution import HITLRequest
+from common.dto.execution import CancellationAck, HITLRequest
 from common.dto.hitl import (
     A2AInteractionSpec,
     HITLAnswerKind,
@@ -84,6 +84,39 @@ _MAX_ROOM_HISTORY_MESSAGES = 10
 _MAX_ROOM_HISTORY_CHARS_PER_MESSAGE = 4_000
 
 RoomMemoryReader = Callable[[str], Awaitable[dict[str, Any] | None]]
+
+
+async def request_run_cancellation(
+    run_store: Any,
+    run: Any,
+    *,
+    cause: str = "user_requested",
+) -> Any:
+    """Claim the Run cancellation winner through the shared durable CAS."""
+
+    command_id = f"cancel:{run.run_id}:{cause}"
+    current = run
+    for _attempt in range(4):
+        result = await run_store.request_cancellation(
+            current.run_id,
+            expected_state_version=current.state_version,
+            command_id=command_id,
+            cause=cause,
+            requested_at=datetime.now(UTC),
+        )
+        if result.run is None:
+            raise OrchestratorRoutingError("Run cancellation CAS failed")
+        current = result.run
+        if result.outcome in {"accepted", "replayed"}:
+            return current
+        if current.status not in {
+            "queued",
+            "running",
+            "waiting_external",
+            "awaiting_user",
+        }:
+            return current
+    raise OrchestratorRoutingError("Run cancellation CAS did not converge")
 
 
 class UnsupportedEnvelopeError(ValueError):
@@ -820,22 +853,69 @@ class DualRuntimeRouter:
         *,
         reason: str,
         deletion_id: str | None = None,
-    ) -> dict[str, str]:
-        """Cancel an orchestrator Run correlated by its room user message id."""
+        post_claim_cleanup: Callable[[], Awaitable[object]] | None = None,
+    ) -> CancellationAck:
+        """Claim durable Run cancellation before interrupting descendants."""
         if self._runtime is None:
             raise OrchestratorRoutingError("orchestrator cancellation is not bound")
         run = await self._runtime.run_store.load_by_user_message_id(user_message_id)
         if run is None:
             raise KeyError(user_message_id)
-        await self._cancel_owned_hitl_for_run(run, reason=reason)
-        results = await self._runtime.cancellation_coordinator.cancel_run(
-            run.run_id, reason=reason, deletion_id=deletion_id
+        run = await self._request_run_cancellation(run)
+        command_id = f"cancel:{run.run_id}:user_requested"
+        if run.status == "canceled" and run.cancellation_command_id == command_id:
+            return CancellationAck(
+                status="canceled", cancellation_applied=True, reconciled=True
+            )
+        if run.status != "canceling" or run.cancellation_command_id != command_id:
+            return CancellationAck(
+                status=run.status,
+                cancellation_applied=False,
+                reconciled=run.status != "canceling",
+            )
+        try:
+            results = await self._runtime.cancellation_coordinator.cancel_run(
+                run.run_id, reason=reason, deletion_id=deletion_id
+            )
+            if any(
+                state not in TERMINAL_AGENT_CALL_STATES for state in results.values()
+            ):
+                return self._pending_cancellation_ack()
+            await self._cancel_owned_hitl_for_run(run, reason=reason)
+            if post_claim_cleanup is not None:
+                await post_claim_cleanup()
+            settled = await self._runtime.session_host.reconcile_cancellation(run)
+        except Exception:
+            logger.warning(
+                "orchestrator local cancellation reconciliation remains pending",
+                extra={"run_id": run.run_id},
+                exc_info=True,
+            )
+            return self._pending_cancellation_ack()
+        if settled.run.status != "canceled":
+            return self._pending_cancellation_ack()
+        try:
+            await self._runtime.session_host.signal_run_cancellation(run, command_id)
+        except Exception:
+            logger.warning(
+                "orchestrator post-cancellation cleanup failed",
+                extra={"run_id": run.run_id},
+                exc_info=True,
+            )
+        return CancellationAck(
+            status="canceled", cancellation_applied=True, reconciled=True
         )
-        # Per-call cancellation is only descendant cleanup. The owning Run must
-        # win its own terminal state machine so an open Assistant, Tool batch,
-        # or suspended HITL round closes before canceled settlement.
-        await self._runtime.session_host.abort_run(run)
-        return results
+
+    async def _request_run_cancellation(self, run: Any) -> Any:
+        return await request_run_cancellation(self._runtime.run_store, run)
+
+    @staticmethod
+    def _pending_cancellation_ack() -> CancellationAck:
+        return CancellationAck(
+            status="cancellation_pending",
+            cancellation_applied=True,
+            reconciled=False,
+        )
 
     async def route_hitl_answer(
         self,
@@ -853,6 +933,15 @@ class DualRuntimeRouter:
         spec, route, _fingerprint = read
         if route.room_id != room_id:
             raise HITLRoomMismatchError("Room mismatch")
+        run = await self._runtime.run_store.load(route.orchestration_run_id)
+        if run is None or run.status in {
+            "canceling",
+            "completed",
+            "failed",
+            "canceled",
+            "budget_exhausted",
+        }:
+            return "canceled"
         mapped = _map_legacy_answers(spec, answers)
         try:
             state = await self._runtime.continuation.resume(
@@ -918,6 +1007,25 @@ class DualRuntimeRouter:
             raise HITLRoomMismatchError("Room mismatch")
         if route.interaction_revision != expected_version:
             raise HITLConflictError("HITL interaction changed before cancellation")
+        run = await self._runtime.run_store.load(route.orchestration_run_id)
+        if run is None:
+            raise KeyError(route.orchestration_run_id)
+        run = await self._request_run_cancellation(run)
+        command_id = f"cancel:{run.run_id}:user_requested"
+        if run.status == "canceled" and run.cancellation_command_id == command_id:
+            return expected_version
+        if run.status != "canceling" or run.cancellation_command_id != command_id:
+            raise HITLConflictError(
+                f"Run cancellation lost to durable state {run.status}"
+            )
+        results = await self._runtime.cancellation_coordinator.cancel_run(
+            route.orchestration_run_id,
+            reason="hitl_canceled",
+        )
+        if any(state not in TERMINAL_AGENT_CALL_STATES for state in results.values()):
+            raise OrchestratorRoutingError(
+                "local Agent-call cancellation remains pending"
+            )
         abandoned = await self._runtime.hitl_port.abandon(
             interaction_id,
             call_record_id=route.call_record_id,
@@ -933,14 +1041,8 @@ class DualRuntimeRouter:
             route=route,
             status="canceled",
         )
-        await self._runtime.cancellation_coordinator.cancel_run(
-            route.orchestration_run_id,
-            reason="hitl_canceled",
-        )
-        run = await self._runtime.run_store.load(route.orchestration_run_id)
-        if run is not None:
-            await self._runtime.session_host.abort_run(run)
-        await self._wake_after_hitl_resume(route.call_record_id)
+        await self._runtime.session_host.reconcile_cancellation(run)
+        await self._runtime.session_host.signal_run_cancellation(run, command_id)
         return expected_version
 
     async def _cancel_owned_hitl_for_run(self, run: Any, *, reason: str) -> None:

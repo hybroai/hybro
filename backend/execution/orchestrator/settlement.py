@@ -96,7 +96,7 @@ def evaluate_terminal_decision(
 ) -> TerminalDecisionEvaluation:
     """Evaluate only the machine-verifiable Section 15.1 completion gates."""
 
-    if facts.cancellation_won or run.status == "canceled":
+    if facts.cancellation_won or run.status in {"canceling", "canceled"}:
         return TerminalDecisionEvaluation(
             decision="terminal_conflict", reason="cancellation already won"
         )
@@ -371,6 +371,11 @@ def commit_terminal_status(
         return TerminalStatusCommitResult(outcome="conflict", run=run)
     if run.status in {"completed", "failed", "canceled", "budget_exhausted"}:
         return TerminalStatusCommitResult(outcome="conflict", run=run)
+    if run.status == "canceling" and (
+        request.status != "canceled"
+        or request.cancellation_cause != run.cancellation_cause
+    ):
+        return TerminalStatusCommitResult(outcome="conflict", run=run)
     if not _accepted_public_tool_terminals_complete(run):
         return TerminalStatusCommitResult(outcome="conflict", run=run)
     expected_sequence = (
@@ -573,7 +578,13 @@ def transition_after_terminal_evaluation(
 
     if expected_state_version != run.state_version:
         return TerminalEvaluationTransitionResult(outcome="conflict", run=run)
-    if run.status in {"completed", "failed", "canceled", "budget_exhausted"}:
+    if run.status in {
+        "canceling",
+        "completed",
+        "failed",
+        "canceled",
+        "budget_exhausted",
+    }:
         return TerminalEvaluationTransitionResult(outcome="conflict", run=run)
     target = {
         "waiting_external": "waiting_external",

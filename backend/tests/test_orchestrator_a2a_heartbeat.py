@@ -50,6 +50,7 @@ from execution.orchestrator.a2a_runtime.runtime import A2AAgentToolRuntime
 from execution.orchestrator.a2a_runtime.terminal_interactions import (
     TerminalInteractionFinalizer,
 )
+from execution.orchestrator.control import ClientCancellationRequested
 from execution.orchestrator.models import TextPart, ToolResult, ToolSuspension
 
 from ._orchestrator_a2a_helpers import (
@@ -256,8 +257,8 @@ async def test_sync_dispatch_epoch_loss_cancels_and_suspends():
 
 
 @pytest.mark.asyncio
-async def test_client_cancel_signal_stops_fenced_dispatch_and_suspends():
-    """Client abort during slow dispatch must cancel work and stop lease renewals."""
+async def test_client_cancel_signal_stops_fenced_dispatch_and_propagates():
+    """Client abort during slow dispatch must propagate cancellation control."""
     from execution.orchestrator.session import EventCancellationSignal
 
     renew_count = {"n": 0}
@@ -321,10 +322,10 @@ async def test_client_cancel_signal_stops_fenced_dispatch_and_suspends():
         signal.cancel()
 
     cancel_task = asyncio.create_task(_cancel_soon())
-    suspension = await runtime.execute(inv, accepted, signal=signal)
+    with pytest.raises(ClientCancellationRequested):
+        await runtime.execute(inv, accepted, signal=signal)
     await cancel_task
 
-    assert isinstance(suspension, ToolSuspension)
     assert cancelled_event.is_set()
     # Heartbeat must not keep renewing after cancel won the race.
     assert renew_count["n"] < 20

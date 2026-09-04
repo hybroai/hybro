@@ -868,6 +868,45 @@ async def test_mongo_due_run_listing_ignores_mongo_id():
     assert due == [created.run]
 
 
+async def test_mongo_run_load_ignores_other_schema_documents():
+    collection = FakeCollection()
+    store = MongoOrchestratorRunStore(collection)
+    document = make_run().model_dump(mode="python")
+    document["schema_version"] = 7
+    collection.values.append(document)
+
+    assert await store.load(document["run_id"]) is None
+
+
+async def test_mongo_due_run_listing_ignores_other_schema_documents():
+    collection = FakeCollection()
+    store = MongoOrchestratorRunStore(collection)
+    due_run = make_run().model_copy(
+        update={"recovery_claim": RecoveryClaim(next_attempt_at=NOW)}
+    )
+    created = await store.create(due_run, command_id="create:run-1")
+    collection.values.append(
+        {
+            "run_id": "foreign-schema-run",
+            "schema_version": 7,
+            "status": "running",
+            "updated_at": NOW - timedelta(days=1),
+            "recovery_claim": {
+                "owner_id": None,
+                "lease_expires_at": None,
+                "next_attempt_at": NOW,
+                "failure_count": 0,
+                "quarantined_at": None,
+                "quarantine_reason": None,
+            },
+        }
+    )
+
+    due = await store.list_due_runs(due_at=NOW, limit=10)
+
+    assert due == [created.run]
+
+
 @pytest.mark.parametrize(
     "store",
     [

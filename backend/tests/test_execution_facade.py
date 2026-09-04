@@ -1313,18 +1313,23 @@ async def test_cancel_does_not_rewrite_budget_exhausted_orchestration():
 
 
 @pytest.mark.asyncio
-async def test_orchestrator_cancel_closes_hitl_before_root_terminalization():
-    router = SimpleNamespace(
-        route_cancellation_by_user_message=AsyncMock(return_value={})
-    )
+async def test_orchestrator_cancel_runs_hitl_cleanup_only_after_router_claim():
+    router = SimpleNamespace(route_cancellation_by_user_message=AsyncMock())
     facade, deps = _make_facade(orchestrator_router=router)
     order: list[str] = []
     deps["hitl_message_cancellation"].cancel_requests_for_message.side_effect = (
         lambda _message_id: order.append("hitl")
     )
-    router.route_cancellation_by_user_message.side_effect = lambda *_args, **_kwargs: (
-        order.append("run") or {}
-    )
+
+    async def route(*_args, **kwargs):
+        order.append("run_claimed")
+        await kwargs["post_claim_cleanup"]()
+        order.append("run_reconciled")
+        return CancellationAck(
+            status="canceled", cancellation_applied=True, reconciled=True
+        )
+
+    router.route_cancellation_by_user_message.side_effect = route
 
     ack = await facade.cancel(
         "room-1",
@@ -1337,10 +1342,12 @@ async def test_orchestrator_cancel_closes_hitl_before_root_terminalization():
     deps[
         "hitl_message_cancellation"
     ].cancel_requests_for_message.assert_awaited_once_with("msg-1")
-    router.route_cancellation_by_user_message.assert_awaited_once_with(
-        "msg-1", reason="user:user-1"
-    )
-    assert order == ["hitl", "run"]
+    router.route_cancellation_by_user_message.assert_awaited_once()
+    args = router.route_cancellation_by_user_message.await_args
+    assert args.args == ("msg-1",)
+    assert args.kwargs["reason"] == "user:user-1"
+    assert callable(args.kwargs["post_claim_cleanup"])
+    assert order == ["run_claimed", "hitl", "run_reconciled"]
 
 
 @pytest.mark.asyncio

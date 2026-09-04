@@ -75,6 +75,7 @@ from execution.orchestrator.a2a_runtime.ingress import (
     A2AObservationProcessor,
     RejectExternalIngressAuthenticator,
 )
+from execution.orchestrator.a2a_runtime.ledger import TERMINAL_AGENT_CALL_STATES
 from execution.orchestrator.a2a_runtime.models import (
     A2ADispatchReceipt,
     NormalizedA2AObservation,
@@ -325,6 +326,7 @@ def create_orchestrator_runtime(  # noqa: C901
     canonical_event_reader: Callable[[str, str], Any] | None = None,
     canonical_hitl_control: Callable[[str, str, str, list[str]], Any] | None = None,
     supervisor_hitl: Any | None = None,
+    supervisor_hitl_cancellation: Callable[[str], Any] | None = None,
 ) -> OrchestratorRuntime:
     """Compose the full orchestrator runtime over the registered Mongo stores.
 
@@ -582,6 +584,7 @@ def create_orchestrator_runtime(  # noqa: C901
     recovery_renew_interval = 20.0
 
     async def recover_generic_runs() -> None:  # noqa: C901
+        await run_store.repair_canceling_recovery(limit=100)
         now = datetime.now(UTC)
         due = await run_store.list_due_runs(due_at=now, limit=100)
         for candidate in due:
@@ -623,31 +626,66 @@ def create_orchestrator_runtime(  # noqa: C901
                     await result
 
             try:
-                # This deterministic root is safe both before and after its
-                # original append; the publisher reads back the same room row.
-                await emit(
-                    "run_started",
-                    run,
-                    {
-                        "status": run.status,
-                        "mode": run.profile.profile_id,
-                        "started_at": run.created_at,
-                    },
-                )
-                if run.tool_catalog is None:
-                    raise RecoverableAdapterError("recoverable Run has no tool catalog")
-                await _run_with_recovery_lease(
-                    run_store=run_store,
-                    run_id=run.run_id,
-                    owner_id=recovery_owner,
-                    work=kernel_for_catalog(run.tool_catalog).run(
+                if run.status == "canceling":
+                    command_id = run.cancellation_command_id
+                    if command_id is None:
+                        raise KernelConflict(
+                            "canceling Run has no cancellation command"
+                        )
+                    cancellation_results = await cancellation_coordinator.cancel_run(
                         run.run_id,
-                        signal=EventCancellationSignal(),
-                        lifecycle=emit,
-                    ),
-                    lease_duration=recovery_lease,
-                    renew_interval_seconds=recovery_renew_interval,
-                )
+                        reason="cancellation_recovery",
+                    )
+                    if any(
+                        state not in TERMINAL_AGENT_CALL_STATES
+                        for state in cancellation_results.values()
+                    ):
+                        raise RecoverableAdapterError(
+                            "local cancellation persistence remains pending"
+                        )
+                    if supervisor_hitl_cancellation is not None:
+                        cleanup = supervisor_hitl_cancellation(
+                            run.request.user_message_id
+                        )
+                        if hasattr(cleanup, "__await__"):
+                            await cleanup
+                    await _run_with_recovery_lease(
+                        run_store=run_store,
+                        run_id=run.run_id,
+                        owner_id=recovery_owner,
+                        work=session_host.reconcile_cancellation(run),
+                        lease_duration=recovery_lease,
+                        renew_interval_seconds=recovery_renew_interval,
+                    )
+                    await session_host.signal_run_cancellation(run, command_id)
+                else:
+                    # This deterministic root is safe both before and after its
+                    # original append; the publisher reads back the same room row.
+                    await emit(
+                        "run_started",
+                        run,
+                        {
+                            "status": run.status,
+                            "mode": run.profile.profile_id,
+                            "started_at": run.created_at,
+                        },
+                    )
+                    if run.tool_catalog is None:
+                        raise RecoverableAdapterError(
+                            "recoverable Run has no tool catalog"
+                        )
+                    await _run_with_recovery_lease(
+                        run_store=run_store,
+                        run_id=run.run_id,
+                        owner_id=recovery_owner,
+                        work=kernel_for_catalog(run.tool_catalog).run(
+                            run.run_id,
+                            signal=EventCancellationSignal(),
+                            lifecycle=emit,
+                        ),
+                        lease_duration=recovery_lease,
+                        renew_interval_seconds=recovery_renew_interval,
+                    )
                 current = await run_store.load(run.run_id)
                 if (
                     current is not None

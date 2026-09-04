@@ -8,6 +8,7 @@ from unittest.mock import AsyncMock
 
 import pytest
 
+from common.dto import CancellationAck
 from delivery.room_events import InMemoryRoomEventStore
 from delivery.snapshot import SnapshotService
 from execution.adapters.session_host import RoomSessionHost
@@ -533,8 +534,10 @@ async def test_router_user_cancellation_terminalizes_live_canonical_run(catalog)
     )
     result = await prompt_task
 
-    assert list(results.values()) == ["canceled"]
-    assert result.outcome == "aborted"
+    assert results == CancellationAck(
+        status="canceled", cancellation_applied=True, reconciled=True
+    )
+    assert result.outcome == "cancellation_pending"
     run = next(iter(run_store.runs.values()))
     assert run.status == "canceled"
     assert run.active_internal_turn_id is None
@@ -550,7 +553,7 @@ async def test_router_user_cancellation_terminalizes_live_canonical_run(catalog)
     )
 
 
-async def test_user_abort_signals_live_provider_and_closes_canonical_run(catalog):
+async def test_interrupt_requires_durable_cancellation_before_reconciliation(catalog):
     run_store = InMemoryOrchestratorRunStore()
     epoch_store = InMemoryRoomEpochStore()
     await epoch_store.activate("room-1", "create-1", activated_at=NOW)
@@ -580,10 +583,22 @@ async def test_user_abort_signals_live_provider_and_closes_canonical_run(catalog
     )
     await blocking.started.wait()
     run = next(iter(run_store.runs.values()))
-    await host.abort_run(run)
+    command_id = f"cancel:{run.run_id}:user_requested"
+    requested = await run_store.request_cancellation(
+        run.run_id,
+        expected_state_version=run.state_version,
+        command_id=command_id,
+        cause="user_requested",
+        requested_at=NOW,
+    )
+    assert requested.run is not None
+    await host.interrupt_run(requested.run, command_id)
     result = await prompt_task
+    assert result.outcome == "cancellation_pending"
+    pending = await run_store.load(run.run_id)
+    assert pending is not None and pending.status == "canceling"
 
-    assert result.outcome == "aborted"
+    await host.reconcile_cancellation(pending)
     saved = await run_store.load(run.run_id)
     assert saved is not None and saved.status == "canceled"
     assert saved.active_internal_turn_id is None
@@ -598,7 +613,7 @@ async def test_user_abort_signals_live_provider_and_closes_canonical_run(catalog
         and event.payload.get("status") == "aborted"
         for event in events
     )
-    assert any(event.event_type == "run_canceled" for event in events)
+    assert not any(event.event_type == "run_canceled" for event in events)
 
 
 class BlockingModelRuntime:

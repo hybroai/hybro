@@ -150,18 +150,64 @@ class RoomSessionHost:
     async def abort(self, room_id: str) -> None:
         await self._require_session(room_id).abort()
 
-    async def abort_run(self, run) -> None:
-        """Terminalize exactly one user-owned Run through its live signal/state machine.
+    async def signal_run_cancellation(self, run, cancellation_command_id: str) -> None:
+        """Signal a matching hosted Run without waiting for it to stop."""
 
-        A hosted Assistant/Tool execution is signaled and awaited so provider IO
-        stops before terminal children close. Suspended/restarted Runs have no
-        live signal; they re-enter the same Kernel terminalizer with the normal
-        lifecycle listener so HITL/Tool/Turn closure remains publicly durable.
-        """
+        session = self._sessions.get(run.room_id)
+        if session is None or not session.owns_run(run.run_id):
+            return
+        await session.signal_interrupt(run.run_id, cancellation_command_id)
+
+    async def interrupt_run(self, run, cancellation_command_id: str) -> bool:
+        """Signal a matching hosted Run and wait briefly for it to stop."""
+
+        session = self._sessions.get(run.room_id)
+        if session is None or not session.owns_run(run.run_id):
+            return True
+        return await session.interrupt(run.run_id, cancellation_command_id)
+
+    async def reconcile_cancellation(self, run) -> KernelRunResult:
+        """Close a durably canceling Run through the existing terminalizer."""
+
+        if run.status != "canceling" or run.cancellation_command_id is None:
+            raise SessionConflict("Run is not pending durable cancellation")
+        if run.tool_catalog is None:
+            raise SessionConflict("Run has no frozen tool catalog")
+        emitter = self._new_lifecycle_emitter()
+
+        async def emit(event_type, current, payload):
+            await emitter.emit(
+                SessionEvent(
+                    event_type=event_type,
+                    session_id=f"cancel:{current.run_id}",
+                    run_id=current.run_id,
+                    causation_id=current.request.user_message_id,
+                    sequence=current.state_version,
+                    timestamp=self._clock.now(),
+                    payload=payload,
+                    room_id=current.room_id,
+                    user_message_id=current.request.user_message_id,
+                    client_request_id=current.client_request_id,
+                    lifecycle_family=current.lifecycle_family,
+                ),
+                terminal=True,
+            )
+
+        return await self._kernel_factory(run.tool_catalog).terminalize(
+            run.run_id,
+            status="canceled",
+            reason="cancellation requested",
+            cancellation_cause=run.cancellation_cause,
+            lifecycle=emit,
+        )
+
+    async def abort_run(self, run) -> None:
+        """Signal a durably canceling Run, then reconcile terminal settlement."""
 
         session = self._sessions.get(run.room_id)
         if session is not None and session.owns_run(run.run_id):
             await session.abort()
+            await self.reconcile_cancellation(run)
             return
         if run.tool_catalog is None:
             raise SessionConflict("Run has no frozen tool catalog")

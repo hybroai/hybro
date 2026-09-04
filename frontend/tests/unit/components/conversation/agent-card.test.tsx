@@ -54,7 +54,10 @@ describe('AgentCard', () => {
       />
     )
 
-    await userEvent.click(screen.getByRole('button', { name: /open planner response/i }))
+    const cardButton = screen.getByRole('button', { name: /open planner response/i })
+    expect(cardButton).toHaveClass('cursor-pointer')
+
+    await userEvent.click(cardButton)
 
     expect(onOpen).toHaveBeenCalledWith('agent-message-1')
   })

@@ -203,7 +203,7 @@ export function AgentCard({
         <button
           type="button"
           aria-label={`${selected ? 'Close' : 'Open'} ${agentName} response`}
-          className="absolute inset-0 z-0 w-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-cyan-300/35"
+          className="absolute inset-0 z-0 w-full cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-cyan-300/35"
           onClick={() => onOpen?.(messageId!)}
         />
       )}

@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 from hashlib import sha256
+from types import SimpleNamespace
+from unittest.mock import AsyncMock
 
 import pytest
 
@@ -220,6 +222,7 @@ async def setup(
     binding_endpoint_scope_digest=None,
     ledger=None,
     hitl=None,
+    run_store=None,
 ):
     ledger = ledger or InMemoryAgentCallLedgerStore()
     snapshots = InMemoryPreparedInvocationSnapshotReader()
@@ -256,6 +259,7 @@ async def setup(
         observations=ingress,
         terminal_finalizer=TerminalInteractionFinalizer(hitl),
         hitl=hitl,
+        run_store=run_store,
     )
     return runtime, ledger, authorization, transport, ingress
 
@@ -651,6 +655,37 @@ async def test_accept_rejects_execution_semantic_drift_on_fresh_and_replay():
     with pytest.raises(A2AAcceptanceConflict, match="does not match ledger"):
         await replay_runtime.accept(changed)
     assert (await replay_ledger.load("run-1", "call-1")).execution_mode == ("parallel")
+
+
+async def test_accept_rejects_terminal_run_before_ledger_insert():
+    run_store = SimpleNamespace(
+        load=AsyncMock(return_value=SimpleNamespace(status="canceled"))
+    )
+    runtime, ledger, _, _, _ = await setup(run_store=run_store)
+
+    with pytest.raises(A2AAcceptanceDenied, match="not accepting"):
+        await runtime.accept(invocation())
+
+    assert await ledger.load("run-1", "call-1") is None
+
+
+async def test_acceptance_race_terminalizes_inserted_call_when_run_cancels():
+    run_store = SimpleNamespace(
+        load=AsyncMock(
+            side_effect=[
+                SimpleNamespace(status="running"),
+                SimpleNamespace(status="canceled"),
+            ]
+        )
+    )
+    runtime, ledger, _, _, _ = await setup(run_store=run_store)
+
+    with pytest.raises(A2AAcceptanceDenied, match="became canceled"):
+        await runtime.accept(invocation())
+
+    persisted = await ledger.load("run-1", "call-1")
+    assert persisted is not None
+    assert persisted.state == "canceled"
 
 
 async def test_accept_denial_happens_before_any_ledger_record():

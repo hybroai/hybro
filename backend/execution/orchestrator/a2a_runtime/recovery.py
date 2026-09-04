@@ -110,6 +110,8 @@ class A2ACallRecoveryService:
         current = await self.ledger.load_by_record_id(record.call_record_id)
         if current is None or current.state_version != record.state_version:
             return False
+        if await self._run_blocks_dispatch(current):
+            return False
         claimed = await self.ledger.claim(
             current.call_record_id,
             expected_state_version=current.state_version,
@@ -256,6 +258,9 @@ class A2ACallRecoveryService:
             )
 
         command = dispatch_command(record)
+        if await self._run_blocks_dispatch(record):
+            await self._release(record, now=now)
+            return False
         try:
             inspected = await self.dispatch.inspect(command)
         except AgentCardContractError:
@@ -497,6 +502,18 @@ class A2ACallRecoveryService:
                 )
             )
         )
+
+    async def _run_blocks_dispatch(self, record: AgentCallLedgerRecord) -> bool:
+        if self.run_store is None:
+            return False
+        run = await self.run_store.load(record.run_id)
+        return run is None or run.status in {
+            "canceling",
+            "completed",
+            "failed",
+            "canceled",
+            "budget_exhausted",
+        }
 
     async def _expire(
         self, record: AgentCallLedgerRecord, *, now: datetime, code: str

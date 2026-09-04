@@ -804,6 +804,8 @@ def test_protocols_are_narrow_and_explicit():
             "create",
             "load",
             "cas_mutate",
+            "request_cancellation",
+            "repair_canceling_recovery",
             "claim_recovery",
             "renew_recovery",
             "release_recovery",
@@ -860,7 +862,8 @@ def test_unbound_collection_metadata_contains_required_indexes():
     run_names = {item.name for item in collections["orchestrator_runs"].indexes}
     assert {
         "orchestrator_run_id_unique",
-        "orchestrator_active_room_unique",
+        "orchestrator_active_room_unique_canceling",
+        "orchestrator_canceling_recovery",
         "orchestrator_client_request",
         "orchestrator_tool_call_id",
         "orchestrator_recovery_due",
