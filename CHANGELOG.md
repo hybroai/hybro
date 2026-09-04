@@ -5,6 +5,24 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.16](https://github.com/hybroai/hybro/compare/v0.2.15...v0.2.16) (2026-09-04)
+
+
+### Bug Fixes
+
+* align agent tool use with user intent ([034e621](https://github.com/hybroai/hybro/commit/034e62184ae60aee52baa6b3ad52c29e58308b29))
+* make run cancellation durable ([74965a0](https://github.com/hybroai/hybro/commit/74965a04f9fddee5d973b3719f365f5ee26a80d2))
+* make run cancellation durable and improve cancellation feedback ([1ec3992](https://github.com/hybroai/hybro/commit/1ec3992f417ddf037a963f60b7b9414c026a18c8))
+* persist room mode before message acknowledgement ([fa3b0cf](https://github.com/hybroai/hybro/commit/fa3b0cf41ef09fafa0d5e0eefb2eb95634507f0b))
+* remove obsolete run index ([b61f041](https://github.com/hybroai/hybro/commit/b61f041f4dff897fa6c5a78157e1fbdb9f39f8c8))
+* remove some unused APIs ([1d1e2b8](https://github.com/hybroai/hybro/commit/1d1e2b8d4bd6e3ea60416804691270df264cfa05))
+* restore room multi-turn context ([9a5e44f](https://github.com/hybroai/hybro/commit/9a5e44f3a5950bc9ac856dab1897aedf8e7d2c9f))
+* settle canceled runs locally ([23423a3](https://github.com/hybroai/hybro/commit/23423a3eda33000b1a1097e73b18354c8d9eca11))
+* show pointer across agent cards ([2d31ee2](https://github.com/hybroai/hybro/commit/2d31ee2094ba31759e243dd7ed1d9d4998b5c533))
+* **ui:** restore agent avatar profile links ([564b936](https://github.com/hybroai/hybro/commit/564b9366f0a34648c0af58483cd78b6ae211d89a))
+* **ui:** restore agent avatar profile links ([0fd2ddc](https://github.com/hybroai/hybro/commit/0fd2ddc7c65d02394c3fd7edf235552fda3d2914))
+* **ui:** subscribe to agent catalog updates ([59488eb](https://github.com/hybroai/hybro/commit/59488eb1db5e09104dcb4a8c86a9dd428fd4168e))
+
 ## [0.2.15](https://github.com/hybroai/hybro/compare/v0.2.14...v0.2.15) (2026-09-01)
 
 
