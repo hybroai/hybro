@@ -75,11 +75,32 @@ services:
       start_period: 20s
     restart: always
     image: ${HYBRO_IMAGE_REGISTRY:-ghcr.io/hybroai}/hybro-backend:${HYBRO_STACK_TAG:?the hybro CLI sets the stack version}
+  mcp:
+    ports:
+    - 127.0.0.1:8001:8001
+    environment:
+    - HYBRO_MCP_CONFIG=${HYBRO_MCP_CONFIG:-}
+    depends_on:
+      backend:
+        condition: service_healthy
+    healthcheck:
+      test:
+      - CMD
+      - /app/.venv/bin/python
+      - -c
+      - import json,urllib.request,sys; data=json.load(urllib.request.urlopen('http://127.0.0.1:8001/health', timeout=4)); sys.exit(0 if data.get('status') == 'ready' else 1)
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    restart: always
+    image: ${HYBRO_IMAGE_REGISTRY:-ghcr.io/hybroai}/hybro-mcp:${HYBRO_STACK_TAG:?the hybro CLI sets the stack version}
   frontend:
     ports:
     - 3000:3000
     environment:
     - HYBRO_BACKEND_URL=http://backend:8000
+    - HYBRO_MCP_URL=http://mcp:8001
     - HYBRO_FRONTEND_CONFIG=${HYBRO_FRONTEND_CONFIG:-}
     - CLERK_SECRET_KEY=${CLERK_SECRET_KEY:-}
     - CLERK_WEBHOOK_SECRET=${CLERK_WEBHOOK_SECRET:-}

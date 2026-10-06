@@ -2,21 +2,54 @@
 
 from __future__ import annotations
 
+import argparse
 import asyncio
 import json
+import os
 from typing import Annotated, Literal
 from uuid import uuid4
 
 import httpx
 from mcp.server import MCPServer
+from mcp.server.transport_security import (
+    TransportSecurityMiddleware,
+    TransportSecuritySettings,
+)
 from mcp.types import CallToolResult, TextContent, ToolAnnotations
-from pydantic import Field, JsonValue
+from pydantic import BaseModel, ConfigDict, Field, JsonValue, ValidationError
+from starlette.requests import Request
+from starlette.responses import JSONResponse, Response
 
 BACKEND_API_URL = "http://127.0.0.1:8000/api/v1/"
 MCP_HOST = "127.0.0.1"
 MCP_PORT = 8001
 # The backend owns the 600-second execution deadline; allow its response to arrive.
 REQUEST_TIMEOUT_SECONDS = 610.0
+HEALTH_TIMEOUT_SECONDS = 2.0
+TRANSPORT_SECURITY = TransportSecuritySettings(
+    allowed_hosts=["127.0.0.1:8001", "localhost:8001", "mcp:8001"],
+    allowed_origins=["http://127.0.0.1:*", "http://localhost:*"],
+)
+
+
+class ConnectionConfig(BaseModel):
+    """Only the CLI's validated, non-secret connection projection reaches Docker."""
+
+    model_config = ConfigDict(extra="forbid", strict=True, hide_input_in_errors=True)
+    api_prefix: str = Field(
+        default="/api/v1", pattern=r"^/[A-Za-z0-9/_-]*[A-Za-z0-9_-]$"
+    )
+
+
+def connection_config(*, container: bool) -> ConnectionConfig:
+    if not container:
+        return ConnectionConfig()
+    try:
+        return ConnectionConfig.model_validate_json(os.environ["HYBRO_MCP_CONFIG"])
+    except (KeyError, ValidationError):
+        raise ValueError(
+            "Invalid MCP connection configuration; start with hybro."
+        ) from None
 
 
 def tool_result(
@@ -46,6 +79,32 @@ def create_server(client: httpx.AsyncClient) -> MCPServer:
             "the backend's mock-auth identity; it does not supply Clerk credentials."
         ),
     )
+
+    @server.custom_route("/health", methods=["GET"])
+    async def health(request: Request) -> Response:
+        security = TransportSecurityMiddleware(TRANSPORT_SECURITY)
+        rejected = await security.validate_request(request)
+        if rejected is not None:
+            return rejected
+        status = "unavailable"
+        try:
+            # Discovery is read-only: no agent execution or Provider requests.
+            async with asyncio.timeout(HEALTH_TIMEOUT_SECONDS):
+                response = await client.get(
+                    "agents/discovery", timeout=HEALTH_TIMEOUT_SECONDS
+                )
+                if response.status_code in {401, 403}:
+                    status = "unsupported_auth"
+                elif response.is_success:
+                    body = response.json()
+                    if isinstance(body, dict) and isinstance(body.get("agents"), list):
+                        status = "ready"
+        except (TimeoutError, httpx.RequestError, ValueError):
+            pass
+        return JSONResponse(
+            {"service": "hybro-mcp", "status": status},
+            headers={"Cache-Control": "no-store"},
+        )
 
     async def request(
         method: Literal["GET", "POST"],
@@ -189,21 +248,29 @@ def create_server(client: httpx.AsyncClient) -> MCPServer:
     return server
 
 
-async def main() -> None:
+async def main(*, container: bool = False) -> None:
+    config = connection_config(container=container)
+    backend = "http://backend:8000" if container else "http://127.0.0.1:8000"
     async with httpx.AsyncClient(
-        base_url=BACKEND_API_URL,
+        base_url=f"{backend}{config.api_prefix}/",
         timeout=httpx.Timeout(REQUEST_TIMEOUT_SECONDS, connect=5.0),
         follow_redirects=False,
         trust_env=False,
     ) as client:
         await create_server(client).run_streamable_http_async(
-            host=MCP_HOST,
+            host="0.0.0.0" if container else MCP_HOST,
             port=MCP_PORT,
             streamable_http_path="/mcp",
             stateless_http=True,
             json_response=True,
+            transport_security=TRANSPORT_SECURITY,
         )
 
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--container", action="store_true")
+    try:
+        asyncio.run(main(container=parser.parse_args().container))
+    except ValueError as exc:
+        parser.exit(1, f"{exc}\n")

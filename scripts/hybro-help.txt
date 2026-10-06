@@ -13,7 +13,10 @@ The TUI is centered and uses the frontend's cyan selection color. Its blue neste
 cubes expand/contract through each other at a fixed angle, without rotation.
 The logo loops while menus wait for input; Space pauses/resumes animation.
 Compact terminals omit the logo to preserve controls. No animation runs during commands.
-The Services page offers Start, Stop, Reload configuration and View logs.
+The Services page offers Start, Stop, Reload configuration, View logs and MCP connection.
+Start services includes MCP. Exiting the TUI leaves services running.
+MCP connection shows status, URL and Streamable HTTP transport, with Start MCP,
+Stop MCP, View MCP logs and Refresh status actions.
 Above Start services, each long-running service shows green active or red inactive.
 One-time setup jobs are omitted. The row wraps on narrow terminals.
 Status refreshes on entry and after actions; no background polling.
@@ -52,14 +55,24 @@ Configuration:
 Services:
     start [--build] [--recreate] [--compose-file <file>]
         Validate setup, generate missing private service tokens, regenerate the
-        default-agent Compose region in a checkout, and start services. No dotenv
-        file needed.
+        default-agent Compose region in a checkout, and start all services,
+        including MCP. No dotenv file needed.
         --build rebuilds images; only a source checkout can build.
         --recreate recreates existing containers; use it after changing
         configuration. A released install needs --recreate, never --build.
         --compose-file adds an explicit overlay beside the stack, for example
         docker-compose.ci.yml for the CI mock-LLM stack. It is passed to Compose
         directly; no ambient Compose discovery is used.
+    mcp start
+        Start only MCP (up -d --no-deps mcp). Requires setup and an already
+        running backend; does not start dependencies.
+    mcp stop
+        Stop MCP. The next global start includes it again; this is not a
+        persistent opt-out.
+    mcp status
+        Show readiness, server URL and transport. Exit nonzero unless ready.
+    mcp logs
+        Follow MCP logs from the last 100 lines. Ctrl-C stops following.
     status | ps
         Show all containers, including stopped containers.
     logs [service...]
@@ -86,6 +99,15 @@ Services:
         only reports, and exits non-zero when a newer release exists.
         A source checkout is updated with git pull, not by this command.
 
+MCP connection:
+    URL: http://127.0.0.1:8001/mcp — Streamable HTTP, same-host clients only.
+    In the app, Networks > Connect MCP shows status and copies the URL or Claude
+    Code configuration. Checks run on open/refresh, not by background polling.
+    Add the server manually; there is no automatic client discovery/registration.
+    A remote client's loopback is its own machine, not the Hybro host.
+    MCP has no authentication or user isolation; use a trusted mock-auth backend.
+    Clerk is unsupported and makes MCP unhealthy. Do not expose MCP publicly.
+
 Files:
     HYBRO_HOME/config.json  — user overrides, shared by backend and frontend.
     HYBRO_HOME/auth.json    — Provider/OAuth and scoped service credentials.
@@ -96,5 +118,6 @@ Files:
     public frontend build changes also require --build. No hot reload.
 
 Docker is launched through this CLI so only scoped JSON-derived values reach each
-service. Agents never receive Provider credentials; frontend builds never receive
-server credentials. Existing .env/.env.example files are not deleted automatically.
+service. Agents never receive Provider credentials; MCP receives only api_prefix,
+not the auth store; frontend builds never receive server credentials.
+Existing .env/.env.example files are not deleted automatically.

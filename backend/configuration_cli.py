@@ -19,6 +19,8 @@ from urllib.parse import urlsplit
 
 from pydantic import ValidationError
 
+from cli_mcp import MCP_URL, STATUS_LABELS
+from cli_mcp import read_status as read_mcp_status
 from cli_stack import HELP, MANIFEST, RENDERER, Stack, data_file, resolve, version
 from common.config.loader import (
     PRIVATE_FIELDS,
@@ -64,6 +66,7 @@ def compose_environment(runtime: RuntimeConfigStore, *, start: bool) -> dict[str
         "AGENT_REGISTRAR_TOKEN",
         "DEFAULT_AGENT_LLM_TOKEN",
         "HYBRO_AGENT_CONFIG",
+        "HYBRO_MCP_CONFIG",
         "HYBRO_IMAGE_REGISTRY",
         "HYBRO_STACK_TAG",
         "IMAGE_SIZE",
@@ -106,6 +109,7 @@ def compose_environment(runtime: RuntimeConfigStore, *, start: bool) -> dict[str
     env.update(
         {
             "HYBRO_API_PREFIX": backend.api_prefix,
+            "HYBRO_MCP_CONFIG": json.dumps({"api_prefix": backend.api_prefix}),
             "HYBRO_FRONTEND_CONFIG": public.model_dump_json(),
             "HYBRO_AGENT_CONFIG": json.dumps(
                 {
@@ -429,7 +433,11 @@ def _tui(arguments: list[str]) -> int:
     from llm_gateway import cli_tui
 
     return cli_tui.main(
-        status=service_status, run=compose, problem=docker_problem, version=version()
+        status=service_status,
+        run=main,
+        problem=docker_problem,
+        version=version(),
+        mcp_status=read_mcp_status,
     )
 
 
@@ -547,6 +555,25 @@ def _start(arguments: list[str]) -> int:
     return compose(params, start=True, files=options.compose_file)
 
 
+def _mcp(arguments: list[str]) -> int:
+    parser = Parser(prog="hybro mcp")
+    parser.add_argument("action", choices=("start", "stop", "status", "logs"))
+    action = parser.parse_args(arguments).action
+    if action == "start":
+        # Independent control must not recreate or start unrelated services.
+        return compose(["up", "-d", "--no-deps", "mcp"], start=True)
+    if action == "stop":
+        return compose(["stop", "mcp"])
+    if action == "logs":
+        return compose(["logs", "-f", "--tail", "100", "mcp"])
+    status = read_mcp_status()
+    print(
+        f"MCP: {STATUS_LABELS[status]}\nServer URL: {MCP_URL}\nTransport: Streamable HTTP"
+    )
+    print("For clients on the machine running Hybro.")
+    return 0 if status == "ready" else 1
+
+
 def _logs(arguments: list[str]) -> int:
     if arguments[:1] != ["--container"]:
         return compose(["logs", "-f", *arguments])
@@ -575,6 +602,7 @@ _HANDLERS: dict[str, Callable[[list[str]], int]] = {
     "start": _start,
     "up": _start,
     "logs": _logs,
+    "mcp": _mcp,
     "status": _passthrough("ps", "--all"),
     "ps": _passthrough("ps", "--all"),
     "stop": _passthrough("stop"),

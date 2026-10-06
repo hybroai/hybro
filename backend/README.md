@@ -243,17 +243,35 @@ The repository-root [`MCP/`](../MCP/) directory contains a separate Python
 Streamable HTTP adapter for these two APIs. It does not import the backend
 runtime, access the database, create rooms, or change Agent visibility rules.
 
-With a trusted local backend already running at `http://127.0.0.1:8000` in
-`backend.auth_mode="mock"`, start the adapter from the repository root:
+`hybro start` and the TUI's **Start services** start MCP as an ordinary default
+Compose service. Its own `MCP/Dockerfile` builds the adapter; released stacks use
+the version-pinned `hybro-mcp` image. Host access is published only on
+`127.0.0.1:8001:8001`. Use a trusted backend in `backend.auth_mode="mock"`.
 
-```sh
-uv run --project MCP --frozen --no-env-file python MCP/server.py
-```
+For independent control, use `hybro mcp start|stop|status|logs` or **Services >
+MCP connection** in the TUI. Standalone start requires setup and an already
+running backend: it runs `up -d --no-deps mcp`, without starting dependencies.
+The TUI shows status, URL, and transport, with start, stop, logs, and refresh
+actions. Exiting it leaves MCP running; stopping MCP does not exclude it from
+the next global start. `hybro mcp status` exits nonzero unless ready.
 
-Add a **Streamable HTTP** server to your MCP client using:
+Add a **Streamable HTTP** server manually to your MCP client using:
 
 ```text
 http://127.0.0.1:8001/mcp
+```
+
+This URL is for clients on the machine running Hybro, not a remote browser's
+machine. **Networks > Connect MCP** in the app shows status and copies the URL
+or Claude Code `mcpServers` configuration (`type: "http"`), with a collapsible
+manual-copy fallback. It checks status only on open/refresh and does not control
+services, relay tool calls, or automatically discover/register clients.
+
+Native manual startup remains supported from the repository root, with a backend
+already running at `http://127.0.0.1:8000/api/v1/`:
+
+```sh
+uv run --project MCP --frozen --no-env-file python MCP/server.py
 ```
 
 The adapter has its own locked environment and exposes exactly two tools:
@@ -286,13 +304,25 @@ delivery. Configure the MCP client's tool timeout to exceed 610 seconds if it
 supports that setting. There are no automatic retries, remote cancellation,
 polling, or additional MCP tools.
 
-This local adapter uses fixed loopback endpoints (`127.0.0.1:8001/mcp` and
-`127.0.0.1:8000/api/v1/`); it does not load a second configuration or auth store.
-It has **no MCP authentication or user isolation**. It does not supply Clerk
-credentials: a Clerk-mode backend rejects its unauthenticated requests with `401`,
-which is returned as a tool error. Use an authenticated REST client for Clerk-mode
-access; do not disable production authentication to use this local adapter.
-Do not expose the adapter publicly.
+Native mode uses fixed loopback endpoints and the `/api/v1` prefix. Container
+mode (`--container`) requires the CLI's validated `HYBRO_MCP_CONFIG` projection,
+containing only `api_prefix`; it connects to `backend:8000` and listens on
+`0.0.0.0:8001` inside Docker. Explicit Host/Origin DNS-rebinding checks remain
+active in both modes. MCP receives no auth store or Provider credentials.
+
+`GET http://127.0.0.1:8001/health` makes a read-only backend `agents/discovery`
+request with a two-second deadline and returns only `service: "hybro-mcp"` and
+`status: "ready" | "unavailable" | "unsupported_auth"`. It never executes
+agents or exposes Cards. A rejected authentication probe (`401`/`403`) reports
+`unsupported_auth`; Compose marks the container unhealthy if it cannot report
+ready, including with Clerk. The public frontend `GET /hybro-mcp` route exposes
+only this sanitized status, not backend data or credentials.
+
+The adapter has **no MCP authentication or user isolation** and supplies no
+Clerk credentials: Clerk-mode tool requests fail rather than bypassing auth.
+Use an authenticated REST client for Clerk-mode access; do not disable production
+authentication to use this adapter. Do not expose the adapter publicly. Backend
+API endpoints, OpenAPI, and Execution ownership are unchanged.
 
 To run the isolated regression tests from the repository root:
 

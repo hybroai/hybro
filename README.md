@@ -57,6 +57,7 @@ hybro start          # pulls the images published for this CLI's version
 
 - **Hybro App**: http://localhost:3000
 - **API Server**: http://localhost:8000
+- **MCP Server**: http://127.0.0.1:8001/mcp (Streamable HTTP, same-host clients)
 
 Running `hybro` with no arguments opens the same settings/services interface in
 a terminal. `hybro --version` prints the CLI and stack version.
@@ -182,6 +183,42 @@ Only a source checkout can rebuild; a released install changes versions with
 Run `./scripts/hybro --help` for the full subcommand reference. Start through the
 CLI so Compose receives validated scoped projections, not ambient dotenv values.
 
+### Connect an MCP client
+
+`hybro start` and the TUI's **Start services** include MCP by default. In the
+app, open **Networks > Connect MCP** to check status and copy the URL or Claude
+Code configuration. Add the server manually to your client; Hybro does not
+automatically discover or register MCP clients.
+
+```json
+{
+  "mcpServers": {
+    "hybro": { "type": "http", "url": "http://127.0.0.1:8001/mcp" }
+  }
+}
+```
+
+The **Streamable HTTP** URL is for clients on the machine running Hybro. If you
+open the app remotely, loopback in your client still refers to that client's
+machine, not the Hybro host. MCP has no authentication or user isolation and
+supports only a trusted local mock-auth backend, not Clerk. Do not expose it
+publicly.
+
+Use **Services > MCP connection** in the TUI for status, URL, transport, start,
+stop, logs, and refresh, or run:
+
+```bash
+hybro mcp status
+hybro mcp start    # requires setup and a running backend; starts only MCP
+hybro mcp logs
+hybro mcp stop
+```
+
+Exiting the TUI leaves services running. Stopping MCP is not a persistent opt-out:
+the next global start includes it again. The app checks status only when the
+dialog opens or you refresh; it cannot start/stop services or relay tool calls.
+See [MCP tools, health, and native startup](backend/README.md#local-mcp-access).
+
 ### Development and released stacks
 
 The CLI runs one of two Compose files, both pinned to the `hybro` project name so
@@ -283,6 +320,7 @@ The repository is split into these primary components:
 - `backend/`: A FastAPI orchestration engine using MongoDB for persistence and optional Redis services for cross-process coordination.
 - `frontend/`: A Next.js 16 (Turbopack) application for chat, local agent discovery, agent management, and inspection.
 - `default_agents/`: A collection of ready-to-use A2A agents, each running as its own container, plus a one-shot `registrar` that registers them with the backend on startup.
+- `MCP/`: A standalone adapter exposing two backend agent-network tools over Streamable HTTP, built with its own Dockerfile and published as the version-pinned `hybro-mcp` image.
 
 ## API keys
 Use `hybro setup` for OpenAI API Key or ChatGPT OAuth, DeepSeek API Key, or

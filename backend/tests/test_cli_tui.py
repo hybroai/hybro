@@ -138,6 +138,7 @@ def test_status_is_inline_refreshes_and_menu_is_minimal(mock_status):
             "stop",
             "apply",
             "logs",
+            "mcp",
             "upgrade",
             "models",
         }
@@ -475,6 +476,45 @@ def test_legacy_provider_defaults_remain_settings_backed(monkeypatch, configured
         base_url="https://api.deepseek.com",
         max_retries=0,
     )
+
+
+def test_mcp_page_shows_live_status_and_only_runs_selected_service_actions():
+    console = console_with("start", "stop", "refresh", "back")
+    original = console.select
+    screens = []
+
+    def select(title, options):
+        screens.append(title)
+        return original(title, options)
+
+    console = SetupConsole(select, console.read_secret, console.write, console.pause)
+    run = Mock(return_value=0)
+    status = Mock(
+        side_effect=["unavailable", "ready", "unavailable", "unsupported_auth"]
+    )
+    cli_tui._mcp_page(console, run, status)
+    assert [call.args[0] for call in run.call_args_list] == [
+        ("mcp", "start"),
+        ("mcp", "stop"),
+    ]
+    assert screens[1].status == "Ready"
+    assert "Clerk" in screens[3].status
+    assert "http://127.0.0.1:8001/mcp" in screens[0].notice
+    assert "Streamable HTTP" in screens[0].notice
+
+
+def test_services_menu_opens_mcp_without_starting_it():
+    run = Mock()
+    console = console_with("mcp", "back", "models")
+    cli_tui._services_page(console, run, "start", mcp_status=lambda: "ready")
+    run.assert_not_called()
+
+
+def test_mcp_log_interrupt_returns_to_mcp_menu():
+    console = console_with("logs", "back")
+    run = Mock(side_effect=KeyboardInterrupt)
+    cli_tui._mcp_page(console, run)
+    run.assert_called_once_with(("mcp", "logs"))
 
 
 def test_package_initializer_defers_application_imports(monkeypatch):

@@ -98,6 +98,10 @@ jobs:
             # the container environment, so one image serves every install.
             build-args: |
               HYBRO_BACKEND_URL=http://backend:8000
+          - name: mcp
+            context: ./MCP
+            dockerfile: ./MCP/Dockerfile
+            build-args: ""
           - name: registrar
             context: ./default_agents
             dockerfile: ./default_agents/Dockerfile.registrar

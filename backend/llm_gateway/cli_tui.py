@@ -29,6 +29,7 @@ _SERVICE_ACTIONS = (
         hint="Reload saved configuration: recreate containers. Services will be interrupted.",
     ),
     SetupOption("logs", "View logs"),
+    SetupOption("mcp", "MCP connection"),
     SetupOption(
         "upgrade",
         "Upgrade hybro",
@@ -45,7 +46,12 @@ _CONFIRMATIONS: dict[str, str] = {
 }
 
 # Actions whose CLI arguments differ from the action name.
-_ACTION_ARGUMENTS: dict[str, tuple[str, ...]] = {"apply": ("start", "--recreate")}
+_ACTION_ARGUMENTS: dict[str, tuple[str, ...]] = {
+    "apply": ("start", "--recreate"),
+    "mcp_start": ("mcp", "start"),
+    "mcp_stop": ("mcp", "stop"),
+    "mcp_logs": ("mcp", "logs"),
+}
 
 # Host capability injected by the CLI entry point; the gateway never imports it.
 StatusReader = Callable[[], list[dict[str, object]]]
@@ -180,6 +186,49 @@ def _service_command(
     return notice
 
 
+def _mcp_page(
+    console: SetupConsole,
+    run: Callable[[tuple[str, ...]], int],
+    read: Callable[[], str] | None = None,
+) -> None:
+    labels = {
+        "ready": "Ready",
+        "unavailable": "Unavailable; start services or check MCP logs.",
+        "unsupported_auth": "Unavailable with Clerk authentication.",
+    }
+    while True:
+        state = read() if read else "unavailable"
+        try:
+            action = console.select(
+                SetupScreen(
+                    "MCP connection",
+                    status=labels.get(state, labels["unavailable"]),
+                    notice=(
+                        "Server URL: http://127.0.0.1:8001/mcp\n"
+                        "Transport: Streamable HTTP\n"
+                        "For clients on the machine running Hybro."
+                    ),
+                ),
+                (
+                    SetupOption("start", "Start MCP"),
+                    SetupOption("stop", "Stop MCP"),
+                    SetupOption("logs", "View MCP logs"),
+                    SetupOption("refresh", "Refresh status"),
+                    SetupOption("back", "Back"),
+                ),
+            )
+            if action == "back":
+                return
+            if action != "refresh":
+                try:
+                    _service_command(console, run, f"mcp_{action}")
+                except KeyboardInterrupt:
+                    if action != "logs":
+                        raise
+        except SelectionCancelled:
+            return
+
+
 def _services_page(
     console: SetupConsole,
     run: Callable[[tuple[str, ...]], int],
@@ -187,6 +236,7 @@ def _services_page(
     read: StatusReader | None = None,
     problem: ProblemReader | None = None,
     version: str | None = None,
+    mcp_status: Callable[[], str] | None = None,
 ) -> str:
     from dataclasses import replace
 
@@ -227,6 +277,8 @@ def _services_page(
         try:
             if action == "logs":
                 _logs_page(console, run, read, problem)
+            elif action == "mcp":
+                _mcp_page(console, run, mcp_status)
             else:
                 notice = _service_command(console, run, action)
         except SelectionCancelled:
@@ -243,6 +295,7 @@ def _menu(
     read: StatusReader | None = None,
     problem: ProblemReader | None = None,
     version: str | None = None,
+    mcp_status: Callable[[], str] | None = None,
 ) -> int:
     panel = SetupPanel(service, console, environment)
     service_focus = "start"
@@ -255,7 +308,7 @@ def _menu(
             continue
         if action == "services":
             service_focus = _services_page(
-                console, run, service_focus, read, problem, version
+                console, run, service_focus, read, problem, version, mcp_status
             )
             continue
         try:
@@ -281,6 +334,7 @@ def main(
     status: StatusReader | None = None,
     problem: ProblemReader | None = None,
     version: str | None = None,
+    mcp_status: Callable[[], str] | None = None,
 ) -> int:
     output = output if output is not None else sys.stdout
     try:
@@ -295,9 +349,20 @@ def main(
                 verify_selection,
             )
         if console is not None:
-            return _menu(console, run, service, environment, status, problem, version)
+            return _menu(
+                console, run, service, environment, status, problem, version, mcp_status
+            )
         with _terminal_console(output, screen=True) as terminal:
-            return _menu(terminal, run, service, environment, status, problem, version)
+            return _menu(
+                terminal,
+                run,
+                service,
+                environment,
+                status,
+                problem,
+                version,
+                mcp_status,
+            )
     except (KeyboardInterrupt, EOFError, asyncio.CancelledError):
         print("Hybro closed; unsaved changes discarded.", file=output)
         return 130

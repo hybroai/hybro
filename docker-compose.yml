@@ -101,6 +101,26 @@ services:
       start_period: 20s
     restart: always
 
+  # Host access stays loopback-only; the container uses the private stack network.
+  mcp:
+    build:
+      context: ./MCP
+      dockerfile: Dockerfile
+    ports:
+      - "127.0.0.1:8001:8001"
+    environment:
+      - HYBRO_MCP_CONFIG=${HYBRO_MCP_CONFIG:-}
+    depends_on:
+      backend:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "/app/.venv/bin/python", "-c", "import json,urllib.request,sys; data=json.load(urllib.request.urlopen('http://127.0.0.1:8001/health', timeout=4)); sys.exit(0 if data.get('status') == 'ready' else 1)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    restart: always
+
   frontend:
     build:
       context: ./frontend
@@ -115,6 +135,8 @@ services:
     # Server SDK credentials only; never passed as build arguments.
     environment:
       - HYBRO_BACKEND_URL=http://backend:8000
+      # Fixed server-to-server status probe only; never proxies MCP tool calls.
+      - HYBRO_MCP_URL=http://mcp:8001
       # The public projection the browser reads. It is the same validated
       # projection the build used, supplied per deployment so one image serves
       # every install and settings apply on recreate without a rebuild.

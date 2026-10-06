@@ -515,9 +515,19 @@ discovery response model; the shared contract returns `common.dto.AgentInfo`.
 
 The repository-root `MCP/server.py` is a standalone API client, not another
 backend execution owner. It serves Streamable HTTP at
-`http://127.0.0.1:8001/mcp` and forwards its two tools, `discover_agents` and
-`send_agent_message`, to the existing `http://127.0.0.1:8000/api/v1/agents/*`
-endpoints. Its Python dependencies and lockfile live under `MCP/`.
+`http://127.0.0.1:8001/mcp` and forwards exactly two tools, `discover_agents` and
+`send_agent_message`, to the existing backend `agents/discovery` and
+`agents/messages` endpoints. Backend routes and OpenAPI are unchanged. Its
+Python dependencies, lockfile, and Dockerfile live under `MCP/`; releases publish
+the version-pinned `hybro-mcp` image alongside the other stack images.
+
+MCP is an ordinary default Compose service, included by `hybro start` and TUI
+**Start services**, with host publishing restricted to `127.0.0.1:8001:8001`.
+Container mode requires `HYBRO_MCP_CONFIG`, a CLI-validated projection containing
+only `api_prefix`, and connects to `http://backend:8000` while listening on
+`0.0.0.0:8001` internally. Native manual startup keeps fixed loopback endpoints
+and `/api/v1`; it does not consume the container projection. Explicit
+Host/Origin DNS-rebinding checks remain enabled in both modes.
 
 The adapter keeps one async HTTP client for its process lifetime, uses stateless
 MCP transport with JSON responses, and does not import the backend runtime or
@@ -528,12 +538,28 @@ as MCP structured content and JSON text. HTTP/transport failures and explicitly
 failed/rejected/canceled/expired Tasks become MCP tool errors without discarding
 the returned Task. Other task states are not promoted to completion.
 
-This adapter is local-only, with fixed loopback addresses and no MCP authentication,
-user isolation, separate credential store, retry loop, or orchestration. Its launcher
-relies on a trusted backend's existing mock-auth identity and caller-scoped access;
-it supplies no Clerk credentials, so Clerk-mode requests return `401` tool errors.
-Its 610-second local deadline allows the backend's 600-second response to arrive.
-Client cancellation does not imply remote A2A cancellation. See the
+This adapter is for same-host clients, with no MCP authentication, user isolation,
+auth-store access, retry loop, or orchestration. It relies on a trusted backend's
+existing mock-auth identity and caller-scoped access; it supplies no Clerk
+credentials, so Clerk-mode requests return `401` tool errors. Its 610-second
+local deadline allows the backend's 600-second response to arrive.
+`client_request_id` correlation is preserved, including a generated ID when
+omitted. Client cancellation does not imply remote A2A cancellation.
+
+The adapter's `GET /health` probes backend `agents/discovery` read-only with a
+two-second deadline. Its entire payload is `service: "hybro-mcp"` and
+`status: "ready" | "unavailable" | "unsupported_auth"`; `401`/`403` maps to
+unsupported authentication. Health never invokes agents, exposes Cards, or
+supplies credentials. Compose health checks require `ready`, so backend outages
+and Clerk rejection make the container unhealthy. This is not a new backend
+health or API route.
+
+`backend/cli_mcp.py` reads this status for CLI/TUI use. The public Next.js
+`GET /hybro-mcp` route probes the fixed MCP `/health` destination and returns
+only sanitized status for the Networks connection dialog. It forwards neither
+tool traffic nor credentials and provides no lifecycle control or auth bypass.
+The displayed loopback URL is for the Hybro host, not a remote browser's machine;
+clients must be configured manually. See the
 [local MCP startup instructions](../README.md#local-mcp-access).
 
 The independent `MCP CI (local adapter)` job installs its frozen project dependencies
@@ -587,9 +613,11 @@ not part of the shared `common` package, so package dependencies stay acyclic. I
 rotation, and launches Compose with `--env-file /dev/null`. Only backend mounts
 the runtime directory. `HYBRO_CONTAINER=1` supplies bundled Mongo/Redis/file-path
 and discovery defaults where JSON has no explicit override. Agents receive a
-scoped `HYBRO_AGENT_CONFIG` projection; frontend receives only validated public
-JSON, served at runtime by the frontend container's own projection so one
-published image serves every install, plus server SDK credentials at runtime.
+scoped `HYBRO_AGENT_CONFIG` projection; MCP receives only `api_prefix` in
+`HYBRO_MCP_CONFIG`, without a runtime-directory mount or auth store. Frontend
+receives only validated public JSON, served at runtime by the frontend
+container's own projection so one published image serves every install, plus
+server SDK credentials at runtime.
 `api_prefix` is the one public setting compiled into the image, because the
 frontend's server-side rewrite is built from it; every other public change
 applies on restart/recreation without a rebuild.
@@ -649,9 +677,16 @@ Saved locally never implies backend activation, and no deployment is automatic.
 Esc closes a picker or returns from Services; exiting the model page with pending
 changes requires discard confirmation. Ctrl-C exits without saving the draft.
 
-Services delegates to existing commands through a runner the host CLI injects,
-so the gateway never spawns the lifecycle script and an installed CLI has no
-checkout to reach. The page states the CLI and stack version, which are the same
+Services delegates to existing commands through the host CLI's `main` dispatcher,
+not raw Compose, preserving setup validation and scoped projections. The gateway
+never spawns the lifecycle script and an installed CLI has no checkout to reach.
+**Start services** starts the full stack, including MCP. **MCP connection** shows
+status, URL, and transport with start, stop, logs, and refresh actions.
+`hybro mcp start` requires setup and a running backend; its
+`up -d --no-deps mcp` starts only MCP. `hybro mcp stop` is not a persistent
+opt-out from the next global start. Status reads are on entry/refresh and after
+actions, not background polling; exiting the TUI leaves services running.
+The page states the CLI and stack version, which are the same
 value by construction, and offers Upgrade alongside the lifecycle actions. When
 Compose cannot be read, the CLI also injects a Docker
 diagnosis, so a missing binary, a stopped daemon, and a missing Compose plugin

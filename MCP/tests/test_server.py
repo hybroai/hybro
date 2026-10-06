@@ -139,3 +139,102 @@ async def test_non_json_upstream_failure_does_not_expose_response_body():
     assert result.is_error
     assert result.structured_content["detail"]["code"] == "INVALID_BACKEND_RESPONSE"
     assert "private debug information" not in result.content[0].text
+
+
+@pytest.mark.parametrize(
+    ("code", "body", "status"),
+    [
+        (200, {"agents": [{"private": "card must not leak"}]}, "ready"),
+        (401, {"detail": "private auth diagnostics"}, "unsupported_auth"),
+        (403, {}, "unsupported_auth"),
+        (503, {}, "unavailable"),
+        (200, {"other": []}, "unavailable"),
+        (200, [], "unavailable"),
+    ],
+)
+async def test_health_checks_discovery_without_exposing_cards(code, body, status):
+    calls = []
+
+    def handler(request):
+        calls.append(request)
+        return httpx.Response(code, json=body)
+
+    async with httpx.AsyncClient(
+        base_url="http://backend:8000/custom/v2/",
+        transport=httpx.MockTransport(handler),
+    ) as backend:
+        app = create_server(backend).streamable_http_app()
+        async with httpx.AsyncClient(
+            transport=httpx.ASGITransport(app), base_url="http://mcp:8001"
+        ) as client:
+            response = await client.get("/health")
+    assert response.json() == {"service": "hybro-mcp", "status": status}
+    assert response.headers["cache-control"] == "no-store"
+    assert str(calls[0].url) == "http://backend:8000/custom/v2/agents/discovery"
+    assert calls[0].method == "GET"
+    assert "authorization" not in calls[0].headers
+
+
+async def test_health_timeout_is_bounded(monkeypatch):
+    monkeypatch.setattr(server, "HEALTH_TIMEOUT_SECONDS", 0.01)
+
+    async def hang(request):
+        await asyncio.Event().wait()
+
+    async with httpx.AsyncClient(
+        base_url=server.BACKEND_API_URL, transport=httpx.MockTransport(hang)
+    ) as backend:
+        app = create_server(backend).streamable_http_app()
+        async with httpx.AsyncClient(
+            transport=httpx.ASGITransport(app), base_url="http://127.0.0.1:8001"
+        ) as client:
+            response = await client.get("/health")
+    assert response.json()["status"] == "unavailable"
+
+
+@pytest.mark.parametrize(
+    ("headers", "code"),
+    [({"host": "attacker.test:8001"}, 421), ({"origin": "https://attacker.test"}, 403)],
+)
+async def test_container_transport_retains_dns_rebinding_protection(headers, code):
+    async with httpx.AsyncClient(base_url=server.BACKEND_API_URL) as backend:
+        app = create_server(backend).streamable_http_app(
+            stateless_http=True,
+            host="0.0.0.0",
+            transport_security=server.TRANSPORT_SECURITY,
+        )
+        async with app.router.lifespan_context(app):
+            async with httpx.AsyncClient(
+                transport=httpx.ASGITransport(app), base_url="http://127.0.0.1:8001"
+            ) as client:
+                assert (await client.get("/mcp", headers=headers)).status_code == code
+                assert (
+                    await client.get("/health", headers=headers)
+                ).status_code == code
+
+
+def test_container_configuration_is_scoped_and_validated(monkeypatch):
+    monkeypatch.setenv("HYBRO_MCP_CONFIG", '{"api_prefix":"/custom/v2"}')
+    assert server.connection_config(container=True).api_prefix == "/custom/v2"
+    assert server.connection_config(container=False).api_prefix == "/api/v1"
+
+
+@pytest.mark.parametrize(
+    "raw",
+    [
+        None,
+        "",
+        "{bad",
+        "[]",
+        '{"token":"private"}',
+        '{"api_prefix":"https://evil.test"}',
+    ],
+)
+def test_invalid_container_configuration_fails_safely(monkeypatch, raw):
+    if raw is None:
+        monkeypatch.delenv("HYBRO_MCP_CONFIG", raising=False)
+    else:
+        monkeypatch.setenv("HYBRO_MCP_CONFIG", raw)
+    with pytest.raises(ValueError, match="start with hybro") as error:
+        server.connection_config(container=True)
+    assert "private" not in str(error.value)

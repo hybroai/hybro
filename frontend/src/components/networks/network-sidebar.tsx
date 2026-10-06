@@ -6,6 +6,7 @@ import { Button } from '@/components/ui/button'
 import { SidebarTrigger } from '@/components/ui/sidebar'
 import { Skeleton } from '@/components/ui/skeleton'
 import type { NetworkSidebarProps } from './types'
+import { McpConnectionDialog } from './mcp-connection-dialog'
 
 export function NetworkSidebar({
   networks,
@@ -75,6 +76,7 @@ export function NetworkSidebar({
       {refreshing && !loading && !error ? (
         <p role="status" className="text-xs text-muted-foreground">Refreshing networks…</p>
       ) : null}
+      <McpConnectionDialog />
     </aside>
   )
 }

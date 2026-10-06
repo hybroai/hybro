@@ -64,6 +64,21 @@ def test_compose_matches_manifest() -> None:
     )
 
 
+def test_mcp_is_default_loopback_only_and_has_no_credentials() -> None:
+    import yaml
+
+    source = Path(__file__).resolve().parents[2] / "docker-compose.yml"
+    services = yaml.safe_load(source.read_text(encoding="utf-8"))["services"]
+    mcp = services["mcp"]
+    assert "profiles" not in mcp
+    assert mcp["ports"] == ["127.0.0.1:8001:8001"]
+    assert mcp["depends_on"] == {"backend": {"condition": "service_healthy"}}
+    assert mcp["environment"] == ["HYBRO_MCP_CONFIG=${HYBRO_MCP_CONFIG:-}"]
+    assert not mcp.get("volumes")
+    assert "env_file" not in mcp
+    assert "HYBRO_MCP_URL=http://mcp:8001" in services["frontend"]["environment"]
+
+
 def test_release_stack_matches_development_stack() -> None:
     """A released install runs the published images of the same services."""
     import yaml

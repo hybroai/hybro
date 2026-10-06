@@ -124,6 +124,7 @@ src/app/
 |-- favicon.ico
 |-- robots.ts
 |-- sitemap.ts
+|-- hybro-mcp/route.ts         # public read-only MCP status
 |-- privacy/page.tsx
 |-- (auth)/
 |   |-- layout.tsx
@@ -767,6 +768,25 @@ Other library modules:
 - `selection-plain-text.ts`: quote/selection text extraction.
 - `streaming/display.ts`: streaming display helpers.
 
+### MCP connection status
+
+`GET /hybro-mcp` (`src/app/hybro-mcp/route.ts`) is a public, read-only Next.js
+route, not a backend API endpoint or tool proxy. It probes only MCP `/health`
+with a four-second deadline, no redirects, and no caching. Compose supplies the
+fixed server-side transport metadata `HYBRO_MCP_URL=http://mcp:8001`; otherwise
+the destination is fixed to `http://127.0.0.1:8001`. Request parameters cannot
+select an upstream destination.
+
+`src/lib/mcp.ts` validates the service identity and allowlisted status. The route
+returns only `service: "hybro-mcp"` and
+`status: "ready" | "unavailable" | "unsupported_auth"`; invalid responses and
+probe failures become unavailable. It never forwards tool traffic, browser
+credentials, upstream errors, or Agent Cards, and cannot control services or
+bypass backend authentication. MCP's own health check performs a bounded,
+read-only backend discovery request, never Agent execution. Clerk rejection is
+reported as unsupported authentication. Existing backend endpoints, OpenAPI,
+Execution ownership, and `client_request_id` correlation are unchanged.
+
 ### Send Message Routing
 
 `src/lib/api/room.ts` sends every room message with a required
@@ -860,9 +880,26 @@ route vocabulary for application links.
 `NetworkDetailsPanel`, `NetworkFormDialog`, and `AgentPicker` under
 `src/components/networks/`. The existing Agents inventory and its actions remain
 separate. Network details show the name and description, copyable Network ID,
-members, and edit/delete actions; there is no MCP connection panel.
-The workspace's built-in text is English. Its sidebar has a Create action and
-saved Network list, without a separate heading. Hub colors use the theme primary.
+members, and edit/delete actions.
+The workspace's built-in text is English. Its sidebar has a Create action,
+saved Network list, and **Connect MCP** action, without a separate heading.
+Hub colors use the theme primary.
+
+`McpConnectionDialog` uses the shared Dialog primitive and shows status and
+`http://127.0.0.1:8001/mcp`. Copy actions supply the URL or Claude Code
+`mcpServers` JSON with `type: "http"`; a collapsible **Configuration** block
+supports manual copying when the clipboard is unavailable.
+Status is fetched from `/hybro-mcp` only on dialog open or explicit refresh,
+with checking, ready, unavailable, unsupported-Clerk, and request-error states;
+there is no polling. Lifecycle actions remain in the CLI/TUI, and closing the
+dialog does not stop MCP.
+
+MCP runs by default with `hybro start` and the TUI's **Start services**. The URL
+is for clients on the machine running Hybro: a remote client resolves loopback
+to its own machine, not the Hybro host. The adapter has no MCP authentication or
+user isolation and supports a trusted local mock-auth backend, not Clerk.
+Connection setup is manual; the dialog does not discover/register MCP clients
+or expose tool execution controls.
 
 `useNetworks` reads the existing `agent-group` API plus `getAllAgents` and
 `getAgentsByProviderId`. Its queries and mutation scope include the authenticated

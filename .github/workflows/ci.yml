@@ -89,6 +89,9 @@ jobs:
       - name: Check docker-compose.release.yml is in sync
         run: uv run --with pyyaml python default_agents/render_release.py --check
 
+      - name: Check service security and release image inventory
+        run: uv run --with pytest --with pyyaml python -m pytest default_agents/tests/test_compose_in_sync.py
+
       # The published frontend image compiles this projection, so it must match
       # what the backend schema and the CLI produce for a default configuration.
       - name: Check the published frontend projection is in sync
@@ -153,7 +156,7 @@ jobs:
   functional-ci:
     name: Functional Regression CI (Docker Stack + Mock LLM)
     runs-on: ubuntu-latest
-    needs: [backend-ci, frontend-ci, default-agents-ci]
+    needs: [backend-ci, frontend-ci, default-agents-ci, mcp-ci]
 
     steps:
       - name: Checkout repository
@@ -225,6 +228,32 @@ jobs:
           echo "Waiting for agents registration..."
           timeout 90s bash -c 'until curl -sf http://localhost:8000/api/v1/agent/getAllAgents?active_only=true | grep -qi "Travel Planner"; do sleep 2; done'
           echo "Agents successfully registered!"
+
+      - name: Verify default MCP startup and tools
+        run: |
+          uv run --project MCP --frozen --no-env-file python - <<'PY'
+          import asyncio
+          import httpx
+          from mcp import Client
+
+          async def check():
+              async with httpx.AsyncClient(timeout=5) as http:
+                  health = await http.get("http://127.0.0.1:8001/health")
+                  assert health.json() == {"service": "hybro-mcp", "status": "ready"}
+                  panel = await http.get("http://localhost:3000/hybro-mcp")
+                  assert panel.json() == health.json()
+              async with Client("http://127.0.0.1:8001/mcp") as client:
+                  tools = await client.list_tools()
+                  assert {tool.name for tool in tools.tools} == {"discover_agents", "send_agent_message"}
+                  result = await client.call_tool("discover_agents", {})
+                  assert not result.is_error
+                  assert result.structured_content["agents"]
+
+          asyncio.run(check())
+          PY
+          ./scripts/hybro mcp stop
+          ./scripts/hybro mcp start
+          timeout 30s bash -c 'until ./scripts/hybro mcp status; do sleep 2; done'
 
       - name: Run Backend Functional Tests Against Live Containers
         working-directory: backend

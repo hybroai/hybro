@@ -163,7 +163,7 @@ ignore = ["E501"]
 docstring-code-format = true
 
 [tool.setuptools]
-py-modules = ["main", "container", "configuration_cli", "cli_stack", "cli_upgrade"]
+py-modules = ["main", "container", "configuration_cli", "cli_stack", "cli_upgrade", "cli_mcp"]
 packages = [
     "agent",
     "agent.repository",

@@ -62,6 +62,7 @@ def test_start_projects_only_json_configuration(monkeypatch, tmp_path):
     monkeypatch.setenv("OPENAI_API_KEY", "ambient-secret")
     monkeypatch.setenv("NEXT_PUBLIC_PRIVATE_VALUE", "ambient-secret")
     monkeypatch.setenv("HYBRO_AGENT_CONFIG", "ambient-secret")
+    monkeypatch.setenv("HYBRO_MCP_CONFIG", "ambient-secret")
     calls = []
 
     def run(arguments, **kwargs):
@@ -84,6 +85,7 @@ def test_start_projects_only_json_configuration(monkeypatch, tmp_path):
         agent["token"] == runtime.read_service_credentials()["default_agent_llm_token"]
     )
     assert "fixture-key" not in json.dumps(agent)
+    assert json.loads(env["HYBRO_MCP_CONFIG"]) == {"api_prefix": "/api/v1"}
     assert not (tmp_path / ".env").exists()
 
 
@@ -276,9 +278,10 @@ def test_tui_entry_point_injects_host_service_effects(monkeypatch):
     assert cli.main([]) == 0
     assert captured == {
         "status": cli.service_status,
-        "run": cli.compose,
+        "run": cli.main,
         "problem": cli.docker_problem,
         "version": cli.version(),
+        "mcp_status": cli.read_mcp_status,
     }
 
 
@@ -293,6 +296,67 @@ def test_tui_without_a_terminal_prints_help_instead_of_opening(monkeypatch, caps
     )
     assert cli.main([]) == 0
     assert "Usage: hybro [command]" in capsys.readouterr().out
+
+
+@pytest.mark.parametrize("released", [False, True])
+def test_mcp_start_is_service_scoped_and_projects_custom_prefix(
+    monkeypatch, tmp_path, released, request
+):
+    if released:
+        request.getfixturevalue("released_install")
+    runtime = configured(tmp_path)
+    runtime.update_config(["backend", "api_prefix"], "/custom/v2")
+    monkeypatch.setenv("HYBRO_HOME", str(runtime.home))
+    calls = []
+    monkeypatch.setattr(
+        cli.subprocess,
+        "run",
+        lambda args, **kw: calls.append((args, kw)) or SimpleNamespace(returncode=0),
+    )
+    assert cli.main(["mcp", "start"]) == 0
+    args, kwargs = calls[-1]
+    assert args[-4:] == ["up", "-d", "--no-deps", "mcp"]
+    assert json.loads(kwargs["env"]["HYBRO_MCP_CONFIG"]) == {"api_prefix": "/custom/v2"}
+    assert kwargs["env"]["COMPOSE_DISABLE_ENV_FILE"] == "1"
+
+
+@pytest.mark.parametrize(
+    ("action", "expected"),
+    [("stop", ["stop", "mcp"]), ("logs", ["logs", "-f", "--tail", "100", "mcp"])],
+)
+def test_mcp_stop_and_logs_do_not_load_credentials(monkeypatch, action, expected):
+    calls = []
+    monkeypatch.setattr(cli, "compose", lambda args: calls.append(args) or 0)
+    assert cli.main(["mcp", action]) == 0
+    assert calls == [expected]
+
+
+@pytest.mark.parametrize("status", ["ready", "unavailable", "unsupported_auth"])
+def test_mcp_status_is_read_only_and_explains_auth(monkeypatch, capsys, status):
+    monkeypatch.setattr(cli, "read_mcp_status", lambda: status)
+    monkeypatch.setattr(cli, "store", lambda: pytest.fail("must not read credentials"))
+    assert cli.main(["mcp", "status"]) == (0 if status == "ready" else 1)
+    output = capsys.readouterr().out
+    assert "http://127.0.0.1:8001/mcp" in output
+    assert "Streamable HTTP" in output
+    assert cli.STATUS_LABELS[status] in output
+
+
+def test_tui_start_dispatches_validated_up_not_compose_start(monkeypatch, tmp_path):
+    from llm_gateway import cli_tui
+
+    runtime = configured(tmp_path)
+    monkeypatch.setenv("HYBRO_HOME", str(runtime.home))
+    monkeypatch.setattr(cli, "_interactive", lambda: True)
+    monkeypatch.setattr(cli_tui, "main", lambda **kw: kw["run"](("start",)))
+    calls = []
+    monkeypatch.setattr(
+        cli.subprocess,
+        "run",
+        lambda args, **kw: calls.append(args) or SimpleNamespace(returncode=0),
+    )
+    assert cli.main([]) == 0
+    assert calls[-1][-3:] == ["up", "-d", "--remove-orphans"]
 
 
 def test_status_does_not_create_runtime_or_read_dotenv(monkeypatch, tmp_path):
