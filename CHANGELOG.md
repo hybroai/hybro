@@ -5,6 +5,24 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.19](https://github.com/hybroai/hybro/compare/v0.2.18...v0.2.19) (2026-10-06)
+
+
+### Features
+
+* **agent-network:** add direct APIs and local MCP access ([be67f25](https://github.com/hybroai/hybro/commit/be67f2599603206ec1527644d0107af6e9772f5c))
+* **agent-network:** add network visualization, direct APIs, and local MCP access ([8355e8a](https://github.com/hybroai/hybro/commit/8355e8a9e03fecdff58b89b57aafa95bc9440840))
+* **mcp:** integrate startup controls and connection panel ([86cd05d](https://github.com/hybroai/hybro/commit/86cd05d8f29a29f48d42cbb46158c7845f9b9afb))
+* **mcp:** integrate startup controls and connection panel ([743d6ae](https://github.com/hybroai/hybro/commit/743d6aedd996403000ec036c19e303f5c403206e))
+* **networks:** add agent relationship overview ([7c4c02e](https://github.com/hybroai/hybro/commit/7c4c02e7d8a9a391cad9e578873c79ec3cc5ddf9))
+
+
+### Bug Fixes
+
+* **agent-network:** break execution package dependency cycle ([0c4d959](https://github.com/hybroai/hybro/commit/0c4d959892db19fbb140be0c363ec2fae4f5069c))
+* **agent-network:** enforce auth and request limits ([1330ae1](https://github.com/hybroai/hybro/commit/1330ae1bdb29d63780d6e4c5b1f65bc960ee12a6))
+* **agent-network:** scope unbounded reads to discovery ([8694350](https://github.com/hybroai/hybro/commit/8694350c652067d33f91f3fd4fc7ecab7d435c41))
+
 ## [0.2.18](https://github.com/hybroai/hybro/compare/v0.2.17...v0.2.18) (2026-09-13)
 
 
