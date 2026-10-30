@@ -1,5 +1,8 @@
 # System Architecture
 
+> **Design draft (headless Network / interop kernel):**  
+> [design-headless-agent-network.md](./design-headless-agent-network.md) — planned Session/Task/HITL/event APIs for embedders and self-host partners (e.g. Blossom). Not yet implemented; this document remains the source of truth for current behavior.
+
 This document describes the current architecture and core workflows of the
 backend in this repository's `backend/` directory.
 
