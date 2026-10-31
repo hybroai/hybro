@@ -5,6 +5,20 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.1](https://github.com/hybroai/hybro/compare/v0.3.0...v0.3.1) (2026-10-31)
+
+
+### Features
+
+* **llm-gateway:** support gpt-image-1-mini as an OpenAI image model ([d96aa7f](https://github.com/hybroai/hybro/commit/d96aa7f5b8e8edfeb2cf25dad029e88d44791b6f))
+
+
+### Bug Fixes
+
+* **llm-gateway:** replace retired GPT Image 1 models with GPT Image 2.5 ([fe66318](https://github.com/hybroai/hybro/commit/fe66318955ead3765b228b8231794e815c9bf9ef))
+* **llm-gateway:** replace retired GPT Image 1 models with GPT Image 2.5 ([245219e](https://github.com/hybroai/hybro/commit/245219e1b5f1d1f5e723cc8a6bd504d80d1f1fd2))
+* **orchestrator:** settle interrupted Runs on shutdown without racing the lease release ([970de58](https://github.com/hybroai/hybro/commit/970de58d0606767e6929778e1e29855bf247b4d3)), closes [#205](https://github.com/hybroai/hybro/issues/205)
+
 ## [0.3.0](https://github.com/hybroai/hybro/compare/v0.2.19...v0.3.0) (2026-10-25)
 
 
