@@ -82,12 +82,17 @@ def model_choices(provider: RuntimeProvider) -> ModelChoices:
 
 
 def validate_models(config: RuntimeConfig) -> TextModel:
+    if config.provider is None or config.models is None:
+        raise RuntimeConfigurationError(
+            "No model provider is configured; open Settings, Model provider."
+        )
     choices = model_choices(config.provider)
     if config.models.text not in choices.text or (
         config.models.image is not None and config.models.image not in choices.image
     ):
         raise RuntimeConfigurationError(
-            "Selected Provider/auth or models are not implemented/eligible; rerun setup."
+            "Selected Provider/auth or models are not eligible; "
+            "open Settings, Model provider."
         )
     return next(
         entry

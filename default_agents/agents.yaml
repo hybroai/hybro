@@ -1,31 +1,46 @@
 # Default agents shipped with Hybro.
 #
 # This manifest is the single source of truth for which agents exist. It drives:
-#   - docker-compose.yml service blocks + registrar (generated: run
-#     `python default_agents/render_compose.py`; CI enforces sync via --check)
-#   - register_agents.py (auto-registers every enabled agent with the backend)
+#   - backend boot registration: the image copies this file and
+#     registers every enabled agent (`backend/agent/bundled.py`)
+#   - the single image's agent processes (`backend/runtime_entrypoint.py`)
 #
-# After editing this file, regenerate the Compose section:
-#   python default_agents/render_compose.py
+# Every `dir` is a member of the agent uv workspace (default_agents/pyproject.toml,
+# one lock in default_agents/uv.lock); a test keeps the two lists equal.
+#
+# `requires` is what an agent needs before the backend activates it:
+#   none   works without a model provider
+#   text   needs a configured model provider
+#   image  also needs an image model
 
 agents:
+  echo_agent:
+    dir: echo_agent
+    service: echo-agent
+    port: 7004
+    requires: none
+    enabled: true
   weather_agent:
     dir: weather_agent
     service: weather-agent
     port: 7001
+    requires: text
     enabled: true
   image_generator_agent:
     dir: image_generator_agent
     service: image-generator-agent
     port: 6002
+    requires: image
     enabled: true
   travel_planner_agent:
     dir: travel_planner_agent
     service: travel-planner-agent
     port: 7002
+    requires: text
     enabled: true
   story_agent:
     dir: story_agent
     service: story-agent
     port: 7003
+    requires: text
     enabled: true

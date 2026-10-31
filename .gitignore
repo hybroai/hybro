@@ -50,12 +50,8 @@ coverage/
 .playwright-report/
 test-results/
 
-# Packaged CLI build output (packaging/cli/build.sh, packaging/npm/build.sh).
-# The staged bundle is ~35 MB per platform and ships through npm, not git.
-# `dist/` is listed because the Node rule above matches it only by name.
-packaging/cli/build/
-packaging/cli/dist/
-packaging/npm/cli-*/hybro/
+# The npm package's bin, copied from scripts/hybro by the release workflow.
+packaging/npm/cli/bin/hybro
 *.tgz
 
 # Log Files
@@ -64,5 +60,8 @@ logs/
 
 # Local AI agent tool directories
 /.agents/
-/.claude/
+/.claude/worktrees/
+/.claude/settings.local.json
+/.claude/skills/shadcn
+/.claude/skills/migrate-radix-to-base
 /skills-lock.json

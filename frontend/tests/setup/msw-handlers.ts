@@ -15,6 +15,12 @@ const sessionTimes = {
 }
 
 export const handlers = [
+  // Setup status: a working provider, so no banner unless a test overrides it.
+  http.get(getApiUrl('setup/status'), () => HttpResponse.json({
+    state: 'configured', provider: 'openai', auth: 'api_key', text_model: 'gpt-5-mini',
+    image_model: 'gpt-image-1', image_size: 'auto', last_error: null,
+  })),
+
   // Session API handlers
   http.get(sessions, () => HttpResponse.json({
     sessions: [{

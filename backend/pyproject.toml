@@ -52,6 +52,12 @@ dependencies = [
 hybro-backend = "main:main"
 
 [project.optional-dependencies]
+# The local MCP server (MCP/server.py) runs from this environment.
+mcp = [
+    "httpx>=0.28.1,<1",
+    "mcp>=2.2.0,<3",
+    "pydantic>=2.12,<3",
+]
 dev = [
     "pytest>=8.0.0",
     "pytest-asyncio>=0.23.0",
@@ -147,7 +153,7 @@ ignore = ["E501"]
 docstring-code-format = true
 
 [tool.setuptools]
-py-modules = ["main", "container", "configuration_cli", "cli_stack", "cli_upgrade", "cli_mcp", "cli_ports"]
+py-modules = ["main", "container", "runtime_entrypoint", "volume_migration"]
 packages = [
     "agent",
     "approval",

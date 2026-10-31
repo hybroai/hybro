@@ -17,6 +17,11 @@ declare global {
 
 const spaceGrotesk = Space_Grotesk({ subsets: ["latin"], weight: ["700"], variable: "--font-space-grotesk" })
 
+// Pages render per request: server code reads the deployment's projection from
+// the container, which the image build does not have, so nothing is prerendered
+// with one deployment's settings.
+export const dynamic = "force-dynamic"
+
 export const metadata: Metadata = {
   title: "Hybro AI",
   description:

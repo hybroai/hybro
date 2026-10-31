@@ -9,7 +9,13 @@ describe('public JSON configuration', () => {
     expect(Object.isFrozen(result)).toBe(true)
   })
 
-  it.each([undefined, '', '[]', '{invalid', JSON.stringify({ ...fixture, clerk_secret_key: 'private-marker' }), JSON.stringify({ ...fixture, max_message_length: -1 }), JSON.stringify({ ...fixture, enable_waitlist: 'true' }), JSON.stringify({ ...fixture, api_base_url: 'https://user:private-marker@example.org' }), JSON.stringify({ ...fixture, mcp_url: 'ftp://127.0.0.1:8001/mcp' }), JSON.stringify({ ...fixture, mcp_url: 'http://user:private-marker@127.0.0.1:8001/mcp' }), JSON.stringify({ ...fixture, mcp_url: undefined })])('rejects invalid projections without echoing values', value => {
+  it('accepts an empty API base URL, meaning same origin, and the derived MCP switch', () => {
+    const result = parsePublicConfig(JSON.stringify({ ...fixture, api_base_url: '', mcp_disabled: true }))
+    expect(result.api_base_url).toBe('')
+    expect(result.mcp_disabled).toBe(true)
+  })
+
+  it.each([undefined, '', '[]', '{invalid', JSON.stringify({ ...fixture, clerk_secret_key: 'private-marker' }), JSON.stringify({ ...fixture, max_message_length: -1 }), JSON.stringify({ ...fixture, enable_waitlist: 'true' }), JSON.stringify({ ...fixture, api_base_url: 'https://user:private-marker@example.org' }), JSON.stringify({ ...fixture, mcp_url: 'http://127.0.0.1:8001/mcp' }), JSON.stringify({ ...fixture, server_url: '' }), JSON.stringify({ ...fixture, mcp_disabled: 'true' })])('rejects invalid projections without echoing values', value => {
     expect(() => parsePublicConfig(value)).toThrow('frontend configuration')
     try { parsePublicConfig(value) } catch (error) {
       expect(String(error)).not.toContain('private-marker')

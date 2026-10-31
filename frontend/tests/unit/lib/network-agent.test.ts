@@ -23,6 +23,13 @@ describe('projectAgent', () => {
     })
   })
 
+  it('projects a bundled agent and the setup it waits for', () => {
+    const agent = createAgent({ agent_id: 'i', source: 'bundled', status: 'inactive', inactive_reason: 'image_model_not_configured' })
+
+    expect(projectAgent(agent)).toMatchObject({ source: 'bundled', status: 'inactive', inactiveReason: 'image_model_not_configured' })
+    expect(projectAgent(createAgent({ inactive_reason: null })).inactiveReason).toBeUndefined()
+  })
+
   it('falls back to the provider name and agent id when the card is sparse', () => {
     const agent = createAgent({ agent_id: 'b', name: '', provider_name: 'Owner', version: null })
 

@@ -109,7 +109,44 @@ marked inactive takes that record over in place (same `agent_id`, now owned by
 the requester with `source=cloud`). Any other existing record returns HTTP 409
 with `detail: {"code", "message"}`, where `code` is `already_registered` (the
 requester owns it), `owned_by_another_provider`, or `active_local_discovery`.
-The default-agent registrar treats a 409 as already registered.
+
+#### Bundled agents
+
+The backend registers the bundled sample agents itself (`agent.bundled`); there
+is no registrar container or registrar token. `bundled_agents_manifest` has a
+default in every mode: `/app/bundled_agents.yaml` in the image and the
+repository's `default_agents/agents.yaml` outside a container. An explicit
+empty value disables registration. Startup loads the manifest and fails on an
+invalid one. After the API starts, one background task
+per enabled agent waits for its Agent Card, retrying with backoff, so health and
+startup never wait for an agent. It then reconciles exactly one record:
+
+1. A record whose `bundled_name` is the manifest key.
+2. Otherwise a record that is not `source=local` at the current URL or at the
+   0.3 Compose URL `http://<service>:<port>`, such as one the 0.3 registrar
+   created and a 0.3 migration carried over.
+3. Otherwise a new record (`provider_id` = `default_agent_provider_id`).
+
+The record keeps its `agent_id`, so room history still resolves, and gets
+`source=bundled`, `bundled_name`, the current URL as `normalized_url` and stored
+card `url`, and the card. The current URL is `http://127.0.0.1:<port>`; the
+retired Compose-only `bundled_agents_use_service_hosts` is dropped with the
+other removed fields. A `source=local` record holding that URL
+is a host agent found by discovery and is never taken over; registration skips
+the agent with a warning. Repeated boots converge.
+
+Each manifest agent has `requires: none | text | image`. The record is active
+only when the current Provider pair meets it; otherwise it is inactive with
+`inactive_reason` `provider_not_configured` (no Provider, or `credential_invalid`)
+or `image_model_not_configured`. Gating runs at registration and on every
+Provider pair swap through a `ProviderRuntime` listener; a setup save waits for
+it, so the save response already reflects it. Gating clears only its own
+reason: an agent the health check marked unreachable stays inactive. The health
+check, its retries, and on-demand liveness never reactivate a record while
+`inactive_reason` is set; liveness probes `cloud` and `bundled` records. The
+reactivating write is conditional (`agent_status=inactive`, no
+`inactive_reason`), so a probe in flight cannot undo gating that ran meanwhile.
+`AgentView.inactive_reason` carries the reason to the frontend.
 
 - Main types: `AgentFacade` (registry), `AgentCatalogService` (the `/agent/*`
   routes), `AgentMatcher`, `AgentSelectionService`, `AgentHealthService`,
@@ -194,7 +231,8 @@ dependency globals, or define `bind_*` functions.
 - Consumes: the `agent.protocols` ports, `chat.protocols.ChatRooms`,
   `session.protocols.SessionAccess` and `SessionService`,
   `execution.ports.DirectAgentMessenger`, `local_agents.protocols.LocalAgentDiscovery`,
-  `llm_gateway.agent_proxy._AgentLLMProxyPort`, and from `common.protocols`
+  `llm_gateway.agent_proxy._AgentLLMProxyPort`,
+  `llm_gateway.setup_api.SetupAccess`, and from `common.protocols`
   `ExecutionEngine`, `HITLManager`, `SSERouteTransport`, `RoomRouteReader`,
   `SSEStateReader`, `RoomOwnershipReader`, `AgentRegistry`, `AgentMatcher`,
   `FileStorage`, and `PreparedFileStream`.
@@ -220,6 +258,8 @@ Route groups:
   `/internal/llm`.
 - `a2a_push_routes.py`: `POST /a2a/push/{call_record_id}`, the A2A
   push-notification ingress (see [Push notifications](#push-notifications)).
+- `setup_routes.py`: `/setup` browser model-provider setup (see
+  [Browser setup API](#browser-setup-api)).
 
 Frontend-facing and agent-network routes use Clerk auth when
 `backend.auth_mode="clerk"`. In local `backend.auth_mode="mock"`, `main.py`
@@ -445,9 +485,11 @@ code that imports a provider SDK. `LLMGatewayImpl` resolves logical routes
 through `ModelRegistryImpl`, applies retry and timeout policy from
 `LLMGatewayConfig`, and exposes text, structured JSON, embedding, streaming, turn
 (`stream_turn_once`), and image operations. `AgentSelectionLLMService` reranks
-agent suggestions for `AgentSelectionService`. The setup CLI and TUI
-(`setup_cli`, `setup_panel`, `SetupService`), OAuth (`openai_oauth`), and the
-bundled-agent proxy (`agent_proxy.AgentLLMProxy`) also live here.
+agent suggestions for `AgentSelectionService`. Setup (`SetupService`), OAuth
+(`openai_oauth`), and the bundled-agent proxy (`agent_proxy.AgentLLMProxy`) also live here.
+`ProviderRuntime` (`provider_runtime`) owns the current Provider pair and its
+live reload. `setup_api.BrowserSetup` and `setup_api.OAuthLogins` serve the
+browser setup routes.
 
 - Writes no collections; setup and OAuth write `config.json` and `auth.json`
   under `HYBRO_HOME`.
@@ -464,18 +506,17 @@ Owns Docker-host discovery without owning Agent persistence or execution. When
 `local_agent_discovery_interval_seconds` (120 by default), probes Agent Cards
 through the `a2a_adapter` resolver, and reconciles results through the Agent
 registry writer. Discovered records use `source=local` and remain public and
-directly callable. The scan skips the host ports the stack publishes for its own
-agents: the Compose backend receives the matching
-`LOCAL_AGENT_DISCOVERY_EXCLUDED_PORTS` list generated from
-`default_agents/agents.yaml`, so it never rediscovers an agent the one-shot
-registrar already registered. Scheduled discovery marks an agent inactive after
+directly callable. The scan skips the bundled agents' manifest ports: the image
+entrypoint passes them as `LOCAL_AGENT_DISCOVERY_EXCLUDED_PORTS`, so it never
+rediscovers an agent the backend
+registered as bundled. Scheduled discovery marks an agent inactive after
 three successful cycles in which it is absent and records `inactive_since`;
 every cycle then deletes ownerless `source=local` records that have been
 inactive for seven days (`LOCAL_AGENT_INACTIVE_RETENTION`; records without
 `inactive_since` use `updated_at`). The authenticated
 `POST /api/v1/local-agents/discovery` refresh reconciles missing agents at once
 and upgrades any in-flight cycle to a manual refresh. Discovery coordination and
-miss counters are process-local, which fits the single-process Compose backend.
+miss counters are process-local, which fits the single-process backend.
 
 - Writes `agents` only through `LocalAgentWriter` (implemented by
   `AgentFacade`).
@@ -823,6 +864,7 @@ port, or facade port, update the exact method inventory in
 | `_AgentLLMProxyPort` | `llm_gateway.agent_proxy` | `llm_gateway.agent_proxy.AgentLLMProxy` | crosses to `api_gateway` |
 | `LLMProviderAdapter` | `llm_gateway.gateway` | `llm_gateway.providers.anthropic_provider.AnthropicProvider`, `llm_gateway.providers.deepseek_provider.DeepSeekProvider`, `llm_gateway.providers.openai_codex.OpenAICodexProvider`, `llm_gateway.providers.openai_provider.OpenAIProvider` | internal to `llm_gateway` |
 | `LLMTurnGateway` | `llm_gateway.gateway` | `llm_gateway.gateway.LLMGatewayImpl` | crosses to `execution` |
+| `SetupAccess` | `llm_gateway.setup_api` | `llm_gateway.setup_api.BrowserSetup` | crosses to `api_gateway` |
 | `LocalAgentDiscovery` | `local_agents.protocols` | `local_agents.service.LocalAgentService` | crosses to `api_gateway` |
 | `LocalAgentWriter` | `local_agents.protocols` | `agent.facade.AgentFacade` | crosses to `agent` |
 | `FileContentStore` | `room_files.content_store` | `room_files.content_store.LocalFileContentStore` | internal to `room_files` |
@@ -844,154 +886,239 @@ snapshot from `HYBRO_HOME/config.json` (default `~/.hybro/config.json`) through
 and OAuth refresh. There is no `settings.py`, dotenv discovery, or
 environment-backed application settings. JSON overrides live under `backend`
 and `frontend`, alongside setup's `provider`, `models`, `version`, and Agent
-`image_size`. Unknown fields, invalid types or ranges, and missing setup fail
-before services start; missing setup directs the user to `hybro setup`. Model
+`image_size`. Unknown fields and invalid types or ranges fail before services
+start. `provider` and `models` are set together or not at all; a missing
+`config.json` or a document without them boots the backend unconfigured (see
+Model access and setup), and the UI points to Settings, Model provider. Model
 routes and credentials are not backend JSON fields: setting a route field
 (`loader.ROUTE_FIELDS`) or a credential (`loader.PRIVATE_FIELDS`) is rejected
-with a pointer to setup and `auth.json`. Keys in `loader.REMOVED_FIELDS` are
-accepted on read, dropped, named in one startup warning, and not written back by
-`config set`; setting one explicitly is rejected. `auth.json` service keys follow
-the same rule through `runtime_store.RETIRED_SERVICE_KEYS` (`mongodb_password`,
-`webhook_signing_key`).
+with a pointer to Settings and `auth.json`. Keys in `loader.REMOVED_FIELDS` are
+accepted on read, dropped, named in one startup warning, and not written back on
+the next save. The 0.3 `instances` block (host ports) follows the same rule:
+`RuntimeConfig` drops it on load (`had_instances`), `get_settings` warns that
+ports are now `hybro start --port`, and the next save omits it. `frontend.mcp_url`
+is rejected, because MCP is always `{origin}/mcp`. `auth.json` service keys
+follow the same rule through `runtime_store.RETIRED_SERVICE_KEYS`
+(`mongodb_password`, `webhook_signing_key`).
 Credentials stay in `auth.json`; its `services` mapping holds scoped service
 secrets separately from Provider credentials. Setup edits and OAuth rotations
-preserve unrelated fields. Changes apply after restart.
+preserve unrelated fields. The Provider selection and its credential reload
+live; every other field applies after restart.
 
-The top-level `configuration_cli.py` handles `config
-show/check/set/secret/migrate` and Compose startup. It is a host entry point,
-not part of `common`, so package dependencies stay acyclic. It validates
-configuration, generates missing internal tokens without rotation, and launches
-Compose with `--env-file /dev/null`. Only the backend mounts the runtime
-directory, at `/var/lib/hybro/runtime` (writable for the shared snapshot lock),
-with `HYBRO_HOME` set accordingly. `HYBRO_CONTAINER=1` supplies bundled
-Mongo/Redis/file-path and discovery defaults where JSON has no explicit
-override. Agents receive a scoped `HYBRO_AGENT_CONFIG` projection; MCP receives
-only `api_prefix` in `HYBRO_MCP_CONFIG`, without a runtime-directory mount or
-auth store. The frontend receives only validated public JSON, served at runtime
-by the frontend container's own projection so one published image serves every
-install, plus server SDK credentials at runtime. `api_prefix` is the one public
-setting compiled into the image, because the frontend's server-side rewrite is
-built from it; every other public change applies on `hybro start --recreate`
-without a rebuild.
+The image entrypoint (`backend/runtime_entrypoint.py`, below) is the one
+projection owner: it validates `config.json`, generates missing internal tokens
+without rotation, and gives each program only its scoped settings. Outside the
+image (`HYBRO_CONTAINER` unset), the loader keeps host defaults and points
+`bundled_agents_manifest` at the repository's `default_agents/agents.yaml`.
 
-The raw-environment gate allows only configuration and CLI boundaries.
+The raw-environment gate allows only configuration and entrypoint boundaries.
 Framework metadata such as `SERVER_SOFTWARE` is not user configuration. The
-explicit `hybro config migrate --from-env .env` imports deployment values and
-YAML selection from an env file without deleting the originals; normal startup
-never invokes it.
+allowlisted script-to-container transport is `HYBRO_LISTEN`,
+`HYBRO_PUBLIC_PORT`, and `HYBRO_INSECURE_NO_AUTH`; `HYBRO_NO_UPDATE_CHECK` is a
+host-side switch of the script and never reaches the container.
 
-### Stack and CLI
+### Single image
 
-The host entry point is `configuration_cli`, whose stack resolution lives in
-`cli_stack`. A source checkout runs `docker-compose.yml` in place, where
-`--build` and regeneration from `default_agents/agents.yaml` are meaningful. Any
-other install runs `docker-compose.release.yml`, generated from
-`docker-compose.yml` by `default_agents/render_release.py`, which replaces each
-`build:` block with an `image:` reference. The CLI supplies `HYBRO_STACK_TAG`
-from its own `VERSION`, so an install always runs the images published for the
-CLI that started it. `docker-compose.yml` pins `name: hybro-dev` and the
-generated release file pins `name: hybro`, so container identities do not depend
-on the install location and a checkout's stack never touches a release's
-containers or volumes. `render_compose.py` runs in-process.
+The root `Dockerfile` builds one image (`ubuntu:22.04`) that runs every service
+in one container under `supervisord`: `mongod` copied from `mongo:7.0` (the
+build runs `mongod --version` in the final stage), Python 3.12 from
+`uv python install`, Node 24 from `node:24`, the Next.js `standalone` server,
+and Caddy from `caddy:2`. There are two Python environments: the backend and
+MCP server from `backend/uv.lock` with the `mcp` extra
+(`uv sync --frozen --no-dev --extra mcp`), and the sample agents from the
+`default_agents/` uv workspace lock
+(`uv sync --frozen --all-packages --no-install-workspace`; the agents are never
+built as packages). Each agent runs as
+`python /app/default_agents/<dir>/__main__.py` from its own directory with
+`PYTHONPATH=/app/default_agents`, so its bare imports resolve to its own files
+and `runtime_config.py` is shared.
 
-#### Dev and release instances
+| Process | Bind address |
+|---|---|
+| mongod (replica set `rs0`, `--wiredTigerCacheSizeGB 0.25`) | `127.0.0.1:27017` |
+| backend (uvicorn, one worker) | `127.0.0.1:8000` |
+| MCP server (`server.py --image`) | `127.0.0.1:8001` |
+| frontend (`node server.js`) | `127.0.0.1:3000` |
+| sample agents | `127.0.0.1`, manifest ports |
+| Caddy | `0.0.0.0:8080`, the published port |
+| ChatGPT OAuth callback listener, only while a login is pending | `0.0.0.0:1455` |
 
-`Stack.instance` is `dev` for a source checkout and `release` for any install.
-Both read one `HYBRO_HOME`; only host ports differ. `cli_ports` owns them:
+`backend/runtime_entrypoint.py` runs before the supervisor. Its root phase
+reads the owner of the mounted config directory `/var/lib/hybro/runtime`: UID 0
+(rootless Docker) runs the services as root, an existing UID reuses its
+account, and any other UID gets a new `hybro` user. It chowns `/data` once when
+its owner differs, hands the container's stdout and stderr pipes to that user,
+and re-execs itself with `setpriv`. The user phase loads and validates
+`config.json` (a missing file is unconfigured; an unresolvable credential still
+boots into `credential_invalid`), generates missing internal credentials, and
+reads the transport variables `HYBRO_LISTEN` (`loopback` or `public`; missing
+means `public`), `HYBRO_PUBLIC_PORT`, and `HYBRO_INSECURE_NO_AUTH`. A public
+listener starts only with `auth_mode: clerk` and `frontend.server_url`, or with
+`HYBRO_INSECURE_NO_AUTH=1`, which logs a warning. It then writes each program's
+command and scoped environment to a private file under `/tmp/hybro/programs`,
+writes the Caddyfile and supervisor configuration, prepares MongoDB, and execs
+`supervisord` with only base variables. Each program starts through
+`runtime_entrypoint.py run <name>`, which applies its own environment, prefixes
+its log lines with the program name, and forwards stop signals:
 
-- **Schema.** `config.json` may hold `instances.<release|dev>.ports` with
-  `frontend`, `backend`, `mcp`, `mongo`, `redis` and `agents.<service>`.
-  `RuntimeConfig` validates structure only (known keys, integers in
-  1024..65535), because the backend container parses the same file and has no
-  agent manifest.
-- **Effective ports.** Missing values use the defaults: release 3000, 8000,
-  8001, 27017, 6379 and the manifest agent ports; dev adds 100 to each.
-  `validate_ports` rejects a port that repeats within or across instances and,
-  for the running instance only, an agent key the bundled manifest does not
-  define. It runs at `hybro start`, `config check`, and inside the store lock
-  on `config set instances...` and the TUI **Ports** page (the `validate`
-  callback of `RuntimeConfigStore.update_config`), so a rejected port is never
-  written. Status and display paths (`mcp status`, the TUI header, MCP and
-  Ports pages) use `instance_ports`, which falls back to the defaults when
-  config.json is missing or invalid, so the TUI still opens before setup.
-- **Transport.** `compose_environment(start=True)` exports `HYBRO_PORT_*` for
-  each host port, `HYBRO_FRONTEND_ORIGIN`, and `HYBRO_DISCOVERY_EXCLUDED_PORTS`
-  (the agent ports of both instances, so neither backend registers the other's
-  agents as discovered). Inherited values of these names are removed. The
-  Compose files interpolate them with the release defaults; container ports do
-  not change. Other commands export none of them.
-- **Derived values.** The public projection's `api_base_url`, `server_url`, and
-  `mcp_url` come from the running instance's ports. A configured loopback
-  `api_base_url` or `server_url` is ignored with a warning to delete it; another
-  host is kept as an explicit public URL for both instances. `mcp_url` is
-  derived only and rejected in config.json. In the container, `get_settings`
-  replaces loopback entries of `frontend_origins` with `HYBRO_FRONTEND_ORIGIN`
-  and keeps public ones, so CORS and Clerk accept the instance's own frontend.
-- **Shared store.** `RuntimeConfigStore.save` keeps `instances` across setup,
-  and `resolve_oauth` ignores `instances` when comparing its snapshot, so a port
-  edit from one instance does not stop token refresh in the other.
-- **Version skew.** Both instances parse one file and unknown keys are
-  rejected, so any new `config.json` field used from dev must reach an
-  installed release first. A release older than this change rejects
-  `instances`; `config set instances...` and the Ports page warn on the first
-  write. Such a release also excludes only its own agent ports from discovery.
+- frontend: `api_base_url` empty (same origin), `server_url`
+  `http://localhost:<public port>` on loopback or `frontend.server_url` on a
+  public listener, and the derived `mcp_disabled` (true on a public listener),
+  plus the Clerk server secrets. The browser derives the MCP URL as
+  `{origin}/mcp`;
+- backend: `HYBRO_FRONTEND_ORIGINS` (`http://localhost:<port>` and
+  `http://127.0.0.1:<port>` on loopback, `frontend.server_url` on a public
+  listener) and `LOCAL_AGENT_DISCOVERY_EXCLUDED_PORTS` (the manifest ports);
+- MCP: `HYBRO_MCP_CONFIG` with `api_prefix`;
+- agents: `HYBRO_AGENT_CONFIG` (backend `127.0.0.1:8000`, the agent inference
+  token, image size), `SERVER_HOST` and `SERVER_DOMAIN` `127.0.0.1`, and the
+  manifest `SERVER_PORT`.
 
-MCP accepts the Host header `127.0.0.1:*` and `localhost:*` (plus `mcp:8001`
-inside the stack), so each instance's published port passes the DNS-rebinding
-guard while other host names are still refused.
+Only the backend receives `HYBRO_HOME` and `HYBRO_CONTAINER`. This scoping is
+per process environment: every program runs as the same UID, which owns
+`auth.json`, so file access to the auth store is not isolated between the backend, MCP, the frontend, Caddy, and the sample agents.
 
-`./scripts/hybro` in a terminal (or `hybro tui`) opens a fixed-screen settings
-panel with Models and Services tabs, capped at 72 columns. Current connection and
-model values are editable rows; model pickers focus the current value; valid
-stored authentication is reused, and a changed Provider uses the guided
-acquisition flow. The panel keeps an in-memory draft and delegates verification
-and persistence to `SetupService`; verify-and-save sends one text request before
-writing. Saving never restarts services. Esc closes a picker or returns from
-Services; leaving the model page with pending changes requires discard
-confirmation; Ctrl-C exits without saving.
+If `mongod` exits or never accepts connections during preparation, the
+entrypoint stops with the exit code and the tail of `mongod`'s output (kept in
+`/tmp/hybro/mongod-prepare.log`). A stop signal during preparation shuts the
+temporary `mongod` down. Every supervised program has `killasgroup=true`, so a
+launcher killed after its stop timeout takes its child with it.
 
-Services delegates to existing commands through the host CLI's `main`
-dispatcher, not raw Compose. **Start services** starts the full stack, including
-MCP. Containers read `config.json` only at startup and Compose cannot detect a
-change inside that mounted file, so the first Start after a verify-and-save in
-the same TUI session runs `start --recreate`; the page says the save is not
-applied yet until that succeeds. Without a saved connection, Start and Reload configuration explain how to
-set one up instead of running. After Upgrade the page asks the user to restart
-`hybro`, because the running process keeps its own version. A failed start on a
-released install adds a hint that a missing image means the release was not
-fully published. **MCP connection** shows status, URL, and transport with start, stop, logs,
-and refresh actions; `hybro mcp start` requires setup and a running backend and
-starts only MCP (`up -d --no-deps mcp`). Status is read on entry, refresh, and
-after actions. The page shows the CLI and stack version (equal by construction)
-and offers Upgrade. The first Services visit in a session asks the injected
-`cli_upgrade.newer_release` once (bounded to a few seconds, silent on failure, no
-check from a checkout) and names a newer release on the page until Upgrade
-finishes. When Compose cannot be read, the CLI injects a Docker
-diagnosis (missing binary, stopped daemon, or missing Compose plugin). Reload
-configuration recreates containers from saved configuration. From a source
-checkout, Start and Reload configuration also pass `--build`, because Compose
-otherwise keeps images built from an older checkout; a released install never
-builds. Removal and forced recreation require Cancel-default
-confirmation.
+The image sets `HYBRO_CONTAINER=image`. `loader.py` then defaults `mongodb_url`
+to `mongodb://127.0.0.1:27017/hybro?replicaSet=rs0`, `redis_url` to empty,
+`hybro_file_dir` to `/data/files`, enables discovery with the manifest ports
+excluded (bundled agents on container loopback and host agents on the same port
+share a URL key), sets `bundled_agents_manifest` to `/app/bundled_agents.yaml`
+and `oauth_callback_host` to `0.0.0.0`, and takes `frontend_origins` from the
+entrypoint. Service hosts stay off, so bundled agent URLs are
+`http://127.0.0.1:<port>`. A `mongodb_url` in `config.json` or `auth.json` wins
+and skips the embedded `mongod`.
 
-`./scripts/hybro setup` selects Provider and authentication, acquires
-credentials, selects text and optional image models, verifies one text call, and
-saves. Interactive setup first shows the saved selection or a
-missing/invalid-configuration notice from a config-only read that never opens
-`auth.json`. API keys use a hidden field; menus use arrow keys on `/dev/tty`.
-`hybro upgrade` moves both the CLI and the stack: an npm install
-(`node_modules/@hybroai/cli*`) runs `npm install --global @hybroai/cli@latest`;
-a release-archive install prints download, checksum, and unpack commands; a
-source checkout is pointed at `git pull`. The standalone CLI is built by
-`packaging/cli/hybro.spec` (PyInstaller onefile) with dependencies in
-`packaging/cli/requirements.txt` and published through `packaging/npm/`. A
-released install refuses `--build` and refuses `config set` of `api_prefix`.
+Caddy routes one port by path: `{api_prefix}` and `{api_prefix}/*` and
+`/health` to the backend, `/mcp` and `/mcp/*` to MCP (omitted on a public
+listener), and everything else to the frontend. On a loopback listener it
+answers any `Host` other than `localhost`, `127.0.0.1`, or `::1` (any port)
+with 421, which blocks DNS rebinding against the unauthenticated local API.
+
+On a fresh data volume the entrypoint starts `mongod`, initiates `rs0` with
+member `127.0.0.1:27017`, waits for primary, and stops it. Data whose stored
+config names another host, such as `mongo:27017` from the 0.3 Compose stack,
+gets a forced `replSetReconfig` to `127.0.0.1:27017`. In the supervisor,
+`mongod` has the highest priority, so it starts first and stops last
+(`stopwaitsecs` 30); every other program is in one group that stops together
+before it (10 seconds each). Run the container with `--stop-timeout 60`.
+`scripts/image_smoke.py` checks a running image through its port; the
+`Image CI` job builds the image, runs it with an empty config directory, and
+then runs `scripts/image_ci_cases.sh` for the UID 0 and existing-UID cases and
+a forced reconfig from data whose replica set names `mongo:27017`.
+
+### Shell CLI
+
+`scripts/hybro` is one POSIX `sh` file and the only host entry point: the
+checkout runs it in place, the npm package `@hybroai/cli` ships it as
+`bin/hybro` (copied by the release workflow), and `install.sh` installs it from
+the release assets after checking `SHA256SUMS`. It contains
+`HYBRO_VERSION="<x.y.z>" # x-release-please-version`, which Release Please
+updates and the release workflow compares with the tag.
+
+- **Mode.** The script resolves its own path through symlinks (`readlink`
+  without `-f`). When the parent of its directory has `backend/` and
+  `Dockerfile`, it is a checkout: image `hybro:dev` (built when missing or with
+  `--build`), container `hybro-dev`, volume `hybro-dev-data`, port 3100.
+  Otherwise: image `ghcr.io/hybroai/hybro:$HYBRO_VERSION`, container `hybro`,
+  volume `hybro-data`, port 3000. A resolved path under `node_modules` means
+  the npm channel for `upgrade`.
+- **Start.** Docker check, 0.3 layout check, flag validation, image, then
+  `docker run -d` with the volume at `/data`, `HYBRO_HOME` (created 0700 first)
+  at `/var/lib/hybro/runtime`, `-p <bind>:<port>:8080`, `HYBRO_LISTEN`,
+  `HYBRO_PUBLIC_PORT`, optional `HYBRO_INSECURE_NO_AUTH=1`,
+  `--add-host host.docker.internal:host-gateway`, `--stop-timeout 60`, and
+  `-p 127.0.0.1:1455:1455` for the OAuth callback. When 1455 is taken, it runs
+  again without it and the ChatGPT login uses the paste flow. A stopped
+  container of the same name is removed first; a running one only prints its
+  address. Without `-d` the script follows the logs and stops the container on
+  Ctrl-C. `--listen` takes an IP address: `127.0.0.1`, `localhost`, and `::1`
+  are loopback, anything else is public. Start options are flags only.
+- **Update notice.** Release mode reads the latest release tag at most once a
+  day (three-second timeout, cached in `$HYBRO_HOME/update-check`) and prints
+  one line when it is newer. `HYBRO_NO_UPDATE_CHECK=1` turns it off.
+- **Upgrade.** A newer release's script is downloaded to a temporary file in
+  the install directory, verified against `SHA256SUMS`, and moved over the
+  installed file, or installed with `npm install -g @hybroai/cli@<version>`;
+  the new script then continues with `upgrade --continue`. It pulls its image,
+  migrates 0.3 data when found, and re-runs a running container on the new
+  image with the port, `HYBRO_LISTEN`, and `HYBRO_INSECURE_NO_AUTH` read from
+  `docker inspect`. In a checkout, `upgrade` only migrates.
+- **Tests.** `scripts/test_hybro_cli.py` runs the script and `install.sh` under
+  sh, dash, and busybox sh against stub `docker`, `curl`, and `npm` (the
+  `Shell CLI CI` job, with shellcheck).
+
+#### 0.3 migration
+
+The target volume holds `/data/hybro-volume.json` with `"complete": true`,
+written last and atomically: by `volume_migration.py` after a migration, or by
+the entrypoint on a volume's first start (`created: fresh`). The source is the
+0.3 Compose project, `hybro` for a release and `hybro-dev` for a checkout, with
+volumes `<project>_mongo_data`, `<project>_room_files`, and
+`<project>_redis_data`.
+
+- **Detection** (every start and `upgrade`). A missing target volume with a
+  source volume or a container labelled `com.docker.compose.project=<project>`
+  is an old layout. A target volume without the marker while a source volume
+  exists is an unfinished migration; the marker is probed with
+  `docker run --rm --entrypoint test` on the target image, and a Docker error is
+  never read as a missing marker. Either case prints the choices
+  (`hybro upgrade`, `hybro --fresh`) and starts nothing. `--fresh` starts
+  anyway and removes an unfinished target volume.
+- **Migration.** Stop and remove the source containers (abort on failure),
+  remove an unfinished target volume, create the target, then run
+  `volume_migration.py <release|dev>` in a one-off container of the new image
+  with the source volumes at `/source/db` and `/source/files` read-only and
+  `HYBRO_HOME` read-only. It requires free space of twice the source size,
+  copies with `cp -a`, opens the copy through `prepare_mongodb` (the same
+  replica set repointing as a normal start), counts the documents of each
+  collection in the `hybro` database, reads the old
+  `instances.<release|dev>.ports.frontend`, and writes the marker with the
+  counts. Any failure removes the target volume; source volumes are never
+  written. The script then starts the container, whose boot registration
+  reconciles the 0.3 sample agent records in place, and prints the
+  `cleanup-old` and `--port` hints. Redis data is not migrated.
+- **cleanup-old** lists the source containers, volumes, and 0.3 images
+  (`ghcr.io/hybroai/hybro-*`, or `hybro-dev-*` for a checkout), refuses while
+  the target volume is missing or unfinished, asks for confirmation (`--yes`
+  skips it), and removes them.
+- **CI.** `scripts/migration_ci.sh` (the `Migration CI` job) builds fixture
+  volumes with a `mongo:27017` replica set, rooms, agents, and room files,
+  checks the old-layout and unfinished-migration notices, runs
+  `./scripts/hybro upgrade`, and checks the counts, agent IDs, the room file,
+  the rewritten bundled agent URL, and `cleanup-old`. The unfinished case is
+  simulated with a copied volume without a marker.
 
 ### Model access and setup
 
 The setup selection (Provider, authentication, text model, optional image model)
-builds the gateway's text provider at startup; a new selection applies after
-restart. OpenAI, DeepSeek, Anthropic, and the OpenAI Codex subscription adapter
+is held by `llm_gateway.provider_runtime.ProviderRuntime`, the single owner of
+the current Provider pair (selection plus resolved credential). It is in one of
+three states: `configured`, `unconfigured` (no `provider`/`models`), or
+`credential_invalid` (a selection whose credential is missing or does not match).
+Boot loads it synchronously: invalid JSON or an ineligible model still fails
+startup, but an unconfigured or credential-invalid state boots normally.
+Every model call, and a 10-second background timer started by `container.py`,
+compare a stat signature of `config.json` and `auth.json` (inode, size,
+`mtime_ns`, mode) with the held pair and reload on a change; a content digest decides
+whether the pair actually changed. A save from another process sharing
+`HYBRO_HOME` therefore applies without a restart. A reload that finds invalid
+files keeps serving the last valid pair, records `last_error`
+(`config_invalid`, `config_unreadable`, or `oauth_refresh_failed`), and logs once
+per broken file signature. Each gateway call takes one `ProviderPair` and uses
+only it; adapters are cached per pair, and `ModelRegistryImpl` reads its routes
+from the current pair, so a concurrent swap never mixes Providers, models, or
+credentials within one call. Without a working pair, every model call raises
+`ProviderNotConfigured` with code `provider_not_configured` or
+`credential_invalid`; the API maps it to HTTP 409 with `{"detail", "code"}`,
+whose message directs the user to "open Settings, Model provider" (the
+frontend settings section that calls the Browser setup API).
+OpenAI, DeepSeek, Anthropic, and the OpenAI Codex subscription adapter
 are gateway-internal. Embeddings use the OpenAI route, reusing a stored OpenAI
 API key when that is the selected authentication. Gemini-only credentials fail
 fast as unsupported. DeepSeek schema calls use a schema-bearing prompt with its
@@ -1011,14 +1138,18 @@ and allowlisted provider codes; raw provider bodies and exception chains stay
 private, and error bodies are bounded to 64 KiB.
 
 OpenAI OAuth uses a five-minute browser PKCE/state flow with the registered
-`http://localhost:1455/auth/callback` redirect and a listener bound only to
-`127.0.0.1`; the URL opener falls back to printing the URL. No remote callback
-or device flow exists. The implementation is adapted from pi-ai under the MIT
+`http://localhost:1455/auth/callback` redirect and a listener
+(`openai_oauth.CallbackListener`) bound only to `127.0.0.1`; the CLI's URL
+opener falls back to printing the URL, and the browser setup API adds a pasted
+redirect fallback (see [Browser setup API](#browser-setup-api)). No device flow
+exists. The implementation is adapted from pi-ai under the MIT
 notice in `llm_gateway/oauth_notice.py`. Every OAuth text attempt re-reads
 config/auth/account under the shared lock and refreshes at five minutes
 remaining; once refresh starts, the refresh-and-save section completes before
-caller cancellation propagates. Rotations atomically replace only auth;
-selection or account changes fail closed and require a restart.
+caller cancellation propagates. Rotations atomically replace only auth.
+The refresh compares only the Provider, models, and account with the caller's
+pair, so an edit to a restart-only field does not break it; a selection or
+account change fails that call closed, and the next call uses the new pair.
 
 The subscription adapter posts Responses SSE only to
 `https://chatgpt.com/backend-api/codex/responses`; token exchange and refresh use
@@ -1040,29 +1171,111 @@ generation and reference-image editing with bounded validated image bytes and
 one Provider attempt. Setup validates the image selection locally without a
 billable call.
 
+### Browser setup API
+
+The frontend's Settings dialog ("Model provider" section) and its banners are
+the client of these routes. `api_gateway/routes/setup_routes.py` is a thin adapter over
+`llm_gateway.setup_api.SetupAccess`, implemented by `BrowserSetup` and bound on
+`app.state.setup_access` by `container.py`. All routes are under
+`{api_prefix}/setup`:
+
+| Route | Behavior |
+|---|---|
+| `GET /status` | Refreshes the `ProviderRuntime`, then returns the state (`configured`, `unconfigured`, `credential_invalid`), Provider, auth method, text and image model, image size, and `last_error` code. Never returns credentials. |
+| `GET /models?provider=&auth=` | Eligible text and image model IDs from the catalog; `text[0]` is the recommendation. |
+| `POST /api-key` | Provider, key, text model, optional image model. Verifies once, saves, reloads. A `null` key reuses the saved key when it belongs to that Provider, to change models only; otherwise 409 `key_required`. |
+| `POST /oauth/start` | Starts one ChatGPT login: login ID, authorization URL, whether the callback listener is bound, and expiry. |
+| `GET /oauth/{login_id}` | Login state: `pending`, `authenticated`, `failed`, or `expired`. |
+| `POST /oauth/complete` | Login ID and the pasted redirect address, for when the browser could not reach the listener. |
+| `DELETE /oauth/{login_id}` | Cancels the login and releases the listener (204). |
+| `POST /oauth/models` | Text model (and an image model, which OAuth has none of) with a finished login ID, or without one to reuse a saved OAuth credential valid for more than five minutes. Verifies, saves, reloads. |
+| `PUT /image-size` | Saves the image size; the response says a restart is required, because agents read it at startup. |
+
+A save runs `SetupService.save_verified` inside the event loop: it checks
+catalog eligibility, sends one verification text request with the submitted
+credential, and saves through `RuntimeConfigStore.save` in a worker thread,
+guarded by the stored credential read before verification. It then reloads
+the `ProviderRuntime`, so the saving request and every later model call see the
+new pair. The API key travels only in the request body and the stored
+`auth.json`; it is never logged or echoed. Request validation failures return
+422 with code `invalid_request` and no rejected input, unlike FastAPI's default
+422 body, which repeats it. Other failures return HTTP 400/403/404/409 or 503
+with `{"detail", "code"}` (`SetupErrorBody`): `invalid_selection`,
+`verification_failed` (with the same bounded diagnostic the CLI prints),
+`config_conflict`, `credential_unreadable`, `login_pending` (with the pending
+`login_id`),
+`login_not_found`, `login_not_ready`, `login_expired`, `login_required`,
+`key_required`,
+`invalid_callback`, `forbidden`, and `setup_unavailable`.
+
+An `auth.json` that is not valid JSON or does not have mode 0600 cannot be
+replaced by a save, because the store reads it to keep its service credentials
+and to detect concurrent changes. The status keeps serving the last valid pair
+with `last_error: config_invalid` (the file signature includes the mode, so a
+`chmod` is noticed), and a save returns 409 `credential_unreadable` asking the
+user to fix the file. Deleting `auth.json` also works (the state becomes
+`credential_invalid` and a save repairs it), but drops the stored service
+credentials until the CLI regenerates them on the next start.
+
+`OAuthLogins` keeps at most one login, in process memory. A second
+`oauth/start` while one is pending returns 409 with its ID; a finished, failed,
+or expired login is replaced. While a login is pending, the callback listener
+binds `oauth_callback_host:1455` (`127.0.0.1`; `0.0.0.0` in the single image,
+because Docker forwards a published port to the container's interface, not its
+loopback) for at most five minutes; if the port is taken the login
+still starts with `listener: false`. `hybro` publishes `127.0.0.1:1455` when the
+host port is free; otherwise the container runs without it, the browser cannot
+reach the listener even when `listener` is true, and the paste fallback is the
+working path. The first valid callback, or a pasted
+address, exchanges the code; the listener then closes. A pasted address must be
+exactly `http://localhost:1455` (no user info); its path and query go through
+the same strict `callback_code` state check. The listener answers each request
+with one self-contained HTML page (inline CSS, no external requests,
+`Content-Type: text/html; charset=utf-8`, `Cache-Control: no-store`): 200
+"Signed in with ChatGPT" for the accepted callback, 400 "Sign-in cancelled" for
+a denial, and 400 "This sign-in link has expired" for any other request,
+including a wrong state or a replay. A finished login keeps its
+credential for five more minutes, until models are saved or it is canceled.
+The backend runs one worker, so pending logins are not shared across processes.
+
+Authorization: in `mock` auth mode the routes are open, matching the
+single-user local trust model. In `clerk` mode `GET /status` is open to any
+signed-in user, because it never carries credentials and every user's banners
+and Room Chat gating depend on it; every other route requires a signed-in user
+whose ID is in `backend.admin_user_ids`. The list is empty by default, which
+disables browser changes until an operator sets it in `config.json`. Headless
+setup remains possible by writing `config.json` and `auth.json` directly; the
+`ProviderRuntime` picks up the change without a restart.
+
 ### Bundled-agent inference proxy
 
-Compose agents keep their OpenAI/LangChain SDKs, local tool loops, task
+Bundled agents keep their OpenAI/LangChain SDKs, local tool loops, task
 handling, HITL, and A2A responses. Their SDK base URL is
-`http://backend:8000/api/v1/internal/llm`. The supported POST endpoints are
+`http://127.0.0.1:8000/api/v1/internal/llm`. The supported POST endpoints are
 `/chat/completions` (JSON or SSE), `/images/generations` (JSON), and
 `/images/edits` (one multipart reference image). Only the fields bundled agents
 use are supported; unsupported fields fail locally.
 
 `container.py` binds `AgentLLMProxy` to the same `LLMGatewayImpl` used by backend
-callers; `_AgentLLMProxyPort` is the route seam. Text calls `stream_turn_once`;
-images call `generate_image`. A valid setup is required, and the configured model
-overrides SDK model labels. Agents read a validated `HYBRO_AGENT_CONFIG` snapshot
-with the internal endpoint, inference token, and image size; no Provider key,
-OAuth token, auth file, or runtime mount reaches an Agent. The backend checks this
+callers; `_AgentLLMProxyPort` is the route seam. A text request selects one
+Provider pair and text model (`select_text`) and uses it for the output ceiling,
+the chunk model label, and the turn (`stream_turn_selected`), so the configured
+model overrides SDK model labels and a concurrent save cannot mix two models.
+Images call `generate_image`. Without a working Provider pair the proxy returns
+HTTP 409 with code `provider_not_configured` or `credential_invalid`; a stream
+that loses its pair mid-turn emits an SSE error frame with the same code. Agents
+read a validated `HYBRO_AGENT_CONFIG` snapshot with the internal endpoint,
+inference token, and image size; no Provider key, OAuth token, auth file, or
+runtime mount reaches an Agent. The backend checks this
 inference-only Bearer token before parsing bodies, even in mock-auth mode.
-`hybro start` generates missing service credentials without rotating existing
-ones; registrar credentials stay separate.
+The image entrypoint generates missing service credentials without rotating
+existing ones. The retired `default_agent_registrar_token` is accepted in `auth.json`
+and dropped on the next credential rewrite.
 
 `/api/v1/internal/llm` is an operational network boundary: the token proves a
-bundled Agent, never a human. The default Compose file publishes the backend on
-`:8000`, so production deployments must deny `/api/v1/internal/llm` at the
-public ingress. Per worker, at most four calls run concurrently; text has a
+bundled Agent, never a human. Caddy forwards the whole API prefix, so the route
+is reachable on the published port; deployments behind a public ingress must
+deny `/api/v1/internal/llm` there. Per worker, at most four calls run concurrently; text has a
 120-second deadline and images 300 seconds. Body limits are 1 MiB text, 128 KiB
 image generation, and 10 MiB multipart (8 MiB reference image). SSE failure
 emits an SDK-recognized error, not `[DONE]`. `client_request_id` and correlation
@@ -1202,23 +1415,21 @@ agent_network_routes
 ### Local MCP adapter
 
 The repository-root `MCP/server.py` is a standalone API client, not another
-execution owner. It serves Streamable HTTP at `http://127.0.0.1:<mcp port>/mcp` (8001 for
-the release instance, 8101 for the dev instance) and
-exposes seven tools: `list_subnets` (`agents/groups`), `find_agents`
+execution owner. It serves Streamable HTTP on `127.0.0.1:8001`, which Caddy
+publishes as `/mcp` on the app's port, and exposes seven tools: `list_subnets` (`agents/groups`), `find_agents`
 (`agents/search`), `get_agent` (`agents/{agent_id}/profile`), `discover_agents`
 (`agents/discovery`), `send_message` (`sessions/messages`), `check_session`
 (`sessions/{id}`), and `close_session` (`sessions/{id}/close`). Tool arguments
 call saved groups subnets (`subnet_id`) and translate to `group_id`;
-`list_subnets` strips the app's `[hybro-use-case:<id>]` preset tag. Its
-dependencies, lockfile, and Dockerfile live under `MCP/`; releases publish the
-version-pinned `hybro-mcp` image.
+`list_subnets` strips the app's `[hybro-use-case:<id>]` preset tag. It runs
+from the backend environment with the `mcp` extra of `backend/pyproject.toml`
+(one lockfile, `backend/uv.lock`), installed in the image's backend
+environment.
 
-MCP is a default Compose service, published only on loopback at the instance's
-MCP host port (`127.0.0.1:8001` release, `127.0.0.1:8101` dev; container port
-8001).
-Container mode requires `HYBRO_MCP_CONFIG` (only `api_prefix`) and connects to
-`http://backend:8000`, listening on `0.0.0.0:8001`. Native startup keeps fixed
-loopback endpoints and `/api/v1`. Host/Origin DNS-rebinding checks stay enabled.
+Image mode (`--image`) requires `HYBRO_MCP_CONFIG` (only `api_prefix`) and keeps
+loopback for the backend and its own listener. Caddy omits the `/mcp` route on a
+public listener, and the frontend then reports MCP as disabled. Native
+startup keeps fixed loopback endpoints and `/api/v1`. Host/Origin DNS-rebinding checks stay enabled.
 The adapter keeps one async HTTP client, uses stateless MCP transport with JSON
 responses, and does not import the backend runtime or access persistence.
 
@@ -1239,11 +1450,11 @@ mock-auth identity, so Clerk-mode requests return `401` tool errors. Its
 610-second local deadline covers the backend session wait. Its `GET /health`
 probes `agents/discovery` with a two-second deadline and returns only
 `service: "hybro-mcp"` and `status: "ready" | "unavailable" | "unsupported_auth"`;
-Compose health checks require `ready`. `backend/cli_mcp.py` reads this status for
-the CLI and TUI, and the frontend's `GET /hybro-mcp` route returns the sanitized
-status. See the [local MCP instructions](../README.md#local-mcp-access). The
+The frontend's `GET /hybro-mcp` route returns the sanitized status, which the
+Overview MCP tile shows. See the [local MCP instructions](../README.md#local-mcp-access). The
 `MCP CI (local adapter)` job runs
-`uv run --project MCP --frozen --no-env-file pytest MCP/tests` from the root.
+`uv run --project backend --frozen --extra mcp --extra dev --no-env-file pytest MCP/tests`
+from the root.
 
 ## Core Workflow: Frontend Room Message
 
@@ -1458,7 +1669,8 @@ non-terminal Run (`orchestrator_active_room_unique_canceling`, which includes
 `OrchestratorProfileResolver` resolves three profiles:
 
 - `fast` and `ultimate`: model-driven profiles whose model routes must resolve
-  at startup. Both use the orchestrator system prompt in
+  at startup and are resolved again for each Run, so a live Provider change
+  applies to the next Run. Both use the orchestrator system prompt in
   `execution/adapters/profiles.py` (prompt version `5`), with a fast strategy
   (shortest sufficient path, smallest set of calls) or an ultimate strategy
   (evidence-ordered dependencies and a bounded review-and-revision cycle). The
@@ -1519,7 +1731,9 @@ Assistant marks a successful invocation. Context overflow records an
 attempt-correlated private notice and reserves one independent compaction
 allowance before closing the failed Turn; zero provider retries still permits
 compaction. Exhausted provider retries fail the Run without waiting for its
-deadline or exposing parked HITL. An interrupted admitted invocation counts as
+deadline or exposing parked HITL. A `provider_not_configured` or
+`credential_invalid` model failure fails the Run immediately with that code as
+its reason, without retries. An interrupted admitted invocation counts as
 unsuccessful.
 
 An Assistant response with tool calls is commentary and executes its declared
@@ -2179,6 +2393,11 @@ and marker commands use `terminal_redis_io_timeout_seconds` and owned background
 tasks, so a hung Redis command cannot delay an accepted result. Per-key local
 locks make fallback reservation atomic. Local broadcast reports an actual
 delivery count; zero local subscribers plus failed Redis fan-out stays pending.
+Without Redis (`redis_url` empty, so one process), the local broadcast is the
+whole transport: an accepted broadcast counts as delivered even with no
+subscriber, the way a Redis publish with no subscriber does, and clients
+replay the persisted frame on connect. This lets a Run started through MCP or
+the Sessions API, with no browser on the room, park on a HITL request.
 Terminal status claims store unique owner IDs in Redis, and failed-delivery
 release uses Lua compare-and-delete.
 
@@ -2586,7 +2805,7 @@ Multi-worker production:
   process-local, jobs would run in every worker, and room locks would not
   coordinate.
 - MongoDB 4.2 or newer is required for aggregation update pipelines
-  (`docker-compose.yml` pins MongoDB 7.0).
+  (the image embeds MongoDB 7.0).
 
 ### Deployment readiness
 

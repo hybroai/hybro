@@ -15,12 +15,13 @@ These rules apply to `frontend/` in addition to the repository-root `AGENTS.md`.
 
 - Frontend settings originate from the same user `config.json` as backend settings; do not require or regenerate `frontend/.env.local` as a configuration source.
 - Read user-configurable values through the frontend configuration adapter. Framework metadata such as `NODE_ENV` is not a user configuration setting.
-- The CLI/build entry point must pass only explicitly public settings to the browser build. Never import the full user config or `auth.json` into client components or bundle server credentials.
-- Build-time configuration changes require a frontend rebuild. Do not imply that editing JSON hot-updates an already-built browser bundle.
+- In the image, the entrypoint passes only the public projection (`HYBRO_FRONTEND_CONFIG`) to the frontend server, which serves it per request. For `npm run dev`, pass `packaging/frontend/public-config.json`. Never import the full user config or `auth.json` into client components or bundle server credentials.
+- The browser calls the API on the page's own origin: Caddy routes `/api` to the backend and `/mcp` to the MCP server on the same port. Do not add a separate API or MCP address; the MCP URL is `{origin}/mcp` (`mcpUrl` in `src/lib/mcp.ts`).
+- An empty `api_base_url` means same origin, so `getApiUrl` may return a relative path. Build API URLs with `getApiUrl` and append queries with `URLSearchParams`; never pass them to `new URL()`.
 
 ## Commands
 
-Use Node `20.19` from `.nvmrc`. Run from `frontend/`:
+Use Node `24` from `.nvmrc`. Run from `frontend/`:
 
 ```bash
 npm ci

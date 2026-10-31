@@ -50,7 +50,7 @@ The app talks to the backend through REST APIs and room-scoped Server-Sent Event
 |---|---|
 | `package.json` | npm scripts and dependency manifest |
 | `package-lock.json` | locked dependency graph |
-| `.nvmrc` | recommended Node version (`20.19`) |
+| `.nvmrc` | recommended Node version (`24`) |
 | `next.config.ts` | Next.js configuration |
 | `tsconfig.json` | TypeScript compiler configuration |
 | `eslint.config.mjs` | ESLint 9 configuration |
@@ -67,15 +67,14 @@ module processing.
 
 Frontend settings originate in the `frontend` section of the same
 `~/.hybro/config.json` used by backend (`HYBRO_HOME` overrides the directory).
-`hybro start` validates the document and supplies an allowlisted public JSON
-projection to the frontend container as `HYBRO_FRONTEND_CONFIG`. Its
-`api_base_url`, `server_url`, and `mcp_url` are derived by the CLI from the
-running instance's host ports (a source checkout is the dev instance on 3100 and
-8100, an install the release on 3000 and 8000), so two instances on one machine
-each point the browser at their own backend and MCP server.
+The image entrypoint (`backend/runtime_entrypoint.py`) validates the document
+and passes an allowlisted public JSON projection to the frontend server as
+`HYBRO_FRONTEND_CONFIG`. For `npm run dev`, CONTRIBUTING passes
+`packaging/frontend/public-config.json`, generated from the backend schema for a
+backend on port 8000.
 
 The projection is **deployment configuration, not build input**. One published
-frontend image serves every install:
+image serves every install:
 
 1. `src/app/hybro-runtime-config/route.ts` is a `force-dynamic`, `no-store` route
    that serves the container's projection as a small script. The container reads
@@ -89,13 +88,31 @@ frontend image serves every install:
    and `parsePublicConfig` validates it either way, so nothing unvalidated
    reaches business code.
 
-`next.config.ts` still reads `HYBRO_FRONTEND_CONFIG` at build time, because
-server-side rewrites are compiled into the image and need the `api_prefix`. It
-deliberately does not republish the projection through the `env` key: that inlines
-values into every bundle, including the serving route, which pins one image to one
-deployment. `api_prefix` is for the same reason the one setting a released install
-refuses to change (`config set backend.api_prefix`); everything else applies on
-`hybro start --recreate` without a rebuild.
+`next.config.ts` builds with `output: 'standalone'`, so the single image
+carries only the traced server and static files. When `HYBRO_FRONTEND_CONFIG`
+is present at build time (`npm run dev`) it compiles server-side rewrites: its
+`api_prefix` to the backend on 8000, and `/mcp` and `/mcp/*` to the native MCP
+server on `127.0.0.1:8001`, so the Connect page's `{origin}/mcp` answers in
+development too. The image builds without a projection and compiles no
+rewrites, because Caddy routes the API and MCP on the same port. `src/app/layout.tsx` sets `dynamic = "force-dynamic"`, so
+no page is prerendered with one deployment's settings and server code always
+reads the container's projection. `next.config.ts` deliberately does not
+republish the projection through the `env` key: that inlines values into every
+bundle, including the serving route, which pins one image to one deployment.
+
+In the single image the entrypoint (`backend/runtime_entrypoint.py`) supplies
+the projection: `api_base_url` empty, `server_url` the browser's origin
+(`http://localhost:<port>` on loopback, `frontend.server_url` on a public
+listener), and `mcp_disabled` true on a public listener. The standalone server listens on `127.0.0.1:3000` behind Caddy.
+
+An empty `api_base_url` means same origin: `getApiUrl` then returns a relative
+`{api_prefix}/...` path, which the browser sends to the address it loaded the
+page from (Caddy in the image; the Next rewrite in `npm run dev`). API modules therefore never pass these URLs to `new URL()`; query
+strings are appended with `URLSearchParams`. In this mode the Connect page shows
+the page origin as the API base URL; otherwise it shows the projection's
+`api_base_url`. The MCP address is always `{origin}/mcp`. The optional
+`mcp_disabled` flag is derived, not user-settable; when true the Connect page
+says MCP is disabled on public listeners.
 
 Neither dotenv files nor `auth.json` are browser configuration inputs. Server
 credentials are runtime-only and never build arguments. A browser gets a new
@@ -232,7 +249,8 @@ src/components/
 |-- subnets/                  # one subnet dialog (create/edit), delete confirmation, room/chat dialog host
 |-- connect/                  # Connect pages, per-assistant setups, copyable access materials
 |-- providers/                # React Query provider
-|-- settings/                 # settings dialog sections and helpers
+|-- settings/                 # settings dialog sections (account, model provider) and helpers
+|-- setup/                    # model provider banners
 |-- room-page-shell.tsx       # room workspace shell
 |-- room-chat-input.tsx       # composer input, mentions, uploads
 |-- file-attachment-button.tsx
@@ -815,7 +833,9 @@ Selectors under `src/lib/selectors/` adapt store state into UI-specific slices:
 
 - Injects local identity auth headers through `getClientAuthHeaders`.
 - Supports abort signals and a default timeout.
-- Wraps HTTP failures in `ApiError`.
+- Wraps HTTP failures in `ApiError`, with the parsed JSON error body in
+  `details`.
+- Returns `undefined` for a 204 response instead of parsing a body.
 - Logs client errors as warnings and server/unexpected errors as errors.
 
 API modules live in `src/lib/api/`. Consumers import the specific module they
@@ -833,6 +853,7 @@ src/lib/api/
 |-- sse.ts
 |-- inspection.ts
 |-- files.ts
+|-- setup.ts                   # browser setup API: status, models, API key, OAuth, image size
 `-- hitl.ts
 ```
 
@@ -863,9 +884,9 @@ Other library modules:
 
 `GET /hybro-mcp` (`src/app/hybro-mcp/route.ts`) is a public, read-only Next.js
 route, not a backend API endpoint or tool proxy. It probes only MCP `/health`
-with a four-second deadline, no redirects, and no caching. Compose supplies the
-fixed server-side transport metadata `HYBRO_MCP_URL=http://mcp:8001`; otherwise
-the destination is fixed to `http://127.0.0.1:8001`. Request parameters cannot
+with a four-second deadline, no redirects, and no caching. The destination is
+fixed to `http://127.0.0.1:8001`, because MCP shares the container's (or, in
+native development, the host's) loopback. Request parameters cannot
 select an upstream destination.
 
 `src/lib/mcp.ts` validates the service identity and allowlisted status. The route
@@ -910,7 +931,9 @@ segment.
   sessions and Recent chats (five each, anything waiting on the owner first,
   then the latest) in one shared row design of title, a grey line of who and
   when, and status; the static mini topology linking to `/network`; and
-  Most-called agents with their avatar and call count, last. Derivation lives
+  Most-called agents with their avatar and call count, last. A model provider
+  banner appears under the title when setup needs attention (see Model
+  provider setup). Derivation lives
   in `src/lib/overview.ts`. Call counts are the agent's `call_count`, which
   counts every orchestrator agent call from Chat and Sessions once it finishes.
 - The header logo links to the Overview at `/`. The public product page is not
@@ -960,9 +983,15 @@ segment.
 - `/about`, `/pricing`: public pages.
 
 Agent API responses use the backend `AgentRouteResponse` shape (flat
-`AgentView` fields such as `name`, `icon_url`, `status`, and `source`; see
-`src/lib/types/agent.ts`). Remote agents use the persisted backend `status`
-without frontend health probing. Directly discovered Local agents are shown only while
+`AgentView` fields such as `name`, `icon_url`, `status`, `source`, and
+`inactive_reason`; see `src/lib/types/agent.ts`). Remote agents use the
+persisted backend `status` without frontend health probing. `source=bundled`
+marks a sample Agent the backend registers at boot; it is labeled **Sample**,
+and message badges treat it as local. While a bundled Agent waits for setup,
+`inactive_reason` is `provider_not_configured` or `image_model_not_configured`:
+`agentStatusView` shows it as **Needs model provider** or **Needs image model**,
+and the agent profile and network details show the sentence from
+`inactiveReasonText`. Directly discovered Local agents are shown only while
 `source === "local"` and status is active. Agent-detail chat actions
 write a one-shot `pendingChatHandoff` to `room-ui-store` (optional draft text plus
 `seedAgents`) and navigate to `/chat`. That handoff seeds room membership with
@@ -1068,8 +1097,8 @@ provider, skills, tags, and subnet names; regex characters are literal.
 
 `NetworkAgent` (`src/components/networks/types.ts`) is projected from the
 backend `Agent` by `projectAgent` in `src/lib/network-agent.ts` and carries
-name, description, skills, tags, status, icon, provider, version, source, and
-room call counters. Saved member IDs missing from the catalog become
+name, description, skills, tags, status, inactive reason, icon, provider,
+version, source, and room call counters. Saved member IDs missing from the catalog become
 `placeholderAgent` entries marked unavailable or unverified rather than being
 pruned.
 
@@ -1142,7 +1171,9 @@ that node's `fx/fy` until release. Node positions are transient and not persiste
 MCP / API tab that navigates between the two routes. The page is deliberately
 minimal and written for a non-technical reader.
 
-The MCP tab shows the MCP address (`mcpUrl()`, the projection's `mcp_url`) with one primary
+The MCP tab shows the MCP address (`mcpUrl(pageOrigin)`: `{origin}/mcp`), or
+only a notice when
+`mcp_disabled` is true, with one primary
 **Copy address** button, then "Add Hybro to your assistant" with tabs for
 Claude Code, Cursor, Codex, VS Code, and Other. Each assistant tab holds only
 one snippet with a hint of where it goes and a copy button (a `claude mcp add`
@@ -1151,7 +1182,8 @@ command for Claude Code, `mcpServers` or `servers` JSON, or Codex's
 the two capabilities in plain language: discover agents and send tasks. There
 is no scope control, no status probe, and no step-by-step prose.
 
-The API tab shows the public runtime `api_base_url` with a copy button, the two
+The API tab shows the public runtime `api_base_url` (the page origin when it is
+empty) with a copy button, the two
 request examples built by `access-material.ts` (discovery via
 `GET {api_prefix}/agents/discovery` and sending a message via
 `POST {api_prefix}/agents/messages`, each with a copy button), and the same
@@ -1162,6 +1194,87 @@ Neither tab executes discovery, registers clients, sends messages, or invokes
 a model. Copy failures expose manual-copy instructions and select the text;
 copied text never includes a real session token. The Overview Gateway tile is
 the only place that probes `/hybro-mcp`, through `useMcpStatus`.
+
+### Model provider setup
+
+`useSetupStatus` (`src/hooks/useSetupStatus.ts`) reads `GET {api_prefix}/setup/status`
+through TanStack Query (key `['setup', 'status']`), polling every 30 s and on
+window focus, because the backend also picks up saves from another instance
+and manual file edits. `setupNotice` (`src/lib/setup-notice.ts`) turns the
+status into one notice keyed by an error code, with a tone, title, Overview
+body, Room Chat body, and action label:
+
+- `unconfigured`: amber "Connect a model provider", action **Set up provider**,
+  blocking.
+- An expired ChatGPT sign-in (`last_error: oauth_refresh_failed`, or
+  `credential_invalid` with OAuth; `isSignInExpired`): red "ChatGPT sign-in
+  expired", action **Sign in again**, blocking, because model calls fail.
+- `credential_invalid` with an API key (blocking), and `config_invalid`,
+  `config_unreadable`, or another `last_error` of a working provider (not
+  blocking): amber "Model provider needs attention".
+
+A status that cannot be read, such as a 403 for a non-admin in clerk mode,
+shows no notice.
+
+- Overview shows `OverviewSetupBanner` under the title: a gear icon, title,
+  body, the action link, and a dismiss button. Dismissal is stored per
+  browser in `localStorage` (`hybro.setup-notice.dismissed`) as the dismissed
+  code, so a new code shows the banner again; a healthy status clears it.
+- Room Chat (`/chat` and the room composer in `ComposerShell`) shows the same
+  banner with the Room Chat body and no dismiss button. A blocking notice
+  disables the composer (`RoomChatInput` `disabled`, placeholder "Connect a
+  model provider to start a chat") and, on `/chat`, the use-case cards; HITL
+  answers are not gated.
+- A use-case card on `/chat` is disabled with the reason while one of its
+  Agents is inactive with an `inactive_reason` (`templateUnavailableReason`),
+  such as the Image Generator without an image model. The page reads the full
+  agent catalog (`useAgentCatalog`, inactive Agents included), and a settings
+  save invalidates that catalog, because the save re-gates the bundled Agents.
+
+Every banner links to `?settings=model-provider` on the current path
+(`src/lib/settings-url.ts`). `SettingsDialogProvider` watches that parameter
+inside a `Suspense` boundary and opens the dialog on that section; closing the
+dialog removes the parameter. The dialog keeps one size on every section
+(880px wide, `min(760px, 85vh)` tall) and scrolls the section body inside it.
+It has a section menu with icons (Model
+provider, Profile, Password, Sessions, About; Profile also holds the danger
+zone) and shows one section at a time, keeping all mounted so a sign-in in
+progress survives switching. Model provider is the default, and its menu item
+carries a dot in the status color. About shows the version from
+`package.json`.
+
+`ModelProviderSection` (`src/components/settings/model-provider-section.tsx`)
+shows a status card and three numbered cards. `providerPhase` maps the status
+and the local login to the card: **Not set up** (amber), **Waiting for
+sign-in** (cyan, a login is pending here), **Connected** (green), or **ChatGPT
+sign-in expired** (red, with **Sign in again**).
+
+1. Provider: radio cards for OpenAI, Anthropic, and DeepSeek.
+2. Connect: for OpenAI, a ChatGPT account / API key switch (ChatGPT account by
+   default).
+   - ChatGPT account: **Sign in with ChatGPT** opens a tab inside the click,
+     then `POST /setup/oauth/start` (a 409 `login_pending` resumes the pending
+     login) points it at the authorization URL; a blocked tab leaves a link.
+     The waiting panel polls `GET /setup/oauth/{id}` every 2 s, has **Cancel**
+     (`DELETE`), and a disclosure with the paste fallback for the
+     `localhost:1455` address (`POST /setup/oauth/complete`), open by default
+     when the listener is not bound. Once authenticated, the section posts the
+     recommended models with the login ID at once, so the login ends
+     connected. Connected shows **Sign in again**.
+   - API key: a password field and **Check and save** (`POST /setup/api-key`
+     with the Models card's values). The key is sent only in the request body
+     and cleared after a save. Connected shows "API key saved" and **Replace
+     key**; the backend exposes no part of the key.
+3. Models: disabled until the shown choice is connected. Text model on the
+   left (the first is marked recommended); image model and image size on the
+   right, disabled when the choice offers no image model. **Save models**
+   posts the models without a credential (`oauth/models` without a login ID,
+   or `api-key` with `api_key: null`), then `PUT /setup/image-size` when the
+   size changed, which applies after a restart.
+
+A save writes the returned status into the query cache, so banners and composer
+gating update at once. Failures show the backend's safe `detail` under the card
+that failed.
 
 ### Visual system
 
@@ -1210,8 +1323,15 @@ tests/
 |   |-- room-timeline.spec.ts
 |   `-- fixtures/
 |-- fixtures/index.ts
-`-- utils/test-utils.tsx
+`-- utils/
+    |-- test-utils.tsx
+    `-- fetch-without-signal.ts
 ```
+
+Component tests run in jsdom, whose `AbortSignal` Node's `fetch` rejects. A
+component test that lets MSW answer real API-client requests calls
+`stubFetchWithoutSignal()` in `beforeEach` and `vi.unstubAllGlobals()` in
+`afterEach`.
 
 Unit coverage is broad across components, hooks, API clients, room timeline logic, selectors, and stores, including the Network URL state, search, graph label rules, structure grouping, status mapping, Overview derivation, and access materials. Playwright coverage is organized around auth, chat, room, room timeline, authenticated flows, error handling, portal routing and redirects, the Network workspace, and the Connect pages.
 

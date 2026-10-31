@@ -1,5 +1,0 @@
-*
-!Dockerfile
-!pyproject.toml
-!uv.lock
-!server.py

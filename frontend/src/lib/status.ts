@@ -2,6 +2,7 @@ import type { McpStatus } from '@/lib/mcp'
 import type { RoomHistoryStatus } from '@/lib/api/room'
 import type { SessionState } from '@/lib/api/session'
 import type { NetworkAgent } from '@/components/networks/types'
+import type { AgentInactiveReason } from '@/lib/types/agent'
 
 export type StatusTone = 'online' | 'offline' | 'unverified' | 'warning' | 'error'
 export type StatusDot = 'filled' | 'hollow' | 'spinner'
@@ -16,7 +17,24 @@ export interface StatusView {
 const view = (label: string, tone: StatusTone, dot: StatusDot, colorLabel = false): StatusView =>
   ({ label, tone, dot, colorLabel })
 
-export function agentStatusView(status: NetworkAgent['status']): StatusView {
+const INACTIVE_REASONS: Record<AgentInactiveReason, { label: string; text: string }> = {
+  provider_not_configured: {
+    label: 'Needs model provider',
+    text: 'Needs a model provider. Set one up in Settings, Model provider.',
+  },
+  image_model_not_configured: {
+    label: 'Needs image model',
+    text: 'Needs an image model. Choose one in Settings, Model provider.',
+  },
+}
+
+/** Why an agent waits for setup, in words; null when it does not. */
+export function inactiveReasonText(reason: AgentInactiveReason | null | undefined): string | null {
+  return reason ? INACTIVE_REASONS[reason].text : null
+}
+
+export function agentStatusView(status: NetworkAgent['status'], inactiveReason?: AgentInactiveReason | null): StatusView {
+  if (status === 'inactive' && inactiveReason) return view(INACTIVE_REASONS[inactiveReason].label, 'warning', 'hollow')
   switch (status) {
     case 'active': return view('Online', 'online', 'filled')
     case 'inactive':

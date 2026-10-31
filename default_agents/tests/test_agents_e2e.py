@@ -1,7 +1,7 @@
 """End-to-end verification for the Hybro default agents.
 
-Runs against a live stack started with `docker compose up -d --build`, using the
-published host ports and the public backend at http://localhost:8000.
+Runs against a native development run: the backend at http://localhost:8000 and
+each agent on its manifest port. The image does not publish these ports.
 
 Tiers (manifest-driven from agents.yaml):
   1. Card availability  - every agent serves its agent card.
@@ -31,7 +31,7 @@ CARD_PATHS = ("/.well-known/agent-card.json", "/.well-known/agent.json")
 
 def _fail_missing_stack(msg: str) -> None:
     """Fail: these are end-to-end tests and a running stack is a prerequisite."""
-    pytest.fail(f"{msg} (start it with: docker compose up -d --build)")
+    pytest.fail(f"{msg} (start the backend and the agents natively; see CONTRIBUTING.md)")
 
 
 def _load_agents() -> dict[str, dict]:

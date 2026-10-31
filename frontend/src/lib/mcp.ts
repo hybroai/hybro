@@ -1,8 +1,6 @@
-import { publicConfig } from '@/lib/config'
-
-/** This instance's MCP address; the CLI derives it from the instance's host port. */
-export function mcpUrl(): string {
-  return publicConfig().mcp_url
+/** This instance's MCP address: the image serves MCP at `/mcp` on the page's origin. */
+export function mcpUrl(pageOrigin: string): string {
+  return `${pageOrigin}/mcp`
 }
 
 export function buildMcpConfig(url: string): string {

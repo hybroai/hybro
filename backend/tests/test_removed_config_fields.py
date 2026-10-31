@@ -20,6 +20,7 @@ from common.config.runtime_store import RuntimeConfigStore, parse_config
 RETIRED = {
     "mongodb_host",
     "mongodb_port",
+    "bundled_agents_use_service_hosts",
     "mongodb_username",
     "orchestration_outcome_guardrails",
     "supervisor_max_steps",
@@ -137,6 +138,15 @@ def test_parse_config_accepts_and_prunes_retired_backend_keys():
 
     assert document.backend == {"log_level": "DEBUG"}
     assert document.removed_backend_fields == ("mongodb_host", "mongodb_port")
+
+
+def test_compose_service_host_setting_is_retired():
+    document = parse_config(
+        _config_bytes({"bundled_agents_use_service_hosts": True, "log_level": "INFO"})
+    )
+
+    assert document.backend == {"log_level": "INFO"}
+    assert document.removed_backend_fields == ("bundled_agents_use_service_hosts",)
 
 
 def test_parse_config_without_retired_keys_records_none():
@@ -273,3 +283,44 @@ async def test_pruning_rewrite_does_not_break_oauth_refresh_snapshot(tmp_path):
 
     updated = await store.resolve_oauth(startup_config, "fixture-account", {}, refresh)
     assert updated.refresh_token.get_secret_value() == "fixture-rotated"
+
+
+INSTANCES = {"release": {"ports": {"frontend": 3456}}, "dev": {"ports": {"mcp": 9}}}
+
+
+def _write_instances(store: RuntimeConfigStore) -> None:
+    path = store.home / "config.json"
+    document = json.loads(path.read_text())
+    document["instances"] = INSTANCES
+    path.write_text(json.dumps(document))
+
+
+def test_retired_instances_load_and_are_dropped_on_the_next_save(store):
+    _write_instances(store)
+    document = store.load({}).config
+    assert document.had_instances
+    assert "instances" not in document.model_dump()
+    assert not parse_config(_config_bytes({})).had_instances
+
+    store.update_config(["backend", "log_level"], "INFO")
+    assert "instances" not in json.loads((store.home / "config.json").read_text())
+
+
+def test_get_settings_warns_about_instances(store, monkeypatch, caplog):
+    _write_instances(store)
+    monkeypatch.setenv("HYBRO_HOME", str(store.home))
+    loader.get_settings.cache_clear()
+    caplog.set_level(logging.WARNING, logger="common.config.loader")
+    try:
+        loader.get_settings()
+    finally:
+        loader.get_settings.cache_clear()
+    messages = [record.getMessage() for record in caplog.records]
+    assert any("instances" in message and "--port" in message for message in messages)
+
+
+def test_provider_selection_is_not_a_config_path(store):
+    with pytest.raises(RuntimeConfigurationError, match="Settings, Model provider"):
+        store.update_config(["provider", "id"], "openai")
+    with pytest.raises(RuntimeConfigurationError):
+        store.update_config(["instances", "release"], {})

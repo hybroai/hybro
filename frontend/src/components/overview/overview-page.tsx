@@ -9,6 +9,7 @@ import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
 import { StatusIndicator } from '@/components/status-indicator'
 import { MiniTopology } from './mini-topology'
+import { OverviewSetupBanner } from '@/components/setup/setup-banner'
 import { getAgentAvatarUri } from '@/lib/agent-avatar'
 import { cn } from '@/lib/utils'
 import { useNetworks } from '@/hooks/useNetworks'
@@ -119,6 +120,8 @@ export function OverviewPage() {
             <Button asChild><Link href={routes.chat}>New chat</Link></Button>
           </div>
         </header>
+
+        <OverviewSetupBanner />
 
         {failed ? (
           <Alert variant="destructive">

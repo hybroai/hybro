@@ -1,18 +1,15 @@
 from __future__ import annotations
 
-import io
 import os
 import stat
 from pathlib import Path
 from types import SimpleNamespace
-from unittest.mock import AsyncMock, Mock
+from unittest.mock import Mock
 
 import pytest
 
 from common.config.runtime_config import RuntimeConfigurationError
 from common.config.runtime_store import RuntimeConfigStore, prepare_setup_directory
-from llm_gateway.setup_cli import SetupConsole, main
-from llm_gateway.setup_service import ModelChoices
 
 
 def contents(home: Path) -> dict[str, bytes]:
@@ -221,115 +218,3 @@ def test_runtime_still_rejects_insecure_directory_without_repair(
         RuntimeConfigStore(home).read_stored_credential()
     assert stat.S_IMODE(home.stat().st_mode) == mode
     assert contents(home) == before
-
-
-def test_preflight_repairs_and_reports_before_first_prompt_without_reading_contents(
-    tmp_path: Path,
-) -> None:
-    home = directory(tmp_path, 0o775)
-    before = contents(home)
-    reports: list[str] = []
-
-    def cancel(*args: object) -> str:
-        assert stat.S_IMODE(home.stat().st_mode) == 0o700
-        assert (
-            reports[0]
-            == "Corrected runtime directory permissions to 0700; contents unchanged."
-        )
-        raise KeyboardInterrupt
-
-    verifier = AsyncMock()
-    assert (
-        main(
-            [],
-            environment={"HYBRO_HOME": str(home)},
-            catalog=lambda provider: ModelChoices(("fixture",)),
-            verifier=verifier,
-            console=SetupConsole(cancel, Mock(), reports.append),
-        )
-        == 130
-    )
-    assert contents(home) == before
-    verifier.assert_not_awaited()
-
-
-@pytest.mark.parametrize("kind", ["symlink", "file", "foreign"])
-def test_invalid_directory_stops_before_prompt_or_oauth_login(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, kind: str
-) -> None:
-    target = directory(tmp_path, 0o775)
-    home = tmp_path / "invalid"
-    expected = "symlink"
-    if kind == "symlink":
-        home.symlink_to(target, target_is_directory=True)
-    elif kind == "file":
-        home.write_bytes(b"fixture")
-        expected = "not a directory"
-    else:
-        home = target
-        expected = "owned by another user"
-        monkeypatch.setattr(
-            os,
-            "fstat",
-            lambda fd: SimpleNamespace(
-                st_mode=stat.S_IFDIR | 0o775,
-                st_uid=os.geteuid() + 1,
-            ),
-        )
-    prompt, secret, verifier, login = Mock(), Mock(), AsyncMock(), AsyncMock()
-    monkeypatch.setattr("llm_gateway.openai_oauth.login", login)
-    error = io.StringIO()
-    assert (
-        main(
-            ["--provider", "openai", "--auth", "oauth"],
-            environment={"HYBRO_HOME": str(home)},
-            catalog=lambda provider: ModelChoices(("fixture",)),
-            verifier=verifier,
-            console=SetupConsole(prompt, secret, lambda message: None),
-            error_output=error,
-        )
-        == 1
-    )
-    assert expected in error.getvalue()
-    prompt.assert_not_called()
-    secret.assert_not_called()
-    login.assert_not_awaited()
-    verifier.assert_not_awaited()
-    assert stat.S_IMODE(target.stat().st_mode) == 0o775
-
-
-@pytest.mark.parametrize(
-    "argv",
-    [
-        ["--help"],
-        ["--bad"],
-        ["--non-interactive"],
-        [
-            "--non-interactive",
-            "--provider",
-            "openai",
-            "--auth",
-            "api_key",
-            "--text-model",
-            "invalid",
-        ],
-    ],
-)
-def test_invalid_selection_or_help_creates_no_tree(
-    tmp_path: Path, argv: list[str]
-) -> None:
-    home = tmp_path / "absent" / "runtime"
-    verifier = AsyncMock()
-    kwargs = dict(
-        environment={"HYBRO_HOME": str(home)},
-        catalog=lambda provider: ModelChoices(("fixture",)),
-        verifier=verifier,
-    )
-    if argv == ["--help"]:
-        with pytest.raises(SystemExit) as result:
-            main(argv, **kwargs)
-        assert result.value.code == 0
-    else:
-        assert main(argv, **kwargs) == 1
-    assert not home.parent.exists()
-    verifier.assert_not_awaited()

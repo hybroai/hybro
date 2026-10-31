@@ -110,6 +110,8 @@ class ModelAssemblyOutcome:
     assistant: AssistantMessage | None = None
     error_class: str | None = None
     provider_request_id: str | None = None
+    # Gateway code of a terminal error, e.g. ``provider_not_configured``.
+    error_code: str | None = None
 
 
 class ModelStreamAssembler:
@@ -124,6 +126,7 @@ class ModelStreamAssembler:
         self._usage_by_attempt: dict[int, UsageRecord] = {}
         self._finish_reason: FinishReason | None = None
         self._terminal_error_class: str | None = None
+        self._terminal_error_code: str | None = None
         self._attempt: int | None = None
         self._failed_attempt: int | None = None
         self._scheduled_attempt: int | None = None
@@ -247,6 +250,7 @@ class ModelStreamAssembler:
         if self._attempt is not None and self._failed_attempt != self._attempt:
             raise ModelStreamAssemblyError("terminal error must follow attempt_failed")
         self._terminal_error_class = event.error_class
+        self._terminal_error_code = event.error_code
 
     def build_outcome(
         self, *, message_id: str, created_at: datetime
@@ -265,6 +269,7 @@ class ModelStreamAssembler:
                 kind=kind,
                 error_class=self._terminal_error_class,
                 provider_request_id=self.provider_request_id,
+                error_code=self._terminal_error_code,
             )
         if self._finish_reason is None:
             raise ModelStreamAssemblyError("stream did not finish")

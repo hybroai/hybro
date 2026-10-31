@@ -568,6 +568,13 @@ def test_container_delivery_factories_and_config_mapping():
     deps = create_delivery_deps(facade)
 
     assert isinstance(facade, DeliveryFacade)
+    assert facade.event_publisher.single_instance is True
+    assert (
+        create_delivery_facade(
+            redis_kv=redis_kv, redis_pubsub=redis_pubsub, instance_id="worker-1"
+        ).event_publisher.single_instance
+        is False
+    )
     assert isinstance(deps, DeliveryDeps)
     assert [field.name for field in fields(DeliveryDeps)] == [
         "event_publisher",

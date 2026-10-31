@@ -166,11 +166,11 @@
   },
   {
     "auth_dependencies": [
-      "get_current_user_or_service"
+      "get_current_user"
     ],
     "dependencies": [
       "get_agent_catalog",
-      "get_current_user_or_service"
+      "get_current_user"
     ],
     "methods": [
       "POST"
@@ -1392,5 +1392,248 @@
     "response_model": "SessionOwnerRecord",
     "status_code": null,
     "streaming_response": null
+  },
+  {
+    "auth_dependencies": [],
+    "dependencies": [
+      "get_setup_reader"
+    ],
+    "methods": [
+      "GET"
+    ],
+    "module": "api_gateway.routes.setup_routes",
+    "name": "setup_status",
+    "openapi_response_codes": [
+      "200",
+      "400",
+      "403",
+      "404",
+      "409",
+      "422",
+      "503"
+    ],
+    "owning_protocol": "llm_gateway.setup_api.SetupAccess",
+    "path": "/api/v1/setup/status",
+    "response_class": null,
+    "response_model": "SetupStatus",
+    "status_code": null,
+    "streaming_response": null,
+    "supporting_protocols": []
+  },
+  {
+    "auth_dependencies": [],
+    "dependencies": [
+      "get_setup"
+    ],
+    "methods": [
+      "GET"
+    ],
+    "module": "api_gateway.routes.setup_routes",
+    "name": "setup_models",
+    "openapi_response_codes": [
+      "200",
+      "400",
+      "403",
+      "404",
+      "409",
+      "422",
+      "503"
+    ],
+    "owning_protocol": "llm_gateway.setup_api.SetupAccess",
+    "path": "/api/v1/setup/models",
+    "response_class": null,
+    "response_model": "SetupModels",
+    "status_code": null,
+    "streaming_response": null,
+    "supporting_protocols": []
+  },
+  {
+    "auth_dependencies": [],
+    "dependencies": [
+      "get_setup"
+    ],
+    "methods": [
+      "POST"
+    ],
+    "module": "api_gateway.routes.setup_routes",
+    "name": "setup_api_key",
+    "openapi_response_codes": [
+      "200",
+      "400",
+      "403",
+      "404",
+      "409",
+      "422",
+      "503"
+    ],
+    "owning_protocol": "llm_gateway.setup_api.SetupAccess",
+    "path": "/api/v1/setup/api-key",
+    "response_class": null,
+    "response_model": "SetupSaved",
+    "status_code": null,
+    "streaming_response": null,
+    "supporting_protocols": []
+  },
+  {
+    "auth_dependencies": [],
+    "dependencies": [
+      "get_setup"
+    ],
+    "methods": [
+      "POST"
+    ],
+    "module": "api_gateway.routes.setup_routes",
+    "name": "setup_oauth_start",
+    "openapi_response_codes": [
+      "200",
+      "400",
+      "403",
+      "404",
+      "409",
+      "422",
+      "503"
+    ],
+    "owning_protocol": "llm_gateway.setup_api.SetupAccess",
+    "path": "/api/v1/setup/oauth/start",
+    "response_class": null,
+    "response_model": "OAuthLoginView",
+    "status_code": null,
+    "streaming_response": null,
+    "supporting_protocols": []
+  },
+  {
+    "auth_dependencies": [],
+    "dependencies": [
+      "get_setup"
+    ],
+    "methods": [
+      "POST"
+    ],
+    "module": "api_gateway.routes.setup_routes",
+    "name": "setup_oauth_complete",
+    "openapi_response_codes": [
+      "200",
+      "400",
+      "403",
+      "404",
+      "409",
+      "422",
+      "503"
+    ],
+    "owning_protocol": "llm_gateway.setup_api.SetupAccess",
+    "path": "/api/v1/setup/oauth/complete",
+    "response_class": null,
+    "response_model": "OAuthLoginView",
+    "status_code": null,
+    "streaming_response": null,
+    "supporting_protocols": []
+  },
+  {
+    "auth_dependencies": [],
+    "dependencies": [
+      "get_setup"
+    ],
+    "methods": [
+      "POST"
+    ],
+    "module": "api_gateway.routes.setup_routes",
+    "name": "setup_oauth_models",
+    "openapi_response_codes": [
+      "200",
+      "400",
+      "403",
+      "404",
+      "409",
+      "422",
+      "503"
+    ],
+    "owning_protocol": "llm_gateway.setup_api.SetupAccess",
+    "path": "/api/v1/setup/oauth/models",
+    "response_class": null,
+    "response_model": "SetupSaved",
+    "status_code": null,
+    "streaming_response": null,
+    "supporting_protocols": []
+  },
+  {
+    "auth_dependencies": [],
+    "dependencies": [
+      "get_setup"
+    ],
+    "methods": [
+      "GET"
+    ],
+    "module": "api_gateway.routes.setup_routes",
+    "name": "setup_oauth_login",
+    "openapi_response_codes": [
+      "200",
+      "400",
+      "403",
+      "404",
+      "409",
+      "422",
+      "503"
+    ],
+    "owning_protocol": "llm_gateway.setup_api.SetupAccess",
+    "path": "/api/v1/setup/oauth/{login_id}",
+    "response_class": null,
+    "response_model": "OAuthLoginView",
+    "status_code": null,
+    "streaming_response": null,
+    "supporting_protocols": []
+  },
+  {
+    "auth_dependencies": [],
+    "dependencies": [
+      "get_setup"
+    ],
+    "methods": [
+      "DELETE"
+    ],
+    "module": "api_gateway.routes.setup_routes",
+    "name": "setup_oauth_cancel",
+    "openapi_response_codes": [
+      "204",
+      "400",
+      "403",
+      "404",
+      "409",
+      "422",
+      "503"
+    ],
+    "owning_protocol": "llm_gateway.setup_api.SetupAccess",
+    "path": "/api/v1/setup/oauth/{login_id}",
+    "response_class": null,
+    "response_model": null,
+    "status_code": 204,
+    "streaming_response": null,
+    "supporting_protocols": []
+  },
+  {
+    "auth_dependencies": [],
+    "dependencies": [
+      "get_setup"
+    ],
+    "methods": [
+      "PUT"
+    ],
+    "module": "api_gateway.routes.setup_routes",
+    "name": "setup_image_size",
+    "openapi_response_codes": [
+      "200",
+      "400",
+      "403",
+      "404",
+      "409",
+      "422",
+      "503"
+    ],
+    "owning_protocol": "llm_gateway.setup_api.SetupAccess",
+    "path": "/api/v1/setup/image-size",
+    "response_class": null,
+    "response_model": "ImageSizeSaved",
+    "status_code": null,
+    "streaming_response": null,
+    "supporting_protocols": []
   }
 ]

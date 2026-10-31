@@ -1,0 +1,16 @@
+[project]
+name = "echo-agent"
+version = "1.0.0"
+description = "Returns the received text; needs no model provider or network"
+requires-python = ">=3.12"
+dependencies = [
+    "a2a-sdk[http-server]>=1.1.2,<2",
+    "uvicorn>=0.30.0",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["."]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"

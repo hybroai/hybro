@@ -15,6 +15,8 @@ import type { PendingAttachment } from '@/lib/types/attachments'
 import type { ChatMode } from '@/lib/types/chat-mode'
 import { useCanonicalComposerAuthority } from '@/stores/turn-store'
 import { Badge } from '@/components/ui/badge'
+import { BLOCKED_COMPOSER_PLACEHOLDER, SetupBanner } from '@/components/setup/setup-banner'
+import { useSetupNotice } from '@/hooks/useSetupStatus'
 
 function toHitlPromptView(hitl: PendingHitl): HitlPromptView {
   return {
@@ -117,6 +119,7 @@ function useComposerState(conversationId: string): ComposerState {
 }
 
 export function ComposerShell({ adapter }: ComposerShellProps) {
+  const setupNotice = useSetupNotice()
   const composerState = useComposerState(adapter.conversationId)
   const canonical = useCanonicalComposerAuthority(adapter.conversationId)
   const isHitlMode = composerState.mode === 'hitl_responding'
@@ -178,8 +181,12 @@ export function ComposerShell({ adapter }: ComposerShellProps) {
   }
 
   return (
-    <RoomChatInput
+    <>
+      {setupNotice ? <div className="mb-2"><SetupBanner notice={setupNotice} /></div> : null}
+      <RoomChatInput
         onSubmit={adapter.onSendMessage}
+        disabled={setupNotice?.blocking ?? false}
+        placeholder={setupNotice?.blocking ? BLOCKED_COMPOSER_PLACEHOLDER : undefined}
         disableSend={adapter.isSending || normalComposerBlocked || isHitlMode}
         sending={adapter.isSending}
         processing={isProcessing}
@@ -205,5 +212,6 @@ export function ComposerShell({ adapter }: ComposerShellProps) {
         externalValue={adapter.externalValue}
         onExternalValueConsumed={adapter.onExternalValueConsumed}
       />
+    </>
   )
 }

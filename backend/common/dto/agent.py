@@ -12,6 +12,8 @@ class AgentInfo(FrozenDTO):
     status: str = "active"
     capabilities: list[str] = Field(default_factory=list)
     source: str = "cloud"
+    # Set while a bundled agent is gated inactive by an unmet requirement.
+    inactive_reason: str | None = None
     is_public: bool = True
     public_url: str | None = None
     rate_limit_per_user_per_hour: int | None = None
@@ -93,6 +95,9 @@ class AgentView(AgentCardView):
     provider_name: str | None = None
     status: str = "active"
     source: str = "cloud"
+    # `provider_not_configured` or `image_model_not_configured` while a bundled
+    # agent waits for that setup; null otherwise.
+    inactive_reason: str | None = None
     is_public: bool = True
     public_url: str | None = None
     call_count: int = 0

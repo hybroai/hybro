@@ -3,11 +3,12 @@
 import base64
 import json
 import time
+from pathlib import Path
 
 import pytest
 from pydantic import SecretStr
 
-from common.config.loader import get_settings
+from common.config.loader import Settings, get_settings
 from common.config.runtime_config import (
     ApiKeyCredential,
     OAuthCredential,
@@ -17,6 +18,8 @@ from common.config.runtime_config import (
     RuntimeProvider,
 )
 from common.config.runtime_store import RuntimeConfigStore, parse_config
+
+REPO_ROOT = Path(__file__).resolve().parents[2]
 
 
 def selection():
@@ -60,6 +63,7 @@ def test_rejects_non_json_duplicate_and_nonfinite(payload):
         ("backend", {"openai_api_key": "private-value"}),
         ("frontend", {"max_message_length": -1}),
         ("frontend", {"api_base_url": "https://user:private-value@example.org"}),
+        ("frontend", {"server_url": ""}),
     ],
 )
 def test_rejects_invalid_config_without_echoing_values(section, value):
@@ -69,6 +73,12 @@ def test_rejects_invalid_config_without_echoing_values(section, value):
         parse_config(json.dumps(data).encode())
     assert "private-value" not in str(caught.value)
     assert "unknown-secret-marker" not in str(caught.value)
+
+
+def test_empty_api_base_url_means_same_origin():
+    data = selection().model_dump()
+    data["frontend"] = {"api_base_url": ""}
+    assert parse_config(json.dumps(data).encode()).frontend == {"api_base_url": ""}
 
 
 def test_environment_key_is_saved_and_no_longer_a_runtime_source(tmp_path):
@@ -95,7 +105,7 @@ def test_setup_preserves_application_and_service_settings(tmp_path):
     assert store.read_config().frontend == {"max_message_length": 4321}
     assert store.read_service_credentials() == services
     assert store.ensure_service_credentials() == services
-    assert len(set(services.values())) == 2
+    assert set(services) == {"default_agent_llm_token"}
 
 
 def test_invalid_cli_edit_does_not_write(tmp_path):
@@ -120,12 +130,52 @@ def test_json_loader_ignores_dotenv_and_environment(monkeypatch, tmp_path):
         get_settings.cache_clear()
 
 
-def test_no_setup_is_explicit(monkeypatch, tmp_path):
+def test_settings_load_without_config_json(monkeypatch, tmp_path):
     monkeypatch.setenv("HYBRO_HOME", str(tmp_path / "missing"))
+    monkeypatch.delenv("HYBRO_CONTAINER", raising=False)
     get_settings.cache_clear()
     try:
-        with pytest.raises(RuntimeConfigurationError, match="hybro setup"):
-            get_settings()
+        # Outside a container a checkout registers the repository's manifest.
+        assert get_settings() == Settings(
+            bundled_agents_manifest=str(REPO_ROOT / "default_agents" / "agents.yaml")
+        )
+    finally:
+        get_settings.cache_clear()
+
+
+def test_image_container_defaults(monkeypatch, tmp_path):
+    monkeypatch.setenv("HYBRO_HOME", str(tmp_path / "missing"))
+    monkeypatch.setenv("HYBRO_CONTAINER", "image")
+    monkeypatch.setenv(
+        "HYBRO_FRONTEND_ORIGINS", "http://localhost:3100,http://127.0.0.1:3100"
+    )
+    monkeypatch.setenv("LOCAL_AGENT_DISCOVERY_EXCLUDED_PORTS", "7004,7001")
+    get_settings.cache_clear()
+    try:
+        settings = get_settings()
+    finally:
+        get_settings.cache_clear()
+    assert settings.mongodb_url == "mongodb://127.0.0.1:27017/hybro?replicaSet=rs0"
+    assert settings.redis_url == ""
+    assert settings.hybro_file_dir == "/data/files"
+    assert settings.local_agent_discovery_enabled is True
+    assert settings.local_agent_discovery_excluded_ports == frozenset({7004, 7001})
+    assert settings.bundled_agents_manifest == "/app/bundled_agents.yaml"
+    assert settings.oauth_callback_host == "0.0.0.0"
+    assert settings.frontend_origins == [
+        "http://localhost:3100",
+        "http://127.0.0.1:3100",
+    ]
+
+
+def test_configured_mongodb_url_wins_in_the_image(monkeypatch, tmp_path):
+    store = configured(tmp_path)
+    store.update_config(["backend", "mongodb_url"], "mongodb://db.example:27017/x")
+    monkeypatch.setenv("HYBRO_HOME", str(store.home))
+    monkeypatch.setenv("HYBRO_CONTAINER", "image")
+    get_settings.cache_clear()
+    try:
+        assert get_settings().mongodb_url == "mongodb://db.example:27017/x"
     finally:
         get_settings.cache_clear()
 

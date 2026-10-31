@@ -654,7 +654,7 @@ def test_production_object_storage_access_goes_through_dal():
     assert offenders == [], f"Direct S3 imports in production code: {offenders}"
 
 
-def test_aws_sdk_imports_are_confined_to_dal_s3_with_exact_bedrock_allowlist():
+def test_aws_sdk_imports_are_confined_to_dal_s3():
     assert _aws_sdk_import_blockers() == []
 
 

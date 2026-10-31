@@ -3,7 +3,6 @@ Clerk Authentication for FastAPI
 Validates JWT tokens from Clerk and provides user authentication.
 """
 
-import hmac
 from functools import lru_cache
 
 from clerk_backend_api import Clerk, authenticate_request
@@ -20,34 +19,17 @@ clerk_authorized_parties: tuple[str, ...] = (
     "http://localhost:3000",
 )
 
-# Header carrying the default-agent registrar's service token.
-SERVICE_TOKEN_HEADER = "X-Service-Token"
-
-# Installation/service identity used by the one-shot default-agent registrar.
-# When a valid service token is presented, requests are authenticated as this
-# fixed provider_id instead of a Clerk user.
-service_registrar_token: str | None = None
-service_provider_id: str = "Hybro AI"
-
 
 def bind_auth_config(
     *,
     clerk_secret_key_value: str,
     authorized_parties: tuple[str, ...] | None = None,
-    service_registrar_token_value: str | None = None,
-    service_provider_id_value: str | None = None,
 ) -> None:
     global clerk_secret_key, clerk_authorized_parties
-    global service_registrar_token, service_provider_id
 
     clerk_secret_key = clerk_secret_key_value
     if authorized_parties is not None:
         clerk_authorized_parties = tuple(authorized_parties)
-    if service_registrar_token_value is not None:
-        # Treat empty string as "disabled" rather than a usable secret.
-        service_registrar_token = service_registrar_token_value or None
-    if service_provider_id_value:
-        service_provider_id = service_provider_id_value
 
 
 def _require_clerk_secret_key() -> str:
@@ -175,51 +157,6 @@ async def get_current_user(
             return {"user_id": user.user_id}
     """
     # The Clerk SDK will verify the token from the request automatically
-    return await verify_clerk_token_from_request(request)
-
-
-def _service_identity_from_request(request: Request) -> ClerkUser | None:
-    """Return a synthetic service user if a valid registrar token is presented.
-
-    This is the narrowly-scoped installation/service identity used by the
-    one-shot default-agent registrar. It authenticates with a shared secret
-    (never a Clerk session) and maps to a single, fixed provider_id so the
-    default agents are owned by a stable system account.
-
-    Returns None when no service token is supplied (so callers fall back to
-    normal Clerk auth). Raises 401 when a token is supplied but is invalid, so
-    a wrong secret can never silently fall through to an unauthenticated state.
-    """
-    token = request.headers.get(SERVICE_TOKEN_HEADER)
-    if not token:
-        return None
-    if not service_registrar_token or not hmac.compare_digest(
-        token, service_registrar_token
-    ):
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid service token",
-        )
-    return ClerkUser(
-        user_id=service_provider_id,
-        session_id="service-registrar",
-        claims={"service": True, "sub": service_provider_id},
-    )
-
-
-async def get_current_user_or_service(
-    request: Request,
-) -> ClerkUser:
-    """Authenticate either a Clerk user or the default-agent registrar service.
-
-    Used by endpoints that must be reachable both by end users (Clerk JWT) and
-    by the one-shot registrar during installation (service token). This does not
-    weaken the endpoint: without a valid Clerk token AND without a valid service
-    token, the request is still rejected with 401.
-    """
-    service_user = _service_identity_from_request(request)
-    if service_user is not None:
-        return service_user
     return await verify_clerk_token_from_request(request)
 
 

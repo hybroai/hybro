@@ -65,41 +65,16 @@ class RuntimeModels(_StrictModel):
     image: ModelId | None = None
 
 
-# Host ports only. Effective values (defaults, the agent manifest, overlap across
-# instances) are the CLI's concern: the backend container has no manifest.
-HostPort = Annotated[int, Field(ge=1024, le=65535)]
-AgentService = Annotated[str, StringConstraints(pattern=r"^[a-z0-9][a-z0-9-]{0,62}$")]
-
-
-class InstancePorts(_StrictModel):
-    frontend: HostPort | None = None
-    backend: HostPort | None = None
-    mcp: HostPort | None = None
-    mongo: HostPort | None = None
-    redis: HostPort | None = None
-    agents: dict[AgentService, HostPort] = Field(default_factory=dict)
-
-
-class InstanceSettings(_StrictModel):
-    ports: InstancePorts = Field(default_factory=InstancePorts)
-
-
-class RuntimeInstances(_StrictModel):
-    """Per-instance overrides; a source checkout is `dev`, an install `release`."""
-
-    release: InstanceSettings | None = None
-    dev: InstanceSettings | None = None
-
-
 class RuntimeConfig(_StrictModel):
     version: Literal[1] = 1
-    provider: RuntimeProvider
-    models: RuntimeModels
+    # Both present or both absent; absent means no Provider is configured yet.
+    provider: RuntimeProvider | None = None
+    models: RuntimeModels | None = None
     backend: dict[str, object] = Field(default_factory=dict)
     frontend: dict[str, object] = Field(default_factory=dict)
     image_size: Literal["1024x1024", "1536x1024", "1024x1536", "auto"] = "1024x1024"
-    instances: RuntimeInstances | None = None
     _removed_backend_fields: tuple[str, ...] = PrivateAttr(default=())
+    _had_instances: bool = PrivateAttr(default=False)
 
     @model_validator(mode="wrap")
     @classmethod
@@ -107,17 +82,29 @@ class RuntimeConfig(_StrictModel):
         from common.config.loader import strip_removed_fields
 
         removed: tuple[str, ...] = ()
-        if isinstance(data, Mapping) and isinstance(data.get("backend"), Mapping):
-            _, removed = strip_removed_fields(dict(data["backend"]))
+        had_instances = False
+        if isinstance(data, Mapping):
+            if isinstance(data.get("backend"), Mapping):
+                _, removed = strip_removed_fields(dict(data["backend"]))
+            # The 0.3 CLI's host ports; the 0.4 script takes --port instead.
+            if "instances" in data:
+                had_instances = True
+                data = {k: v for k, v in data.items() if k != "instances"}
         config = handler(data)
         if removed:
             config._removed_backend_fields = removed
+        config._had_instances = had_instances
         return config
 
     @property
     def removed_backend_fields(self) -> tuple[str, ...]:
         """Retired backend keys dropped while this document was validated."""
         return self._removed_backend_fields
+
+    @property
+    def had_instances(self) -> bool:
+        """Whether the document still carried the retired top-level ``instances``."""
+        return self._had_instances
 
     @field_validator("backend")
     @classmethod
@@ -133,14 +120,24 @@ class RuntimeConfig(_StrictModel):
     def validate_frontend_settings(cls, value: dict[str, object]) -> dict[str, object]:
         from common.config.loader import DERIVED_FRONTEND_FIELDS, FrontendSettings
 
-        # The CLI derives these from the instance ports; none is a user setting.
+        # The browser serves MCP from its own origin; none is a user setting.
         if DERIVED_FRONTEND_FIELDS.intersection(value):
             raise PydanticCustomError(
-                "derived_from_instance_ports",
-                "The MCP URL is derived from the instance ports",
+                "derived_mcp_url",
+                "The MCP URL is the app's address plus /mcp; remove frontend.mcp_url",
             )
         FrontendSettings.model_validate(value)
         return value
+
+    @model_validator(mode="after")
+    def validate_selection(self) -> Self:
+        if (self.provider is None) != (self.models is None):
+            raise ValueError("Provider and models must be set together")
+        return self
+
+    @property
+    def configured(self) -> bool:
+        return self.provider is not None
 
     @model_validator(mode="after")
     def validate_api_prefixes(self) -> Self:
@@ -250,8 +247,13 @@ def resolve_credential(
     config: RuntimeConfig,
     stored: StoredCredential | None,
     environment: Mapping[str, str],
-) -> ResolvedCredential:
-    """Resolve one source, never substitute a key for an OAuth session."""
+) -> ResolvedCredential | None:
+    """Resolve one source, never substitute a key for an OAuth session.
+
+    An unconfigured document has no credential to resolve and returns None.
+    """
+    if config.provider is None:
+        return None
     if stored is not None and (stored.provider, stored.auth) != (
         config.provider.id,
         config.provider.auth,

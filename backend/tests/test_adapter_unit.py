@@ -21,8 +21,8 @@ from llm_gateway.model_registry import ModelInfo
 @pytest.fixture(autouse=True)
 def isolate_adapter_configuration(monkeypatch):
     # Injected adapter units do not exercise startup/config-file policy.
-    monkeypatch.setattr("llm_gateway.config.load_optional_setup", lambda _: None)
-    monkeypatch.setattr("llm_gateway.gateway.load_optional_setup", lambda _: None)
+    monkeypatch.setattr("llm_gateway.config.load_saved_provider", lambda: None)
+    monkeypatch.setattr("llm_gateway.gateway.load_provider_runtime", lambda: None)
 
 
 def test_translator_internal_message_to_a2a_preserves_message_fields():

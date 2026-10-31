@@ -12,6 +12,13 @@ describe('access materials', () => {
     expect(material.configuration).not.toMatch(/authorization|bearer|access_token/i)
   })
 
+  it('builds requests from an empty same-origin base without parsing it as a URL', () => {
+    const material = buildAccessMaterial('api', '', '/api/v1', scope)
+    expect(material.configuration).toContain("'/api/v1/agents/discovery?group_id=g1'")
+    expect(material.toolCalls).toContain("'/api/v1/agents/messages'")
+    expect(material.scopeCall).toBe('GET /api/v1/agents/discovery?group_id=g1')
+  })
+
   it('safely quotes the configured API address for the shell', () => {
     const material = buildAccessMaterial('api', "https://hybro.example/it's", '/api/v1')
     expect(material.configuration).toContain(`it'"'"'s`)

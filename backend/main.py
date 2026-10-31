@@ -10,11 +10,17 @@ from common.observability.bootstrap import settings as _logging_settings  # noqa
 from common.config.loader import settings
 
 import api_gateway
+from api_gateway.errors import (
+    provider_not_configured_handler,
+    setup_request_error_handler,
+)
 from common.auth import bind_auth_config
 from common.protocols import HealthCheck
 from common.middleware.request_concurrency import RequestConcurrencyLimitMiddleware
 from common.middleware.request_logging import RequestLoggingMiddleware
 from common.middleware.request_size import RequestBodyLimitMiddleware
+from llm_gateway.errors import ProviderNotConfigured
+from llm_gateway.setup_api import SetupRequestError
 from container import (
     create_application_runtime,
     create_health_check_service,
@@ -26,8 +32,6 @@ from container import (
 bind_auth_config(
     clerk_secret_key_value=settings.clerk_secret_key,
     authorized_parties=tuple(settings.frontend_origins),
-    service_registrar_token_value=settings.default_agent_registrar_token,
-    service_provider_id_value=settings.default_agent_provider_id,
 )
 
 AGENT_MESSAGE_MAX_BYTES = 6 * 1024 * 1024
@@ -115,6 +119,8 @@ def create_app(
 
     app.state.platform_facade_factory = platform_facade_factory
     app.state.agent_rate_limiter_factory = agent_rate_limiter_factory
+    app.add_exception_handler(ProviderNotConfigured, provider_not_configured_handler)
+    app.add_exception_handler(SetupRequestError, setup_request_error_handler)
 
     app.add_middleware(
         CORSMiddleware,
@@ -201,7 +207,6 @@ if settings.auth_mode == "mock":
     from common.auth import (
         ClerkUser,
         get_current_user,
-        get_current_user_or_service,
         get_current_user_with_query_token,
         get_optional_user,
     )
@@ -214,7 +219,6 @@ if settings.auth_mode == "mock":
         )
 
     app.dependency_overrides[get_current_user] = mock_get_current_user
-    app.dependency_overrides[get_current_user_or_service] = mock_get_current_user
     app.dependency_overrides[get_current_user_with_query_token] = mock_get_current_user
     app.dependency_overrides[get_optional_user] = mock_get_current_user
 

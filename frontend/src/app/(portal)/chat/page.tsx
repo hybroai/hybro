@@ -14,6 +14,7 @@ import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { useChatRoomCreation } from "@/hooks/useChatRoomCreation"
 import { useGroupManagement } from "@/hooks/useGroupManagement"
+import { useAgentCatalog } from "@/hooks/room/useAgentCatalog"
 import type { QuoteData } from "@/lib/types/quote"
 import type { PendingAttachment } from "@/lib/types/attachments"
 import type { Agent } from "@/lib/types/agent"
@@ -22,7 +23,10 @@ import { DEFAULT_CHAT_MODE, chatModeToExecutionMode } from "@/lib/types/chat-mod
 import { cn } from "@/lib/utils"
 import { useRoomUiStore } from "@/stores/room-ui-store"
 import { UseCaseCard } from "@/components/use-case-card"
-import { useCaseTemplates } from "@/lib/use-case-templates"
+import { BLOCKED_COMPOSER_PLACEHOLDER, SetupBanner } from "@/components/setup/setup-banner"
+import { useSetupStatus } from "@/hooks/useSetupStatus"
+import { setupNotice } from "@/lib/setup-notice"
+import { templateUnavailableReason, useCaseTemplates } from "@/lib/use-case-templates"
 import type { UseCaseTemplate } from "@/lib/use-case-templates"
 import { ensureUseCaseTeam } from '@/lib/use-case-team'
 import { isMentionDispatchInput, type MessageDispatchInput } from "@/lib/types/agent-group"
@@ -44,6 +48,9 @@ function ChatPageContent() {
 
     // Local chat mode selection
     const [localChatMode, setLocalChatMode] = useState<ChatMode>(DEFAULT_CHAT_MODE)
+
+    const setupStatus = useSetupStatus().data
+    const notice = setupNotice(setupStatus)
 
     useEffect(() => {
         // Peek first so an App Router/Strict Mode remount cannot consume the
@@ -93,6 +100,15 @@ function ChatPageContent() {
           ? { message_target_mode: 'room_default' }
           : undefined,
     })
+
+    // The full catalog, including sample agents that wait for setup. Use
+    // cards read their reason from it and, once it loads, their agents too,
+    // so a settings save re-enables a card without a reload.
+    const { allAgentsData } = useAgentCatalog(user?.id, getToken)
+    const useCaseCatalog = useMemo(
+        () => allAgentsData?.filter(agent => agent.status === "active") ?? gm.availableAgents,
+        [allAgentsData, gm.availableAgents],
+    )
 
     // Agent list for mentions
     const agentListForMentions = useMemo(() => {
@@ -171,7 +187,7 @@ function ChatPageContent() {
         const team = await ensureUseCaseTeam({
           template,
           ownerId: user.id,
-          catalog: gm.availableAgents,
+          catalog: useCaseCatalog,
           getToken,
         })
         gm.handleGroupCreated(team)
@@ -284,9 +300,12 @@ function ChatPageContent() {
                     )}
 
                     {/* Chat Input with Group Selector */}
-                    <div className="w-full max-w-3xl mb-6">
+                    <div className="w-full max-w-3xl mb-6 flex flex-col gap-3">
+                        <SetupBanner notice={notice} />
                         <RoomChatInput
                             onSubmit={handleSubmit}
+                            disabled={notice?.blocking ?? false}
+                            placeholder={notice?.blocking ? BLOCKED_COMPOSER_PLACEHOLDER : undefined}
                             disableSend={creating || settingUpTemplate !== null}
                             agents={agentListForMentions}
                             showGroupSelector={true}
@@ -335,9 +354,10 @@ function ChatPageContent() {
                                     <UseCaseCard
                                         key={template.id}
                                         template={template}
-                                        catalog={gm.availableAgents}
+                                        catalog={useCaseCatalog}
                                         onClick={() => handleTemplateClick(template)}
-                                        disabled={creating || settingUpTemplate !== null || catalogLoading || gm.loadingGroups}
+                                        disabled={(notice?.blocking ?? false) || creating || settingUpTemplate !== null || catalogLoading || gm.loadingGroups}
+                                        unavailableReason={templateUnavailableReason(template, allAgentsData ?? [])}
                                     />
                                 ))}
                             </div>

@@ -13,6 +13,7 @@ from api_gateway.routes import (
     llm_proxy_routes,
     room_routes,
     session_routes,
+    setup_routes,
     sse_routes,
 )
 from common.auth import get_current_user
@@ -36,6 +37,7 @@ def build_api_gateway_router() -> APIRouter:
     gateway_router.include_router(files_routes.router, tags=["files"])
     gateway_router.include_router(llm_proxy_routes.router, tags=["internal_llm"])
     gateway_router.include_router(a2a_push_routes.router, tags=["a2a_push"])
+    gateway_router.include_router(setup_routes.router, tags=["setup"])
 
     return gateway_router
 

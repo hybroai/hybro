@@ -6,7 +6,6 @@ import json
 
 import pytest
 
-import configuration_cli as cli
 from common.config import loader
 from common.config.loader import PRIVATE_FIELDS, Settings
 from common.config.runtime_config import RuntimeConfigurationError
@@ -30,7 +29,11 @@ def _services_on_disk(runtime) -> dict[str, str]:
 
 
 def test_mongodb_password_is_retired_not_a_service_key():
-    assert RETIRED_SERVICE_KEYS == {"mongodb_password", "webhook_signing_key"}
+    assert RETIRED_SERVICE_KEYS == {
+        "mongodb_password",
+        "webhook_signing_key",
+        "default_agent_registrar_token",
+    }
     assert not RETIRED_SERVICE_KEYS & SERVICE_KEYS
 
 
@@ -90,32 +93,6 @@ def test_get_settings_ignores_retired_service_key(tmp_path, monkeypatch):
     assert not hasattr(settings, "mongodb_password")
 
 
-def test_config_secret_rejects_retired_key(tmp_path, monkeypatch):
-    runtime = configured(tmp_path)
-    monkeypatch.setenv("HYBRO_HOME", str(runtime.home))
-
-    assert cli.main(["config", "secret", "mongodb_password"]) == 1
-
-    assert "mongodb_password" not in _services_on_disk(runtime)
-
-
-def test_env_migration_does_not_import_retired_key(tmp_path, monkeypatch):
-    runtime = configured(tmp_path)
-    (runtime.home / "config.json").unlink()
-    (runtime.home / "config.yaml").write_text(
-        "version: 1\nprovider: {id: openai, auth: api_key}\n"
-        "models: {text: gpt-4o-mini}\n"
-    )
-    env = tmp_path / "legacy.env"
-    env.write_text("MONGODB_PASSWORD=fixture-retired\nLOG_LEVEL=DEBUG\n")
-    monkeypatch.setenv("HYBRO_HOME", str(runtime.home))
-
-    assert cli.main(["config", "migrate", "--from-env", str(env)]) == 0
-
-    assert "mongodb_password" not in _services_on_disk(runtime)
-    assert "mongodb_password" not in runtime.read_config().backend
-
-
 def test_setup_save_reads_auth_json_carrying_retired_key(tmp_path):
     from pydantic import SecretStr
 
@@ -139,3 +116,19 @@ def test_setup_save_reads_auth_json_carrying_retired_key(tmp_path):
     assert runtime.read_service_credentials() == live
     credential = runtime.load({}).authentication.credential
     assert credential.api_key.get_secret_value() == "fixture-rotated"
+
+
+def test_registrar_token_is_retired_and_pruned(tmp_path):
+    # Boot registration replaced the registrar container and its token.
+    assert "default_agent_registrar_token" not in Settings.model_fields
+    assert "default_agent_registrar_token" not in PRIVATE_FIELDS
+    runtime = configured(tmp_path)
+    runtime.ensure_service_credentials()
+    _add_services(runtime, default_agent_registrar_token="fixture-registrar-" * 4)
+
+    runtime.load({})
+    services = runtime.ensure_service_credentials()
+
+    assert "default_agent_registrar_token" not in services
+    assert "default_agent_registrar_token" not in _services_on_disk(runtime)
+    assert set(services) == {"default_agent_llm_token"}

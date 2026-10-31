@@ -5,9 +5,9 @@ import { ConnectPage } from '@/components/connect/connect-page'
 import { buildMcpConfig } from '@/lib/mcp'
 
 // A dev instance publishes MCP on its own port; the page must show that one.
-const MCP_URL = 'http://127.0.0.1:8101/mcp'
+const MCP_URL = `${window.location.origin}/mcp`
 const MCP_CONFIG = buildMcpConfig(MCP_URL)
-vi.mock('@/lib/config', () => ({ publicConfig: () => ({ api_base_url: 'https://hybro.example', api_prefix: '/api/v1', mcp_url: 'http://127.0.0.1:8101/mcp' }) }))
+vi.mock('@/lib/config', () => ({ publicConfig: () => ({ api_base_url: 'https://hybro.example', api_prefix: '/api/v1' }) }))
 const push = vi.fn()
 vi.mock('next/navigation', () => ({ useRouter: () => ({ push }) }))
 

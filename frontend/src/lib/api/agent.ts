@@ -119,12 +119,10 @@ export interface GetAllAgentsOptions {
 export async function getAllAgents(
   options: GetAllAgentsOptions = {}
 ): Promise<AgentRouteResponse> {
-  const url = new URL(`${API_BASE_URL}/getAllAgents`)
-  if (options.activeOnly) {
-    url.searchParams.set('active_only', 'true')
-  }
+  // A relative same-origin base cannot go through `new URL`.
+  const query = options.activeOnly ? '?active_only=true' : ''
   return apiGet<AgentRouteResponse>(
-    url.toString(),
+    `${API_BASE_URL}/getAllAgents${query}`,
     options.getToken,
     options.signal,
     options.timeoutMs

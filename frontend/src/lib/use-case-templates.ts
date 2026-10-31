@@ -1,6 +1,7 @@
 import { Palmtree, BookOpen } from "lucide-react"
 import type { LucideIcon } from "lucide-react"
 import type { Agent } from "@/lib/types/agent"
+import { inactiveReasonText } from "@/lib/status"
 
 export interface UseCaseAgent {
   agentId: string
@@ -16,6 +17,23 @@ export interface UseCaseTemplate {
   agents: UseCaseAgent[]
   prefillMessage: string
   tag?: "new" | null
+}
+
+/**
+ * Why a use case cannot start yet: the reason of its first agent that waits
+ * for setup, such as the Image Generator without an image model.
+ */
+export function templateUnavailableReason(
+  template: UseCaseTemplate,
+  catalog: Agent[],
+): string | undefined {
+  for (const ta of template.agents) {
+    const agent = catalog.find((a) => a.agent_id === ta.agentId)
+      ?? catalog.find((a) => a.name.toLowerCase() === ta.agentName.toLowerCase())
+    const reason = agent?.status === "inactive" ? inactiveReasonText(agent.inactive_reason) : null
+    if (reason) return reason
+  }
+  return undefined
 }
 
 /**

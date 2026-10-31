@@ -8,6 +8,7 @@ export type ProjectableAgent = Pick<
   | 'description'
   | 'skills'
   | 'status'
+  | 'inactive_reason'
   | 'source'
   | 'icon_url'
   | 'provider_organization'
@@ -24,6 +25,7 @@ export function projectAgent(agent: ProjectableAgent): NetworkAgent {
     skills: agent.skills.map((skill) => skill.name),
     tags: [...new Set(agent.skills.flatMap((skill) => skill.tags))],
     status: agent.status,
+    inactiveReason: agent.inactive_reason ?? undefined,
     iconUrl: agent.icon_url || undefined,
     provider: agent.provider_organization || agent.provider_name || undefined,
     version: agent.version || undefined,

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Literal
 
 if TYPE_CHECKING:
     from llm_gateway._diagnostics import _Diagnostic
@@ -27,6 +27,28 @@ class UnsupportedConfiguredProvider(LLMProviderConfigurationError):
     """Raised for a retired provider found in deployment settings."""
 
     code = "unsupported_configured_provider"
+
+
+ProviderUnavailableCode = Literal["provider_not_configured", "credential_invalid"]
+
+_UNAVAILABLE_MESSAGES: dict[str, str] = {
+    "provider_not_configured": "No model provider is configured; open Settings, Model provider.",
+    "credential_invalid": (
+        "The model provider credential is missing or does not match the "
+        "configuration; open Settings, Model provider."
+    ),
+}
+
+
+class ProviderNotConfigured(LLMProviderConfigurationError):
+    """No working Provider pair: unconfigured, or a credential that cannot be used.
+
+    Never retried: the state changes only when setup saves a new pair.
+    """
+
+    def __init__(self, code: ProviderUnavailableCode) -> None:
+        super().__init__(_UNAVAILABLE_MESSAGES[code])
+        self.code: ProviderUnavailableCode = code
 
 
 class LLMProviderFailure(LLMGatewayError):

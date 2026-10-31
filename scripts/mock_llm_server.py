@@ -8,6 +8,7 @@ Simulates responses for:
 - Agent completion itineraries
 - Streaming (SSE) and non-streaming responses
 - Embeddings and model listing
+- Image generation and edits (one 1x1 PNG)
 """
 
 from __future__ import annotations
@@ -21,6 +22,12 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 logging.basicConfig(level=logging.INFO, format="[mock-llm] %(asctime)s - %(message)s")
 logger = logging.getLogger("mock_llm")
+
+# A valid 1x1 transparent PNG, returned for every image request.
+MOCK_PNG_BASE64 = (
+    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA"
+    "60e6kgAAAABJRU5ErkJggg=="
+)
 
 
 def _message_content_text(content) -> str:
@@ -185,6 +192,9 @@ class MockLLMHandler(BaseHTTPRequestHandler):
         if normalized_path.endswith("/chat/completions"):
             self._handle_chat_completions()
             return
+        if normalized_path.endswith(("/images/generations", "/images/edits")):
+            self._handle_images()
+            return
         self.send_error(404, f"Unknown POST endpoint: {self.path}")
 
     def _send_json(self, data: dict, status: int = 200):
@@ -214,6 +224,18 @@ class MockLLMHandler(BaseHTTPRequestHandler):
         except Exception as exc:
             logger.exception("Error handling embeddings: %s", exc)
             self.send_error(500, str(exc))
+
+    def _handle_images(self):
+        # Generations send JSON and edits send multipart; neither body matters.
+        length = int(self.headers.get("Content-Length", 0))
+        if length > 0:
+            self.rfile.read(length)
+        logger.info("Image: %s", self.path)
+        self._send_json({
+            "created": int(time.time()),
+            "data": [{"b64_json": MOCK_PNG_BASE64}],
+            "output_format": "png",
+        })
 
     def _handle_chat_completions(self):
         try:

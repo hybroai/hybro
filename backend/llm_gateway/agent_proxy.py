@@ -14,6 +14,7 @@ from pydantic import BaseModel, ConfigDict, Field, SecretStr
 
 from common.protocols import JsonValue
 from llm_gateway.image_types import GatewayImageRequest, GatewayImageResult
+from llm_gateway.provider_runtime import TextSelection
 from llm_gateway.turn_types import (
     GatewayTextPart,
     GatewayToolCallPart,
@@ -193,12 +194,10 @@ class _AgentLLMProxyPort(Protocol):
     token: SecretStr
     slots: asyncio.Semaphore
 
-    def text_model(self) -> str: ...
-
-    def max_output_tokens(self) -> int: ...
+    async def select_text(self) -> TextSelection: ...
 
     def chat_chunks(
-        self, turn: GatewayTurnRequest
+        self, turn: GatewayTurnRequest, selection: TextSelection
     ) -> AsyncIterator[dict[str, JsonValue]]: ...
 
     async def image(self, body: GatewayImageRequest) -> GatewayImageResult: ...
@@ -211,38 +210,28 @@ class AgentLLMProxy:
         # Bound billable work per backend worker; no queue/retry service.
         self.slots = asyncio.Semaphore(4)
 
-    def text_model(self) -> str:
-        if self.gateway._setup is None:
-            raise ValueError("Configure the gateway with hybro setup first")
-        return self.gateway._setup.config.models.text
+    async def select_text(self) -> TextSelection:
+        """One Provider pair and text model for a whole request.
 
-    def max_output_tokens(self) -> int:
-        """The configured text model's output ceiling, not the generic 32768."""
-        from llm_gateway.catalog import TEXT_MODELS
-
-        model = self.text_model()
-        return next(
-            (
-                entry.max_output_tokens
-                for entry in TEXT_MODELS
-                if entry.model_id == model
-            ),
-            32768,
-        )
+        The output ceiling, the chunk model label, and the turn all come from
+        this selection, so a concurrent setup save cannot mix two models.
+        Raises ``ProviderNotConfigured`` without a working pair.
+        """
+        return await self.gateway.select_text()
 
     async def chat_chunks(
-        self, turn: GatewayTurnRequest
+        self, turn: GatewayTurnRequest, selection: TextSelection
     ) -> AsyncIterator[dict[str, JsonValue]]:
-        model = self.text_model()
         base = {
             "id": "chatcmpl-" + uuid4().hex,
             "object": "chat.completion.chunk",
             "created": int(time.time()),
-            "model": model,
+            "model": selection.model.model_id,
         }
         finished, emitted_bytes = False, 0
         async with asyncio.timeout(turn.timeout_seconds), self.slots:
-            async with aclosing(self.gateway.stream_turn_once(turn)) as stream:
+            stream = self.gateway.stream_turn_selected(turn, selection)
+            async with aclosing(stream):
                 yield {
                     **base,
                     "choices": [

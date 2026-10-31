@@ -1,7 +1,13 @@
+from __future__ import annotations
+
 from dataclasses import dataclass
-from typing import Any, Literal, cast
+from typing import TYPE_CHECKING, Any, Literal, cast
 
 from llm_gateway.errors import UnsupportedConfiguredProvider
+
+if TYPE_CHECKING:
+    from common.config.runtime_config import RuntimeProvider
+    from llm_gateway.provider_runtime import ProviderRuntime
 
 
 @dataclass(frozen=True)
@@ -20,7 +26,7 @@ class LLMGatewayConfig:
     default_supervisor_model: str = "supervisor_model"
 
     @classmethod
-    def from_settings(cls, settings_obj: Any) -> "LLMGatewayConfig":
+    def from_settings(cls, settings_obj: Any) -> LLMGatewayConfig:
         defaults = cls()
         return cls(
             generation_provider=resolve_generation_provider(settings_obj),
@@ -80,25 +86,30 @@ class LLMGatewayConfig:
         )
 
 
-def load_optional_setup(settings_obj: Any) -> Any | None:
-    """Load the required setup snapshot; never resolves Provider keys from env."""
+def load_provider_runtime() -> ProviderRuntime:
+    """The holder for this process's config directory; an absent file is valid."""
     from common.config.runtime_store import current_store
-    from llm_gateway.catalog import validate_models
+    from llm_gateway.provider_runtime import ProviderRuntime
 
-    state = current_store().load({})
-    validate_models(state.config)
-    return state
+    return ProviderRuntime(current_store())
+
+
+def load_saved_provider() -> RuntimeProvider | None:
+    """The saved Provider selection, without resolving any credential."""
+    from common.config.runtime_store import current_store
+
+    return current_store().read_config().provider
 
 
 def resolve_generation_provider(
     settings_obj: Any,
 ) -> Literal["deepseek", "openai"]:
-    # Setup must win before validating irrelevant legacy text routing/keys.
-    # Keep the original two-provider registry contract as a private route hint;
-    # the gateway selects the actual configured adapter for every text call.
-    setup = load_optional_setup(settings_obj)
-    if setup is not None:
-        return "deepseek" if setup.config.provider.id == "deepseek" else "openai"
+    # A saved Provider wins before validating irrelevant legacy routing/keys.
+    # This is a boot-time route hint only: the gateway and registry read the
+    # live Provider through ProviderRuntime, and no Provider is required here.
+    saved = load_saved_provider()
+    if saved is not None:
+        return "deepseek" if saved.id == "deepseek" else "openai"
     selected = (
         str(
             getattr(settings_obj, "llm_gateway_generation_provider", "openai")

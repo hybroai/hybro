@@ -7,7 +7,6 @@ FIXTURE_DIR = Path(__file__).parent / "fixtures"
 AUTH_DEPENDENCY_NAMES = {
     "get_proxy",
     "get_current_user",
-    "get_current_user_or_service",
     "get_current_user_with_query_token",
     "get_optional_user",
 }

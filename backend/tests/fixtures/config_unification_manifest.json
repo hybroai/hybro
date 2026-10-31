@@ -3,9 +3,7 @@
     "allowed_paths": [
         "common/config/loader.py",
         "common/config/runtime_store.py",
-        "configuration_cli.py",
-        "llm_gateway/setup_cli.py",
-        "llm_gateway/cli_tui.py"
+        "runtime_entrypoint.py"
     ],
     "excluded_dirs": [
         ".git",

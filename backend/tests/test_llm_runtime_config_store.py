@@ -261,17 +261,68 @@ def test_interrupted_identity_fails_closed_and_can_be_replaced(tmp_path: Path) -
     credential_file.write_text(
         '{"provider":"deepseek","auth":"api_key","api_key":"new"}'
     )
-    with pytest.raises(RuntimeConfigurationError, match="identity differ"):
-        store.load({})
+    # Loads without a credential, so the backend boots and setup can repair it.
+    state = store.load({})
+    assert state.authentication is None
+    assert "identity differ" in (state.credential_error or "")
+    assert "new" not in (state.credential_error or "")
     assert store.save(config("deepseek"), key("deepseek", "new"), {})
     assert store.load({}).config.provider.id == "deepseek"
 
 
-def test_relative_path_and_missing_config_fail(tmp_path: Path) -> None:
+def test_relative_path_fails_and_missing_config_is_unconfigured(
+    tmp_path: Path,
+) -> None:
     with pytest.raises(RuntimeConfigurationError, match="absolute"):
         RuntimeConfigStore(Path("relative"))
-    with pytest.raises(RuntimeConfigurationError, match="[Mm]issing"):
-        RuntimeConfigStore(tmp_path).load({})
+    store = RuntimeConfigStore(tmp_path / "runtime")
+    state = store.load({})
+    assert state.config == RuntimeConfig() and not state.config.configured
+    assert state.authentication is None and state.credential_error is None
+    assert store.read_config() == RuntimeConfig()
+    assert not (store.home / "config.json").exists()
+
+
+def test_configured_provider_without_credential_loads_with_reason(
+    tmp_path: Path,
+) -> None:
+    store = RuntimeConfigStore(tmp_path)
+    store.save(config(), key(), {})
+    (tmp_path / "auth.json").unlink()
+    state = store.load({})
+    assert state.config.provider is not None
+    assert state.authentication is None
+    assert state.credential_error == "Provider API key missing; run setup."
+
+
+def test_update_config_creates_a_missing_document(tmp_path: Path) -> None:
+    store = RuntimeConfigStore(tmp_path / "runtime")
+    store.update_config(["backend", "log_level"], "DEBUG")
+    assert json.loads((store.home / "config.json").read_text()) == {
+        "version": 1,
+        "backend": {"log_level": "DEBUG"},
+    }
+    assert not store.read_config().configured
+
+
+@pytest.mark.parametrize("present", ["provider", "models"])
+def test_provider_and_models_are_set_together(present: str) -> None:
+    document = {
+        "version": 1,
+        "provider": {"id": "openai", "auth": "api_key"},
+        "models": {"text": "gpt-4o-mini"},
+    }
+    del document["models" if present == "provider" else "provider"]
+    with pytest.raises(RuntimeConfigurationError, match="config"):
+        parse_config(json.dumps(document).encode())
+
+
+def test_unconfigured_document_resolves_no_credential() -> None:
+    assert resolve_credential(RuntimeConfig(), key(), {}) is None
+    with pytest.raises(RuntimeConfigurationError, match="Select a Provider"):
+        RuntimeConfigStore(Path("/nonexistent-hybro-test")).save(
+            RuntimeConfig(), None, {}
+        )
 
 
 def test_symlink_credential_is_not_read(tmp_path: Path) -> None:

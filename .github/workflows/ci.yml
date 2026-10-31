@@ -60,7 +60,7 @@ jobs:
 
 
   default-agents-ci:
-    name: Default Agents CI (compose sync)
+    name: Default Agents CI
     runs-on: ubuntu-latest
 
     steps:
@@ -78,23 +78,25 @@ jobs:
         with:
           python-version: "3.12"
 
-      # docker-compose.yml's default-agent region is generated from
-      # default_agents/agents.yaml. Fail if the manifest was edited without
-      # running: python default_agents/render_compose.py
-      - name: Check docker-compose.yml is in sync with agents.yaml
-        run: uv run --with pyyaml python default_agents/render_compose.py --check
+      - name: Check the agent manifest, workspace and image are in sync
+        run: uv run --with pytest --with pyyaml python -m pytest default_agents/tests/test_manifest_in_sync.py
 
-      # The released stack, which installed CLIs run, is generated from
-      # docker-compose.yml. Fail if their sources diverged.
-      - name: Check docker-compose.release.yml is in sync
-        run: uv run --with pyyaml python default_agents/render_release.py --check
+      # The sample agents share one workspace lock. Install their dependencies
+      # only (the agents are never built as packages) and run the unit tests in
+      # that environment. test_agents_e2e.py needs a live stack, so it is not here.
+      - name: Install the agent workspace
+        run: uv sync --project default_agents --frozen --all-packages --no-install-workspace
 
-      - name: Check service security and release image inventory
-        run: uv run --with pytest --with pyyaml python -m pytest default_agents/tests/test_compose_in_sync.py
+      - name: Run agent unit tests
+        env:
+          PYTHONPATH: ${{ github.workspace }}/default_agents
+        run: >-
+          uv run --project default_agents --frozen --no-sync --no-env-file
+          python -m pytest --noconftest default_agents/tests
+          --ignore default_agents/tests/test_agents_e2e.py
 
-      # The published frontend image compiles this projection, so it must match
-      # what the backend schema and the CLI produce for a default configuration.
-      - name: Check the published frontend projection is in sync
+      # The default projection for `npm run dev` must match the backend schema.
+      - name: Check the frontend dev projection is in sync
         working-directory: backend
         run: uv run --frozen --no-env-file python ../packaging/frontend/render_public_config.py --check
 
@@ -110,10 +112,10 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Set up Node.js 20.19
+      - name: Set up Node.js 24
         uses: actions/setup-node@v4
         with:
-          node-version: "20.19"
+          node-version: "24"
           cache: "npm"
           cache-dependency-path: frontend/package-lock.json
 
@@ -146,16 +148,119 @@ jobs:
         with:
           python-version: "3.12"
 
+      # The MCP server runs from the backend environment with its `mcp` extra.
       - name: Install MCP dependencies
-        run: uv sync --project MCP --frozen
+        run: uv sync --project backend --frozen --extra mcp --extra dev
 
       - name: Run MCP Tests
-        run: uv run --project MCP --frozen --no-env-file pytest MCP/tests
+        run: uv run --project backend --frozen --extra mcp --extra dev --no-env-file pytest MCP/tests
+
+
+  image-ci:
+    name: Image CI (single image smoke test)
+    runs-on: ubuntu-latest
+    needs: [backend-ci, frontend-ci, default-agents-ci, mcp-ci]
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+          cache-suffix: "image-uv"
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Build the image
+        run: docker build -t hybro:ci .
+
+      # An empty config directory: no provider, so only Echo is active.
+      - name: Start the image
+        run: |
+          CI_HOME="$RUNNER_TEMP/hybro-image"
+          mkdir -p "$CI_HOME"
+          chmod 700 "$CI_HOME"
+          docker run -d --name hybro-image-ci \
+            -p 127.0.0.1:8180:8080 \
+            -e HYBRO_LISTEN=loopback -e HYBRO_PUBLIC_PORT=8180 \
+            -v "$CI_HOME:/var/lib/hybro/runtime" -v hybro-image-ci-data:/data \
+            --stop-timeout 60 hybro:ci
+
+      - name: Smoke test through the one port
+        run: >-
+          uv run --project backend --frozen --extra mcp --no-env-file
+          python scripts/image_smoke.py http://localhost:8180
+
+      - name: Stop cleanly within the stop timeout
+        run: |
+          timeout 70s docker stop hybro-image-ci
+          test "$(docker inspect -f '{{.State.ExitCode}}' hybro-image-ci)" = 0
+
+      # UID 0 and an existing UID (the run above is the new-user case), and a
+      # forced replica set reconfig from 0.3 data that names mongo:27017.
+      - name: Entrypoint UID and replica set cases
+        run: scripts/image_ci_cases.sh hybro:ci
+
+      - name: Dump Container Logs on Failure
+        if: failure()
+        run: docker logs --tail=200 hybro-image-ci
+
+      - name: Remove the container
+        if: always()
+        run: docker rm -f hybro-image-ci; docker volume rm -f hybro-image-ci-data
+
+
+  cli-ci:
+    name: Shell CLI CI (stubbed Docker)
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+          cache-suffix: "cli-uv"
+
+      # Ubuntu's /bin/sh is dash; busybox adds a third POSIX shell.
+      - name: Install shellcheck and busybox
+        run: sudo apt-get update && sudo apt-get install -y shellcheck busybox
+
+      - name: Lint the shell CLI and install script
+        run: shellcheck -s sh scripts/hybro install.sh
+
+      # Stub docker, curl, and npm on PATH; every test runs under each shell.
+      - name: Shell CLI and install script tests
+        run: uv run --no-project --with pytest pytest scripts/test_hybro_cli.py -v
+
+  migration-ci:
+    name: Migration CI (0.3 volumes to the single image)
+    runs-on: ubuntu-latest
+    needs: [backend-ci, frontend-ci, default-agents-ci, mcp-ci, cli-ci]
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # The checkout's CLI runs in dev mode and uses hybro:dev.
+      - name: Build the image
+        run: docker build -t hybro:dev .
+
+      - name: Migrate 0.3-shaped fixture volumes with hybro upgrade
+        run: scripts/migration_ci.sh
 
 
   functional-ci:
-    name: Functional Regression CI (Docker Stack + Mock LLM)
-    runs-on: ubuntu-latest
+    name: Functional Regression CI (Single Image + Mock LLM)
+    # Playwright 1.58 cannot install Chromium on Ubuntu 26.04 (ubuntu-latest).
+    runs-on: ubuntu-24.04
     needs: [backend-ci, frontend-ci, default-agents-ci, mcp-ci]
 
     steps:
@@ -173,10 +278,10 @@ jobs:
         with:
           python-version: "3.12"
 
-      - name: Set up Node.js 20.19
+      - name: Set up Node.js 24
         uses: actions/setup-node@v4
         with:
-          node-version: "20.19"
+          node-version: "24"
           cache: "npm"
           cache-dependency-path: frontend/package-lock.json
 
@@ -190,9 +295,9 @@ jobs:
         working-directory: backend
         run: uv sync --frozen --extra dev
 
-      # The stack is configured through JSON, so CI writes the CI runtime
-      # directory it owns and starts Compose through the CLI. No dotenv file and
-      # no duplicated per-service projections.
+      # The image is configured through JSON, so CI writes the CI runtime
+      # directory it owns and starts the image through the checkout's CLI. The
+      # mock LLM runs on the runner, reached through host.docker.internal.
       - name: Prepare CI Runtime Configuration
         run: |
           CI_HOME="$RUNNER_TEMP/hybro-ci"
@@ -202,8 +307,8 @@ jobs:
           {
             "version": 1,
             "provider": { "id": "openai", "auth": "api_key" },
-            "models": { "text": "gpt-4o-mini" },
-            "backend": { "openai_base_url": "http://mock-llm:8080/v1" }
+            "models": { "text": "gpt-4o-mini", "image": "gpt-image-2.5-flare" },
+            "backend": { "openai_base_url": "http://host.docker.internal:18080/v1" }
           }
           JSON
           cat > "$CI_HOME/auth.json" <<'JSON'
@@ -216,33 +321,35 @@ jobs:
           chmod 600 "$CI_HOME/auth.json"
           echo "HYBRO_HOME=$CI_HOME" >> "$GITHUB_ENV"
 
-      - name: Start Full Hybro Container Stack with Mock LLM
-        env:
-          # Reuse the environment synced by the step above instead of a new one.
-          UV_PROJECT_ENVIRONMENT: ${{ github.workspace }}/backend/.venv
+      - name: Start the mock LLM server on the runner
         run: |
-          ./scripts/hybro start --build --compose-file docker-compose.ci.yml
+          nohup python scripts/mock_llm_server.py 18080 > "$RUNNER_TEMP/mock-llm.log" 2>&1 &
+          timeout 30s bash -c 'until curl -s -o /dev/null http://127.0.0.1:18080/; do sleep 1; done'
+
+      - name: Start Hybro from the checkout with the mock LLM
+        env:
+          HYBRO_NO_UPDATE_CHECK: "1"
+        run: |
+          ./scripts/hybro start -d --build
           echo "Waiting for backend health check..."
-          timeout 180s bash -c 'until curl -sf http://localhost:8100/health; do sleep 2; done'
-          echo "Backend container is healthy and ready!"
+          timeout 180s bash -c 'until curl -sf http://localhost:3100/health; do sleep 2; done'
           echo "Waiting for agents registration..."
-          timeout 90s bash -c 'until curl -sf http://localhost:8100/api/v1/agent/getAllAgents?active_only=true | grep -qi "Travel Planner"; do sleep 2; done'
+          timeout 90s bash -c 'until curl -sf "http://localhost:3100/api/v1/agent/getAllAgents?active_only=true" | grep -qi "Travel Planner"; do sleep 2; done'
+          timeout 90s bash -c 'until curl -sf "http://localhost:3100/api/v1/agent/getAllAgents?active_only=true" | grep -qi "Image Generator"; do sleep 2; done'
           echo "Agents successfully registered!"
 
       - name: Verify default MCP startup and tools
         run: |
-          uv run --project MCP --frozen --no-env-file python - <<'PY'
+          uv run --project backend --frozen --extra mcp --no-env-file python - <<'PY'
           import asyncio
           import httpx
           from mcp import Client
 
           async def check():
               async with httpx.AsyncClient(timeout=5) as http:
-                  health = await http.get("http://127.0.0.1:8101/health")
-                  assert health.json() == {"service": "hybro-mcp", "status": "ready"}
                   panel = await http.get("http://localhost:3100/hybro-mcp")
-                  assert panel.json() == health.json()
-              async with Client("http://127.0.0.1:8101/mcp") as client:
+                  assert panel.json() == {"service": "hybro-mcp", "status": "ready"}
+              async with Client("http://localhost:3100/mcp") as client:
                   tools = await client.list_tools()
                   assert {tool.name for tool in tools.tools} == {
                       "list_subnets",
@@ -277,30 +384,27 @@ jobs:
 
           asyncio.run(check())
           PY
-          ./scripts/hybro mcp stop
-          ./scripts/hybro mcp start
-          timeout 30s bash -c 'until ./scripts/hybro mcp status; do sleep 2; done'
 
       - name: Run Backend Functional Tests Against Live Containers
         working-directory: backend
         env:
-          HYBRO_API_URL: http://localhost:8100/api/v1
+          HYBRO_API_URL: http://localhost:3100/api/v1
           HYBRO_FORCE_FUNCTIONAL_TESTS: "1"
         run: uv run pytest tests/functional/ -v --tb=short
 
       - name: Run Frontend Playwright Functional E2E Against Live Containers
         working-directory: frontend
         env:
-          NEXT_PUBLIC_API_BASE_URL: http://localhost:8100/api/v1
+          NEXT_PUBLIC_API_BASE_URL: http://localhost:3100/api/v1
           PLAYWRIGHT_BASE_URL: http://localhost:3100
         run: npx playwright test tests/e2e/functional-hitl-workflow.spec.ts tests/e2e/sessions.spec.ts
 
-      - name: Dump Container Logs on Failure
+      - name: Dump Container and Mock LLM Logs on Failure
         if: failure()
         run: |
-          docker compose -f docker-compose.yml -f docker-compose.ci.yml logs --tail=100
+          docker logs --tail=200 hybro-dev
+          tail -n 50 "$RUNNER_TEMP/mock-llm.log"
 
-      - name: Tear Down Stack
+      - name: Remove the container and its volume
         if: always()
-        run: |
-          docker compose -f docker-compose.yml -f docker-compose.ci.yml down -v
+        run: docker rm -f hybro-dev; docker volume rm -f hybro-dev-data

@@ -83,9 +83,15 @@ class Agent(BaseModel):
     # Visibility: True = public (everyone can see/use), False = private (owner only)
     is_public: bool
 
-    # Origin: cloud (registered) or local (host-discovered).
+    # Origin: cloud (registered), local (host-discovered), or bundled (a
+    # sample agent the backend registers at boot).
     source: str = "cloud"
     local_agent_id: str | None = None
+    # Manifest key of a bundled agent; the record's stable identity.
+    bundled_name: str | None = None
+    # Why a bundled agent is gated inactive, such as `provider_not_configured`.
+    # The health check never reactivates a record while this is set.
+    inactive_reason: str | None = None
 
     # Derived at read time from Clerk — not persisted in MongoDB.
     provider_name: str | None = None

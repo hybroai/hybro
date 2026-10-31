@@ -2,7 +2,8 @@ name: Release
 
 # Publishes every artifact of one released version. release-please creates the
 # GitHub Release (and the v<version> tag) from the lockstep manifest; this
-# workflow turns that release into images, npm packages, and release assets.
+# workflow turns that release into the image, the npm package, and release
+# assets.
 #
 # Called by the release-please workflow rather than triggered by
 # `release: published`. release-please acts with GITHUB_TOKEN, and GitHub does
@@ -60,7 +61,7 @@ jobs:
           fetch-depth: 0
           ref: ${{ steps.ref.outputs.ref }}
 
-      # The released stack file, images, and npm packages must all describe one
+      # The image, the script, and the npm package must all describe one
       # version, so a requested version that disagrees with the tag's tree means
       # the release is inconsistent and nothing should be published from it.
       - name: Check the requested version matches the tree
@@ -73,17 +74,34 @@ jobs:
             echo "Requested version $REQUESTED does not match VERSION $declared." >&2
             exit 1
           fi
+          script=$(sed -n 's/^HYBRO_VERSION="\([^"]*\)".*/\1/p' scripts/hybro)
+          if [ "$REQUESTED" != "$script" ]; then
+            echo "Requested version $REQUESTED does not match scripts/hybro $script." >&2
+            exit 1
+          fi
+          # The single image replaced the 0.3 Compose stack. Release Please bumps
+          # only the patch for feat: commits on 0.x, so without a
+          # `Release-As: 0.4.0` footer it would cut 0.3.x from this tree, and the
+          # 0.4.0 compatibility archives that 0.3 CLIs download would be skipped.
+          case "$REQUESTED" in
+            0.3.*)
+              if [ ! -f docker-compose.yml ]; then
+                echo "Version $REQUESTED has no Compose stack; release it as 0.4.0 (Release-As: 0.4.0)." >&2
+                exit 1
+              fi
+              ;;
+          esac
           echo "value=$declared" >> "$GITHUB_OUTPUT"
 
   # Each architecture builds on its own native runner. Emulated arm64 builds ran
   # `npm ci` for the frontend under QEMU, which hung until the six-hour job limit
-  # and left v0.2.19 without a frontend image. Every image is pushed by digest
-  # here and gets its version tags in `images-manifest` once both arches exist.
-  images:
-    name: Image ${{ matrix.image.name }} ${{ matrix.arch.name }}
+  # and left v0.2.19 without a frontend image. The image is pushed by digest here
+  # and gets its version tags in `image-manifest` once both arches exist.
+  image:
+    name: Image ${{ matrix.arch.name }}
     needs: [version]
     runs-on: ${{ matrix.arch.runner }}
-    timeout-minutes: 45
+    timeout-minutes: 60
     permissions:
       contents: read
       packages: write
@@ -97,47 +115,6 @@ jobs:
           - name: arm64
             platform: linux/arm64
             runner: ubuntu-24.04-arm
-        image:
-          - name: backend
-            context: ./backend
-            dockerfile: ./backend/Dockerfile
-            build-args: ""
-          - name: frontend
-            context: ./frontend
-            dockerfile: ./frontend/Dockerfile
-            # The image compiles its server-side API rewrite from the projection,
-            # so it is built with one. Browser settings arrive per request from
-            # the container environment, so one image serves every install.
-            build-args: |
-              HYBRO_BACKEND_URL=http://backend:8000
-          - name: mcp
-            context: ./MCP
-            dockerfile: ./MCP/Dockerfile
-            build-args: ""
-          - name: registrar
-            context: ./default_agents
-            dockerfile: ./default_agents/Dockerfile.registrar
-            build-args: ""
-          - name: weather-agent
-            context: ./default_agents
-            dockerfile: ./default_agents/Dockerfile
-            build-args: |
-              AGENT_DIR=weather_agent
-          - name: image-generator-agent
-            context: ./default_agents
-            dockerfile: ./default_agents/Dockerfile
-            build-args: |
-              AGENT_DIR=image_generator_agent
-          - name: travel-planner-agent
-            context: ./default_agents
-            dockerfile: ./default_agents/Dockerfile
-            build-args: |
-              AGENT_DIR=travel_planner_agent
-          - name: story-agent
-            context: ./default_agents
-            dockerfile: ./default_agents/Dockerfile
-            build-args: |
-              AGENT_DIR=story_agent
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -147,25 +124,6 @@ jobs:
       - name: Set up Buildx
         uses: docker/setup-buildx-action@v3
 
-      # The image compiles its server-side API rewrite from the projection, so it
-      # must be built with one: an empty value fails the build rather than
-      # shipping an unusable image. Browser settings are served per request from
-      # the container's own HYBRO_FRONTEND_CONFIG, so one image serves every
-      # install. The file is generated from the backend schema and checked by CI.
-      - name: Assemble build args
-        id: args
-        run: |
-          args="${{ matrix.image.build-args }}"
-          if [ "${{ matrix.image.name }}" = "frontend" ]; then
-            args="${args}
-          HYBRO_FRONTEND_CONFIG=$(cat packaging/frontend/public-config.json)"
-          fi
-          {
-            echo 'value<<BUILD_ARGS'
-            echo "$args"
-            echo 'BUILD_ARGS'
-          } >> "$GITHUB_OUTPUT"
-
       - name: Log in to the container registry
         uses: docker/login-action@v3
         with:
@@ -173,17 +131,16 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      # Image names must match default_agents/render_release.py, which is what an
-      # installed CLI resolves: <namespace>/hybro-<compose service name>:<version>.
+      # The name must match the image scripts/hybro pulls in release mode:
+      # ghcr.io/hybroai/hybro:<HYBRO_VERSION>.
       - name: Build and push by digest
         id: build
         uses: docker/build-push-action@v6
         with:
-          context: ${{ matrix.image.context }}
-          file: ${{ matrix.image.dockerfile }}
-          build-args: ${{ steps.args.outputs.value }}
+          context: .
+          file: ./Dockerfile
           platforms: ${{ matrix.arch.platform }}
-          outputs: type=image,name=${{ env.REGISTRY }}/${{ env.IMAGE_NAMESPACE }}/hybro-${{ matrix.image.name }},push-by-digest=true,name-canonical=true,push=true
+          outputs: type=image,name=${{ env.REGISTRY }}/${{ env.IMAGE_NAMESPACE }}/hybro,push-by-digest=true,name-canonical=true,push=true
 
       - name: Record the digest
         env:
@@ -195,16 +152,16 @@ jobs:
       - name: Upload the digest
         uses: actions/upload-artifact@v4
         with:
-          name: digest-${{ matrix.image.name }}-${{ matrix.arch.name }}
+          name: digest-${{ matrix.arch.name }}
           path: ${{ runner.temp }}/digest/*
           if-no-files-found: error
           retention-days: 1
 
-  # Tags a version only when every image exists for both arches, so a partial
-  # build can never publish a version tag that an installed CLI would resolve.
-  images-manifest:
-    name: Tag images
-    needs: [version, images]
+  # Tags a version only when the image exists for both arches, so a partial
+  # build can never publish a version tag that an installed script would pull.
+  image-manifest:
+    name: Tag the image
+    needs: [version, image]
     runs-on: ubuntu-latest
     timeout-minutes: 15
     permissions:
@@ -233,127 +190,74 @@ jobs:
         working-directory: ${{ runner.temp }}/digests
         run: |
           set -eu
-          prefix="${REGISTRY}/${IMAGE_NAMESPACE}/hybro-"
-          for name in $(ls | sed -E 's/^digest-(.*)-(amd64|arm64)$/\1/' | sort -u); do
-            refs=""
-            for arch in amd64 arm64; do
-              digest=$(ls "digest-${name}-${arch}")
-              refs="$refs ${prefix}${name}@sha256:${digest}"
-            done
-            # shellcheck disable=SC2086  # $refs is a deliberate list of sources.
-            docker buildx imagetools create \
-              -t "${prefix}${name}:${VERSION}" \
-              -t "${prefix}${name}:latest" \
-              $refs
-            docker buildx imagetools inspect "${prefix}${name}:${VERSION}"
+          image="${REGISTRY}/${IMAGE_NAMESPACE}/hybro"
+          refs=""
+          for arch in amd64 arm64; do
+            digest=$(ls "digest-${arch}")
+            refs="$refs ${image}@sha256:${digest}"
           done
+          # shellcheck disable=SC2086  # $refs is a deliberate list of sources.
+          docker buildx imagetools create \
+            -t "${image}:${VERSION}" \
+            -t "${image}:latest" \
+            $refs
+          docker buildx imagetools inspect "${image}:${VERSION}"
 
-  # The CLI pins the stack to its own version, so nothing user-installable is
-  # published until every image of that version is tagged.
-  cli:
-    name: CLI ${{ matrix.platform }}
-    needs: [version, images-manifest]
-    runs-on: ${{ matrix.runner }}
+  # The script pulls the image of its own version, so nothing user-installable
+  # is published until that image is tagged.
+  assets:
+    name: Release assets
+    needs: [version, image-manifest]
+    runs-on: ubuntu-latest
     permissions:
       contents: write
-      id-token: write
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - platform: darwin-arm64
-            runner: macos-14
-          # Intel macOS runners are only published under explicit "-intel"
-          # labels; macos-13 was retired and a job requesting it queues forever
-          # rather than failing. darwin-x64 needs Intel to build its own arch.
-          - platform: darwin-x64
-            runner: macos-15-intel
-          - platform: linux-x64
-            runner: ubuntu-latest
-          - platform: linux-arm64
-            runner: ubuntu-24.04-arm
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
           ref: ${{ needs.version.outputs.ref }}
 
-      - name: Install uv
-        uses: astral-sh/setup-uv@v5
-        with:
-          enable-cache: true
-          cache-suffix: "cli-${{ matrix.platform }}"
-
-      - name: Set up Python 3.12
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-
-      - name: Set up Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: "20.19"
-          registry-url: "https://registry.npmjs.org"
-
-      - name: Build the frozen CLI
-        run: packaging/cli/build.sh
-
-      - name: Stage the npm platform package
-        run: packaging/npm/build.sh ${{ matrix.platform }}
-
-      # The release assets let a user run the CLI without npm, and give a
-      # Homebrew formula a stable download URL with a verifiable checksum.
-      # The executable sits inside `hybro/` so extraction yields the documented
-      # `hybro/hybro` path, and so it cannot drop a bare `hybro` file into
-      # whatever directory the user happens to be in.
-      - name: Package the executable for the release assets
+      # install.sh downloads `hybro` and checks it against SHA256SUMS.
+      - name: Stage the script, the installer, and SHA256SUMS
         run: |
           set -eu
-          version="${{ needs.version.outputs.value }}"
-          asset="hybro-${version}-${{ matrix.platform }}.tar.gz"
-          staging=packaging/cli/dist/asset
-          rm -rf "$staging"
-          mkdir -p "$staging/hybro"
-          cp packaging/cli/dist/hybro "$staging/hybro/hybro"
-          tar -czf "$asset" -C "$staging" hybro
-          # The archive's shape is part of the documented install path; a flat
-          # archive changes where the executable lands without failing anything.
-          tar -tzf "$asset" | grep -qx "hybro/hybro" || {
-            echo "$asset does not contain hybro/hybro" >&2
-            exit 1
-          }
-          shasum -a 256 "$asset" > "$asset.sha256"
+          mkdir -p dist
+          install -m 0755 scripts/hybro dist/hybro
+          install -m 0755 install.sh dist/install.sh
+          (cd dist && sha256sum hybro install.sh > SHA256SUMS)
+
+      # A 0.3 CLI's `hybro upgrade` prints download steps for
+      # hybro-<version>-<platform>.tar.gz and its .sha256, so 0.4.0 publishes
+      # those four archives, each holding the shell script at hybro/hybro.
+      # Later releases publish only the script, install.sh, and SHA256SUMS.
+      - name: Stage the 0.3 compatibility archives
+        if: needs.version.outputs.value == '0.4.0'
+        env:
+          VERSION: ${{ needs.version.outputs.value }}
+        run: |
+          set -eu
+          mkdir -p dist/archive/hybro
+          cp dist/hybro dist/archive/hybro/hybro
+          for platform in darwin-arm64 darwin-x64 linux-arm64 linux-x64; do
+            asset="hybro-${VERSION}-${platform}.tar.gz"
+            tar -czf "dist/$asset" -C dist/archive hybro
+            tar -tzf "dist/$asset" | grep -qx "hybro/hybro" || {
+              echo "$asset does not contain hybro/hybro" >&2
+              exit 1
+            }
+            (cd dist && sha256sum "$asset" > "$asset.sha256")
+          done
+          rm -r dist/archive
 
       - name: Upload release assets
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          version="${{ needs.version.outputs.value }}"
-          gh release upload "v${version}" \
-            "hybro-${version}-${{ matrix.platform }}.tar.gz" \
-            "hybro-${version}-${{ matrix.platform }}.tar.gz.sha256" \
-            --clobber
-
-      # Platform packages first: @hybroai/cli declares them as optional
-      # dependencies, so publishing it first would briefly resolve to nothing.
-      # npm versions are immutable and cannot be overwritten, so a retry after a
-      # partial failure must skip what already landed instead of failing on it.
-      - name: Publish the platform package
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
-          PACKAGE: "@hybroai/cli-${{ matrix.platform }}"
           VERSION: ${{ needs.version.outputs.value }}
-        run: |
-          if npm view "$PACKAGE@$VERSION" version >/dev/null 2>&1; then
-            echo "$PACKAGE@$VERSION is already published; skipping."
-          else
-            npm publish "packaging/npm/cli-${{ matrix.platform }}" \
-              --provenance --access public
-          fi
+        run: gh release upload "v${VERSION}" dist/* --clobber
 
   npm-cli:
     name: Publish @hybroai/cli
-    needs: [version, cli]
+    needs: [version, image-manifest]
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -367,13 +271,17 @@ jobs:
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: "20.19"
+          node-version: "24"
           registry-url: "https://registry.npmjs.org"
 
+      # The package's bin is the shell CLI itself, copied rather than linked.
+      - name: Stage scripts/hybro as the package bin
+        run: install -D -m 0755 scripts/hybro packaging/npm/cli/bin/hybro
+
       # --provenance uses this job's OIDC identity, so no token is committed here.
-      # Like the platform packages, the launcher must be skippable: npm refuses
-      # to overwrite a published version, so a retry has to detect what landed.
-      - name: Publish the launcher
+      # npm refuses to overwrite a published version, so a retry after a partial
+      # failure has to detect what already landed instead of failing on it.
+      - name: Publish the package
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
           VERSION: ${{ needs.version.outputs.value }}
@@ -385,20 +293,15 @@ jobs:
           fi
 
   verify:
-    name: Verify the published stack resolves
-    # Waits for every publisher: a missing npm package or a failed platform
-    # build must fail the release rather than pass an images-only check.
-    needs: [version, images-manifest, cli, npm-cli]
+    name: Verify the published release
+    # Waits for every publisher, so a missing npm package or release asset fails
+    # the release rather than passing an image-only check.
+    needs: [version, image-manifest, assets, npm-cli]
     runs-on: ubuntu-latest
     permissions:
       contents: read
       packages: read
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-        with:
-          ref: ${{ needs.version.outputs.ref }}
-
       - name: Set up Buildx
         uses: docker/setup-buildx-action@v3
 
@@ -409,92 +312,74 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      # Fails the release when a published image name does not match what
-      # render_release.py makes an installed CLI ask for.
-      - name: Confirm every stack image exists
+      - name: Confirm the image exists for both architectures
         env:
           VERSION: ${{ needs.version.outputs.value }}
         run: |
-          HYBRO_STACK_TAG="$VERSION" \
-            docker compose --env-file /dev/null -f docker-compose.release.yml \
-            config --format json > /tmp/stack.json
-          python3 - <<'PY' > /tmp/images.txt
-          import json
-          config = json.load(open("/tmp/stack.json"))
-          for image in sorted({s["image"] for s in config["services"].values() if "image" in s}):
-              print(image)
-          PY
-          status=0
-          while read -r image; do
-            case "$image" in
-              mongo:*|redis:*)
-                continue
-                ;;
-            esac
-            ok=0
-            for _ in 1 2 3 4 5 6 7 8 9 10; do
-              if docker buildx imagetools inspect "$image" >/dev/null 2>&1; then
-                ok=1
-                break
-              fi
-              sleep 15
-            done
-            if [ "$ok" -ne 1 ]; then
-              echo "Missing published image: $image" >&2
-              status=1
-            else
-              echo "Found $image"
-            fi
-          done < /tmp/images.txt
-          exit "$status"
-
-      # An npm publish can exit 0, sign a provenance statement, and still never
-      # reach the registry: v0.2.18's cli-darwin-x64 job reported success and
-      # printed "Publishing to https://registry.npmjs.org/", yet the version was
-      # absent from the registry afterwards. Nothing else here would notice,
-      # because the launcher and the three other platforms published fine.
-      #
-      # Check the published launcher's own optionalDependencies. That is exactly
-      # what `npm i -g @hybroai/cli` resolves next, and npm skips a missing
-      # optional dependency silently, so the user only sees the wrapper's
-      # "is not installed" message.
-      - name: Confirm every platform package resolves
-        env:
-          VERSION: ${{ needs.version.outputs.value }}
-        run: |
-          status=0
-          deps=""
+          image="${REGISTRY}/${IMAGE_NAMESPACE}/hybro:${VERSION}"
           for _ in 1 2 3 4 5 6 7 8 9 10; do
-            if deps=$(npm view "@hybroai/cli@$VERSION" optionalDependencies --json 2>/dev/null); then
+            if docker buildx imagetools inspect --raw "$image" > /tmp/manifest.json 2>/dev/null; then
               break
             fi
-            deps=""
             sleep 15
           done
-          if [ -z "$deps" ]; then
-            echo "@hybroai/cli@$VERSION does not resolve on the registry" >&2
-            exit 1
-          fi
-          echo "$deps" > /tmp/platforms.json
-          python3 - <<'PY' > /tmp/packages.txt
-          import json
-          for name, version in sorted(json.load(open("/tmp/platforms.json")).items()):
-              print(f"{name}@{version}")
-          PY
-          while read -r package; do
-            ok=0
-            for _ in 1 2 3 4 5 6 7 8 9 10; do
-              if npm view "$package" version >/dev/null 2>&1; then
-                ok=1
-                break
-              fi
-              sleep 15
-            done
-            if [ "$ok" -ne 1 ]; then
-              echo "Missing published npm package: $package" >&2
-              status=1
-            else
-              echo "Found $package"
+          for arch in amd64 arm64; do
+            if ! jq -e --arg arch "$arch" \
+              '.manifests[] | select(.platform.os == "linux" and .platform.architecture == $arch)' \
+              /tmp/manifest.json >/dev/null; then
+              echo "$image has no linux/$arch image" >&2
+              exit 1
             fi
-          done < /tmp/packages.txt
-          exit "$status"
+            echo "Found $image for linux/$arch"
+          done
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+
+      # An npm publish can exit 0, sign a provenance statement, and still never
+      # reach the registry (v0.2.18's cli-darwin-x64). Install the published
+      # package and the release asset, and require both to report this version.
+      - name: Confirm the npm package and the release asset agree
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERSION: ${{ needs.version.outputs.value }}
+        run: |
+          set -eu
+          expected="hybro $VERSION"
+          for _ in 1 2 3 4 5 6 7 8 9 10; do
+            if npm install --prefix /tmp/npm-cli "@hybroai/cli@$VERSION" >/dev/null 2>&1; then
+              break
+            fi
+            sleep 15
+          done
+          npm_version=$(/tmp/npm-cli/node_modules/.bin/hybro --version)
+          gh release download "v${VERSION}" --repo "$GITHUB_REPOSITORY" \
+            --pattern hybro --pattern SHA256SUMS --dir /tmp/asset
+          (cd /tmp/asset && grep ' hybro$' SHA256SUMS | sha256sum -c -)
+          chmod +x /tmp/asset/hybro
+          asset_version=$(/tmp/asset/hybro --version)
+          echo "npm: $npm_version; asset: $asset_version"
+          [ "$npm_version" = "$expected" ] && [ "$asset_version" = "$expected" ]
+
+      # A clean Ubuntu container with only curl, plus this runner's Docker CLI and
+      # socket because install.sh requires Docker and pulls the image.
+      # install.sh comes from this release's own assets, so a retry for an older
+      # version checks that version's installer; install.sh itself reads
+      # releases/latest, which is this release once published. As root, install.sh picks /usr/local/bin, so the check resolves hybro
+      # through PATH.
+      - name: Install with install.sh in a clean Ubuntu container
+        env:
+          VERSION: ${{ needs.version.outputs.value }}
+        run: |
+          docker run --rm \
+            -e VERSION -e GITHUB_REPOSITORY \
+            -v /var/run/docker.sock:/var/run/docker.sock \
+            -v "$(command -v docker)":/usr/bin/docker:ro \
+            ubuntu:24.04 sh -euc '
+              apt-get update -qq
+              apt-get install -y -qq curl ca-certificates >/dev/null
+              curl -fsSL "https://github.com/$GITHUB_REPOSITORY/releases/download/v$VERSION/install.sh" | sh
+              test "$(hybro --version)" = "hybro $VERSION"
+            '

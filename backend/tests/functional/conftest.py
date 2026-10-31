@@ -3,7 +3,7 @@
 import asyncio
 import os
 import time
-from collections.abc import AsyncGenerator
+from collections.abc import AsyncGenerator, Mapping
 
 import httpx
 import pytest
@@ -11,32 +11,27 @@ import pytest
 API_BASE_URL = os.environ.get("HYBRO_API_URL", "http://localhost:8000/api/v1")
 DEFAULT_TRAVEL_PLANNER_ID = "575ee896f1e24823943a1e98aee111c9"
 DEFAULT_WEATHER_ID = "c13e753ad4f74c25bfb684de5572622a"
+FUNCTIONAL_SKIP_REASON = (
+    "functional tests call a live Hybro and its agents; set "
+    "HYBRO_FORCE_FUNCTIONAL_TESTS=1 or HYBRO_API_URL to run them"
+)
 
 
-def _is_backend_available() -> bool:
-    """Check if live backend service is reachable."""
-    try:
-        resp = httpx.get(
-            f"{API_BASE_URL}/rooms",
-            timeout=1.0,
-        )
-        return resp.status_code in {200, 401, 403, 405, 422}
-    except Exception:
-        return False
+def functional_tests_enabled(environ: Mapping[str, str]) -> bool:
+    """Opt-in only: a reachable localhost may be someone's real Hybro."""
+    return environ.get("HYBRO_FORCE_FUNCTIONAL_TESTS") == "1" or bool(
+        environ.get("HYBRO_API_URL")
+    )
 
 
 def pytest_collection_modifyitems(config, items):
-    """Automatically skip functional tests if live backend service is unreachable (e.g. offline CI)."""
-    if os.environ.get("HYBRO_FORCE_FUNCTIONAL_TESTS") == "1":
+    """Skip functional tests unless the run explicitly targets a live Hybro."""
+    if functional_tests_enabled(os.environ):
         return
-
-    if not _is_backend_available():
-        skip_marker = pytest.mark.skip(
-            reason="Live Hybro backend service is not running (set HYBRO_FORCE_FUNCTIONAL_TESTS=1 or start services)"
-        )
-        for item in items:
-            if "functional" in item.keywords:
-                item.add_marker(skip_marker)
+    skip_marker = pytest.mark.skip(reason=FUNCTIONAL_SKIP_REASON)
+    for item in items:
+        if "functional" in item.keywords:
+            item.add_marker(skip_marker)
 
 
 @pytest.fixture

@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import asyncio
 import fcntl
+import hashlib
 import json
 import math
 import os
@@ -185,14 +186,6 @@ def parse_config(data: bytes) -> RuntimeConfig:
                 "backend",
                 "frontend",
                 "image_size",
-                "instances",
-                "release",
-                "dev",
-                "ports",
-                "mcp",
-                "mongo",
-                "redis",
-                "agents",
             }
         )
         errors = []
@@ -229,7 +222,6 @@ SERVICE_KEYS = frozenset(
         "clerk_webhook_secret",
         "mongodb_url",
         "redis_url",
-        "default_agent_registrar_token",
         "default_agent_llm_token",
     }
 )
@@ -239,7 +231,9 @@ SERVICE_KEYS = frozenset(
 # accepted on read, never offered by `config secret` or migration, and dropped
 # the next time ensure_service_credentials rewrites the file. Remove this set in
 # the next major release.
-RETIRED_SERVICE_KEYS = frozenset({"mongodb_password", "webhook_signing_key"})
+RETIRED_SERVICE_KEYS = frozenset(
+    {"mongodb_password", "webhook_signing_key", "default_agent_registrar_token"}
+)
 
 
 def _auth_object(data: bytes | None) -> dict[str, object]:
@@ -283,8 +277,36 @@ def _credential_bytes(
 
 @dataclass(frozen=True, slots=True)
 class RuntimeState:
+    """One consistent pair.
+
+    ``authentication`` is None when no Provider is configured, or when a
+    configured Provider's credential is missing or mismatched; the latter also
+    carries the safe ``credential_error`` reason.
+    """
+
     config: RuntimeConfig
-    authentication: ResolvedCredential
+    authentication: ResolvedCredential | None = None
+    credential_error: str | None = None
+
+
+# (inode, size, mtime_ns) of config.json and auth.json; None for a missing file.
+# (inode, size, mtime_ns, mode) per file; the mode makes a chmod visible too.
+_FileEntry = tuple[int, int, int, int]
+FileSignature = tuple[_FileEntry | None, _FileEntry | None]
+
+
+@dataclass(frozen=True, slots=True)
+class RuntimeSnapshot:
+    """A loaded pair plus what identifies the files it was read from.
+
+    ``signature`` is taken before reading, so a later write always differs from
+    it. ``digest`` identifies the content, so a touch without a change does not
+    count as a new pair.
+    """
+
+    state: RuntimeState
+    signature: FileSignature
+    digest: str
 
 
 class RuntimeConfigStore:
@@ -372,8 +394,10 @@ class RuntimeConfigStore:
     ) -> OAuthCredential:
         """Reread, serialize refresh and persist rotations without changing revision.
 
-        Config/auth/account changes require a backend restart. Another worker's
-        token rotation for the same account is accepted; setup changes are not.
+        ``expected`` is the caller's current pair. Only a Provider, model, or
+        account change rejects the refresh; the caller then reloads that pair.
+        Restart-only settings and another worker's token rotation for the same
+        account are accepted.
         """
 
         def snapshot() -> tuple[bytes, bytes, OAuthCredential]:
@@ -383,20 +407,19 @@ class RuntimeConfigStore:
                     "OAuth configuration missing; rerun setup."
                 )
             config = parse_config(config_data)
-            credential = resolve_credential(
+            resolved = resolve_credential(
                 config, parse_credential(auth_data), environment
-            ).credential
-            # Compare field data only: which retired keys a parse dropped is not
-            # a selection change, and host ports mean nothing to the backend, so
-            # editing them from the other instance must not break refresh here.
+            )
+            credential = resolved.credential if resolved is not None else None
+            # Only the selection and account matter: settings that apply after a
+            # restart, and edits from another instance, must not break refresh.
             if (
-                config.model_dump(exclude={"instances"})
-                != expected.model_dump(exclude={"instances"})
+                (config.provider, config.models) != (expected.provider, expected.models)
                 or not isinstance(credential, OAuthCredential)
                 or credential.account_id != account
             ):
                 raise RuntimeConfigurationError(
-                    "OAuth selection/account changed; restart backend."
+                    "OAuth selection/account changed; retry with the saved setup."
                 )
             return config_data, auth_data, credential
 
@@ -476,30 +499,65 @@ class RuntimeConfigStore:
         finally:
             os.close(directory_fd)
 
-    def load(self, environment: Mapping[str, str]) -> RuntimeState:
-        """Load one consistent pair; no Provider/network verification occurs here."""
+    def signature(self) -> FileSignature:
+        """Cheap change check without the lock; a reader confirms by content."""
+
+        def entry(name: str) -> _FileEntry | None:
+            try:
+                metadata = os.stat(self.home / name, follow_symlinks=False)
+            except FileNotFoundError:
+                return None
+            return (
+                metadata.st_ino,
+                metadata.st_size,
+                metadata.st_mtime_ns,
+                metadata.st_mode,
+            )
+
         try:
-            with self._locked():
-                config_data = self._read("config.json")
-                if config_data is None:
-                    raise RuntimeConfigurationError(
-                        "Missing config.json; run hybro setup (or hybro config migrate for an existing config.yaml)."
-                    )
-                config = parse_config(config_data)
-                auth_data = self._read("auth.json")
-                stored = parse_credential(auth_data) if auth_data is not None else None
-                return RuntimeState(config, resolve_credential(config, stored, {}))
+            return entry("config.json"), entry("auth.json")
         except OSError:
             raise RuntimeConfigurationError(
                 "Cannot read runtime configuration."
             ) from None
 
+    def load(self, environment: Mapping[str, str]) -> RuntimeState:
+        """Load one consistent pair; no Provider/network verification occurs here.
+
+        A missing config.json is an unconfigured document. A configured Provider
+        whose credential is missing or mismatched loads without a credential.
+        """
+        return self.load_snapshot().state
+
+    def load_snapshot(self) -> RuntimeSnapshot:
+        try:
+            with self._locked():
+                signature = self.signature()
+                config_data = self._read("config.json")
+                auth_data = self._read("auth.json")
+                config = (
+                    parse_config(config_data)
+                    if config_data is not None
+                    else RuntimeConfig()
+                )
+                stored = parse_credential(auth_data) if auth_data is not None else None
+                try:
+                    state = RuntimeState(config, resolve_credential(config, stored, {}))
+                except RuntimeConfigurationError as exc:
+                    state = RuntimeState(config, None, str(exc))
+        except OSError:
+            raise RuntimeConfigurationError(
+                "Cannot read runtime configuration."
+            ) from None
+        digest = hashlib.sha256()
+        for data in (config_data, auth_data):
+            digest.update(b"-" if data is None else b"+%d:" % len(data) + data)
+        return RuntimeSnapshot(state, signature, digest.hexdigest())
+
     def read_config(self) -> RuntimeConfig:
         with self._locked():
             data = self._read("config.json")
-            if data is None:
-                raise RuntimeConfigurationError("Missing config.json; run hybro setup.")
-            return parse_config(data)
+            return parse_config(data) if data is not None else RuntimeConfig()
 
     def read_service_credentials(self) -> dict[str, str]:
         with self._locked():
@@ -518,10 +576,7 @@ class RuntimeConfigStore:
                 for k, v in value.get("services", {}).items()
                 if k not in RETIRED_SERVICE_KEYS
             }
-            for key in (
-                "default_agent_registrar_token",
-                "default_agent_llm_token",
-            ):
+            for key in ("default_agent_llm_token",):
                 if not services.get(key):
                     services[key] = secrets.token_hex(32)
                 if len(services[key].encode()) < 32:
@@ -542,20 +597,15 @@ class RuntimeConfigStore:
         validate: Callable[[RuntimeConfig], None] | None = None,
     ) -> None:
         """Set one value; ``validate`` sees the candidate before it is written."""
-        if not path or path[0] not in {
-            "backend",
-            "frontend",
-            "image_size",
-            "instances",
-        }:
+        if not path or path[0] not in {"backend", "frontend", "image_size"}:
             raise RuntimeConfigurationError(
-                "Use hybro setup to change Provider/model selection."
+                "Change the Provider and models in Settings, Model provider."
             )
         with self._locked():
             previous = self._read("config.json")
-            if previous is None:
-                raise RuntimeConfigurationError("Missing config.json; run hybro setup.")
-            document = _json_object(previous)
+            document = (
+                _json_object(previous) if previous is not None else {"version": 1}
+            )
             from common.config.loader import REMOVED_FIELDS, strip_removed_fields
 
             if path[0] == "backend" and len(path) == 2 and path[1] in REMOVED_FIELDS:
@@ -572,6 +622,7 @@ class RuntimeConfigStore:
                 target = child
             target[path[-1]] = value
             # A retired key is dropped on read, so it is not written back either.
+            document.pop("instances", None)
             backend = document.get("backend")
             if isinstance(backend, dict):
                 document["backend"], _ = strip_removed_fields(backend)
@@ -616,10 +667,14 @@ class RuntimeConfigStore:
         Environment keys are setup inputs only; persist the verified credential.
         Setup supplies expected_stored (including None for an absent credential)
         to reject changes since verification, before either writing or no-op.
-        This is not a crash-atomic two-file transaction: load fails closed when a
-        crash leaves a missing or identity-mismatched pair; rerun setup to repair.
+        This is not a crash-atomic two-file transaction: a crash can leave a
+        missing or identity-mismatched pair, which load reports as a credential
+        error without a credential; saving setup again repairs it.
         """
-        credential = resolve_credential(config, credential, environment).credential
+        resolved = resolve_credential(config, credential, environment)
+        if resolved is None:
+            raise RuntimeConfigurationError("Select a Provider and models to save.")
+        credential = resolved.credential
         try:
             with self._locked():
                 old_config = self._read("config.json")
@@ -639,11 +694,11 @@ class RuntimeConfigStore:
                             "backend": previous.backend,
                             "frontend": previous.frontend,
                             "image_size": previous.image_size,
-                            "instances": previous.instances,
                         }
                     )
                 if (
-                    config.provider.id == "openai"
+                    config.provider is not None
+                    and config.provider.id == "openai"
                     and config.provider.auth == "api_key"
                     and environment.get("OPENAI_BASE_URL")
                 ):

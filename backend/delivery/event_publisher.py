@@ -52,9 +52,15 @@ class EventPublisherImpl:
         instance_id: str,
         metrics: MetricsCollector | None = None,
         room_events: RoomEventStore | None = None,
+        single_instance: bool = False,
     ) -> None:
         self.sse_transport = sse_transport
         self.event_bus = event_bus
+        # Without Redis this process is the whole transport (startup refuses
+        # multiple workers), so a local broadcast with no subscriber is accepted
+        # the way a Redis publish with no subscriber is; clients replay the
+        # persisted frame when they connect.
+        self.single_instance = single_instance
         self.deduplicator = deduplicator
         self.config = config
         self._now = now
@@ -253,9 +259,12 @@ class EventPublisherImpl:
             local_count = await self.sse_transport.broadcast_frame_to_room(
                 conversation_id, frame
             )
+            if self.single_instance:
+                return isinstance(local_count, int)
             local_delivered = isinstance(local_count, int) and local_count > 0
         except Exception:
-            pass
+            if self.single_instance:
+                return False
 
         remote_delivered = False
         with trace_id_context(trace_id):

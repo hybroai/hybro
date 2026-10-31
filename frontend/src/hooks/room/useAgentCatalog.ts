@@ -4,7 +4,7 @@ import { getAllAgents } from '@/lib/api/agent'
 import { SYSTEM_AGENTS } from '@/lib/system-agents'
 import type { Agent } from '@/lib/types/agent'
 
-const AGENT_CATALOG_KEY = ['agents', 'all'] as const
+export const AGENT_CATALOG_KEY = ['agents', 'all'] as const
 
 export function useCachedAgentCatalog(): Agent[] | undefined {
   return useQuery<Agent[]>({
@@ -69,8 +69,9 @@ export function useAgentCatalog(userId?: string, getToken?: () => Promise<string
     const agents = allAgentsQuery.data
     if (!agents) return undefined
     const found = agents.find(a => a.agent_id === agentId)
-    if (found) return found.source
-    return undefined
+    if (!found) return undefined
+    // Message badges know only where an agent runs; sample agents run with Hybro.
+    return found.source === 'bundled' ? 'local' : found.source
   }, [allAgentsQuery.data])
 
   const getAgentIconUrl = useCallback((agentId: string | undefined): string | null => {

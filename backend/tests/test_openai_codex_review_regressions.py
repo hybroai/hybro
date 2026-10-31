@@ -18,10 +18,15 @@ from common.config.runtime_config import ResolvedCredential, RuntimeConfiguratio
 from common.config.runtime_store import RuntimeConfigStore, RuntimeState
 from common.observability import bind_log_context
 from llm_gateway.config import LLMGatewayConfig
-from llm_gateway.errors import LLMProviderFailure
+from llm_gateway.errors import LLMProviderFailure, UnsupportedConfiguredProvider
 from llm_gateway.gateway import LLMGatewayImpl
 from llm_gateway.model_registry import ModelRegistryImpl
-from tests.fakes.llm_runtime import oauth_config, oauth_credential, runtime_state
+from tests.fakes.llm_runtime import (
+    oauth_config,
+    oauth_credential,
+    provider_runtime,
+    runtime_state,
+)
 from tests.test_openai_codex_provider import (
     provider,
     terminal,
@@ -34,9 +39,11 @@ from tests.test_openai_oauth import Body
 
 def gateway_for(monkeypatch, adapter):
     monkeypatch.setattr(
-        "llm_gateway.gateway.load_optional_setup",
-        lambda _: RuntimeState(
-            oauth_config(), ResolvedCredential("stored", oauth_credential())
+        "llm_gateway.gateway.load_provider_runtime",
+        lambda: provider_runtime(
+            RuntimeState(
+                oauth_config(), ResolvedCredential("stored", oauth_credential())
+            )
         ),
     )
     return LLMGatewayImpl(
@@ -329,7 +336,8 @@ async def test_setup_precedes_legacy_validation_in_original_composition(
         supervisor_model="",
     )
     if not configured:
-        with pytest.raises(RuntimeConfigurationError, match="hybro setup"):
+        # No setup is required at boot; only then do the legacy hints count.
+        with pytest.raises(UnsupportedConfiguredProvider):
             LLMGatewayConfig.from_settings(settings)
         return
     config = LLMGatewayConfig.from_settings(settings)
@@ -403,7 +411,7 @@ def test_api_key_setup_also_overrides_invalid_legacy_provider(
         providers={selected: adapter},
     )
     resolved, actual = gateway._resolve_provider(
-        "lead_ai_model", provider_hint="deepseek"
+        "lead_ai_model", provider_hint="deepseek", pair=gateway._runtime.current
     )
     assert resolved.model_id == model and resolved.provider == selected
     assert actual is adapter

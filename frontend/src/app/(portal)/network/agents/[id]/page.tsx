@@ -78,7 +78,7 @@ import { getModeIcon, getModeLabel } from "@/lib/agent-icon-utils"
 import { AgentSourceBadge } from "@/components/agent-source-badge"
 import { getAgentAvatarUri } from "@/lib/agent-avatar"
 import { StatusIndicator } from "@/components/status-indicator"
-import { agentStatusView } from "@/lib/status"
+import { agentStatusView, inactiveReasonText } from "@/lib/status"
 import { AddToSubnetMenu } from "@/components/networks/add-to-subnet-menu"
 import { SubnetDialog } from "@/components/subnets/subnet-dialog"
 import { useNetworks } from "@/hooks/useNetworks"
@@ -304,6 +304,7 @@ export default function ConsumerAgentProfilePage() {
   const card = agent
   const memberOf = subnets.networks.filter(network => network.agents.includes(agent.agent_id))
   const isLocal = agent.source === "local"
+  const waitingForSetup = agent.status === "inactive" ? inactiveReasonText(agent.inactive_reason) : null
   const canUnregister = !isLocal && userId === agent.provider_id
   const isVisibleLocal = isLocal ? agent.status === "active" : true
 
@@ -387,14 +388,14 @@ export default function ConsumerAgentProfilePage() {
                 <h1 className="text-2xl font-semibold tracking-tight">{card.name}</h1>
                 <div className="flex flex-col items-start gap-1.5">
                   <StatusIndicator
-                    view={agentStatusView(agent.status)}
+                    view={agentStatusView(agent.status, agent.inactive_reason)}
                   />
                   <Badge variant="badgeMuted" className="h-6 gap-1.5 pl-1.5 pr-2.5 py-0 font-medium">
                     <AgentSourceBadge
                       source={agent.source}
                       className="h-3.5 w-3.5"
                     />
-                    {isLocal ? "Local" : "Remote"}
+                    {isLocal ? "Local" : agent.source === "bundled" ? "Sample" : "Remote"}
                   </Badge>
                 </div>
               </div>
@@ -403,6 +404,7 @@ export default function ConsumerAgentProfilePage() {
           </div>
 
           <p className="text-muted-foreground leading-relaxed max-w-2xl">{card.description}</p>
+          {waitingForSetup ? <p className="text-sm text-status-warning">{waitingForSetup}</p> : null}
 
           {/* CTA inline with hero */}
           <div ref={ctaRef} className="flex flex-wrap items-center gap-3 pt-1">
@@ -420,7 +422,7 @@ export default function ConsumerAgentProfilePage() {
                   </span>
                 </TooltipTrigger>
                 {isChatDisabled && (
-                  <TooltipContent>Agent is inactive</TooltipContent>
+                  <TooltipContent>{waitingForSetup ?? "Agent is inactive"}</TooltipContent>
                 )}
               </Tooltip>
             </TooltipProvider>

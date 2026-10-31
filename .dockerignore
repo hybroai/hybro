@@ -1,0 +1,24 @@
+# Root build context of the single image (Dockerfile). Never copy local
+# credentials, environments, or build output into image layers.
+.git
+.github
+.claude
+**/.env
+**/.env.*
+**/.venv
+**/__pycache__
+**/*.pyc
+**/.pytest_cache
+**/.ruff_cache
+**/node_modules
+frontend/.next
+frontend/coverage
+frontend/test-results
+frontend/playwright-report
+backend/tests
+backend/docs
+backend/logs
+docs
+assets
+public
+packaging

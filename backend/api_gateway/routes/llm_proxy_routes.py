@@ -28,7 +28,7 @@ from llm_gateway.agent_proxy import (
     completion,
     turn_request,
 )
-from llm_gateway.errors import LLMProviderConfigurationError
+from llm_gateway.errors import LLMProviderConfigurationError, ProviderNotConfigured
 from llm_gateway.image_types import (
     MAX_IMAGE_BYTES,
     GatewayImage,
@@ -50,6 +50,11 @@ def _error(message: str, code: str, status: int) -> JSONResponse:
     )
 
 
+def _not_configured(exc: ProviderNotConfigured) -> JSONResponse:
+    """The same code the API reports, so an agent can name the missing setup."""
+    return _error(str(exc), exc.code, 409)
+
+
 class _PrivateRoute(APIRoute):
     def get_route_handler(self):
         original = super().get_route_handler()
@@ -64,9 +69,11 @@ class _PrivateRoute(APIRoute):
                 return _error(
                     "Invalid or unsupported proxy request.", "invalid_request", 400
                 )
+            except ProviderNotConfigured as exc:
+                return _not_configured(exc)
             except LLMProviderConfigurationError:
                 return _error(
-                    "Configure the required gateway model with hybro setup.",
+                    "Configure the required gateway model in Settings, Model provider.",
                     "not_configured",
                     503,
                 )
@@ -99,7 +106,9 @@ router = APIRouter(
     route_class=_PrivateRoute,
     responses={
         "default": {
-            "description": "Rejected request or gateway failure (400/401/413/429/502/503)."
+            "description": (
+                "Rejected request or gateway failure (400/401/409/413/429/502/503)."
+            )
         }
     },
 )
@@ -121,6 +130,14 @@ def _correlation(request: Request, explicit: str | None = None) -> str:
 
 
 def _failure(exc: Exception) -> dict:
+    if isinstance(exc, ProviderNotConfigured):
+        return {
+            "error": {
+                "message": str(exc),
+                "type": "invalid_request_error",
+                "code": exc.code,
+            }
+        }
     return {
         "error": {
             "message": "Gateway call failed; " + _exception_diagnostic(exc).describe(),
@@ -151,20 +168,16 @@ async def _sse(chunks: AsyncIterator[dict], include_usage: bool) -> AsyncIterato
 async def chat_completions(body: ChatRequest, request: Request, proxy: ProxyDependency):
     correlation = _correlation(request, body.client_request_id)
     try:
-        proxy.text_model()
-    except ValueError:
-        return _error(
-            "Run hybro setup before using default-agent inference.",
-            "not_configured",
-            503,
-        )
+        selection = await proxy.select_text()
+    except ProviderNotConfigured as exc:
+        return _not_configured(exc)
     try:
         turn = turn_request(
-            body, correlation, max_output_tokens=proxy.max_output_tokens()
+            body, correlation, max_output_tokens=selection.model.max_output_tokens
         )
     except (ValueError, TypeError):
         return _error("Invalid message or tool history.", "invalid_request", 400)
-    chunks = proxy.chat_chunks(turn)
+    chunks = proxy.chat_chunks(turn, selection)
     headers = {"X-Client-Request-ID": correlation, "Cache-Control": "no-store"}
     if body.stream:
         return StreamingResponse(
@@ -177,7 +190,8 @@ async def chat_completions(body: ChatRequest, request: Request, proxy: ProxyDepe
     try:
         return JSONResponse(await completion(chunks), headers=headers)
     except Exception as exc:
-        return JSONResponse(_failure(exc), status_code=502, headers=headers)
+        status = 409 if isinstance(exc, ProviderNotConfigured) else 502
+        return JSONResponse(_failure(exc), status_code=status, headers=headers)
 
 
 class ImageGeneration(ProxyInput):

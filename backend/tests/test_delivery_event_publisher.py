@@ -127,6 +127,7 @@ def make_publisher(
     metrics=None,
     config=None,
     room_events=None,
+    single_instance=False,
 ):
     return EventPublisherImpl(
         sse_transport=transport or FakeTransport(),
@@ -137,6 +138,7 @@ def make_publisher(
         instance_id="worker-1",
         metrics=metrics,
         room_events=room_events,
+        single_instance=single_instance,
     )
 
 
@@ -601,6 +603,44 @@ async def test_zero_local_subscribers_and_no_broker_stays_pending():
 
     assert await publisher.emit_checked(event) == DeliveryEmitStatus.FAILED
     assert redis.values == {}
+
+
+def _hitl_request() -> HITLRequestEvent:
+    return HITLRequestEvent(
+        conversation_id="room-1",
+        request_id="travel_dates",
+        message_id="agent-message",
+        source="agent",
+        prompt="When do you travel?",
+        prompt_type="text",
+        interaction_id="interaction-1",
+        question_count=1,
+        question_index=1,
+    )
+
+
+@pytest.mark.asyncio
+async def test_single_instance_accepts_a_frame_with_no_local_subscriber():
+    # A session started through MCP has no browser on the room; the persisted
+    # HITL request must still count as delivered so the Run can park.
+    transport = FakeTransport()
+    transport.delivered_count = 0
+    bus = FakeBus()
+    bus.sse_accepted = False
+    publisher = make_publisher(transport=transport, bus=bus, single_instance=True)
+
+    assert await publisher.emit_checked(_hitl_request()) == DeliveryEmitStatus.DELIVERED
+    assert len(transport.frames) == 1
+    assert bus.sse == []
+
+
+@pytest.mark.asyncio
+async def test_single_instance_reports_a_failed_local_broadcast():
+    transport = FakeTransport()
+    transport.error = RuntimeError("transport down")
+    publisher = make_publisher(transport=transport, single_instance=True)
+
+    assert await publisher.emit_checked(_hitl_request()) == DeliveryEmitStatus.FAILED
 
 
 @pytest.mark.asyncio

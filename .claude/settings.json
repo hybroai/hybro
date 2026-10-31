@@ -1,0 +1,38 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(git status:*)",
+      "Bash(git diff:*)",
+      "Bash(git log:*)",
+      "Bash(git show:*)",
+      "Bash(git branch:*)",
+      "Bash(git worktree list:*)",
+      "Bash(uv run pytest:*)",
+      "Bash(uv run ruff:*)",
+      "Bash(uv sync:*)",
+      "Bash(uv run --project backend:*)",
+      "Bash(uv run --no-project --with pytest pytest:*)",
+      "Bash(npm run lint:*)",
+      "Bash(npm run test:*)",
+      "Bash(npm run build:*)",
+      "Bash(npm ci:*)",
+      "Bash(npx playwright test:*)",
+      "Bash(npx tsc:*)",
+      "Bash(./scripts/hybro:*)",
+      "Bash(scripts/hybro:*)",
+      "Bash(scripts/image_ci_cases.sh:*)",
+      "Bash(shellcheck:*)",
+      "Bash(docker ps:*)",
+      "Bash(docker logs:*)",
+      "Bash(docker compose ps:*)",
+      "Bash(docker compose logs:*)",
+      "Bash(curl -s http://localhost:*)",
+      "Bash(curl -s http://127.0.0.1:*)"
+    ],
+    "deny": [
+      "Bash(git push --force:*)",
+      "Bash(docker volume rm:*)",
+      "Bash(docker system prune:*)"
+    ]
+  }
+}

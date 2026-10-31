@@ -16,7 +16,7 @@ import { cn } from '@/lib/utils'
 import type { AgentGroup } from '@/lib/types/agent-group'
 import type { NetworkAgent } from './types'
 
-const SOURCE_LABEL = { cloud: 'Remote', local: 'Local', hub: 'Hub' } as const
+const SOURCE_LABEL = { cloud: 'Remote', local: 'Local', hub: 'Hub', bundled: 'Sample' } as const
 const COLUMNS = 'grid grid-cols-[minmax(0,2fr)_6.5rem_minmax(0,1.4fr)_4.5rem_6rem] items-center gap-3'
 
 export function StructureView({ agents, networks, state, onChange, details }: {
@@ -149,7 +149,7 @@ export function StructureView({ agents, networks, state, onChange, details }: {
                       <span className="block truncate text-xs text-muted-foreground">{row.agent.description || 'No description yet'}</span>
                     </span>
                   </span>
-                  <StatusIndicator view={agentStatusView(row.agent.status)} />
+                  <StatusIndicator view={agentStatusView(row.agent.status, row.agent.inactiveReason)} />
                   <span className="flex min-w-0 flex-wrap gap-1">
                     {row.subnets.length ? row.subnets.map(network => <Badge key={network.group_id} variant="badgeMuted" className="max-w-full shrink truncate" title={network.name}>{network.name}</Badge>) : <span className="text-muted-foreground">—</span>}
                   </span>

@@ -1,14 +1,10 @@
 #!/usr/bin/env python3
 """Generate packaging/frontend/public-config.json from the backend schema.
 
-The published frontend image serves browser settings per request, but its
-server-side API rewrite (`api_prefix`) and the backend URL are compiled into the
-image at build time. This file is the projection used for that build, and it
-carries the defaults a local install needs.
-
-Writing it by hand would let the image's routing drift from what the CLI
-produces for a default configuration, so this script derives it from the same
-pydantic model the CLI uses and CI verifies the checked-in file.
+The single image's entrypoint computes the projection at startup. Running the
+frontend outside the image (`npm run dev` against a backend on port 8000) needs
+one in `HYBRO_FRONTEND_CONFIG`; this file is the default for that, derived from
+the same pydantic model so it cannot drift, and CI verifies the checked-in file.
 
 Usage:
     python packaging/frontend/render_public_config.py           # rewrite the file
@@ -32,7 +28,7 @@ from common.config.loader import FrontendSettings, Settings  # noqa: E402
 
 
 def projection() -> str:
-    """The public projection the CLI builds for a default configuration."""
+    """The public projection for a default configuration and a host backend."""
     public = FrontendSettings.model_validate({"api_prefix": Settings().api_prefix})
     return public.model_dump_json() + "\n"
 

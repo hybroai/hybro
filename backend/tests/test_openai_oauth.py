@@ -3,7 +3,6 @@
 import asyncio
 import base64
 import hashlib
-import io
 import json
 import time
 import traceback
@@ -16,8 +15,6 @@ import pytest
 from common.config.runtime_config import RuntimeConfigurationError
 from common.config.runtime_store import RuntimeConfigStore
 from llm_gateway import openai_oauth as oauth
-from llm_gateway.catalog import model_choices, validate_models
-from llm_gateway.setup_cli import SetupConsole, main
 from tests.fakes.llm_runtime import oauth_config, oauth_credential, runtime_state
 
 
@@ -419,79 +416,6 @@ async def test_refresh_detects_noncooperating_write_during_network(tmp_path):
     assert store.read_stored_credential() == initial
 
 
-def test_cli_oauth_login_verify_save_noop_and_no_image_or_base_url(
-    tmp_path, monkeypatch
-):
-    credential, reports = oauth_credential(), []
-    login = AsyncMock(return_value=credential)
-    monkeypatch.setattr(oauth, "login", login)
-    verifier = AsyncMock()
-    args = [
-        "--provider",
-        "openai",
-        "--auth",
-        "oauth",
-        "--text-model",
-        "gpt-6-sol",
-        "--image-model",
-        "none",
-    ]
-    kwargs = dict(
-        environment={
-            "HOME": str(tmp_path),
-            "OPENAI_BASE_URL": "https://untrusted.invalid",
-        },
-        catalog=model_choices,
-        verifier=verifier,
-        console=SetupConsole(
-            lambda title, options: pytest.fail(title),
-            lambda: pytest.fail("secret"),
-            reports.append,
-        ),
-    )
-    assert main(args, **kwargs) == 0
-    assert main(args, **kwargs) == 0
-    login.assert_awaited_once()
-    assert verifier.await_args.args[2] is None
-    state = RuntimeConfigStore(tmp_path / ".hybro").load({})
-    assert (
-        state.authentication.credential == credential
-        and state.config.models.image is None
-    )
-    assert "Unchanged; no files rewritten." in reports
-    assert not model_choices(oauth_config().provider).image
-    assert validate_models(oauth_config()).model_id == "gpt-6-sol"
-
-
-@pytest.mark.parametrize("failure", [asyncio.CancelledError, RuntimeConfigurationError])
-def test_cli_login_failure_saves_nothing(tmp_path, monkeypatch, failure):
-    monkeypatch.setattr(oauth, "login", AsyncMock(side_effect=failure))
-    error = io.StringIO()
-    result = main(
-        [
-            "--provider",
-            "openai",
-            "--auth",
-            "oauth",
-            "--text-model",
-            "gpt-6-sol",
-            "--image-model",
-            "none",
-        ],
-        environment={"HOME": str(tmp_path)},
-        catalog=model_choices,
-        verifier=AsyncMock(),
-        console=SetupConsole(
-            lambda title, options: pytest.fail(title),
-            lambda: pytest.fail("secret"),
-            lambda _: None,
-        ),
-        error_output=error,
-    )
-    assert result == (130 if failure is asyncio.CancelledError else 1)
-    assert not (tmp_path / ".hybro/config.json").exists()
-
-
 async def test_async_lock_wait_is_cancelable_and_off_event_loop(tmp_path, monkeypatch):
     import threading
 
@@ -624,3 +548,57 @@ async def test_login_authorization_denial_is_immediate_and_closes(monkeypatch):
         await oauth.login(report, transport=token_transport(calls))
     await asyncio.gather(*pending)
     assert server.closed and writer.closed and not calls
+
+
+@pytest.mark.parametrize(
+    ("result", "status", "title"),
+    [
+        ("success", b"200 OK", "Signed in with ChatGPT"),
+        ("denied", b"400 Bad Request", "Sign-in cancelled"),
+        ("invalid", b"400 Bad Request", "This sign-in link has expired"),
+    ],
+)
+def test_callback_page_is_self_contained_html(result, status, title):
+    head, page = oauth._callback_response(result).split(b"\r\n\r\n", 1)
+    lines = head.split(b"\r\n")
+    assert lines[0] == b"HTTP/1.1 " + status
+    assert b"Content-Type: text/html; charset=utf-8" in lines
+    assert b"Cache-Control: no-store" in lines
+    assert f"Content-Length: {len(page)}".encode() in lines
+    html = page.decode()
+    assert html.startswith("<!doctype html>") and f"<h1>{title}</h1>" in html
+    assert "· ChatGPT sign-in" in html
+    # Inline only: no fonts, scripts, links, buttons or remote requests.
+    for marker in ("http", "<script", "<link", "<button", "@import", "url("):
+        assert marker not in html
+
+
+async def test_listener_serves_html_for_each_callback_result():
+    pages, codes, denied = [], [], []
+    first = oauth.CallbackListener("s" * 32, codes.append, lambda: denied.append(1))
+    second = oauth.CallbackListener("t" * 32, codes.append, lambda: denied.append(1))
+
+    async def send(listener, target):
+        reader, writer = asyncio.StreamReader(), Writer()
+        reader.feed_data(f"GET {target} HTTP/1.1\r\nHost: localhost\r\n\r\n".encode())
+        await listener._handle(reader, writer)
+        pages.append(writer.data)
+
+    # Wrong state, the valid callback, a replay, then a denial on a new login.
+    await send(first, "/auth/callback?code=c&state=wrong")
+    await send(first, f"/auth/callback?code=c&state={'s' * 32}")
+    await send(first, f"/auth/callback?code=c&state={'s' * 32}")
+    await send(second, f"/auth/callback?error=access_denied&state={'t' * 32}")
+    assert codes == ["c"] and denied == [1]
+    assert [page.split(b"\r\n", 1)[0] for page in pages] == [
+        b"HTTP/1.1 400 Bad Request",
+        b"HTTP/1.1 200 OK",
+        b"HTTP/1.1 400 Bad Request",
+        b"HTTP/1.1 400 Bad Request",
+    ]
+    assert [b"<h1>" + page.split(b"<h1>")[1].split(b"</h1>")[0] for page in pages] == [
+        b"<h1>This sign-in link has expired",
+        b"<h1>Signed in with ChatGPT",
+        b"<h1>This sign-in link has expired",
+        b"<h1>Sign-in cancelled",
+    ]

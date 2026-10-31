@@ -34,13 +34,11 @@ export async function listAgentGroups(
   owner_id?: string,
   getToken?: () => Promise<string | null>
 ): Promise<AgentGroupListResponse> {
-  const url = new URL(API_BASE_URL)
-  if (owner_id) {
-    url.searchParams.set('owner_id', owner_id)
-  }
+  // A relative same-origin base cannot go through `new URL`.
+  const query = owner_id ? `?${new URLSearchParams({ owner_id })}` : ''
 
   return apiGet<AgentGroupListResponse>(
-    url.toString(),
+    `${API_BASE_URL}${query}`,
     getToken
   )
 }

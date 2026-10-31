@@ -35,6 +35,9 @@ export type In = "cookie" | "header" | "query";
 
 export type AgentStatus = "active" | "inactive" | "deleted";
 
+/** Why a bundled agent is inactive until setup provides what it needs. */
+export type AgentInactiveReason = "provider_not_configured" | "image_model_not_configured";
+
 /** One advertised agent skill, as the `/agent/*` routes return it. */
 export interface AgentSkillView {
   id: string;
@@ -72,7 +75,10 @@ export interface Agent extends AgentCardView {
   /** Display name resolved from provider_id when the card names no provider. */
   provider_name?: string | null;
   status: AgentStatus;
-  source: "cloud" | "local";
+  /** `bundled` is a sample agent the backend registers at boot. */
+  source: "cloud" | "local" | "bundled";
+  /** Set while a bundled agent is inactive for lack of setup. */
+  inactive_reason?: AgentInactiveReason | null;
   is_public: boolean;
   public_url?: string | null;
   call_count: number;

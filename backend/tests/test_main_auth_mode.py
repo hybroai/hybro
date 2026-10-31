@@ -1,7 +1,6 @@
 from common.auth import (
     ClerkUser,
     get_current_user,
-    get_current_user_or_service,
     get_current_user_with_query_token,
     get_optional_user,
 )
@@ -13,7 +12,6 @@ def test_mock_auth_overrides_all_user_auth_dependencies():
 
     auth_dependencies = (
         get_current_user,
-        get_current_user_or_service,
         get_current_user_with_query_token,
         get_optional_user,
     )

@@ -3,8 +3,8 @@
 
 Read-only. Walks the static imports of every production module from the
 entry points (``main``, ``__main__``, ``container``,
-``orchestrator_composition``, ``configuration_cli``, ``cli_*``, and every
-module under ``scripts``) and lists the modules never reached.
+``orchestrator_composition``, ``runtime_entrypoint``, ``volume_migration``,
+and every module under ``scripts``) and lists the modules never reached.
 
 A package ``__init__`` that only re-exports names (imports, a docstring, and
 ``__all__``) does not keep a re-exported module alive by itself: the module is
@@ -30,9 +30,9 @@ ROOT_MODULES = {
     "__main__",
     "container",
     "orchestrator_composition",
-    "configuration_cli",
+    "runtime_entrypoint",
+    "volume_migration",
 }
-ROOT_PREFIXES = ("cli_",)
 ROOT_PACKAGES = ("scripts",)
 EXEMPT_MODULES = {"llm_gateway.oauth_notice"}
 
@@ -178,11 +178,7 @@ def _parse(root: Path, modules: dict[str, _Module]) -> list[str]:
 
 def _is_root(name: str) -> bool:
     top = name.split(".", 1)[0]
-    return (
-        name in ROOT_MODULES
-        or ("." not in name and name.startswith(ROOT_PREFIXES))
-        or top in ROOT_PACKAGES
-    )
+    return name in ROOT_MODULES or top in ROOT_PACKAGES
 
 
 class _Reachability:

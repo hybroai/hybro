@@ -1,9 +1,0 @@
-# Never bake local virtualenvs, caches, or secrets into agent images.
-# The image builds its own environment via `uv sync` from pyproject.toml + uv.lock.
-**/.venv
-**/__pycache__
-**/*.pyc
-**/.pytest_cache
-**.env
-.env.*
-!.env.example

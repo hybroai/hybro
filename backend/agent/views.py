@@ -32,6 +32,7 @@ def agent_view(info: AgentInfo) -> AgentView:
         provider_id=info.provider_id,
         status=info.status,
         source=info.source,
+        inactive_reason=info.inactive_reason,
         is_public=info.is_public,
         public_url=info.public_url,
         call_count=info.call_count,

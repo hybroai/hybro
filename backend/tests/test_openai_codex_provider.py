@@ -16,7 +16,7 @@ from llm_gateway.errors import LLMModelRoutingError, LLMProviderFailure
 from llm_gateway.gateway import LLMGatewayImpl
 from llm_gateway.providers.openai_codex import RESPONSES_URL, OpenAICodexProvider
 from llm_gateway.turn_types import GatewayTurnRequest
-from tests.fakes.llm_runtime import oauth_config, oauth_credential
+from tests.fakes.llm_runtime import oauth_config, oauth_credential, provider_runtime
 from tests.test_openai_oauth import Body
 
 
@@ -730,67 +730,6 @@ async def test_oauth_never_selects_api_models_or_images(tmp_path):
     assert GatewayImageRequest is not None
 
 
-@pytest.mark.parametrize("status", [200, 401])
-def test_cli_default_oauth_binding_verifies_codex_before_save(
-    tmp_path, monkeypatch, status
-):
-    from llm_gateway import openai_oauth, setup_bindings
-    from llm_gateway.setup_cli import SetupConsole, main
-
-    monkeypatch.setattr(
-        openai_oauth, "login", AsyncMock(return_value=oauth_credential())
-    )
-    calls = []
-    original = setup_bindings.OpenAICodexProvider
-
-    def handle(request):
-        calls.append(request)
-        assert str(request.url) == RESPONSES_URL
-        payload = json.loads(request.content)
-        assert (
-            payload["model"] == "gpt-6-sol"
-            and "JSON object must conform" not in payload["instructions"]
-        )
-        return httpx.Response(
-            status,
-            headers={"content-type": "text/event-stream"},
-            stream=Body(wire(text_events('{"ok":true}'))),
-        )
-
-    monkeypatch.setattr(
-        setup_bindings,
-        "OpenAICodexProvider",
-        lambda *args, **kwargs: original(
-            *args, **kwargs, transport=httpx.MockTransport(handle)
-        ),
-    )
-    result = main(
-        [
-            "--provider",
-            "openai",
-            "--auth",
-            "oauth",
-            "--text-model",
-            "gpt-6-sol",
-            "--image-model",
-            "none",
-        ],
-        environment={
-            "HOME": str(tmp_path),
-            "OPENAI_BASE_URL": "https://untrusted.invalid",
-        },
-        console=SetupConsole(
-            lambda title, options: pytest.fail("prompt"),
-            lambda: pytest.fail("secret"),
-            lambda _: None,
-        ),
-    )
-    assert result == (0 if status == 200 else 1)
-    assert len(calls) == 1
-    assert (tmp_path / ".hybro/config.json").exists() is (status == 200)
-    assert (tmp_path / ".hybro/auth.json").exists() is (status == 200)
-
-
 async def test_original_gateway_stream_early_close_closes_oauth_client(monkeypatch):
     from common.config.runtime_config import ResolvedCredential
     from common.config.runtime_store import RuntimeState
@@ -803,9 +742,11 @@ async def test_original_gateway_stream_early_close_closes_oauth_client(monkeypat
     body = Waiting(b"")
     adapter = provider([], [], body=body)
     monkeypatch.setattr(
-        "llm_gateway.gateway.load_optional_setup",
-        lambda _: RuntimeState(
-            oauth_config(), ResolvedCredential("stored", oauth_credential())
+        "llm_gateway.gateway.load_provider_runtime",
+        lambda: provider_runtime(
+            RuntimeState(
+                oauth_config(), ResolvedCredential("stored", oauth_credential())
+            )
         ),
     )
     gateway = LLMGatewayImpl(

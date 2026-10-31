@@ -1,20 +1,722 @@
 #!/bin/sh
-# The host CLI owns JSON configuration and scoped service/build projections.
-set -e
-set +x
-cd "$(dirname "$0")/.."
-REPO_ROOT=$(pwd)
-case "${1:-}" in
-    help|-h|--help) exec /bin/sh -c 'cat "$1"' sh "$REPO_ROOT/scripts/hybro-help.txt" ;;
-    "") if [ ! -t 0 ] || [ ! -t 1 ]; then
-            exec /bin/sh -c 'cat "$1"' sh "$REPO_ROOT/scripts/hybro-help.txt"
-        fi ;;
-esac
-if ! command -v uv >/dev/null 2>&1; then
-    echo 'Error: hybro requires uv. Install uv, then rerun this command.' >&2
+# Hybro command line: runs the single Hybro image with Docker.
+#
+# One POSIX sh file serves as the checkout entry point (dev mode), the npm
+# package's bin, and the release asset that install.sh installs (release mode).
+set -u
+
+HYBRO_VERSION="0.3.0" # x-release-please-version
+
+GITHUB_REPO="hybroai/hybro"
+RELEASE_IMAGE="ghcr.io/hybroai/hybro"
+LATEST_API="https://api.github.com/repos/$GITHUB_REPO/releases/latest"
+DOWNLOAD_BASE="https://github.com/$GITHUB_REPO/releases/download"
+INSTALL_HINT="curl -fsSL https://hybro.ai/install.sh | sh"
+MARKER="/data/hybro-volume.json"
+
+say() { printf '%s\n' "$*"; }
+err() { printf 'hybro: %s\n' "$*" >&2; }
+die() {
+    err "$*"
     exit 1
+}
+
+# ------------------------------------------------------------------ location
+
+# Resolve this file through symlinks (the npm bin is one) without readlink -f.
+resolve_self() {
+    case $0 in
+    */*) p=$0 ;;
+    *) p=$(command -v -- "$0" 2>/dev/null) || p=./$0 ;;
+    esac
+    while [ -L "$p" ]; do
+        target=$(readlink "$p")
+        case $target in
+        /*) p=$target ;;
+        *) p=${p%/*}/$target ;;
+        esac
+    done
+    dir=$(cd -P -- "${p%/*}" && pwd) || die "cannot resolve the location of $0"
+    SELF=$dir/${p##*/}
+    SCRIPT_DIR=$dir
+}
+
+resolve_self
+ROOT=${SCRIPT_DIR%/*}
+if [ -d "$ROOT/backend" ] && [ -f "$ROOT/Dockerfile" ]; then
+    MODE=dev
+    CLI=./scripts/hybro
+    IMAGE=hybro:dev
+    CONTAINER=hybro-dev
+    VOLUME=hybro-dev-data
+    DEFAULT_PORT=3100
+    SOURCE_PROJECT=hybro-dev
+    INSTANCE=dev
+    OLD_IMAGES='^hybro-dev-[a-z0-9_-]*:'
+else
+    MODE=release
+    CLI=hybro
+    IMAGE=$RELEASE_IMAGE:$HYBRO_VERSION
+    CONTAINER=hybro
+    VOLUME=hybro-data
+    DEFAULT_PORT=3000
+    SOURCE_PROJECT=hybro
+    INSTANCE=release
+    OLD_IMAGES='^ghcr\.io/hybroai/hybro-[a-z0-9-]*:'
 fi
-UV_PROJECT_ENVIRONMENT=${UV_PROJECT_ENVIRONMENT:-${XDG_DATA_HOME:-$HOME/.local/share}/hybro/venv}
-export UV_PROJECT_ENVIRONMENT
-cd "$REPO_ROOT/backend"
-exec uv run --frozen --no-env-file python -m configuration_cli "$@"
+case $SELF in
+*/node_modules/*) CHANNEL=npm ;;
+*) CHANNEL=script ;;
+esac
+
+# ------------------------------------------------------------------- helpers
+
+usage() {
+    cat <<EOF
+Hybro $HYBRO_VERSION: AI agents and rooms in one container.
+
+Usage: $CLI [command] [options]
+
+Commands:
+  start         Start Hybro and follow its logs (the default command)
+  stop          Stop Hybro
+  status        Show whether Hybro is running and its address
+  logs          Show Hybro's logs; docker logs options such as -f pass through
+  upgrade       Install the latest release, update the image, migrate 0.3 data
+  cleanup-old   Remove the Hybro 0.3 containers, volumes, and images
+  version       Print the version
+
+Start options:
+  -d, --detach          Run in the background
+  --port <port>         Host port (default $DEFAULT_PORT)
+  --listen <address>    Address to listen on (default 127.0.0.1); any other
+                        address needs sign-in or --insecure-no-auth
+  --insecure-no-auth    Allow a non-loopback listener without sign-in
+  --fresh               Start with an empty volume even when 0.3 data exists
+  --build               Rebuild the image (checkout only)
+  --recreate            Recreate a running container (checkout only)
+
+Upgrade options:
+  --check               Only report whether a newer release exists
+
+cleanup-old options:
+  -y, --yes             Remove without asking
+
+Environment:
+  HYBRO_HOME               Configuration directory (default ~/.hybro)
+  HYBRO_NO_UPDATE_CHECK=1  Turn off the daily update notice
+EOF
+}
+
+require_docker() {
+    command -v docker >/dev/null 2>&1 ||
+        die "Docker is not installed. Install it from https://docs.docker.com/get-docker/"
+    docker info >/dev/null 2>&1 ||
+        die "Docker is not running. Start Docker, then run $CLI again."
+}
+
+prepare_home() {
+    HYBRO_HOME=${HYBRO_HOME:-${HOME:?HOME is not set}/.hybro}
+    case $HYBRO_HOME in
+    /*) ;;
+    *) die "HYBRO_HOME must be an absolute path: $HYBRO_HOME" ;;
+    esac
+    # Created here, so Docker never creates the mount source as root.
+    [ -d "$HYBRO_HOME" ] || (umask 077 && mkdir -p -- "$HYBRO_HOME") ||
+        die "cannot create $HYBRO_HOME"
+}
+
+container_state() {
+    docker container inspect -f '{{.State.Status}}' "$CONTAINER" 2>/dev/null
+}
+
+volume_exists() {
+    docker volume inspect "$1" >/dev/null 2>&1
+}
+
+is_version() {
+    printf '%s\n' "$1" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$'
+}
+
+# version_gt A B: A is a newer X.Y.Z than B.
+version_gt() {
+    awk -v a="$1" -v b="$2" 'BEGIN {
+        split(a, x, "."); split(b, y, ".")
+        for (i = 1; i <= 3; i++) {
+            if (x[i] + 0 > y[i] + 0) exit 0
+            if (x[i] + 0 < y[i] + 0) exit 1
+        }
+        exit 1
+    }'
+}
+
+# latest_version <timeout seconds>: the latest release's X.Y.Z, or failure.
+latest_version() {
+    command -v curl >/dev/null 2>&1 || return 1
+    tag=$(curl -fsSL --max-time "$1" -H 'Accept: application/vnd.github+json' \
+        "$LATEST_API" 2>/dev/null |
+        sed -n 's/.*"tag_name"[[:space:]]*:[[:space:]]*"v\{0,1\}\([^"]*\)".*/\1/p' |
+        head -n 1)
+    is_version "$tag" || return 1
+    printf '%s\n' "$tag"
+}
+
+# url_for <host ip> <port>, the ip as Docker prints it.
+url_for() {
+    case $1 in
+    127.0.0.1 | '[::1]') say "http://localhost:$2" ;;
+    0.0.0.0 | '[::]' | '') say "http://<this machine's address>:$2" ;;
+    *) say "http://$1:$2" ;;
+    esac
+}
+
+running_url() {
+    binding=$(docker port "$CONTAINER" 8080/tcp 2>/dev/null | head -n 1)
+    url_for "${binding%:*}" "${binding##*:}"
+}
+
+# ------------------------------------------------------------------- image
+
+IMAGE_READY=0
+BUILD=0
+
+ensure_image() {
+    [ "$IMAGE_READY" = 1 ] && return 0
+    if [ "$MODE" = dev ]; then
+        if [ "$BUILD" = 1 ] || ! docker image inspect "$IMAGE" >/dev/null 2>&1; then
+            say "Building $IMAGE from $ROOT..."
+            docker build -t "$IMAGE" "$ROOT" || die "the image build failed"
+        fi
+    elif ! docker image inspect "$IMAGE" >/dev/null 2>&1; then
+        say "Pulling $IMAGE..."
+        docker pull "$IMAGE" || die "cannot pull $IMAGE"
+    fi
+    IMAGE_READY=1
+}
+
+# ------------------------------------------------------------ 0.3 detection
+
+find_sources() {
+    SOURCE_VOLUMES=
+    for suffix in mongo_data room_files redis_data; do
+        if volume_exists "${SOURCE_PROJECT}_$suffix"; then
+            SOURCE_VOLUMES="$SOURCE_VOLUMES ${SOURCE_PROJECT}_$suffix"
+        fi
+    done
+    SOURCE_CONTAINERS=$(docker ps -a --format '{{.Names}}' \
+        --filter "label=com.docker.compose.project=$SOURCE_PROJECT" 2>/dev/null)
+}
+
+# Whether the target volume has the completion marker; a Docker failure is
+# not a missing marker, so it never leads to removing the volume.
+marker_present() {
+    docker run --rm --entrypoint test -v "$VOLUME:/data" "$IMAGE" -f "$MARKER"
+    status=$?
+    case $status in
+    0) return 0 ;;
+    1) return 1 ;;
+    *) die "cannot read the completion marker of volume $VOLUME (docker exit $status)" ;;
+    esac
+}
+
+# Sets LAYOUT to ok, old (0.3 data, no target volume), or incomplete (a target
+# volume without the marker while 0.3 data exists).
+detect_layout() {
+    find_sources
+    LAYOUT=ok
+    if volume_exists "$VOLUME"; then
+        # Without 0.3 data, a volume without a marker is a fresh one that the
+        # entrypoint completes.
+        [ -n "$SOURCE_VOLUMES" ] || return 0
+        ensure_image
+        marker_present || LAYOUT=incomplete
+    elif [ -n "$SOURCE_VOLUMES$SOURCE_CONTAINERS" ]; then
+        LAYOUT=old
+    fi
+}
+
+list_sources() {
+    for item in $SOURCE_VOLUMES; do err "  volume     $item"; done
+    for item in $SOURCE_CONTAINERS; do err "  container  $item"; done
+}
+
+layout_notice() {
+    if [ "$LAYOUT" = old ]; then
+        err "found data from Hybro 0.3 (Compose project $SOURCE_PROJECT):"
+    else
+        err "volume $VOLUME is from a migration that did not finish; the 0.3 data is still there:"
+    fi
+    list_sources
+    cat >&2 <<EOF
+Nothing was started. Choose one:
+  $CLI upgrade   copy the 0.3 data into the new layout (the old volumes are kept)
+  $CLI --fresh   start with an empty volume instead
+EOF
+    exit 1
+}
+
+# ------------------------------------------------------------------- running
+
+PORT=
+LISTEN=127.0.0.1
+INSECURE=0
+DETACH=0
+FRESH=0
+RECREATE=0
+BUILD_FLAG=0
+
+# Sets LISTEN_MODE and BIND (the docker -p host address) from LISTEN.
+apply_listen() {
+    case $LISTEN in
+    127.0.0.1 | localhost)
+        LISTEN_MODE=loopback
+        BIND=127.0.0.1
+        ;;
+    ::1)
+        LISTEN_MODE=loopback
+        BIND='[::1]'
+        ;;
+    '' | *[!0-9A-Fa-f.:]*) die "--listen needs an IP address, for example 0.0.0.0: $LISTEN" ;;
+    *:*)
+        LISTEN_MODE=public
+        BIND="[$LISTEN]"
+        ;;
+    *)
+        LISTEN_MODE=public
+        BIND=$LISTEN
+        ;;
+    esac
+}
+
+check_port() {
+    case $1 in
+    '' | 0* | *[!0-9]*) die "--port needs a number from 1 to 65535: $1" ;;
+    esac
+    if [ "${#1}" -gt 5 ] || [ "$1" -gt 65535 ]; then
+        die "--port needs a number from 1 to 65535: $1"
+    fi
+}
+
+# run_container <publish the OAuth port: 1 or 0>
+run_container() {
+    oauth=$1
+    set -- run -d --name "$CONTAINER" -p "$BIND:$PORT:8080" \
+        -e "HYBRO_LISTEN=$LISTEN_MODE" -e "HYBRO_PUBLIC_PORT=$PORT"
+    [ "$INSECURE" = 1 ] && set -- "$@" -e HYBRO_INSECURE_NO_AUTH=1
+    [ "$oauth" = 1 ] && set -- "$@" -p 127.0.0.1:1455:1455
+    set -- "$@" -v "$VOLUME:/data" -v "$HYBRO_HOME:/var/lib/hybro/runtime" \
+        --add-host host.docker.internal:host-gateway --stop-timeout 60 "$IMAGE"
+    docker "$@"
+}
+
+start_container() {
+    # A stopped container with the same name only holds a stale configuration;
+    # the data lives in the volume.
+    if [ -n "$(container_state)" ]; then
+        docker rm -f "$CONTAINER" >/dev/null || die "cannot remove the old $CONTAINER container"
+    fi
+    if output=$(run_container 1 2>&1 >/dev/null); then
+        return 0
+    fi
+    case $output in
+    *1455*)
+        docker rm -f "$CONTAINER" >/dev/null 2>&1
+        say "Port 1455 is in use, so ChatGPT login will use the paste flow."
+        if output=$(run_container 0 2>&1 >/dev/null); then
+            return 0
+        fi
+        ;;
+    esac
+    docker rm -f "$CONTAINER" >/dev/null 2>&1
+    printf '%s\n' "$output" >&2
+    die "cannot start the $CONTAINER container"
+}
+
+follow_logs() {
+    say "Following the logs; press Ctrl-C to stop Hybro."
+    INTERRUPTED=0
+    trap 'INTERRUPTED=1' INT
+    docker logs -f "$CONTAINER"
+    trap - INT
+    if [ "$INTERRUPTED" = 1 ]; then
+        say "Stopping Hybro..."
+        docker stop "$CONTAINER" >/dev/null || die "cannot stop $CONTAINER"
+        exit 0
+    fi
+    code=$(docker container inspect -f '{{.State.ExitCode}}' "$CONTAINER" 2>/dev/null)
+    die "Hybro stopped (exit code ${code:-unknown}). Show the logs with: $CLI logs"
+}
+
+update_notice() {
+    [ "$MODE" = release ] && [ "${HYBRO_NO_UPDATE_CHECK:-}" != 1 ] || return 0
+    cache=$HYBRO_HOME/update-check
+    latest=
+    if [ -f "$cache" ] && [ -n "$(find "$cache" -mtime -1 2>/dev/null)" ]; then
+        read -r latest <"$cache" 2>/dev/null
+    else
+        latest=$(latest_version 3) || latest=
+        printf '%s\n' "$latest" >"$cache" 2>/dev/null
+    fi
+    if is_version "$latest" && version_gt "$latest" "$HYBRO_VERSION"; then
+        say "Hybro $latest is available (you have $HYBRO_VERSION). Upgrade with: $CLI upgrade"
+    fi
+    return 0
+}
+
+# ------------------------------------------------------------------ commands
+
+cmd_start() {
+    # The 0.3 CLI prints `hybro start --recreate` after an npm upgrade, so the
+    # layout check runs before the flags are validated.
+    for arg in "$@"; do
+        case $arg in
+        --fresh) FRESH=1 ;;
+        --build) [ "$MODE" = dev ] && BUILD=1 ;;
+        esac
+    done
+    require_docker
+    prepare_home
+    detect_layout
+    [ "$LAYOUT" = ok ] || [ "$FRESH" = 1 ] || layout_notice
+
+    while [ $# -gt 0 ]; do
+        case $1 in
+        -d | --detach) DETACH=1 ;;
+        --port)
+            [ $# -ge 2 ] || die "--port needs a value"
+            PORT=$2
+            shift
+            ;;
+        --port=*) PORT=${1#*=} ;;
+        --listen)
+            [ $# -ge 2 ] || die "--listen needs a value"
+            LISTEN=$2
+            shift
+            ;;
+        --listen=*) LISTEN=${1#*=} ;;
+        --insecure-no-auth) INSECURE=1 ;;
+        --fresh) ;;
+        --build) BUILD_FLAG=1 ;;
+        --recreate) RECREATE=1 ;;
+        -h | --help)
+            usage
+            exit 0
+            ;;
+        *)
+            err "unknown option: $1"
+            usage >&2
+            exit 2
+            ;;
+        esac
+        shift
+    done
+    PORT=${PORT:-$DEFAULT_PORT}
+    check_port "$PORT"
+    apply_listen
+    # Only after every flag is valid; the volume never finished its first start.
+    if [ "$LAYOUT" = incomplete ]; then
+        say "Removing volume $VOLUME, left by a migration that did not finish."
+        docker volume rm "$VOLUME" >/dev/null || die "cannot remove volume $VOLUME"
+    fi
+    if [ "$MODE" = release ]; then
+        [ "$BUILD_FLAG" = 1 ] && say "Note: --build applies to a checkout only; a release install pulls its image."
+        [ "$RECREATE" = 1 ] && say "Note: --recreate applies to a checkout only; every release start uses a new container."
+        RECREATE=0
+    fi
+
+    if [ "$(container_state)" = running ]; then
+        if [ "$RECREATE" = 1 ]; then
+            docker stop "$CONTAINER" >/dev/null || die "cannot stop $CONTAINER"
+        else
+            say "Hybro is already running at $(running_url)"
+            say "To change its options, run $CLI stop first."
+            return 0
+        fi
+    fi
+    update_notice
+    ensure_image
+    start_container
+    url=$(url_for "$BIND" "$PORT")
+    say "Hybro is starting at $url"
+    if [ "$DETACH" = 1 ]; then
+        say "Running in the background. Stop it with: $CLI stop"
+        return 0
+    fi
+    follow_logs
+}
+
+cmd_stop() {
+    [ $# -eq 0 ] || die "stop takes no options"
+    require_docker
+    if [ "$(container_state)" = running ]; then
+        docker stop "$CONTAINER" >/dev/null || die "cannot stop $CONTAINER"
+        say "Hybro stopped. Your data is kept in volume $VOLUME."
+    else
+        say "Hybro is not running."
+    fi
+}
+
+cmd_status() {
+    [ $# -eq 0 ] || die "status takes no options"
+    require_docker
+    state=$(container_state)
+    case $state in
+    running)
+        say "Hybro is running at $(running_url)"
+        say "Container $CONTAINER, image $(docker container inspect -f '{{.Config.Image}}' "$CONTAINER"), volume $VOLUME"
+        ;;
+    '')
+        say "Hybro is not running. Start it with: $CLI"
+        return 1
+        ;;
+    *)
+        say "Hybro is not running (container $CONTAINER is $state). Start it with: $CLI"
+        return 1
+        ;;
+    esac
+}
+
+cmd_logs() {
+    require_docker
+    [ -n "$(container_state)" ] || die "there is no $CONTAINER container. Start Hybro with: $CLI"
+    exec docker logs "$@" "$CONTAINER"
+}
+
+sha256_of() {
+    if command -v sha256sum >/dev/null 2>&1; then
+        sha256sum "$1" | awk '{ print $1 }'
+    elif command -v shasum >/dev/null 2>&1; then
+        shasum -a 256 "$1" | awk '{ print $1 }'
+    else
+        die "neither sha256sum nor shasum is installed"
+    fi
+}
+
+# install_version <X.Y.Z>: replace this script through its install channel.
+install_version() {
+    if [ "$CHANNEL" = npm ]; then
+        command -v npm >/dev/null 2>&1 || die "npm is not on PATH; it installed this hybro"
+        say "Installing @hybroai/cli@$1 with npm..."
+        npm install -g "@hybroai/cli@$1" || die "npm install failed; nothing else was changed"
+        return 0
+    fi
+    [ -w "$SCRIPT_DIR" ] || die "cannot write to $SCRIPT_DIR. Reinstall with: $INSTALL_HINT"
+    # A temporary file in the same directory, so the final mv is atomic.
+    new=$SCRIPT_DIR/.hybro-upgrade.$$
+    sums=$new.sums
+    say "Downloading hybro $1..."
+    if ! curl -fsSL --max-time 60 -o "$new" "$DOWNLOAD_BASE/v$1/hybro" ||
+        ! curl -fsSL --max-time 60 -o "$sums" "$DOWNLOAD_BASE/v$1/SHA256SUMS"; then
+        rm -f "$new" "$sums"
+        die "the download failed; nothing was changed"
+    fi
+    expected=$(awk '$2 == "hybro" || $2 == "*hybro" { print $1 }' "$sums")
+    actual=$(sha256_of "$new")
+    rm -f "$sums"
+    if [ -z "$expected" ] || [ "$expected" != "$actual" ]; then
+        rm -f "$new"
+        die "the downloaded script does not match SHA256SUMS; nothing was changed"
+    fi
+    if ! chmod 755 "$new" || ! mv -f "$new" "$SELF"; then
+        rm -f "$new"
+        die "cannot replace $SELF"
+    fi
+    say "Installed hybro $1 at $SELF."
+}
+
+# Copy 0.3 data into the target volume (plan 4.11); the sources stay read-only.
+migrate() {
+    say "Migrating Hybro 0.3 data (Compose project $SOURCE_PROJECT) into volume $VOLUME."
+    ensure_image
+    if [ -n "$SOURCE_CONTAINERS" ]; then
+        say "Stopping the 0.3 containers..."
+        # shellcheck disable=SC2086 # one container name per word
+        docker stop $SOURCE_CONTAINERS >/dev/null ||
+            die "cannot stop the 0.3 containers; stop them, then run $CLI upgrade again"
+        # shellcheck disable=SC2086
+        docker rm $SOURCE_CONTAINERS >/dev/null ||
+            die "cannot remove the 0.3 containers; remove them, then run $CLI upgrade again"
+    fi
+    if [ "$LAYOUT" = incomplete ]; then
+        docker volume rm "$VOLUME" >/dev/null ||
+            die "cannot remove volume $VOLUME, left by a migration that did not finish"
+    fi
+    docker volume create "$VOLUME" >/dev/null || die "cannot create volume $VOLUME"
+    set -- run --rm --entrypoint /app/backend/.venv/bin/python
+    if volume_exists "${SOURCE_PROJECT}_mongo_data"; then
+        set -- "$@" -v "${SOURCE_PROJECT}_mongo_data:/source/db:ro"
+    fi
+    if volume_exists "${SOURCE_PROJECT}_room_files"; then
+        set -- "$@" -v "${SOURCE_PROJECT}_room_files:/source/files:ro"
+    fi
+    set -- "$@" -v "$VOLUME:/data" -v "$HYBRO_HOME:/var/lib/hybro/runtime:ro" \
+        "$IMAGE" /app/backend/volume_migration.py "$INSTANCE"
+    if ! result=$(docker "$@"); then
+        docker volume rm "$VOLUME" >/dev/null 2>&1
+        die "the migration failed; nothing was started and the 0.3 volumes are unchanged. Fix the problem above, then run $CLI upgrade again"
+    fi
+    OLD_PORT=
+    case $result in
+    port=*) OLD_PORT=${result#port=} ;;
+    esac
+    case $OLD_PORT in
+    *[!0-9]*) OLD_PORT= ;;
+    esac
+}
+
+# After an image update, run a running container again with the same address.
+recreate_if_running() {
+    [ "$(container_state)" = running ] || return 0
+    current=$(docker container inspect -f '{{.Config.Image}}' "$CONTAINER")
+    [ "$current" != "$IMAGE" ] || return 0
+    binding=$(docker port "$CONTAINER" 8080/tcp | head -n 1)
+    PORT=${binding##*:}
+    BIND=${binding%:*}
+    environment=$(docker container inspect -f '{{range .Config.Env}}{{println .}}{{end}}' "$CONTAINER")
+    LISTEN_MODE=public
+    INSECURE=0
+    printf '%s\n' "$environment" | grep -qx 'HYBRO_LISTEN=loopback' && LISTEN_MODE=loopback
+    printf '%s\n' "$environment" | grep -qx 'HYBRO_INSECURE_NO_AUTH=1' && INSECURE=1
+    say "Restarting Hybro on $IMAGE..."
+    docker stop "$CONTAINER" >/dev/null || die "cannot stop $CONTAINER"
+    start_container
+    say "Hybro $HYBRO_VERSION is running at $(url_for "$BIND" "$PORT")"
+}
+
+cmd_upgrade() {
+    step=
+    for arg in "$@"; do
+        case $arg in
+        --check) step="check" ;;
+        --continue) step="continue" ;;
+        -h | --help)
+            usage
+            exit 0
+            ;;
+        *) die "unknown upgrade option: $arg" ;;
+        esac
+    done
+    if [ "$MODE" = dev ]; then
+        if [ "$step" = check ]; then
+            say "This is a checkout; update it with git pull."
+            return 0
+        fi
+        say "This is a checkout: upgrade migrates 0.3 data only. Update the code with git pull."
+    elif [ "$step" != continue ]; then
+        latest=$(latest_version 10) || die "cannot read the latest release from GitHub"
+        if version_gt "$latest" "$HYBRO_VERSION"; then
+            if [ "$step" = check ]; then
+                say "Hybro $latest is available (you have $HYBRO_VERSION). Upgrade with: $CLI upgrade"
+                return 1
+            fi
+            install_version "$latest"
+            # The rest runs with the new version's image and migration.
+            exec "$SELF" upgrade --continue
+        fi
+        if [ "$step" = check ]; then
+            say "Hybro $HYBRO_VERSION is the latest release."
+            return 0
+        fi
+    fi
+
+    require_docker
+    prepare_home
+    if [ "$MODE" = release ]; then
+        say "Pulling $IMAGE..."
+        docker pull "$IMAGE" || die "cannot pull $IMAGE"
+        IMAGE_READY=1
+    fi
+    detect_layout
+    if [ "$LAYOUT" != ok ]; then
+        migrate
+        PORT=$DEFAULT_PORT
+        LISTEN=127.0.0.1
+        apply_listen
+        start_container
+        say "Migration complete. Hybro is starting at $(url_for "$BIND" "$PORT")"
+        say "The 0.3 volumes are kept:$SOURCE_VOLUMES"
+        say "When you no longer need them, remove them with: $CLI cleanup-old"
+        if [ -n "$OLD_PORT" ] && [ "$OLD_PORT" != "$DEFAULT_PORT" ]; then
+            say "Your 0.3 install used port $OLD_PORT. To keep it: $CLI stop && $CLI start --port $OLD_PORT"
+        fi
+        return 0
+    fi
+    [ "$MODE" = release ] && recreate_if_running
+    say "Hybro $HYBRO_VERSION is up to date."
+}
+
+cmd_cleanup_old() {
+    yes=0
+    for arg in "$@"; do
+        case $arg in
+        -y | --yes) yes=1 ;;
+        *) die "unknown cleanup-old option: $arg" ;;
+        esac
+    done
+    require_docker
+    find_sources
+    images=$(docker image ls --format '{{.Repository}}:{{.Tag}}' 2>/dev/null |
+        grep -E "$OLD_IMAGES" | grep -v ':<none>$')
+    if [ -z "$SOURCE_VOLUMES$SOURCE_CONTAINERS$images" ]; then
+        say "No Hybro 0.3 containers, volumes, or images found."
+        return 0
+    fi
+    # The 0.3 volumes are the only copy until a migration has completed.
+    if [ -n "$SOURCE_VOLUMES" ]; then
+        volume_exists "$VOLUME" ||
+            die "volume $VOLUME does not exist yet; migrate first with $CLI upgrade, or start fresh with $CLI --fresh"
+        detect_layout
+        [ "$LAYOUT" = ok ] ||
+            die "the migration into $VOLUME did not finish; run $CLI upgrade first"
+    fi
+    say "These Hybro 0.3 items will be removed:"
+    for item in $SOURCE_CONTAINERS; do say "  container  $item"; done
+    for item in $SOURCE_VOLUMES; do say "  volume     $item"; done
+    for item in $images; do say "  image      $item"; done
+    if [ "$yes" != 1 ]; then
+        printf 'Remove them? [y/N] '
+        answer=
+        { read -r answer </dev/tty; } 2>/dev/null
+        case $answer in
+        y | Y | yes | YES) ;;
+        *)
+            say "Nothing was removed. Use --yes to remove without asking."
+            return 0
+            ;;
+        esac
+    fi
+    failed=0
+    for item in $SOURCE_CONTAINERS; do docker rm -f "$item" >/dev/null || failed=1; done
+    for item in $SOURCE_VOLUMES; do docker volume rm "$item" >/dev/null || failed=1; done
+    for item in $images; do docker image rm "$item" >/dev/null || failed=1; done
+    [ "$failed" = 0 ] || die "some items could not be removed; see the errors above"
+    say "Removed the Hybro 0.3 items."
+}
+
+# ------------------------------------------------------------------ dispatch
+
+command=${1:-start}
+case $command in
+--version | -V) command=version ;;
+-h | --help) command=help ;;
+-*) command=start ;;
+*) [ $# -eq 0 ] || shift ;;
+esac
+case $command in
+start) cmd_start "$@" ;;
+stop) cmd_stop "$@" ;;
+status) cmd_status "$@" ;;
+logs) cmd_logs "$@" ;;
+upgrade) cmd_upgrade "$@" ;;
+cleanup-old) cmd_cleanup_old "$@" ;;
+version) say "hybro $HYBRO_VERSION" ;;
+help) usage ;;
+setup | config | mcp)
+    die "'$command' is not a command since 0.4: providers are set up on the Settings page, and MCP is served at /mcp. $CLI status shows the address."
+    ;;
+*)
+    err "unknown command: $command"
+    usage >&2
+    exit 2
+    ;;
+esac

@@ -14,7 +14,6 @@ from api_gateway.registry import mark_declared_owner as _mark_declared_owner
 from common.auth import (
     ClerkUser,
     get_current_user,
-    get_current_user_or_service,
     get_optional_user,
 )
 from common.dto import AgentRouteResponse
@@ -47,10 +46,10 @@ async def discover_local_agents(
 @router.post("/agent/registerAgent")
 async def register_agent(
     request: Request,
-    user: ClerkUser = Depends(get_current_user_or_service),
+    user: ClerkUser = Depends(get_current_user),
     catalog: AgentCatalog = Depends(get_agent_catalog),
 ) -> AgentRouteResponse:
-    """Register a new agent - PROTECTED (Clerk user or default-agent registrar service token)"""
+    """Register a new agent - PROTECTED"""
     request_data = await request.json()
     agent_url = request_data.get("agent_url")
     # we should use current user's clerk id as provider_id

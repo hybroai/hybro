@@ -1,10 +1,15 @@
+from __future__ import annotations
+
 from dataclasses import dataclass
-from typing import Any, Literal
+from typing import TYPE_CHECKING, Any, Literal
 
 from common.config.loader import settings
 from common.dto.base import FrozenDTO
 from llm_gateway.config import resolve_generation_provider
 from llm_gateway.errors import LLMModelRoutingError
+
+if TYPE_CHECKING:
+    from llm_gateway.provider_runtime import ProviderRuntime
 
 _OPENAI_REASONING_LEVELS = ("low", "medium", "high")
 _OPENAI_REASONING_MODEL_PREFIXES = ("gpt-5", "o1", "o3", "o4")
@@ -52,18 +57,52 @@ class ModelRegistryImpl:
         settings_obj: Any = None,
         *,
         generation_provider: str | None = None,
+        provider_runtime: ProviderRuntime | None = None,
     ) -> None:
+        """Routes follow ``provider_runtime`` unless a provider is fixed."""
         self._settings = settings_obj or settings
-        self._generation_provider = generation_provider or resolve_generation_provider(
-            self._settings
+        self._runtime = provider_runtime
+        if generation_provider is None and provider_runtime is None:
+            generation_provider = resolve_generation_provider(self._settings)
+        if generation_provider is not None and generation_provider not in {
+            "openai",
+            "deepseek",
+        }:
+            raise LLMModelRoutingError(f"Unsupported provider {generation_provider!r}")
+        self._fixed_provider = generation_provider
+        self._tables: dict[
+            str, tuple[dict[str, ModelInfo], dict[str, ModelRouteInfo]]
+        ] = {}
+
+    @property
+    def _generation_provider(self) -> Literal["openai", "deepseek"]:
+        if self._fixed_provider is not None:
+            return self._fixed_provider  # type: ignore[return-value]
+        assert self._runtime is not None
+        # Read on every call so a saved Provider change applies without restart.
+        selected = self._runtime.current.config.provider
+        return (
+            "deepseek"
+            if selected is not None and selected.id == "deepseek"
+            else "openai"
         )
-        if self._generation_provider not in {"openai", "deepseek"}:
-            raise LLMModelRoutingError(
-                f"Unsupported provider {self._generation_provider!r}"
-            )
-        self._models: dict[str, ModelInfo] = {}
-        self._routes: dict[str, ModelRouteInfo] = {}
-        self._register_defaults()
+
+    @property
+    def _models(self) -> dict[str, ModelInfo]:
+        return self._table()[0]
+
+    @property
+    def _routes(self) -> dict[str, ModelRouteInfo]:
+        return self._table()[1]
+
+    def _table(self) -> tuple[dict[str, ModelInfo], dict[str, ModelRouteInfo]]:
+        provider = self._generation_provider
+        table = self._tables.get(provider)
+        if table is None:
+            table = ({}, {})
+            self._register_defaults(provider, *table)
+            self._tables[provider] = table
+        return table
 
     def get_model(self, logical_name: str) -> ModelInfo:
         return self._models[logical_name]
@@ -92,8 +131,13 @@ class ModelRegistryImpl:
             return models
         return [model for model in models if capability in model.capabilities]
 
-    def _register_defaults(self) -> None:
-        uses_deepseek = self._generation_provider == "deepseek"
+    def _register_defaults(
+        self,
+        generation_provider: Literal["openai", "deepseek"],
+        models: dict[str, ModelInfo],
+        routes: dict[str, ModelRouteInfo],
+    ) -> None:
+        uses_deepseek = generation_provider == "deepseek"
         generation_model = self._settings.deepseek_model_name if uses_deepseek else None
         generation_capabilities = (
             ["json_schema"] if uses_deepseek else ["json_schema", "tool_use", "vision"]
@@ -123,15 +167,19 @@ class ModelRegistryImpl:
             retries,
         ) in route_specs:
             self._register(
+                models,
+                routes,
                 logical_name=logical_name,
                 model_id=generation_model or fallback_model,
-                provider=self._generation_provider,
+                provider=generation_provider,
                 capabilities=generation_capabilities,
                 max_context_tokens=context_window,
                 max_output_tokens=output_tokens,
                 max_provider_retries=retries,
             )
         self._register(
+            models,
+            routes,
             logical_name="embedding_model",
             model_id=self._settings.embedding_model,
             provider="openai",
@@ -142,6 +190,8 @@ class ModelRegistryImpl:
 
     def _register(
         self,
+        models: dict[str, ModelInfo],
+        routes: dict[str, ModelRouteInfo],
         *,
         logical_name: str,
         model_id: str,
@@ -171,11 +221,11 @@ class ModelRegistryImpl:
             capabilities=capabilities,
             max_context_tokens=max_context_tokens,
         )
-        self._models[logical_name] = model_info
-        if model_id != logical_name and model_id not in self._models:
-            self._models[model_id] = model_info
+        models[logical_name] = model_info
+        if model_id != logical_name and model_id not in models:
+            models[model_id] = model_info
         if route_enabled:
-            self._routes[logical_name] = ModelRouteInfo(
+            routes[logical_name] = ModelRouteInfo(
                 logical_name=logical_name,
                 provider=provider,
                 model_id=model_id,

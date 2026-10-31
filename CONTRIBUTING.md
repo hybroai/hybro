@@ -43,30 +43,39 @@ Enhancement suggestions are tracked as GitHub issues. When suggesting a feature:
 ## Local Development Setup
 
 ### Prerequisites
-- **Node.js**: 20.19+ (the version pinned in `frontend/.nvmrc`)
+- **Node.js**: 24+ (the version pinned in `frontend/.nvmrc`)
 - **Python**: 3.12+
 - **`uv`**: Installed (`pip install uv` or via `curl -LsSf https://astral.sh/uv/install.sh | sh`)
-- **Docker with Compose v2.24+**: For the full stack, or for local MongoDB and Redis
+- **Docker**: To build and run the image, or for a local MongoDB
 - **MongoDB 4.2+**: Only when running the backend outside Docker
 - **Redis 7**: Optional when running a single backend process outside Docker
 
 ### Full stack
-Configure once, then start the stack through the lifecycle CLI:
+The checkout's CLI builds the single image from your working tree and runs it
+on http://localhost:3100:
 
 ```bash
-./scripts/hybro setup          # writes ~/.hybro/config.json and ~/.hybro/auth.json
-./scripts/hybro start --build  # rebuild images from your checkout
+./scripts/hybro                          # builds hybro:dev on first start, follows logs
+./scripts/hybro start --build --recreate # rebuild after code or dependency changes
 ```
 
-Do not run `docker compose up` directly. The CLI passes the validated
-configuration to the containers and disables Compose dotenv discovery. See
-[Running](README.md#running) for the other lifecycle commands.
+Set up a model provider on the app's Settings page; it is saved to
+`~/.hybro/config.json` and `~/.hybro/auth.json`. See
+[Running](README.md#running) for the other commands.
 
 ### Backend (`backend/`)
 A backend started on the host reads the same `~/.hybro` configuration (or
-`HYBRO_HOME`), so run `./scripts/hybro setup` first. It connects to MongoDB at
+`HYBRO_HOME`); a model provider is optional. It connects to MongoDB at
 `localhost:27017` by default. Redis is disabled unless `backend.redis_url` is
 set in `config.json`; without it, SSE broadcast is process-local.
+
+For fast iteration, run the backend and frontend on the host with a separate
+MongoDB replica set:
+
+```bash
+docker run -d --name hybro-dev-mongo -p 127.0.0.1:27017:27017 mongo:7.0 --replSet rs0
+docker exec hybro-dev-mongo mongosh --quiet --eval 'rs.initiate({_id: "rs0", members: [{_id: 0, host: "127.0.0.1:27017"}]})'
+```
 
 ```bash
 cd backend
@@ -76,7 +85,7 @@ uv sync --extra dev
 # Run local development server
 uv run uvicorn main:app --reload --port 8000
 
-# Run tests
+# Run tests (the live functional suite is opt-in; see backend/tests/README.md)
 uv run pytest
 ```
 
@@ -86,8 +95,10 @@ cd frontend
 # Install dependencies (use `npm install` only when changing dependencies)
 npm ci
 
-# Run dev server (Turbopack)
-npm run dev
+# Run dev server (Turbopack) against a backend on port 8000. It also proxies
+# /mcp to an MCP server on 8001, started from the repository root with:
+#   uv run --project backend --frozen --extra mcp --no-env-file python MCP/server.py
+HYBRO_FRONTEND_CONFIG="$(cat ../packaging/frontend/public-config.json)" npm run dev
 
 # Run tests & linters
 npm run lint

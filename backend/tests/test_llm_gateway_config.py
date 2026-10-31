@@ -1,3 +1,6 @@
+from types import SimpleNamespace
+from unittest.mock import AsyncMock
+
 import pytest
 from pydantic import SecretStr
 
@@ -5,12 +8,12 @@ from common.config.loader import Settings
 from common.config.runtime_config import (
     ApiKeyCredential,
     RuntimeConfig,
-    RuntimeConfigurationError,
     RuntimeModels,
     RuntimeProvider,
 )
 from common.config.runtime_store import RuntimeConfigStore
 from llm_gateway.config import LLMGatewayConfig
+from llm_gateway.errors import ProviderNotConfigured
 
 
 def _configure(tmp_path, monkeypatch, provider="openai", model="gpt-5-mini"):
@@ -38,17 +41,17 @@ async def test_openai_api_key_setup_wires_stored_key_into_embeddings(
     built = []
 
     def factory(*args, **kwargs):
-        provider = object()
+        provider = SimpleNamespace(embed=AsyncMock(return_value=[1.0]))
         built.append((kwargs, provider))
         return provider
 
     monkeypatch.setattr(gateway_module, "OpenAIProvider", factory)
     gateway = LLMGatewayImpl(settings_obj=Settings(openai_api_key=""))
-    wired = [
-        provider for kwargs, provider in built if kwargs.get("api_key") == "fixture-key"
+    assert await gateway.embed("text") == [1.0]
+    used = [provider for _, provider in built if provider.embed.await_count]
+    assert [kwargs["api_key"] for kwargs, provider in built if provider in used] == [
+        "fixture-key"
     ]
-    assert wired
-    assert gateway._providers["openai"] is wired[-1]
 
 
 def test_from_settings_wires_runtime_policy_and_setup_provider(tmp_path, monkeypatch):
@@ -91,11 +94,25 @@ def test_setup_is_the_only_provider_source(tmp_path, monkeypatch, legacy_route):
     assert LLMGatewayConfig.from_settings(settings).generation_provider == "openai"
 
 
+@pytest.mark.asyncio
 @pytest.mark.parametrize("key", ["", "ignored-key"])
-def test_no_setup_fails_even_with_a_legacy_key(tmp_path, monkeypatch, key):
+async def test_no_setup_boots_and_calls_fail_even_with_a_legacy_key(
+    tmp_path, monkeypatch, key
+):
+    from llm_gateway.gateway import LLMGatewayImpl
+
     monkeypatch.setenv("HYBRO_HOME", str(tmp_path / "missing"))
-    with pytest.raises(RuntimeConfigurationError, match="hybro setup"):
-        LLMGatewayConfig.from_settings(Settings(openai_api_key=key))
+    settings = Settings(openai_api_key=key)
+    assert LLMGatewayConfig.from_settings(settings).generation_provider == "openai"
+    gateway = LLMGatewayImpl(settings_obj=settings)
+    for call in (
+        gateway.generate([{"role": "user", "content": "hi"}]),
+        gateway.embed("text"),
+    ):
+        with pytest.raises(ProviderNotConfigured) as caught:
+            await call
+        assert caught.value.code == "provider_not_configured"
+    assert not (tmp_path / "missing" / "config.json").exists()
 
 
 def test_orchestrator_defaults_resolve_without_env_example(tmp_path, monkeypatch):

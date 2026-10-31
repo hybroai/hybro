@@ -17,6 +17,7 @@ def agent_info_from_doc(doc: dict[str, Any]) -> AgentInfo:
         status=_status_value(doc.get("agent_status", "active")) or "active",
         capabilities=list(doc.get("capabilities") or _card_capabilities(card)),
         source=doc.get("source", "cloud"),
+        inactive_reason=doc.get("inactive_reason"),
         is_public=doc["is_public"],
         public_url=doc.get("public_url"),
         rate_limit_per_user_per_hour=doc.get("rate_limit_per_user_per_hour"),

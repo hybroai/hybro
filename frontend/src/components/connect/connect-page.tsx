@@ -10,6 +10,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { publicConfig } from '@/lib/config'
 import { mcpUrl } from '@/lib/mcp'
 import { routes } from '@/lib/routes'
+import { usePageOrigin } from '@/hooks/usePageOrigin'
 import { buildAccessMaterial, type AccessKind } from './access-material'
 import { clientSetups } from './client-setups'
 
@@ -98,8 +99,19 @@ function AddressCard({ label, url, copy }: { label: string; url: string; copy: R
 }
 
 function McpPanel() {
+  if (publicConfig().mcp_disabled) {
+    return (
+      <Alert>
+        <AlertDescription>MCP is disabled on public listeners until MCP authentication exists. Connect from the machine that runs Hybro, or use the API.</AlertDescription>
+      </Alert>
+    )
+  }
+  return <McpSetup />
+}
+
+function McpSetup() {
   const copy = useCopy()
-  const url = mcpUrl()
+  const url = mcpUrl(usePageOrigin())
   const setups = clientSetups(url)
   return (
     <div className="flex flex-col gap-8">
@@ -138,10 +150,13 @@ function McpPanel() {
 function ApiPanel() {
   const copy = useCopy()
   const config = publicConfig()
-  const material = buildAccessMaterial('api', config.api_base_url, config.api_prefix)
+  const pageOrigin = usePageOrigin()
+  // An empty base URL means the API is served on this page's origin.
+  const origin = config.api_base_url || pageOrigin
+  const material = buildAccessMaterial('api', origin, config.api_prefix)
   return (
     <div className="flex flex-col gap-8">
-      <AddressCard label="API base URL" url={config.api_base_url} copy={copy} />
+      <AddressCard label="API base URL" url={origin} copy={copy} />
       <section aria-labelledby="requests-heading" className="flex flex-col gap-3">
         <h2 id="requests-heading" className="text-[15px] font-semibold">Requests</h2>
         <div className="flex flex-col gap-2 rounded-xl border bg-card p-5">

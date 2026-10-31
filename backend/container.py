@@ -6,6 +6,7 @@ from collections.abc import Awaitable, Callable
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from datetime import UTC, datetime
+from pathlib import Path
 from types import SimpleNamespace
 from typing import TYPE_CHECKING, Any
 from uuid import uuid4
@@ -437,6 +438,10 @@ async def _runtime_lifespan(app: Any, runtime: ApplicationRuntime):  # noqa: C90
     _mongo_dal = None
     _local_agent_service = None
     _local_agent_card_resolver = None
+    _bundled_agents = None
+    _bundled_card_resolver = None
+    _provider_runtime = None
+    _browser_setup = None
     _bg_started = False
     agent_health_service = None
     redis_kv_ready = False
@@ -463,6 +468,7 @@ async def _runtime_lifespan(app: Any, runtime: ApplicationRuntime):  # noqa: C90
             from agent.matcher import AgentMatcher
             from agent.selection_service import AgentSelectionService
             from chat.service import chat_service
+            from common.config.runtime_store import current_store
             from common.utils.a2a_helpers import bind_a2a_artifact_files
             from conversation.deletion import RoomDeletionService
             from conversation.runtime import ConversationRuntime
@@ -486,6 +492,7 @@ async def _runtime_lifespan(app: Any, runtime: ApplicationRuntime):  # noqa: C90
             )
             from llm_gateway import LLMGatewayImpl, ModelRegistryImpl
             from llm_gateway.config import LLMGatewayConfig
+            from llm_gateway.provider_runtime import ProviderRuntime
             from llm_gateway.services import AgentSelectionLLMService
             from local_agents import (
                 HostPortScanner,
@@ -597,21 +604,37 @@ async def _runtime_lifespan(app: Any, runtime: ApplicationRuntime):  # noqa: C90
             from execution.adapters.hitl import HITLMessageCancellationAdapter
             from execution.client_request_id import SSEClientRequestIdResolver
 
+            # One holder owns the live Provider pair for every model consumer.
+            _provider_runtime = ProviderRuntime(current_store())
+            app.state.provider_runtime = _provider_runtime
             llm_gateway_config = LLMGatewayConfig.from_settings(runtime.settings)
             model_registry = ModelRegistryImpl(
-                runtime.settings,
-                generation_provider=llm_gateway_config.generation_provider,
+                runtime.settings, provider_runtime=_provider_runtime
             )
             llm_provider = LLMGatewayImpl(
                 model_registry=model_registry,
                 config=llm_gateway_config,
                 settings_obj=runtime.settings,
+                provider_runtime=_provider_runtime,
             )
             from llm_gateway.agent_proxy import AgentLLMProxy
 
             app.state.agent_llm_proxy = AgentLLMProxy(
                 llm_provider, runtime.settings.default_agent_llm_token
             )
+            from llm_gateway.catalog import model_choices
+            from llm_gateway.setup_api import BrowserSetup, OAuthLogins
+            from llm_gateway.setup_bindings import verify_selection
+            from llm_gateway.setup_service import SetupService
+
+            _browser_setup = BrowserSetup(
+                _provider_runtime,
+                SetupService(_provider_runtime.store, model_choices, verify_selection),
+                OAuthLogins(host=runtime.settings.oauth_callback_host),
+                auth_mode=runtime.settings.auth_mode,
+                admin_user_ids=frozenset(runtime.settings.admin_user_ids),
+            )
+            app.state.setup_access = _browser_setup
             agent_selection_llm_service = AgentSelectionLLMService(
                 llm_provider=llm_provider
             )
@@ -666,6 +689,16 @@ async def _runtime_lifespan(app: Any, runtime: ApplicationRuntime):  # noqa: C90
                 writer=_agent_deps.agent_registry_writer,
             )
             app.state.local_agent_service = _local_agent_service
+            if runtime.settings.bundled_agents_manifest:
+                _bundled_card_resolver = AgentCardResolverImpl(
+                    cache_ttl=0, timeout=5, log_failures=False
+                )
+                _bundled_agents = create_bundled_agent_service(
+                    runtime.settings,
+                    repository=_agent_deps.agent_repository,
+                    card_resolver=_bundled_card_resolver,
+                    provider_runtime=_provider_runtime,
+                )
             agent_matcher = AgentMatcher(facade=_agent_facade)
             agent_selection_service = AgentSelectionService(
                 matcher=agent_matcher,
@@ -1320,9 +1353,15 @@ async def _runtime_lifespan(app: Any, runtime: ApplicationRuntime):  # noqa: C90
         )
 
         _bg_started = True
+        if _provider_runtime is not None:
+            await _provider_runtime.start()
         await agent_health_service.start()
         if _local_agent_service is not None:
             await _local_agent_service.start()
+        if _bundled_agents is not None:
+            # Registration waits for agent cards in the background; health and
+            # the rest of startup never wait for it.
+            _bundled_agents.start()
 
         await stale_task_checker.start()
         await stale_task_checker.check_stale_tasks()
@@ -1942,8 +1981,14 @@ async def _runtime_lifespan(app: Any, runtime: ApplicationRuntime):  # noqa: C90
             )
             if _local_agent_service is not None:
                 startup_steps.append(("local-agent", _local_agent_service.stop))
+            if _bundled_agents is not None:
+                startup_steps.append(("bundled-agents", _bundled_agents.stop))
             if agent_health_service is not None:
                 startup_steps.append(("agent-health", agent_health_service.stop))
+            if _provider_runtime is not None:
+                startup_steps.append(("provider-runtime", _provider_runtime.stop))
+            if _browser_setup is not None:
+                startup_steps.append(("browser-setup", _browser_setup.aclose))
         if _leader:
             startup_steps.append(
                 ("leader-locks", lambda: _leader.release_all(ALL_JOB_NAMES))
@@ -1956,6 +2001,10 @@ async def _runtime_lifespan(app: Any, runtime: ApplicationRuntime):  # noqa: C90
         if _local_agent_card_resolver is not None:
             startup_steps.append(
                 ("local-agent-card-resolver", _local_agent_card_resolver.aclose)
+            )
+        if _bundled_card_resolver is not None:
+            startup_steps.append(
+                ("bundled-agent-card-resolver", _bundled_card_resolver.aclose)
             )
         if _delivery_facade is not None:
             startup_steps.append(("delivery", _delivery_facade.stop))
@@ -2016,10 +2065,20 @@ async def _runtime_lifespan(app: Any, runtime: ApplicationRuntime):  # noqa: C90
             shutdown_steps.append(("agent-health", agent_health_service.stop))
         if _local_agent_service is not None:
             shutdown_steps.append(("local-agent", _local_agent_service.stop))
+        if _bundled_agents is not None:
+            shutdown_steps.append(("bundled-agents", _bundled_agents.stop))
         if _local_agent_card_resolver is not None:
             shutdown_steps.append(
                 ("local-agent-card-resolver", _local_agent_card_resolver.aclose)
             )
+        if _bundled_card_resolver is not None:
+            shutdown_steps.append(
+                ("bundled-agent-card-resolver", _bundled_card_resolver.aclose)
+            )
+        if _provider_runtime is not None:
+            shutdown_steps.append(("provider-runtime", _provider_runtime.stop))
+        if _browser_setup is not None:
+            shutdown_steps.append(("browser-setup", _browser_setup.aclose))
         if _leader:
             shutdown_steps.append(
                 ("leader-locks", lambda: _leader.release_all(ALL_JOB_NAMES))
@@ -2364,6 +2423,7 @@ def create_delivery_facade(
         instance_id=resolved_instance_id,
         metrics=metrics,
         room_events=room_events,
+        single_instance=redis_pubsub is None,
     )
     event_bus.set_sse_callback(sse_transport.broadcast_frame_to_room)
 
@@ -2395,6 +2455,40 @@ def create_execution_deps(facade) -> ExecutionDeps:
         execution_engine=facade,
         hitl_manager=facade,
     )
+
+
+def create_bundled_agent_service(
+    settings: Any,
+    *,
+    repository: AgentRepository,
+    card_resolver: AgentCardResolver,
+    provider_runtime: Any,
+) -> Any:
+    """Bundled agent registration, re-gated on every Provider pair swap.
+
+    An unreadable or invalid manifest fails startup.
+    """
+    from agent.bundled import BundledAgentService, ProviderAvailability, load_manifest
+
+    def availability() -> ProviderAvailability:
+        pair = provider_runtime.current
+        models = pair.config.models
+        return ProviderAvailability(
+            configured=pair.state == "configured",
+            image_model=bool(models and models.image),
+        )
+
+    service = BundledAgentService(
+        repository=repository,
+        card_resolver=card_resolver,
+        agents=load_manifest(Path(settings.bundled_agents_manifest)),
+        provider_id=settings.default_agent_provider_id,
+        availability=availability,
+        id_factory=lambda: uuid4().hex,
+        now=utcnow,
+    )
+    provider_runtime.add_listener(lambda _pair: service.on_provider_change())
+    return service
 
 
 def create_agent_deps(

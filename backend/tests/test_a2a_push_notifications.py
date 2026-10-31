@@ -243,24 +243,6 @@ def test_push_callback_base_url_rejects_unsafe_values(raw):
         validate_backend({"a2a_push_callback_base_url": raw})
 
 
-def test_config_cli_sets_and_rejects_push_callback_base_url(monkeypatch, tmp_path):
-    import configuration_cli as cli
-    from tests.test_json_runtime_config import configured
-
-    runtime = configured(tmp_path)
-    monkeypatch.setenv("HYBRO_HOME", str(runtime.home))
-    key = "backend.a2a_push_callback_base_url"
-
-    # ``config set`` values are JSON.
-    assert cli.main(["config", "set", key, '"https://hybro.example.com/"']) == 0
-    backend = runtime.read_config().backend
-    assert validate_backend(backend).a2a_push_callback_base_url == (
-        "https://hybro.example.com"
-    )
-    assert cli.main(["config", "set", key, '"https://u:p@hybro.example.com"']) == 1
-    assert runtime.read_config().backend == backend
-
-
 # -- registration -----------------------------------------------------------
 
 

@@ -177,6 +177,7 @@ def _health(is_healthy: bool, card=None) -> MagicMock:
         check_agent_health=AsyncMock(return_value=(is_healthy, card)),
         sync_agent_card=AsyncMock(),
         update_agent_status=AsyncMock(return_value=True),
+        reactivate_agent=AsyncMock(return_value=True),
     )
 
 
@@ -202,7 +203,7 @@ async def test_liveness_recovers_and_syncs_card_for_reachable_agent():
 
     assert result.status == "active"
     health.sync_agent_card.assert_awaited_once_with("a1", _info().raw_card, fetched)
-    health.update_agent_status.assert_awaited_once_with("a1", AgentStatus.active)
+    health.reactivate_agent.assert_awaited_once_with("a1")
 
 
 async def test_liveness_skips_local_agents():

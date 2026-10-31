@@ -36,17 +36,19 @@ class AgentHealthProbe(Protocol):
         self, agent_id: str, new_status: AgentStatus
     ) -> bool: ...
 
+    async def reactivate_agent(self, agent_id: str) -> bool: ...
+
 
 class AgentLivenessService:
     def __init__(self, *, health_service: AgentHealthProbe) -> None:
         self._health_service = health_service
 
     async def __call__(self, agent: AgentInfo) -> AgentInfo:
-        """Probe a cloud agent and sync its stored status if it changed.
+        """Probe a cloud or bundled agent and sync its stored status if it changed.
 
-        Other sources are returned unchanged.
+        Local agents follow discovery and are returned unchanged.
         """
-        if agent.source != "cloud":
+        if agent.source not in {"cloud", "bundled"}:
             return agent
         return await self._check_cloud_agent(agent)
 
@@ -84,8 +86,14 @@ class AgentLivenessService:
             logger.info("Liveness: cloud agent %s marked inactive", agent.agent_id)
             return agent.model_copy(update={"status": AgentStatus.inactive.value})
 
-        if is_healthy and agent.status == AgentStatus.inactive.value:
-            await health_service.update_agent_status(agent.agent_id, AgentStatus.active)
+        # A bundled agent gated by setup stays inactive while it is reachable;
+        # the write rechecks that, since gating may run during the probe.
+        if (
+            is_healthy
+            and agent.status == AgentStatus.inactive.value
+            and not agent.inactive_reason
+            and await health_service.reactivate_agent(agent.agent_id)
+        ):
             logger.info(
                 "Liveness: cloud agent %s recovered — marked active", agent.agent_id
             )

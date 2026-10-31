@@ -176,10 +176,10 @@
     "status_code": null,
     "dependencies": [
       "get_agent_catalog",
-      "get_current_user_or_service"
+      "get_current_user"
     ],
     "auth_dependencies": [
-      "get_current_user_or_service"
+      "get_current_user"
     ],
     "include_in_schema": true
   },
@@ -966,6 +966,168 @@
     "status_code": null,
     "dependencies": [
       "get_session_access"
+    ],
+    "auth_dependencies": [],
+    "include_in_schema": true
+  },
+  {
+    "path": "/api/v1/setup/api-key",
+    "methods": [
+      "POST"
+    ],
+    "name": "setup_api_key",
+    "endpoint_module": "api_gateway.routes.setup_routes",
+    "declared_owner": "api_gateway.routes.setup_routes",
+    "tags": [
+      "setup"
+    ],
+    "status_code": null,
+    "dependencies": [
+      "get_setup"
+    ],
+    "auth_dependencies": [],
+    "include_in_schema": true
+  },
+  {
+    "path": "/api/v1/setup/image-size",
+    "methods": [
+      "PUT"
+    ],
+    "name": "setup_image_size",
+    "endpoint_module": "api_gateway.routes.setup_routes",
+    "declared_owner": "api_gateway.routes.setup_routes",
+    "tags": [
+      "setup"
+    ],
+    "status_code": null,
+    "dependencies": [
+      "get_setup"
+    ],
+    "auth_dependencies": [],
+    "include_in_schema": true
+  },
+  {
+    "path": "/api/v1/setup/models",
+    "methods": [
+      "GET"
+    ],
+    "name": "setup_models",
+    "endpoint_module": "api_gateway.routes.setup_routes",
+    "declared_owner": "api_gateway.routes.setup_routes",
+    "tags": [
+      "setup"
+    ],
+    "status_code": null,
+    "dependencies": [
+      "get_setup"
+    ],
+    "auth_dependencies": [],
+    "include_in_schema": true
+  },
+  {
+    "path": "/api/v1/setup/oauth/complete",
+    "methods": [
+      "POST"
+    ],
+    "name": "setup_oauth_complete",
+    "endpoint_module": "api_gateway.routes.setup_routes",
+    "declared_owner": "api_gateway.routes.setup_routes",
+    "tags": [
+      "setup"
+    ],
+    "status_code": null,
+    "dependencies": [
+      "get_setup"
+    ],
+    "auth_dependencies": [],
+    "include_in_schema": true
+  },
+  {
+    "path": "/api/v1/setup/oauth/models",
+    "methods": [
+      "POST"
+    ],
+    "name": "setup_oauth_models",
+    "endpoint_module": "api_gateway.routes.setup_routes",
+    "declared_owner": "api_gateway.routes.setup_routes",
+    "tags": [
+      "setup"
+    ],
+    "status_code": null,
+    "dependencies": [
+      "get_setup"
+    ],
+    "auth_dependencies": [],
+    "include_in_schema": true
+  },
+  {
+    "path": "/api/v1/setup/oauth/start",
+    "methods": [
+      "POST"
+    ],
+    "name": "setup_oauth_start",
+    "endpoint_module": "api_gateway.routes.setup_routes",
+    "declared_owner": "api_gateway.routes.setup_routes",
+    "tags": [
+      "setup"
+    ],
+    "status_code": null,
+    "dependencies": [
+      "get_setup"
+    ],
+    "auth_dependencies": [],
+    "include_in_schema": true
+  },
+  {
+    "path": "/api/v1/setup/oauth/{login_id}",
+    "methods": [
+      "DELETE"
+    ],
+    "name": "setup_oauth_cancel",
+    "endpoint_module": "api_gateway.routes.setup_routes",
+    "declared_owner": "api_gateway.routes.setup_routes",
+    "tags": [
+      "setup"
+    ],
+    "status_code": 204,
+    "dependencies": [
+      "get_setup"
+    ],
+    "auth_dependencies": [],
+    "include_in_schema": true
+  },
+  {
+    "path": "/api/v1/setup/oauth/{login_id}",
+    "methods": [
+      "GET"
+    ],
+    "name": "setup_oauth_login",
+    "endpoint_module": "api_gateway.routes.setup_routes",
+    "declared_owner": "api_gateway.routes.setup_routes",
+    "tags": [
+      "setup"
+    ],
+    "status_code": null,
+    "dependencies": [
+      "get_setup"
+    ],
+    "auth_dependencies": [],
+    "include_in_schema": true
+  },
+  {
+    "path": "/api/v1/setup/status",
+    "methods": [
+      "GET"
+    ],
+    "name": "setup_status",
+    "endpoint_module": "api_gateway.routes.setup_routes",
+    "declared_owner": "api_gateway.routes.setup_routes",
+    "tags": [
+      "setup"
+    ],
+    "status_code": null,
+    "dependencies": [
+      "get_setup_reader"
     ],
     "auth_dependencies": [],
     "include_in_schema": true

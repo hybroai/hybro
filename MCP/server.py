@@ -35,10 +35,10 @@ MCP_PORT = 8001
 # default) before answering; allow a generously configured wait to arrive.
 REQUEST_TIMEOUT_SECONDS = 610.0
 HEALTH_TIMEOUT_SECONDS = 2.0
-# Host names stay pinned against DNS rebinding. The loopback port is any port,
-# because each instance publishes this container's 8001 on its own host port.
+# Host names stay pinned against DNS rebinding. The port is any port, because
+# Caddy forwards the browser's Host header with the published host port.
 TRANSPORT_SECURITY = TransportSecuritySettings(
-    allowed_hosts=["127.0.0.1:*", "localhost:*", "mcp:8001"],
+    allowed_hosts=["127.0.0.1:*", "localhost:*"],
     allowed_origins=["http://127.0.0.1:*", "http://localhost:*"],
 )
 
@@ -678,17 +678,18 @@ def create_server(client: httpx.AsyncClient) -> MCPServer:
     return server
 
 
-async def main(*, container: bool = False) -> None:
-    config = connection_config(container=container)
-    backend = "http://backend:8000" if container else "http://127.0.0.1:8000"
+async def main(*, image: bool = False) -> None:
+    # The image passes the scoped projection; a host run uses defaults. Both
+    # share loopback with the backend.
+    config = connection_config(container=image)
     async with httpx.AsyncClient(
-        base_url=f"{backend}{config.api_prefix}/",
+        base_url=f"http://127.0.0.1:8000{config.api_prefix}/",
         timeout=httpx.Timeout(REQUEST_TIMEOUT_SECONDS, connect=5.0),
         follow_redirects=False,
         trust_env=False,
     ) as client:
         await create_server(client).run_streamable_http_async(
-            host="0.0.0.0" if container else MCP_HOST,
+            host=MCP_HOST,
             port=MCP_PORT,
             streamable_http_path="/mcp",
             stateless_http=True,
@@ -699,8 +700,10 @@ async def main(*, container: bool = False) -> None:
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--container", action="store_true")
+    parser.add_argument(
+        "--image", action="store_true", help="Run inside the single Hybro image."
+    )
     try:
-        asyncio.run(main(container=parser.parse_args().container))
+        asyncio.run(main(image=parser.parse_args().image))
     except ValueError as exc:
         parser.exit(1, f"{exc}\n")

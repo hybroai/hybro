@@ -1,0 +1,16 @@
+# uv workspace for the bundled sample agents. Each agent keeps its own
+# pyproject.toml, so a copied agent folder still says what it needs; this file
+# only joins them under one lock (uv.lock). The agents are never built or
+# installed as packages: the image runs
+#   uv sync --frozen --all-packages --no-install-workspace
+[tool.uv.workspace]
+members = [
+    "echo_agent",
+    "image_generator_agent",
+    "story_agent",
+    "travel_planner_agent",
+    "weather_agent",
+]
+
+[dependency-groups]
+dev = ["pytest>=8,<10", "pytest-asyncio>=1,<2", "httpx>=0.28.1,<1", "pyyaml>=6.0.2,<7"]

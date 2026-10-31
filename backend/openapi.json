@@ -49,7 +49,7 @@
           "agent"
         ],
         "summary": "Register Agent",
-        "description": "Register a new agent - PROTECTED (Clerk user or default-agent registrar service token)",
+        "description": "Register a new agent - PROTECTED",
         "operationId": "register_agent_api_v1_agent_registerAgent_post",
         "responses": {
           "200": {
@@ -1125,7 +1125,7 @@
             }
           },
           "default": {
-            "description": "Rejected request or gateway failure (400/401/413/429/502/503)."
+            "description": "Rejected request or gateway failure (400/401/409/413/429/502/503)."
           }
         },
         "security": [
@@ -1162,7 +1162,7 @@
             }
           },
           "default": {
-            "description": "Rejected request or gateway failure (400/401/413/429/502/503)."
+            "description": "Rejected request or gateway failure (400/401/409/413/429/502/503)."
           }
         },
         "security": [
@@ -1199,7 +1199,7 @@
             }
           },
           "default": {
-            "description": "Rejected request or gateway failure (400/401/413/429/502/503)."
+            "description": "Rejected request or gateway failure (400/401/409/413/429/502/503)."
           }
         },
         "security": [
@@ -2419,6 +2419,817 @@
           }
         }
       }
+    },
+    "/api/v1/setup/status": {
+      "get": {
+        "tags": [
+          "setup"
+        ],
+        "summary": "Setup Status",
+        "operationId": "setup_status_api_v1_setup_status_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SetupStatus"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SetupErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SetupErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SetupErrorBody"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SetupErrorBody"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Service Unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SetupErrorBody"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Unprocessable Entity",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SetupErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/setup/models": {
+      "get": {
+        "tags": [
+          "setup"
+        ],
+        "summary": "Setup Models",
+        "operationId": "setup_models_api_v1_setup_models_get",
+        "parameters": [
+          {
+            "name": "provider",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "enum": [
+                "openai",
+                "deepseek",
+                "anthropic"
+              ],
+              "type": "string",
+              "title": "Provider"
+            }
+          },
+          {
+            "name": "auth",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "enum": [
+                "api_key",
+                "oauth"
+              ],
+              "type": "string",
+              "title": "Auth"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SetupModels"
+                }
+              }
+            }
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SetupErrorBody"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SetupErrorBody"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SetupErrorBody"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SetupErrorBody"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SetupErrorBody"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          },
+          "422": {
+            "description": "Unprocessable Entity",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SetupErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/setup/api-key": {
+      "post": {
+        "tags": [
+          "setup"
+        ],
+        "summary": "Setup Api Key",
+        "operationId": "setup_api_key_api_v1_setup_api_key_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ApiKeySetup"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SetupSaved"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SetupErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SetupErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SetupErrorBody"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SetupErrorBody"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Service Unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SetupErrorBody"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Unprocessable Entity",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SetupErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/setup/oauth/start": {
+      "post": {
+        "tags": [
+          "setup"
+        ],
+        "summary": "Setup Oauth Start",
+        "operationId": "setup_oauth_start_api_v1_setup_oauth_start_post",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OAuthLoginView"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SetupErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SetupErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SetupErrorBody"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SetupErrorBody"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Service Unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SetupErrorBody"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Unprocessable Entity",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SetupErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/setup/oauth/complete": {
+      "post": {
+        "tags": [
+          "setup"
+        ],
+        "summary": "Setup Oauth Complete",
+        "operationId": "setup_oauth_complete_api_v1_setup_oauth_complete_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/OAuthComplete"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OAuthLoginView"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SetupErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SetupErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SetupErrorBody"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SetupErrorBody"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Service Unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SetupErrorBody"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Unprocessable Entity",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SetupErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/setup/oauth/models": {
+      "post": {
+        "tags": [
+          "setup"
+        ],
+        "summary": "Setup Oauth Models",
+        "operationId": "setup_oauth_models_api_v1_setup_oauth_models_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/OAuthModels"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SetupSaved"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SetupErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SetupErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SetupErrorBody"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SetupErrorBody"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Service Unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SetupErrorBody"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Unprocessable Entity",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SetupErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/setup/oauth/{login_id}": {
+      "get": {
+        "tags": [
+          "setup"
+        ],
+        "summary": "Setup Oauth Login",
+        "operationId": "setup_oauth_login_api_v1_setup_oauth__login_id__get",
+        "parameters": [
+          {
+            "name": "login_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Login Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OAuthLoginView"
+                }
+              }
+            }
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SetupErrorBody"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SetupErrorBody"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SetupErrorBody"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SetupErrorBody"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SetupErrorBody"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          },
+          "422": {
+            "description": "Unprocessable Entity",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SetupErrorBody"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "setup"
+        ],
+        "summary": "Setup Oauth Cancel",
+        "operationId": "setup_oauth_cancel_api_v1_setup_oauth__login_id__delete",
+        "parameters": [
+          {
+            "name": "login_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Login Id"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SetupErrorBody"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SetupErrorBody"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SetupErrorBody"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SetupErrorBody"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SetupErrorBody"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          },
+          "422": {
+            "description": "Unprocessable Entity",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SetupErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/setup/image-size": {
+      "put": {
+        "tags": [
+          "setup"
+        ],
+        "summary": "Setup Image Size",
+        "operationId": "setup_image_size_api_v1_setup_image_size_put",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ImageSizeUpdate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ImageSizeSaved"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SetupErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SetupErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SetupErrorBody"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SetupErrorBody"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Service Unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SetupErrorBody"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Unprocessable Entity",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SetupErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
     }
   },
   "components": {
@@ -2686,7 +3497,7 @@
           },
           "parts": {
             "items": {
-              "$ref": "#/components/schemas/Part-Input"
+              "$ref": "#/components/schemas/Part"
             },
             "type": "array",
             "minItems": 1,
@@ -3052,7 +3863,7 @@
           },
           "parts": {
             "items": {
-              "$ref": "#/components/schemas/Part-Output"
+              "$ref": "#/components/schemas/Part"
             },
             "type": "array",
             "title": "Parts"
@@ -3808,7 +4619,7 @@
           },
           "parts": {
             "items": {
-              "$ref": "#/components/schemas/Part-Output"
+              "$ref": "#/components/schemas/Part"
             },
             "type": "array",
             "title": "Parts"
@@ -3893,52 +4704,6 @@
           "agent"
         ],
         "title": "MessageRole"
-      },
-      "Part-Input": {
-        "oneOf": [
-          {
-            "$ref": "#/components/schemas/TextPart"
-          },
-          {
-            "$ref": "#/components/schemas/RoomArtifactPart"
-          },
-          {
-            "$ref": "#/components/schemas/DataPart"
-          }
-        ],
-        "title": "Part",
-        "description": "Wrapper that preserves .root access pattern used throughout the codebase.",
-        "discriminator": {
-          "propertyName": "kind",
-          "mapping": {
-            "data": "#/components/schemas/DataPart",
-            "file": "#/components/schemas/RoomArtifactPart",
-            "text": "#/components/schemas/TextPart"
-          }
-        }
-      },
-      "Part-Output": {
-        "oneOf": [
-          {
-            "$ref": "#/components/schemas/TextPart"
-          },
-          {
-            "$ref": "#/components/schemas/RoomArtifactPart"
-          },
-          {
-            "$ref": "#/components/schemas/DataPart"
-          }
-        ],
-        "title": "Part",
-        "description": "Wrapper that preserves .root access pattern used throughout the codebase.",
-        "discriminator": {
-          "propertyName": "kind",
-          "mapping": {
-            "data": "#/components/schemas/DataPart",
-            "file": "#/components/schemas/RoomArtifactPart",
-            "text": "#/components/schemas/TextPart"
-          }
-        }
       },
       "PinnedRoomOrderUpdate": {
         "properties": {
@@ -5841,6 +6606,17 @@
               }
             ],
             "title": "Rate Limit System Per Hour"
+          },
+          "inactive_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Inactive Reason"
           }
         },
         "type": "object",
@@ -5959,6 +6735,418 @@
         "type": "object",
         "title": "CreateRoomBody",
         "additionalProperties": false
+      },
+      "ApiKeySetup": {
+        "properties": {
+          "provider": {
+            "type": "string",
+            "enum": [
+              "openai",
+              "deepseek",
+              "anthropic"
+            ],
+            "title": "Provider"
+          },
+          "api_key": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 4096,
+                "minLength": 1,
+                "format": "password",
+                "writeOnly": true
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Api Key"
+          },
+          "text_model": {
+            "type": "string",
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Text Model"
+          },
+          "image_model": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 200,
+                "minLength": 1
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Image Model"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "provider",
+          "text_model"
+        ],
+        "title": "ApiKeySetup"
+      },
+      "ImageSizeSaved": {
+        "properties": {
+          "image_size": {
+            "type": "string",
+            "enum": [
+              "1024x1024",
+              "1536x1024",
+              "1024x1536",
+              "auto"
+            ],
+            "title": "Image Size"
+          },
+          "restart_required": {
+            "type": "boolean",
+            "title": "Restart Required",
+            "default": true
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "image_size"
+        ],
+        "title": "ImageSizeSaved"
+      },
+      "ImageSizeUpdate": {
+        "properties": {
+          "image_size": {
+            "type": "string",
+            "enum": [
+              "1024x1024",
+              "1536x1024",
+              "1024x1536",
+              "auto"
+            ],
+            "title": "Image Size"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "image_size"
+        ],
+        "title": "ImageSizeUpdate"
+      },
+      "OAuthComplete": {
+        "properties": {
+          "login_id": {
+            "type": "string",
+            "maxLength": 64,
+            "minLength": 1,
+            "title": "Login Id"
+          },
+          "redirect_url": {
+            "type": "string",
+            "maxLength": 8192,
+            "minLength": 1,
+            "title": "Redirect Url"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "login_id",
+          "redirect_url"
+        ],
+        "title": "OAuthComplete"
+      },
+      "OAuthLoginView": {
+        "properties": {
+          "login_id": {
+            "type": "string",
+            "title": "Login Id"
+          },
+          "state": {
+            "type": "string",
+            "enum": [
+              "pending",
+              "authenticated",
+              "failed",
+              "expired"
+            ],
+            "title": "State"
+          },
+          "authorization_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Authorization Url"
+          },
+          "listener": {
+            "type": "boolean",
+            "title": "Listener"
+          },
+          "expires_at": {
+            "type": "number",
+            "title": "Expires At"
+          },
+          "error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "login_id",
+          "state",
+          "listener",
+          "expires_at"
+        ],
+        "title": "OAuthLoginView"
+      },
+      "OAuthModels": {
+        "properties": {
+          "login_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 64,
+                "minLength": 1
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Login Id"
+          },
+          "text_model": {
+            "type": "string",
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Text Model"
+          },
+          "image_model": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 200,
+                "minLength": 1
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Image Model"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "text_model"
+        ],
+        "title": "OAuthModels"
+      },
+      "SetupErrorBody": {
+        "properties": {
+          "detail": {
+            "type": "string",
+            "title": "Detail"
+          },
+          "code": {
+            "type": "string",
+            "title": "Code"
+          },
+          "login_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Login Id"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "detail",
+          "code"
+        ],
+        "title": "SetupErrorBody"
+      },
+      "SetupModels": {
+        "properties": {
+          "text": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Text"
+          },
+          "image": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Image"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "text",
+          "image"
+        ],
+        "title": "SetupModels",
+        "description": "Eligible models; ``text[0]`` is the recommendation."
+      },
+      "SetupSaved": {
+        "properties": {
+          "changed": {
+            "type": "boolean",
+            "title": "Changed"
+          },
+          "status": {
+            "$ref": "#/components/schemas/SetupStatus"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "changed",
+          "status"
+        ],
+        "title": "SetupSaved"
+      },
+      "SetupStatus": {
+        "properties": {
+          "state": {
+            "type": "string",
+            "enum": [
+              "configured",
+              "unconfigured",
+              "credential_invalid"
+            ],
+            "title": "State"
+          },
+          "provider": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "openai",
+                  "deepseek",
+                  "anthropic"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Provider"
+          },
+          "auth": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "api_key",
+                  "oauth"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Auth"
+          },
+          "text_model": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Text Model"
+          },
+          "image_model": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Image Model"
+          },
+          "image_size": {
+            "type": "string",
+            "enum": [
+              "1024x1024",
+              "1536x1024",
+              "1024x1536",
+              "auto"
+            ],
+            "title": "Image Size"
+          },
+          "last_error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Error"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "state",
+          "image_size"
+        ],
+        "title": "SetupStatus"
+      },
+      "Part": {
+        "oneOf": [
+          {
+            "$ref": "#/components/schemas/TextPart"
+          },
+          {
+            "$ref": "#/components/schemas/RoomArtifactPart"
+          },
+          {
+            "$ref": "#/components/schemas/DataPart"
+          }
+        ],
+        "title": "Part",
+        "description": "Wrapper that preserves .root access pattern used throughout the codebase.",
+        "discriminator": {
+          "propertyName": "kind",
+          "mapping": {
+            "data": "#/components/schemas/DataPart",
+            "file": "#/components/schemas/RoomArtifactPart",
+            "text": "#/components/schemas/TextPart"
+          }
+        }
       }
     },
     "securitySchemes": {

@@ -20,7 +20,7 @@ from llm_gateway.image_types import (
     ImageContractError,
 )
 from llm_gateway.providers.openai_images import IMAGE_MODELS, OpenAIImageProvider
-from tests.fakes.llm_runtime import runtime_state
+from tests.fakes.llm_runtime import provider_runtime, runtime_state
 
 
 def png():
@@ -92,7 +92,7 @@ async def test_gateway_selected_image_generation_and_edit(monkeypatch, editing, 
         "llm_gateway.providers.openai_images.OpenAIImageProvider", factory
     )
     gateway = LLMGatewayImpl.__new__(LLMGatewayImpl)
-    gateway._setup = image_state(model)
+    gateway._runtime = provider_runtime(image_state(model))
     gateway._image_base_url = "https://provider.test/custom/v1"
     reference = GatewayImage(mime_type="image/png", data_base64=encoded)
     request = GatewayImageRequest(
@@ -122,7 +122,7 @@ async def test_missing_image_rejects_before_provider_creation(monkeypatch, state
 
     monkeypatch.setattr(setup_bindings, "create_image_provider", forbidden)
     gateway = LLMGatewayImpl.__new__(LLMGatewayImpl)
-    gateway._setup = state
+    gateway._runtime = provider_runtime(state) if state is not None else None
     with pytest.raises(LLMProviderConfigurationError):
         await gateway.generate_image(GatewayImageRequest(prompt="A cat"))
 
@@ -139,7 +139,7 @@ async def test_image_cancel_closes_http_and_gateway_client(monkeypatch):
     )
     monkeypatch.setattr(setup_bindings, "create_image_provider", lambda *args: provider)
     gateway = LLMGatewayImpl.__new__(LLMGatewayImpl)
-    gateway._setup = image_state()
+    gateway._runtime = provider_runtime(image_state())
     gateway._image_base_url = None
     task = asyncio.create_task(
         gateway.generate_image(GatewayImageRequest(prompt="A cat"))

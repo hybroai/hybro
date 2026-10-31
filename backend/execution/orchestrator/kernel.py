@@ -129,6 +129,11 @@ _JOIN_FAILURE_ERROR_CODES = frozenset(
         "invalid_tool_call",
     }
 )
+# Gateway codes for a missing or unusable model Provider. The Run fails with the
+# code as its reason instead of spending retries that cannot succeed.
+_PROVIDER_UNAVAILABLE_CODES = frozenset(
+    {"provider_not_configured", "credential_invalid"}
+)
 _REQUEST_USER_INPUT_PENDING_AGENT_QUESTIONS_ERROR = (
     "An Agent's typed questions are awaiting a decision. Forward them "
     "unchanged with surface_agent_questions (one question at a time), or "
@@ -1560,6 +1565,12 @@ class OrchestratorKernel:
                 )
                 continue
             if model_outcome.kind == "provider_error":
+                if model_outcome.error_code in _PROVIDER_UNAVAILABLE_CODES:
+                    # Only a setup save changes this state, so a retry would
+                    # fail the same way; fail now with the reason instead.
+                    return await self._terminate(
+                        run, status="failed", reason=model_outcome.error_code
+                    )
                 retry_reserved = await self._reserve_model_retry(run)
                 if isinstance(retry_reserved, KernelRunResult):
                     return retry_reserved

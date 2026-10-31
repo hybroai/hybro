@@ -25,7 +25,6 @@ PRODUCTION_LLM_CONSUMER_ROOTS = [
 PROVIDER_NAMED_REMOVED_RUNTIME_MODULES = {
     f"{REMOVED_RUNTIME_PACKAGE}.openai_service",
     f"{REMOVED_RUNTIME_PACKAGE}.gemini_service",
-    f"{REMOVED_RUNTIME_PACKAGE}.bedrock_service",
 }
 
 PROVIDER_NAMED_REMOVED_RUNTIME_LEAF_MODULES = {
@@ -35,7 +34,6 @@ PROVIDER_NAMED_REMOVED_RUNTIME_LEAF_MODULES = {
 PROVIDER_NAMED_RUNTIME_SYMBOLS = {
     "OpenAIService",
     "GeminiService",
-    "BedrockService",
 }
 
 LLM_SETTINGS_FIELDS = {
@@ -47,11 +45,8 @@ LLM_SETTINGS_FIELDS = {
     "supervisor_model",
     "deepseek_api_key",
     "deepseek_model_name",
-    "use_bedrock_supervisor",
-    "bedrock_supervisor_model",
     "openai_api_key",
     "google_api_key",
-    "bedrock_region",
 }
 
 
@@ -82,7 +77,6 @@ def test_llm_gateway_services_import_boundary():
         "OpenAIProvider",
         "GeminiProvider",
         "DeepSeekProvider",
-        "BedrockProvider",
     }
     for path in services_path.rglob("*.py"):
         tree = ast.parse(path.read_text(), filename=str(path))
@@ -140,7 +134,7 @@ def test_container_binds_focused_llm_services_to_production_consumers():
     source = Path("container.py").read_text()
     main_source = Path("main.py").read_text()
     expected_snippets = [
-        "generation_provider=llm_gateway_config.generation_provider,",
+        "provider_runtime=_provider_runtime,",
         "settings_obj=runtime.settings,",
         "agent_selection_llm_service = AgentSelectionLLMService(",
     ]
@@ -148,10 +142,8 @@ def test_container_binds_focused_llm_services_to_production_consumers():
         "discovery_llm_service = DiscoveryLLMService(",
         f"from {REMOVED_RUNTIME_PACKAGE}.openai_service import",
         f"from {REMOVED_RUNTIME_PACKAGE}.gemini_service import",
-        f"from {REMOVED_RUNTIME_PACKAGE}.bedrock_service import",
         "openai_service.bind_llm_gateway(",
         "gemini_service.bind_llm_gateway(",
-        "bedrock_service.bind_llm_services(",
         "openai_service.bind_debate_service(",
     ]
     missing = [snippet for snippet in expected_snippets if snippet not in source]

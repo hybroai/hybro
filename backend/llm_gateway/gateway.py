@@ -2,20 +2,23 @@ import asyncio
 import time
 from collections.abc import AsyncIterator, Awaitable, Callable, Coroutine
 from contextlib import aclosing
+from dataclasses import dataclass
 from typing import Any, Literal, Protocol, TypeVar, runtime_checkable
 
 from common.config.loader import settings
-from common.config.runtime_store import current_store
+from common.config.runtime_config import RuntimeConfigurationError
 from common.dto import LLMResponse, LLMStructuredResponse
 from common.observability import get_logger, safe_exception_metadata
-from llm_gateway.config import LLMGatewayConfig, load_optional_setup
+from llm_gateway.config import LLMGatewayConfig, load_provider_runtime
 from llm_gateway.errors import (
     LLMModelRoutingError,
     LLMProviderConfigurationError,
     LLMStreamingUnsupportedError,
+    ProviderNotConfigured,
 )
 from llm_gateway.image_types import GatewayImageRequest, GatewayImageResult
 from llm_gateway.model_registry import ModelInfo, ModelRegistryImpl
+from llm_gateway.provider_runtime import ProviderPair, ProviderRuntime, TextSelection
 from llm_gateway.providers import DeepSeekProvider, OpenAIProvider
 from llm_gateway.turn_types import GatewayTurnEvent, GatewayTurnRequest
 
@@ -53,6 +56,15 @@ class LLMTurnGateway(Protocol):
     ) -> AsyncIterator[GatewayTurnEvent]: ...
 
 
+@dataclass(frozen=True, slots=True)
+class _PairAdapters:
+    """Clients built for one Provider pair; replaced when the pair changes."""
+
+    text: LLMProviderAdapter
+    # An OpenAI API-key setup also serves embeddings with its stored key.
+    embedding: LLMProviderAdapter | None
+
+
 class LLMGatewayImpl:
     def __init__(
         self,
@@ -60,16 +72,22 @@ class LLMGatewayImpl:
         providers: dict[str, LLMProviderAdapter] | None = None,
         config: LLMGatewayConfig | None = None,
         settings_obj: Any = None,
+        provider_runtime: ProviderRuntime | None = None,
     ) -> None:
         settings_obj = settings_obj or settings
         self.config = config or LLMGatewayConfig.from_settings(settings_obj)
-        self._model_registry = model_registry or ModelRegistryImpl(
-            settings_obj,
-            generation_provider=self.config.generation_provider,
+        # The holder owns the Provider pair and is read on every call, so a
+        # saved change applies without a restart. It is None only when a unit
+        # test replaces load_provider_runtime, keeping the fixed legacy routes.
+        self._runtime = provider_runtime or load_provider_runtime()
+        self._model_registry = model_registry or (
+            ModelRegistryImpl(settings_obj, provider_runtime=self._runtime)
+            if self._runtime is not None
+            else ModelRegistryImpl(
+                settings_obj, generation_provider=self.config.generation_provider
+            )
         )
         self._enforce_provider_credentials = providers is None
-        # Capture setup once per instance. Restart to apply a new selection.
-        self._setup = load_optional_setup(settings_obj)
         self._image_base_url = getattr(settings_obj, "openai_base_url", None)
         self._provider_credentials = {
             "openai": str(getattr(settings_obj, "openai_api_key", "") or ""),
@@ -86,53 +104,84 @@ class LLMGatewayImpl:
                 ),
             }
         self._providers: dict[str, LLMProviderAdapter] = providers
-        if (
-            self._setup is not None
-            and self._setup.config.provider.id == "openai"
-            and self._setup.config.provider.auth == "api_key"
-            and self._enforce_provider_credentials
-        ):
-            # Embeddings stay on the original OpenAI route and are not part of
-            # text/image setup. Reuse the stored API key so they do not build an
-            # OpenAI client from an empty Settings.openai_api_key under JSON.
-            credential = self._setup.authentication.credential
-            api_key = getattr(credential, "api_key", None)
-            if api_key is not None:
-                self._providers["openai"] = OpenAIProvider(
-                    api_key=api_key.get_secret_value(),
-                    base_url=getattr(settings_obj, "openai_base_url", None) or None,
-                )
-        self._text_provider = None
-        if self._setup is not None:
+        self._pair_adapters: tuple[ProviderPair, _PairAdapters] | None = None
+
+    async def _selection(self) -> ProviderPair | None:
+        """One working pair for the whole call, after the holder's file check."""
+        if self._runtime is None:
+            return None
+        pair = await self._runtime.refresh()
+        pair.require()
+        return pair
+
+    async def select_text(self) -> TextSelection:
+        """The working pair and its text model; raises when none is usable."""
+        from llm_gateway.catalog import validate_models
+
+        pair = await self._selection()
+        if pair is None:
+            raise ProviderNotConfigured("provider_not_configured")
+        return TextSelection(pair, validate_models(pair.config))
+
+    def _adapters(self, pair: ProviderPair) -> _PairAdapters:
+        cached = self._pair_adapters
+        if cached is not None and cached[0] is pair:
+            return cached[1]
+        state = pair.require()
+        selected = state.config.provider
+        assert selected is not None and state.authentication is not None
+        if not self._enforce_provider_credentials:
+            text = self._providers.get(selected.id)
+            if text is None:
+                raise LLMModelRoutingError("Selected text provider is not configured")
+            adapters = _PairAdapters(text=text, embedding=None)
+        else:
             from llm_gateway.setup_bindings import create_provider
 
+            credential = state.authentication.credential
             oauth_resolve = None
-            if self._setup.config.provider.auth == "oauth":
+            if selected.auth == "oauth":
                 from common.config.runtime_config import OAuthCredential
                 from llm_gateway.openai_oauth import refresh
 
-                initial = self._setup
-                credential = initial.authentication.credential
                 if not isinstance(credential, OAuthCredential):
                     raise LLMProviderConfigurationError("OAuth credential missing")
-                store = current_store()
+                runtime = self._runtime
+                assert runtime is not None
+                expected, account = state.config, credential.account_id
 
                 async def oauth_resolve() -> OAuthCredential:
-                    return await store.resolve_oauth(
-                        initial.config, credential.account_id, {}, refresh
-                    )
+                    try:
+                        return await runtime.store.resolve_oauth(
+                            expected, account, {}, refresh
+                        )
+                    except RuntimeConfigurationError:
+                        # A call still holding a replaced pair is expected to be
+                        # rejected; only the current pair's failure is a state.
+                        if runtime.current is pair:
+                            runtime.record_failure("oauth_refresh_failed")
+                        raise
 
-            self._text_provider = (
-                create_provider(
-                    self._setup,
-                    getattr(settings_obj, "openai_base_url", None),
-                    oauth_resolve=oauth_resolve,
+            base_url = self._image_base_url
+            embedding = None
+            api_key = getattr(credential, "api_key", None)
+            if (
+                selected.id == "openai"
+                and selected.auth == "api_key"
+                and api_key is not None
+            ):
+                # Embeddings stay on the original OpenAI route and are not part
+                # of text/image setup; reuse the stored key instead of the empty
+                # Settings.openai_api_key under JSON configuration.
+                embedding = OpenAIProvider(
+                    api_key=api_key.get_secret_value(), base_url=base_url or None
                 )
-                if self._enforce_provider_credentials
-                else providers.get(self._setup.config.provider.id)
+            adapters = _PairAdapters(
+                text=create_provider(state, base_url, oauth_resolve=oauth_resolve),
+                embedding=embedding,
             )
-            if self._text_provider is None:
-                raise LLMModelRoutingError("Selected text provider is not configured")
+        self._pair_adapters = (pair, adapters)
+        return adapters
 
     async def stream_turn_once(
         self,
@@ -142,10 +191,35 @@ class LLMGatewayImpl:
     ) -> AsyncIterator[GatewayTurnEvent]:
         """Stream exactly one frozen provider attempt with no hidden retry."""
 
-        if self._setup is not None:
+        stream = self._stream_turn(request, await self._selection(), cancel_event)
+        async with aclosing(stream):
+            async for event in stream:
+                yield event
+
+    async def stream_turn_selected(
+        self,
+        request: GatewayTurnRequest,
+        selection: TextSelection,
+        *,
+        cancel_event: asyncio.Event | None = None,
+    ) -> AsyncIterator[GatewayTurnEvent]:
+        """``stream_turn_once`` on a pair the caller already selected."""
+        stream = self._stream_turn(request, selection.pair, cancel_event)
+        async with aclosing(stream):
+            async for event in stream:
+                yield event
+
+    async def _stream_turn(
+        self,
+        request: GatewayTurnRequest,
+        pair: ProviderPair | None,
+        cancel_event: asyncio.Event | None,
+    ) -> AsyncIterator[GatewayTurnEvent]:
+        if pair is not None:
             from llm_gateway.catalog import validate_models
 
-            selected = validate_models(self._setup.config)
+            selected = validate_models(pair.config)
+            text_provider = self._adapters(pair).text
             if selected.provider == "anthropic":
                 # GatewayTurnRequest only models the OpenAI/DeepSeek wire, so an
                 # Anthropic request cannot be normalized into a copy. Its adapter
@@ -153,7 +227,7 @@ class LLMGatewayImpl:
                 # and ignores the OpenAI-only shaping fields (provider/api/
                 # thinking/tool_strategy); temperature and output limits are read
                 # from the original request exactly like the other adapters.
-                stream = self._text_provider.stream_turn_once(
+                stream = text_provider.stream_turn_once(
                     request, model=selected.model_id, cancel_event=cancel_event
                 )
             else:
@@ -174,7 +248,7 @@ class LLMGatewayImpl:
                         else "structured_action",
                     }
                 )
-                stream = self._text_provider.stream_turn_once(
+                stream = text_provider.stream_turn_once(
                     wire_request, cancel_event=cancel_event
                 )
             async with aclosing(stream):
@@ -216,7 +290,8 @@ class LLMGatewayImpl:
                 kwargs,
                 self.config.request_timeout_seconds,
             )
-            model_info, provider = self._resolve_provider(requested_model)
+            pair = await self._selection()
+            model_info, provider = self._resolve_provider(requested_model, pair=pair)
         except Exception as exc:
             _log_call_completed(
                 operation="generate",
@@ -230,7 +305,7 @@ class LLMGatewayImpl:
             lambda: provider.generate(
                 messages,
                 model=model_info.model_id,
-                **self._text_options(kwargs, timeout_seconds),
+                **self._text_options(kwargs, timeout_seconds, pair),
             ),
             timeout_seconds=timeout_seconds,
             operation_name="generate",
@@ -258,7 +333,8 @@ class LLMGatewayImpl:
                 kwargs,
                 self.config.request_timeout_seconds,
             )
-            model_info, provider = self._resolve_provider(requested_model)
+            pair = await self._selection()
+            model_info, provider = self._resolve_provider(requested_model, pair=pair)
         except Exception as exc:
             _log_call_completed(
                 operation="generate_structured",
@@ -274,7 +350,7 @@ class LLMGatewayImpl:
                 model=model_info.model_id,
                 schema=schema,
                 json_mode=json_mode,
-                **self._text_options(kwargs, timeout_seconds),
+                **self._text_options(kwargs, timeout_seconds, pair),
             ),
             timeout_seconds=timeout_seconds,
             operation_name="generate_structured",
@@ -287,13 +363,13 @@ class LLMGatewayImpl:
         """Generate or edit using the optional setup image model, without retries."""
         from llm_gateway.setup_bindings import create_image_provider
 
-        if self._setup is None or self._setup.config.models.image is None:
+        pair = await self._selection()
+        image_model = pair.config.models.image if pair is not None else None
+        if pair is None or image_model is None:
             raise LLMProviderConfigurationError("Image model is not configured")
-        provider = create_image_provider(self._setup, self._image_base_url)
+        provider = create_image_provider(pair.runtime, self._image_base_url)
         try:
-            return await provider.generate_image_once(
-                request, model=self._setup.config.models.image
-            )
+            return await provider.generate_image_once(request, model=image_model)
         finally:
             await provider.aclose()
 
@@ -301,7 +377,9 @@ class LLMGatewayImpl:
         started_at = time.perf_counter()
         requested_model = model or self.config.default_embedding_model
         try:
-            model_info, provider = self._resolve_original_provider(requested_model)
+            model_info, provider = await self._resolve_embedding_provider(
+                requested_model
+            )
             if "embedding" not in model_info.capabilities:
                 raise ValueError(
                     f"Model {model_info.logical_name} does not support embeddings"
@@ -332,7 +410,9 @@ class LLMGatewayImpl:
         started_at = time.perf_counter()
         requested_model = model or self.config.default_embedding_model
         try:
-            model_info, provider = self._resolve_original_provider(requested_model)
+            model_info, provider = await self._resolve_embedding_provider(
+                requested_model
+            )
             if "embedding" not in model_info.capabilities:
                 raise ValueError(
                     f"Model {model_info.logical_name} does not support embeddings"
@@ -383,9 +463,9 @@ class LLMGatewayImpl:
     ) -> LLMResponse:
         started_at = time.perf_counter()
         try:
+            pair = await self._selection()
             model_info, provider_adapter = self._resolve_provider(
-                model,
-                provider_hint=provider,
+                model, provider_hint=provider, pair=pair
             )
         except Exception as exc:
             _log_call_completed(
@@ -402,7 +482,7 @@ class LLMGatewayImpl:
                 messages,
                 model=model_info.model_id,
                 **self._text_options(
-                    kwargs, timeout_seconds or self.config.request_timeout_seconds
+                    kwargs, timeout_seconds or self.config.request_timeout_seconds, pair
                 ),
             ),
             timeout_seconds=timeout_seconds or self.config.request_timeout_seconds,
@@ -450,9 +530,9 @@ class LLMGatewayImpl:
                 raise LLMModelRoutingError(
                     "generate_structured requires schema or json_mode=True"
                 )
+            pair = await self._selection()
             model_info, provider_adapter = self._resolve_provider(
-                model,
-                provider_hint=provider,
+                model, provider_hint=provider, pair=pair
             )
         except Exception as exc:
             _log_call_completed(
@@ -471,7 +551,7 @@ class LLMGatewayImpl:
                 schema=schema,
                 json_mode=json_mode,
                 **self._text_options(
-                    kwargs, timeout_seconds or self.config.request_timeout_seconds
+                    kwargs, timeout_seconds or self.config.request_timeout_seconds, pair
                 ),
             ),
             timeout_seconds=timeout_seconds or self.config.request_timeout_seconds,
@@ -558,9 +638,9 @@ class LLMGatewayImpl:
             yielded = False
             model_info: ModelInfo | None = None
             try:
+                pair = await self._selection()
                 model_info, provider = self._resolve_provider(
-                    model,
-                    provider_hint=provider_hint,
+                    model, provider_hint=provider_hint, pair=pair
                 )
                 stream_method = getattr(provider, "generate_stream", None)
                 if stream_method is None:
@@ -572,7 +652,7 @@ class LLMGatewayImpl:
                         stream_method(
                             messages,
                             model=model_info.model_id,
-                            **self._text_options(kwargs, timeout),
+                            **self._text_options(kwargs, timeout, pair),
                         )
                     ) as stream:
                         async for chunk in stream:
@@ -598,7 +678,11 @@ class LLMGatewayImpl:
                     error=exc,
                 )
                 raise
-            except (LLMModelRoutingError, LLMStreamingUnsupportedError) as exc:
+            except (
+                LLMModelRoutingError,
+                LLMStreamingUnsupportedError,
+                ProviderNotConfigured,
+            ) as exc:
                 _log_stream_completed(
                     model_info=model_info,
                     requested_model=model,
@@ -641,10 +725,13 @@ class LLMGatewayImpl:
                 )
                 return
 
-    def _text_options(self, kwargs: dict[str, Any], timeout: float) -> dict[str, Any]:
+    def _text_options(
+        self, kwargs: dict[str, Any], timeout: float, pair: ProviderPair | None
+    ) -> dict[str, Any]:
         # Private Codex transport deadline, not a new public adapter/DTO contract.
         # Other providers retain their original options and timeout behavior.
-        if self._setup is not None and self._setup.config.provider.auth == "oauth":
+        selected = pair.config.provider if pair is not None else None
+        if selected is not None and selected.auth == "oauth":
             return {**kwargs, "timeout_seconds": timeout}
         return kwargs
 
@@ -652,18 +739,30 @@ class LLMGatewayImpl:
         self,
         model: str,
         provider_hint: ProviderHint | None = None,
+        *,
+        pair: ProviderPair | None = None,
     ) -> tuple[ModelInfo, LLMProviderAdapter]:
         # Setup wins over logical labels, aliases and explicit hints for text only.
-        if self._setup is not None:
-            selected = self._setup.config
+        if pair is not None:
+            selected = pair.config
+            assert selected.provider is not None and selected.models is not None
             return ModelInfo(
                 logical_name=model,
                 model_id=selected.models.text,
                 provider=selected.provider.id,
                 capabilities=["json_schema", "tool_use"],
                 max_context_tokens=0,
-            ), self._text_provider
+            ), self._adapters(pair).text
         return self._resolve_original_provider(model, provider_hint)
+
+    async def _resolve_embedding_provider(
+        self, model: str
+    ) -> tuple[ModelInfo, LLMProviderAdapter]:
+        pair = await self._selection()
+        model_info, provider = self._resolve_original_provider(model)
+        if pair is not None and model_info.provider == "openai":
+            provider = self._adapters(pair).embedding or provider
+        return model_info, provider
 
     def _resolve_original_provider(
         self,

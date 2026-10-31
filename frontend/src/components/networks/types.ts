@@ -1,5 +1,6 @@
 import type { AgentGroup } from '@/lib/types/agent-group'
 import type { GraphDisplayPrefs } from '@/lib/graph-labels'
+import type { AgentInactiveReason } from '@/lib/types/agent'
 
 export interface NetworkAgent {
   id: string
@@ -8,10 +9,11 @@ export interface NetworkAgent {
   skills: string[]
   tags: string[]
   status: 'active' | 'inactive' | 'deleted' | 'unavailable' | 'unknown'
+  inactiveReason?: AgentInactiveReason
   iconUrl?: string
   provider?: string
   version?: string
-  source?: 'cloud' | 'local' | 'hub'
+  source?: 'cloud' | 'local' | 'hub' | 'bundled'
   roomCalls: number
 }
 

@@ -2,7 +2,10 @@
 
 import base64
 import json
+import tempfile
 import time
+from pathlib import Path
+from typing import TYPE_CHECKING
 
 from pydantic import SecretStr
 
@@ -14,7 +17,10 @@ from common.config.runtime_config import (
     RuntimeModels,
     RuntimeProvider,
 )
-from common.config.runtime_store import RuntimeState
+from common.config.runtime_store import RuntimeConfigStore, RuntimeState
+
+if TYPE_CHECKING:
+    from llm_gateway.provider_runtime import ProviderRuntime
 
 
 def oauth_credential(
@@ -55,3 +61,13 @@ def runtime_state(provider="openai", model="gpt-4o-mini") -> RuntimeState:
             ApiKeyCredential(provider=provider, api_key=SecretStr("test-only-key")),
         ),
     )
+
+
+def provider_runtime(state: RuntimeState) -> "ProviderRuntime":
+    """A holder over a fresh private store that contains exactly ``state``."""
+    from llm_gateway.provider_runtime import ProviderRuntime
+    from tests.fakes.config_bootstrap import home
+
+    store = RuntimeConfigStore(Path(tempfile.mkdtemp(dir=home)) / "runtime")
+    store.save(state.config, state.authentication.credential, {})
+    return ProviderRuntime(store)

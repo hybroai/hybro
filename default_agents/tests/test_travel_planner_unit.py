@@ -98,7 +98,7 @@ def test_travel_planner_agent_card_has_routing_friendly_metadata():
     skill = build_travel_planner_skill()
 
     assert card.name == AGENT_NAME
-    assert card.url == "http://travel-planner-agent:7002"
+    assert card.supported_interfaces[0].url == "http://travel-planner-agent:7002"
     assert "trip planning" in card.description.lower()
     assert "itinerar" in card.description.lower()
     assert len(card.skills) == 1

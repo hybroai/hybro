@@ -27,6 +27,8 @@ def create_provider(
     oauth_resolve: CredentialResolver | None = None,
 ) -> OpenAIProvider | DeepSeekProvider | AnthropicProvider | OpenAICodexProvider:
     validate_models(state.config)
+    if state.authentication is None:
+        raise RuntimeConfigurationError("Provider credential is not available")
     credential = state.authentication.credential
     if isinstance(credential, OAuthCredential) and (
         state.config.provider.id,
@@ -55,7 +57,9 @@ def create_image_provider(
     from llm_gateway.providers.openai_images import OpenAIImageProvider
 
     validate_models(state.config)
-    credential = state.authentication.credential
+    credential = (
+        state.authentication.credential if state.authentication is not None else None
+    )
     if (
         state.config.models.image is None
         or state.config.provider.id != "openai"

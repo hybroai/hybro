@@ -26,8 +26,9 @@ If applicable, add screenshots or console output/stack traces to help explain yo
  - **OS**: [e.g. macOS 14.5, Ubuntu 22.04, Windows 11]
  - **Browser**: [e.g. Chrome 125, Firefox 126]
  - **Python Version**: [e.g. 3.12.3]
- - **Node Version**: [e.g. 20.19.0]
- - **Docker / Compose Version**: [e.g. Docker 26.0.0]
+ - **Node Version**: [e.g. 24.11.0]
+ - **Docker Version**: [e.g. Docker 26.0.0]
+ - **Hybro Version** (`hybro --version`): [e.g. 0.4.0]
 
 ## Additional Context
 Add any other context about the problem here.

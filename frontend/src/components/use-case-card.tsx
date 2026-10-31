@@ -11,9 +11,12 @@ interface UseCaseCardProps {
   catalog: Agent[]
   onClick: () => void
   disabled?: boolean
+  /** Shown on the card, which is then disabled. */
+  unavailableReason?: string
 }
 
-export function UseCaseCard({ template, catalog, onClick, disabled }: UseCaseCardProps) {
+export function UseCaseCard({ template, catalog, onClick, disabled: busy, unavailableReason }: UseCaseCardProps) {
+  const disabled = busy || unavailableReason !== undefined
   const { icon: Icon, title, description, agents, tag } = template
 
   const resolvedAvatars = useMemo(() => {
@@ -120,7 +123,7 @@ export function UseCaseCard({ template, catalog, onClick, disabled }: UseCaseCar
 
       {/* Middle: Description */}
       <p className="relative z-[1] line-clamp-2 text-[13px] leading-relaxed text-slate-500 dark:text-[#999]">
-        {description}
+        {unavailableReason ?? description}
       </p>
 
       {/* Spacer */}

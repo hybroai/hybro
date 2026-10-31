@@ -134,7 +134,7 @@ export function AgentPicker({
               <span className="flex min-w-0 flex-1 flex-col">
                 <span className="flex min-w-0 items-center gap-2">
                   <span className="truncate text-sm font-medium">{agent.name}</span>
-                  <StatusIndicator view={agentStatusView(agent.status)} />
+                  <StatusIndicator view={agentStatusView(agent.status, agent.inactiveReason)} />
                   {added ? <Badge variant="badgeMuted">Added</Badge> : null}
                 </span>
                 {agent.description || note ? (

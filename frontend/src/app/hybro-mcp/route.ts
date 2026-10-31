@@ -5,12 +5,9 @@ export const dynamic = 'force-dynamic'
 /** Public connection status only. Never forwards credentials or MCP tool calls. */
 export async function GET(): Promise<Response> {
   let status: McpStatus = 'unavailable'
-  // Fixed Compose transport metadata, not a user-controlled proxy destination.
-  const origin = process.env.HYBRO_MCP_URL === 'http://mcp:8001'
-    ? 'http://mcp:8001'
-    : 'http://127.0.0.1:8001'
   try {
-    const response = await fetch(`${origin}/health`, {
+    // Fixed loopback destination: MCP shares the container (or the host) with this server.
+    const response = await fetch('http://127.0.0.1:8001/health', {
       cache: 'no-store',
       redirect: 'error',
       signal: AbortSignal.timeout(4000)

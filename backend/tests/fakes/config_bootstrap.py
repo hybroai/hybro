@@ -32,7 +32,6 @@ for key in ("OPENAI_API_KEY", "DEEPSEEK_API_KEY", "ANTHROPIC_API_KEY"):
             "auth": "api_key",
             "api_key": "fixture-not-a-provider-key",
             "services": {
-                "default_agent_registrar_token": "fixture-registrar-" * 4,
                 "default_agent_llm_token": "fixture-inference-" * 4,
             },
         }

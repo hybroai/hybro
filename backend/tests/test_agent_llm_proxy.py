@@ -13,6 +13,7 @@ from PIL import Image
 from api_gateway.routes.llm_proxy_routes import router
 from common.middleware.request_size import RequestBodyLimitMiddleware
 from llm_gateway.agent_proxy import AgentLLMProxy
+from llm_gateway.errors import ProviderNotConfigured
 from llm_gateway.image_types import GatewayImage, GatewayImageResult
 from llm_gateway.turn_types import GatewayTurnEvent, GatewayUsage
 
@@ -24,7 +25,8 @@ def make_app(events):
     requests = []
     closed = []
 
-    async def stream(request):
+    async def stream(request, selection):
+        assert selection is gateway.select_text.return_value
         requests.append(request)
         try:
             for event in events:
@@ -35,10 +37,14 @@ def make_app(events):
             closed.append(True)
 
     gateway = SimpleNamespace(
-        _setup=SimpleNamespace(
-            config=SimpleNamespace(models=SimpleNamespace(text="selected-model"))
+        select_text=AsyncMock(
+            return_value=SimpleNamespace(
+                model=SimpleNamespace(
+                    model_id="selected-model", max_output_tokens=32768
+                )
+            )
         ),
-        stream_turn_once=stream,
+        stream_turn_selected=stream,
         generate_image=AsyncMock(),
     )
     app = FastAPI()
@@ -70,13 +76,30 @@ def test_turn_request_clamps_output_to_catalog_ceiling():
     assert turn_request(body, "c", max_output_tokens=8192).max_output_tokens == 4096
 
 
-def test_proxy_reports_catalog_output_ceiling():
-    gateway = SimpleNamespace(
-        _setup=SimpleNamespace(
-            config=SimpleNamespace(models=SimpleNamespace(text="deepseek-v4-flash"))
-        )
+@pytest.mark.asyncio
+async def test_one_selection_serves_ceiling_label_and_turn():
+    """A setup save mid-request must not mix the old and new model."""
+    from llm_gateway.catalog import validate_models
+    from tests.fakes.llm_runtime import runtime_state
+
+    entry = validate_models(runtime_state("deepseek", "deepseek-v4-flash").config)
+    app, gateway, requests, _ = make_app(
+        [GatewayTurnEvent(kind="finish", finish_reason="stop")]
     )
-    assert AgentLLMProxy(gateway, TOKEN).max_output_tokens() == 8192
+    gateway.select_text.return_value = SimpleNamespace(model=entry)
+    body = {
+        "model": "gpt-4o",
+        "messages": [{"role": "user", "content": "Hi"}],
+        "max_tokens": 32768,
+    }
+    headers = {"Authorization": "Bearer " + TOKEN}
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app)) as http:
+        response = await http.post(
+            BASE + "/chat/completions", json=body, headers=headers
+        )
+    assert response.json()["model"] == "deepseek-v4-flash"
+    assert requests[0].max_output_tokens == 8192
+    assert gateway.select_text.await_count == 1
 
 
 def tool_events():
@@ -215,6 +238,24 @@ async def test_stream_failure_or_missing_finish_is_not_success(failure):
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("stream", [False, True])
+async def test_provider_lost_during_a_turn_returns_its_code(stream):
+    app, _, _, _ = make_app([ProviderNotConfigured("credential_invalid")])
+    body = {"model": "gpt-4o", "messages": [{"role": "user", "content": "Hi"}]}
+    headers = {"Authorization": "Bearer " + TOKEN}
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app)) as http:
+        response = await http.post(
+            BASE + "/chat/completions", json={**body, "stream": stream}, headers=headers
+        )
+    if stream:
+        assert '"code": "credential_invalid"' in response.text
+        assert "[DONE]" not in response.text
+    else:
+        assert response.status_code == 409
+        assert response.json()["error"]["code"] == "credential_invalid"
+
+
+@pytest.mark.asyncio
 async def test_auth_validation_body_limits_and_missing_setup_fail_closed():
     app, gateway, requests, _ = make_app([])
     body = {
@@ -238,10 +279,13 @@ async def test_auth_validation_body_limits_and_missing_setup_fail_closed():
             headers=headers,
         )
         assert oversized.status_code == 413
-        gateway._setup = None
-        assert (
-            await http.post(BASE + "/chat/completions", json=body, headers=headers)
-        ).status_code == 503
+        for code in ("provider_not_configured", "credential_invalid"):
+            gateway.select_text.side_effect = ProviderNotConfigured(code)
+            missing = await http.post(
+                BASE + "/chat/completions", json=body, headers=headers
+            )
+            assert missing.status_code == 409
+            assert missing.json()["error"]["code"] == code
         app.state.agent_llm_proxy.token = type(app.state.agent_llm_proxy.token)("")
         assert (
             await http.post(BASE + "/chat/completions", json=body, headers=headers)
@@ -292,7 +336,8 @@ async def test_closing_stream_closes_gateway_and_releases_slot():
     app, _, _, closed = make_app(tool_events())
     proxy = app.state.agent_llm_proxy
     body = ChatRequest(model="gpt-4o", messages=[{"role": "user", "content": "Hi"}])
-    chunks = proxy.chat_chunks(turn_request(body, "fixture"))
+    selection = await proxy.select_text()
+    chunks = proxy.chat_chunks(turn_request(body, "fixture"), selection)
     await anext(chunks)  # Role frame, no Provider I/O yet.
     await anext(chunks)  # First Provider text.
     await chunks.aclose()

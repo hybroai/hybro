@@ -9,14 +9,14 @@ import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
 import { StatusIndicator } from '@/components/status-indicator'
-import { agentStatusView } from '@/lib/status'
+import { agentStatusView, inactiveReasonText } from '@/lib/status'
 import { getAgentAvatarUri } from '@/lib/agent-avatar'
 import { routes } from '@/lib/routes'
 import { cn } from '@/lib/utils'
 import { AddToSubnetMenu } from './add-to-subnet-menu'
 import type { NetworkDetailsPanelProps } from './types'
 
-const SOURCE_LABEL = { cloud: 'Remote', local: 'Local', hub: 'Hub' } as const
+const SOURCE_LABEL = { cloud: 'Remote', local: 'Local', hub: 'Hub', bundled: 'Sample' } as const
 const initials = (name: string) =>
   name.split(/[\s_-]+/).filter(Boolean).slice(0, 2).map(part => part[0]!.toUpperCase()).join('')
 
@@ -86,10 +86,13 @@ export function NetworkDetailsPanel({
           <>
             <Section title="Status">
               <div className="flex flex-wrap items-center gap-x-4 gap-y-2 text-xs text-muted-foreground">
-                <StatusIndicator view={agentStatusView(selection.agent.status)} />
+                <StatusIndicator view={agentStatusView(selection.agent.status, selection.agent.inactiveReason)} />
                 {selection.agent.source ? <span>{SOURCE_LABEL[selection.agent.source]}</span> : null}
                 <span>{selection.agent.roomCalls} room calls</span>
               </div>
+              {selection.agent.status === 'inactive' && selection.agent.inactiveReason ? (
+                <p className="mt-2 text-xs text-muted-foreground">{inactiveReasonText(selection.agent.inactiveReason)}</p>
+              ) : null}
             </Section>
             {selection.agent.skills.length ? (
               <Section title="Skills">
@@ -135,7 +138,7 @@ export function NetworkDetailsPanel({
                           <AvatarFallback className="rounded-md bg-muted text-[11px]">{initials(agent?.name ?? id)}</AvatarFallback>
                         </Avatar>
                         <span className="min-w-0 flex-1 truncate text-sm font-medium" title={agent?.name ?? id}>{agent?.name ?? id}</span>
-                        <StatusIndicator view={agentStatusView(agent?.status ?? 'unknown')} />
+                        <StatusIndicator view={agentStatusView(agent?.status ?? 'unknown', agent?.inactiveReason)} />
                       </li>
                     )
                   })}

@@ -17,6 +17,19 @@ from models.agent import (
 logger = get_logger(__name__)
 
 
+def _reactivatable(agent: Agent) -> bool:
+    """An inactive agent that is reachable again and not gated by setup."""
+    return agent.agent_status == AgentStatus.inactive and not agent.inactive_reason
+
+
+# Reactivation applies only while the stored record is still inactive and
+# ungated: bundled-agent gating may set a reason while a probe is in flight.
+_REACTIVATE_CONDITIONS = {
+    "agent_status": AgentStatus.inactive.value,
+    "inactive_reason": None,
+}
+
+
 class AgentHealthRepositoryPort(Protocol):
     async def get_by_id(self, agent_id: str) -> dict | None: ...
 
@@ -25,6 +38,10 @@ class AgentHealthRepositoryPort(Protocol):
     ) -> list[dict]: ...
 
     async def update(self, agent_id: str, updates: dict) -> dict | None: ...
+
+    async def update_where(
+        self, agent_id: str, conditions: dict, updates: dict
+    ) -> bool: ...
 
 
 class AgentHealthService:
@@ -233,6 +250,27 @@ class AgentHealthService:
             )
             return False
 
+    async def reactivate_agent(self, agent_id: str) -> bool:
+        """Mark a recovered agent active unless it is no longer inactive and ungated.
+
+        Returns True only when the record changed.
+        """
+        try:
+            changed = await self._require_repository().update_where(
+                agent_id,
+                _REACTIVATE_CONDITIONS,
+                {"agent_status": AgentStatus.active.value},
+            )
+        except Exception as exc:
+            logger.error(
+                "agent_status_update_failed",
+                extra={"agent_id": agent_id, "error_type": type(exc).__name__},
+            )
+            return False
+        if changed:
+            logger.info(f"Agent {agent_id} status updated to active")
+        return bool(changed)
+
     async def _check_stored_agent(
         self, agent: Agent
     ) -> tuple[bool, CommonAgentCard | None]:
@@ -277,8 +315,7 @@ class AgentHealthService:
         self._failure_counts[agent_id] = 0
         if fetched_card:
             await self._sync_stored_card(agent, fetched_card)
-        if agent.agent_status == AgentStatus.inactive:
-            await self.update_agent_status(agent_id, AgentStatus.active)
+        if _reactivatable(agent) and await self.reactivate_agent(agent_id):
             logger.info(
                 f"Agent {agent_id} ({agent.agent_card.name}) recovered - marked active"
             )
@@ -391,8 +428,7 @@ class AgentHealthService:
                     self._failure_counts[agent_id] = 0
                     if fetched_card:
                         await self._sync_stored_card(agent, fetched_card)
-                    if agent.agent_status == AgentStatus.inactive:
-                        await self.update_agent_status(agent_id, AgentStatus.active)
+                    if _reactivatable(agent) and await self.reactivate_agent(agent_id):
                         logger.info(
                             f"Agent {agent_id} ({agent.agent_card.name}) "
                             f"recovered - marked active"

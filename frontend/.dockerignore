@@ -1,9 +1,0 @@
-node_modules
-.next
-.git
-coverage
-
-# Never copy local credentials into image layers.
-.env
-.env.*
-!.env.example

@@ -15,7 +15,7 @@ from __future__ import annotations
 
 import asyncio
 import uuid
-from collections.abc import Callable
+from collections.abc import Callable, Iterator, Mapping
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from typing import Any, Literal
@@ -208,7 +208,7 @@ class OrchestratorRuntime:
     observation_processor: Any
     dispatch: Any
     profile_resolver: Any
-    profiles: dict[str, OrchestratorProfile]
+    profiles: Mapping[str, OrchestratorProfile]
     session_host: Any
     observation_sink: Any
     cancellation_coordinator: Any
@@ -219,6 +219,31 @@ class OrchestratorRuntime:
     recovery_cycle: Any
     public_secret_values: tuple[str, ...]
     push_ingress: A2APushNotificationIngress
+
+
+_PROFILE_IDS = ("fast", "ultimate", "passthrough")
+
+
+class _LiveProfiles(Mapping[str, OrchestratorProfile]):
+    """Profiles resolved per lookup, so a new Run sees the current Provider.
+
+    A profile's model route comes from the registry, which follows the live
+    Provider pair; a Run freezes the profile it was started with.
+    """
+
+    def __init__(self, resolver: Any) -> None:
+        self._resolver = resolver
+
+    def __getitem__(self, profile_id: str) -> OrchestratorProfile:
+        if profile_id not in _PROFILE_IDS:
+            raise KeyError(profile_id)
+        return self._resolver.resolve(profile_id)
+
+    def __iter__(self) -> Iterator[str]:
+        return iter(_PROFILE_IDS)
+
+    def __len__(self) -> int:
+        return len(_PROFILE_IDS)
 
 
 _RUNTIME_BINDINGS = (
@@ -401,11 +426,10 @@ def create_orchestrator_runtime(  # noqa: C901
         settings_obj=settings_obj,
     )
     try:
-        profiles = {
-            "fast": profile_resolver.resolve("fast"),
-            "ultimate": profile_resolver.resolve("ultimate"),
-            "passthrough": profile_resolver.resolve("passthrough"),
-        }
+        # Resolve once to fail startup on a bad profile; Runs then resolve live.
+        for profile_id in _PROFILE_IDS:
+            profile_resolver.resolve(profile_id)
+        profiles = _LiveProfiles(profile_resolver)
     except (
         OrchestratorProfileResolutionError,
         UnsupportedProviderCapabilities,

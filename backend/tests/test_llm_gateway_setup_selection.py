@@ -7,11 +7,17 @@ import pytest
 
 from common.config.loader import Settings
 from common.config.runtime_config import RuntimeConfigurationError
-from common.config.runtime_store import RuntimeConfigStore, runtime_home
+from common.config.runtime_store import (
+    RuntimeConfigStore,
+    current_store,
+    runtime_home,
+)
 from common.dto import LLMResponse, LLMStructuredResponse
 from llm_gateway.config import LLMGatewayConfig
+from llm_gateway.errors import ProviderNotConfigured
 from llm_gateway.gateway import LLMGatewayImpl
 from llm_gateway.model_registry import ModelRegistryImpl
+from llm_gateway.provider_runtime import ProviderRuntime
 from llm_gateway.turn_types import GatewayTurnEvent, GatewayTurnRequest
 from tests.fakes.llm_runtime import runtime_state
 
@@ -48,16 +54,16 @@ class Provider:
 
 
 def composition(settings, providers):
-    # Exactly the original container construction sequence, without importing it.
+    # Exactly the container construction sequence, without importing it.
+    runtime = ProviderRuntime(current_store())
     config = LLMGatewayConfig.from_settings(settings)
-    registry = ModelRegistryImpl(
-        settings, generation_provider=config.generation_provider
-    )
+    registry = ModelRegistryImpl(settings, provider_runtime=runtime)
     return LLMGatewayImpl(
         model_registry=registry,
         config=config,
         settings_obj=settings,
         providers=providers,
+        provider_runtime=runtime,
     )
 
 
@@ -147,7 +153,7 @@ async def test_setup_controls_all_original_text_entrypoints_and_not_embeddings(
 
 
 @pytest.mark.parametrize("fault", ["malformed", "missing_key", "oauth"])
-def test_invalid_setup_fails_before_legacy_configuration_can_be_used(
+async def test_invalid_setup_fails_before_legacy_configuration_can_be_used(
     tmp_path, monkeypatch, fault
 ):
     state = runtime_state()
@@ -163,8 +169,17 @@ def test_invalid_setup_fails_before_legacy_configuration_can_be_used(
             "version: 1\nprovider:\n  id: openai\n  auth: oauth\nmodels:\n  text: gpt-4o-mini\n"
         )
     settings = Settings(openai_api_key="ignored-legacy-key", deepseek_api_key="")
+    provider = Provider()
+    if fault == "missing_key":
+        # A credential problem boots, so setup can repair it; calls still fail.
+        gateway = composition(settings, {"openai": provider})
+        with pytest.raises(ProviderNotConfigured) as caught:
+            await gateway.generate([])
+        assert caught.value.code == "credential_invalid"
+        assert provider.calls == []
+        return
     with pytest.raises(RuntimeConfigurationError):
-        composition(settings, {"openai": Provider()})
+        composition(settings, {"openai": provider})
 
 
 def test_runtime_home_has_no_host_mount_alias():
@@ -187,9 +202,17 @@ async def test_missing_setup_rejects_legacy_model_hints_before_calling_provider(
     provider = Provider()
     provider.embed = AsyncMock(return_value=[3.0])
     provider.embed_batch = AsyncMock(return_value=[[4.0]])
-    with pytest.raises(RuntimeConfigurationError, match="hybro setup"):
-        composition(settings, {"openai": provider})
+    gateway = composition(settings, {"openai": provider})
+    for call in (
+        gateway.generate([], model="lead_ai_model"),
+        gateway.generate_with_provider([], model="custom", provider="openai"),
+        gateway.embed("one"),
+    ):
+        with pytest.raises(ProviderNotConfigured) as caught:
+            await call
+        assert caught.value.code == "provider_not_configured"
     assert provider.calls == []
+    provider.embed.assert_not_awaited()
 
 
 @pytest.mark.parametrize("selected", MODELS)

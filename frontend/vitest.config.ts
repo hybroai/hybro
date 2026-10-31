@@ -2,6 +2,7 @@ import { defineConfig } from 'vitest/config'
 import react from '@vitejs/plugin-react'
 import path from 'path'
 import publicConfig from './tests/fixtures/public-config.json'
+import { version } from './package.json'
 
 const alias = { '@': path.resolve(__dirname, './src') }
 
@@ -9,7 +10,8 @@ export default defineConfig({
   plugins: [react()],
   resolve: { alias },
   test: {
-    env: { HYBRO_FRONTEND_CONFIG: JSON.stringify(publicConfig) },
+    // HYBRO_APP_VERSION mirrors the build-time constant from next.config.ts.
+    env: { HYBRO_FRONTEND_CONFIG: JSON.stringify(publicConfig), HYBRO_APP_VERSION: version },
     projects: [
       {
         extends: true,

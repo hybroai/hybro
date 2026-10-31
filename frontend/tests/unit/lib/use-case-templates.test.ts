@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest"
 import { Palmtree } from "lucide-react"
-import { buildTemplateDemoMessage, resolveTemplateAgents, useCaseTemplates } from "@/lib/use-case-templates"
+import { buildTemplateDemoMessage, resolveTemplateAgents, templateUnavailableReason, useCaseTemplates } from "@/lib/use-case-templates"
 import { createAgent } from "../../fixtures"
 import type { Agent } from "@/lib/types/agent"
 import type { UseCaseAgent, UseCaseTemplate } from "@/lib/use-case-templates"
@@ -94,5 +94,27 @@ describe("featured use cases", () => {
       "Plan a 7-day trip to Oahu, Hawaii, for four people, and check Honolulu's weather forecast for the next 7 days",
     )
     expect(travel?.prefillMessage).not.toContain("past month")
+  })
+})
+
+describe("templateUnavailableReason", () => {
+  const storyAndImage = useCaseTemplates.find((template) => template.id === "story-and-image")!
+  const story = createAgent({ agent_id: "s1", name: "Story Agent" })
+
+  it("names the setup the first waiting agent needs", () => {
+    const image = createAgent({ agent_id: "i1", name: "Image Generator Agent", status: "inactive", inactive_reason: "image_model_not_configured" })
+
+    expect(templateUnavailableReason(storyAndImage, [story, image])).toBe(
+      "Needs an image model. Choose one in Settings, Model provider.",
+    )
+  })
+
+  it("is undefined when the agents are active, offline, or not loaded", () => {
+    const active = createAgent({ agent_id: "i1", name: "Image Generator Agent" })
+    const offline = createAgent({ agent_id: "i1", name: "Image Generator Agent", status: "inactive" })
+
+    expect(templateUnavailableReason(storyAndImage, [story, active])).toBeUndefined()
+    expect(templateUnavailableReason(storyAndImage, [story, offline])).toBeUndefined()
+    expect(templateUnavailableReason(storyAndImage, [])).toBeUndefined()
   })
 })

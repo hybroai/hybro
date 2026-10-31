@@ -15,6 +15,9 @@ uv run pytest
 
 # Real Redis integration contract
 HYBRO_TEST_REDIS_URL=redis://localhost:6379/0 uv run pytest -m integration
+
+# Functional suite against a disposable Hybro (opt-in; see below)
+HYBRO_API_URL=http://localhost:3100/api/v1 uv run pytest tests/functional
 ```
 
 CI runs the core baseline first, then the complete suite with a disposable Redis
@@ -26,6 +29,11 @@ integration lane is skipped locally.
 - `core`: critical user journeys and the narrow execution contracts protecting
   Direct A2A, Supervisor, Hub, HITL, cancellation, idempotency, and terminal SSE.
 - `integration`: requires an explicitly configured external service.
+- `functional`: calls a live Hybro and its agents. These tests are skipped
+  unless `HYBRO_FORCE_FUNCTIONAL_TESTS=1` or `HYBRO_API_URL` is set; nothing
+  probes `localhost:8000`, because that may be a developer's real instance with
+  a paid model provider. Point them only at a disposable stack backed by the
+  mock LLM, as the `functional-ci` lane does.
 - `asyncio`: explicit async marker retained where older tests already use it;
   pytest-asyncio also runs in auto mode.
 

@@ -49,8 +49,8 @@ def test_canonical_lifecycle_has_no_runtime_admission_or_worker_switches():
     assert not hasattr(settings, "orchestrator_recovery_enabled")
 
 
-def test_local_agent_discovery_excluded_ports_parses_compose_projection():
-    """Compose projects the stack's own agent ports as one comma-separated value."""
+def test_local_agent_discovery_excluded_ports_parses_the_entrypoint_projection():
+    """The entrypoint projects the manifest agent ports as one comma-separated value."""
     settings = Settings.model_validate(
         {"local_agent_discovery_excluded_ports": "7001,6002,7002,7003"}
     )

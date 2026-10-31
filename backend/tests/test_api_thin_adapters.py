@@ -297,7 +297,6 @@ def test_phase9_route_inventory_matches_live_app_routes():
             in {
                 "get_proxy",
                 "get_current_user",
-                "get_current_user_or_service",
                 "get_current_user_with_query_token",
                 "get_optional_user",
             }
@@ -332,7 +331,6 @@ def test_route_inventory_auth_dependencies_are_only_auth_dependencies():
     auth_dependency_names = {
         "get_proxy",
         "get_current_user",
-        "get_current_user_or_service",
         "get_current_user_with_query_token",
         "get_optional_user",
     }

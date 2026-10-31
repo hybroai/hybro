@@ -1,7 +1,5 @@
 """User-flow regressions, synthetic credentials and mocked wire only."""
 
-import asyncio
-import io
 import json
 import traceback
 from unittest.mock import AsyncMock
@@ -9,134 +7,15 @@ from unittest.mock import AsyncMock
 import httpx
 import pytest
 
-from common.config.runtime_config import RuntimeConfigurationError, resolve_credential
 from common.config.runtime_store import RuntimeConfigStore
 from llm_gateway import openai_oauth, setup_bindings
 from llm_gateway.catalog import TEXT_MODELS, model_choices, validate_models
 from llm_gateway.errors import LLMModelRoutingError, LLMProviderFailure
 from llm_gateway.providers.openai_codex import OpenAICodexProvider
-from llm_gateway.setup_cli import SetupConsole, main
 from llm_gateway.setup_service import SetupError, SetupService
 from tests.fakes.llm_runtime import oauth_config, oauth_credential, runtime_state
 from tests.test_openai_codex_provider import provider, text_events, turn, wire
 from tests.test_openai_oauth import Body
-
-
-@pytest.mark.parametrize(
-    "outcome", ["success", "login_failure", "login_cancel", "model_cancel"]
-)
-@pytest.mark.parametrize("old_provider", ["openai", "deepseek"])
-def test_authentication_precedes_model_prompt_and_preserves_old_files(  # noqa: C901 - shared four-outcome ordering trace
-    tmp_path, monkeypatch, outcome, old_provider
-):
-    store = RuntimeConfigStore(tmp_path)
-    old = runtime_state(
-        old_provider, "gpt-4o-mini" if old_provider == "openai" else "deepseek-v4-flash"
-    )
-    store.save(old.config, old.authentication.credential, {})
-    before = {
-        name: (tmp_path / name).read_bytes() for name in ("config.json", "auth.json")
-    }
-    events, reports = [], []
-    credential = oauth_credential()
-    environment = {"HYBRO_HOME": str(tmp_path), "OPENAI_API_KEY": "embedding-only"}
-
-    async def login(report):
-        events.append("login_started")
-        if outcome == "login_failure":
-            raise RuntimeConfigurationError("OAuth authentication failed.")
-        if outcome == "login_cancel":
-            raise asyncio.CancelledError
-        events.append("authenticated")
-        return credential
-
-    def select(title, options):
-        events.append(title)
-        if title == "Provider":
-            return "openai"
-        if title == "Authentication":
-            return "oauth"
-        assert title == "Text model"
-        assert events.index("authenticated") < events.index("Text model")
-        assert before == {name: (tmp_path / name).read_bytes() for name in before}
-        if outcome == "model_cancel":
-            raise EOFError
-        return options[0].value
-
-    async def verify(config, resolved, base_url):
-        events.append("verify")
-        assert resolved.credential == credential
-        assert base_url is None
-        assert before == {name: (tmp_path / name).read_bytes() for name in before}
-
-    original_save = RuntimeConfigStore.save
-
-    def save(self, *args, **kwargs):
-        events.append("save")
-        return original_save(self, *args, **kwargs)
-
-    monkeypatch.setattr(openai_oauth, "login", login)
-    monkeypatch.setattr(RuntimeConfigStore, "save", save)
-    result = main(
-        [],
-        environment=environment,
-        catalog=model_choices,
-        verifier=verify,
-        console=SetupConsole(select, lambda: pytest.fail("secret"), reports.append),
-        error_output=io.StringIO(),
-    )
-    assert environment["OPENAI_API_KEY"] == "embedding-only"
-    assert "Image model (optional)" not in events
-    if outcome == "success":
-        assert result == 0
-        assert events == [
-            "Provider",
-            "Authentication",
-            "login_started",
-            "authenticated",
-            "Text model",
-            "verify",
-            "save",
-        ]
-        assert store.load(environment).authentication.credential == credential
-        assert "OAuth authenticated; pending verification and save." in reports
-        assert "source: stored" not in reports
-    else:
-        assert result == (1 if outcome == "login_failure" else 130)
-        assert "verify" not in events and "save" not in events
-        if outcome != "model_cancel":
-            assert "Text model" not in events
-        assert before == {name: (tmp_path / name).read_bytes() for name in before}
-
-
-def test_switch_stored_oauth_to_environment_key_without_false_conflict(tmp_path):
-    store = RuntimeConfigStore(tmp_path)
-    store.save(oauth_config(), oauth_credential(), {})
-    verifier = AsyncMock()
-    env = {"HYBRO_HOME": str(tmp_path), "OPENAI_API_KEY": "new-api-key"}
-    assert (
-        main(
-            [
-                "--non-interactive",
-                "--provider",
-                "openai",
-                "--auth",
-                "api_key",
-                "--text-model",
-                "gpt-4o-mini",
-            ],
-            environment=env,
-            catalog=model_choices,
-            verifier=verifier,
-        )
-        == 0
-    )
-    verifier.assert_awaited_once()
-    assert store.load({}).authentication.source == "stored"
-    assert (tmp_path / "auth.json").exists()
-    # Runtime identity validation is still strict, even when environment is present.
-    with pytest.raises(RuntimeConfigurationError, match="identity differ"):
-        resolve_credential(runtime_state().config, oauth_credential(), env)
 
 
 async def test_oauth_load_resolve_refresh_ignore_api_key(tmp_path):
@@ -348,54 +227,6 @@ async def test_local_structured_validation_diagnostics_stay_private(text, catego
     assert caught.value._diagnostic.category == category
     assert "private-credential" not in repr(vars(caught.value))
     assert caught.value.__context__ is None and caught.value.__cause__ is None
-
-
-@pytest.mark.parametrize("text", ["Hello!", '```json\n{"ok": true}\n```'])
-@pytest.mark.parametrize("terminal", ["response.done", "response.completed"])
-def test_oauth_setup_saves_after_plain_text_with_missing_status(
-    tmp_path, monkeypatch, text, terminal
-):
-    credential, calls = oauth_credential(), []
-
-    def handle(request):
-        calls.append(request)
-        assert (
-            request.headers["authorization"]
-            == "Bearer " + credential.access_token.get_secret_value()
-        )
-        assert "embedding-only" not in str(request.headers) + request.content.decode()
-        events = text_events(text)
-        events[-1]["type"] = terminal
-        del events[-1]["response"]["status"]
-        return httpx.Response(
-            200,
-            headers={"content-type": "text/event-stream"},
-            stream=Body(wire(events)),
-        )
-
-    monkeypatch.setattr(openai_oauth, "login", AsyncMock(return_value=credential))
-    monkeypatch.setattr(
-        setup_bindings,
-        "OpenAICodexProvider",
-        lambda *a, **kw: OpenAICodexProvider(
-            *a, **kw, transport=httpx.MockTransport(handle)
-        ),
-    )
-    choices = iter(["openai", "oauth", "gpt-6-sol"])
-    console = SetupConsole(
-        lambda *_: next(choices), lambda: pytest.fail("API key"), lambda _: None
-    )
-    env = {"HYBRO_HOME": str(tmp_path / "runtime"), "OPENAI_API_KEY": "embedding-only"}
-    error = io.StringIO()
-    assert main([], environment=env, console=console, error_output=error) == 0, (
-        error.getvalue()
-    )
-    assert len(calls) == 1
-    assert (
-        RuntimeConfigStore(tmp_path / "runtime").load(env).authentication.credential
-        == credential
-    )
-    assert env["OPENAI_API_KEY"] == "embedding-only"
 
 
 async def test_incomplete_event_cannot_claim_completed_status():

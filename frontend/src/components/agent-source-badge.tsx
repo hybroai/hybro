@@ -9,7 +9,7 @@ import {
 } from '@/components/ui/tooltip'
 
 interface AgentSourceBadgeProps {
-  source?: 'cloud' | 'local' | 'hub'
+  source?: 'cloud' | 'local' | 'hub' | 'bundled'
   isHubOnline?: boolean
   className?: string
 }
@@ -19,6 +19,16 @@ export function AgentSourceBadge({
   isHubOnline,
   className,
 }: AgentSourceBadgeProps) {
+  if (source === 'bundled') {
+    return (
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <House aria-label="Sample agent" className={cn('shrink-0 text-emerald-500', className)} />
+        </TooltipTrigger>
+        <TooltipContent side="top">Sample agent included with Hybro</TooltipContent>
+      </Tooltip>
+    )
+  }
   if (source === 'hub' || source === 'local') {
     const online = source === 'local' || (isHubOnline ?? false)
     return (

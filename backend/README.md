@@ -1,37 +1,33 @@
 # Hybro Backend
 
 This directory is the canonical backend for the current Hybro repository and is
-the backend used by the application, Docker Compose configuration, and CI.
+the backend used by the application, the single image, and CI.
 
 ## Run from the monorepo
 
-### Docker Compose
+### Single image
 
-Configuration lives in `~/.hybro/config.json` (secrets in `~/.hybro/auth.json`);
-start the stack through the CLI so each service receives validated JSON-derived
-projections:
+Configuration lives in `~/.hybro/config.json` (secrets in `~/.hybro/auth.json`).
+The checkout's CLI builds the image from the working tree and runs it; the
+entrypoint gives each service its validated JSON-derived projection:
 
 ```sh
-./scripts/hybro setup           # once: Provider, authentication and models
 ./scripts/hybro start --build
 ```
 
-A source checkout runs the `hybro-dev` instance, so the API is available at
-<http://localhost:8100> and its health endpoint is <http://localhost:8100/health>.
-A released install (`hybro` instance) uses port 8000. Host ports for either
-instance are set under `instances.<release|dev>.ports` or in the TUI's **Ports**
-page.
+The API is then at <http://localhost:3100/api/v1> and its health endpoint at
+<http://localhost:3100/health>, on the same port as the app and MCP. A released
+install uses port 3000; `--port` changes either.
 
 ### Run the backend directly
 
 Python 3.12+ and MongoDB 4.2+ are required. Terminal projection scheduling uses
-MongoDB aggregation update pipelines; Docker Compose currently provides MongoDB
-7.0.
+MongoDB aggregation update pipelines; the image embeds MongoDB 7.0.
 
 ```sh
 cd backend
 uv sync --extra dev
-# Point HYBRO_HOME at a directory containing config.json/auth.json (hybro setup).
+# HYBRO_HOME may point at another configuration directory (absolute path).
 uv run uvicorn main:app --reload
 ```
 
@@ -87,8 +83,9 @@ modes, and skills without per-skill `security`). Endpoint URLs, interfaces, and
 security data stay inside Hybro; clients reach agents by `agent_id`. Secrets
 embedded in those kept fields are not detected.
 
-The `curl` examples below use the release backend port 8000; against a source
-checkout's dev instance, use 8100.
+The `curl` examples below use a backend run directly on port 8000. Against the
+image, use the app's address instead: `http://localhost:3000` for a released
+install, `http://localhost:3100` from a checkout.
 
 ### Discover stored active agents
 
@@ -351,26 +348,18 @@ Streamable HTTP adapter for the agent-network and session APIs. It does not
 import the backend runtime, access the database, or change Agent visibility
 rules.
 
-`hybro start` and the TUI's **Start services** start MCP as an ordinary default
-Compose service. Its own `MCP/Dockerfile` builds the adapter; released stacks use
-the version-pinned `hybro-mcp` image. Host access is published only on
-loopback: `127.0.0.1:8001` for the release instance and `127.0.0.1:8101` for a
-source checkout's dev instance (`instances.<name>.ports.mcp`). Use a trusted backend in `backend.auth_mode="mock"`.
-
-For independent control, use `hybro mcp start|stop|status|logs` or **Services >
-MCP connection** in the TUI. Standalone start requires setup and an already
-running backend: it runs `up -d --no-deps mcp`, without starting dependencies.
-The TUI shows status, URL, and transport, with start, stop, logs, and refresh
-actions. Exiting it leaves MCP running; stopping MCP does not exclude it from
-the next global start. `hybro mcp status` exits nonzero unless ready.
+The single image runs MCP as one of its programs and serves it at `/mcp` on the
+app's port, only on a loopback listener: `http://localhost:3000/mcp` for a
+released install, `http://localhost:3100/mcp` from a checkout. Use a trusted
+backend in `backend.auth_mode="mock"`.
 
 Add a **Streamable HTTP** server manually to your MCP client using:
 
 ```text
-http://127.0.0.1:8001/mcp
+http://localhost:3000/mcp
 ```
 
-For a source checkout's dev instance, use `http://127.0.0.1:8101/mcp`.
+From a checkout, use `http://localhost:3100/mcp`.
 
 This URL is for clients on the machine running Hybro, not a remote browser's
 machine. **Connect** (`/connect/mcp`) in the app copies the URL and per-assistant
@@ -383,10 +372,11 @@ Native manual startup remains supported from the repository root, with a backend
 already running at `http://127.0.0.1:8000/api/v1/`:
 
 ```sh
-uv run --project MCP --frozen --no-env-file python MCP/server.py
+uv run --project backend --frozen --extra mcp --no-env-file python MCP/server.py
 ```
 
-The adapter has its own locked environment and exposes seven tools. Backend
+The adapter runs from the backend environment with its `mcp` extra (one lock,
+`backend/uv.lock`) and exposes seven tools. Backend
 saved groups appear as **subnets** (`subnet_id`) in tool arguments and results.
 
 - `list_subnets()`: the caller's subnets with active member counts, from
@@ -451,18 +441,18 @@ content and JSON text. HTTP/transport errors set `isError`, keep the backend
 The adapter allows 610 seconds per backend call; a session send returns its
 receipt at once. There are no automatic retries.
 
-Native mode uses fixed loopback endpoints and the `/api/v1` prefix. Container
-mode (`--container`) requires the CLI's validated `HYBRO_MCP_CONFIG` projection,
-containing only `api_prefix`; it connects to `backend:8000` and listens on
-`0.0.0.0:8001` inside Docker. Explicit Host/Origin DNS-rebinding checks remain
-active in both modes. MCP receives no auth store or Provider credentials.
+Native mode uses fixed loopback endpoints and the `/api/v1` prefix. Image mode
+(`--image`) requires the entrypoint's validated `HYBRO_MCP_CONFIG` projection,
+containing only `api_prefix`; it reaches the backend on loopback and listens on
+`127.0.0.1:8001`, behind Caddy's `/mcp` route. Explicit Host/Origin
+DNS-rebinding checks remain active in both modes. MCP receives no auth store or
+Provider credentials.
 
-`GET http://127.0.0.1:8001/health` (8101 for the dev instance) makes a read-only backend `agents/discovery`
+`GET http://127.0.0.1:8001/health` makes a read-only backend `agents/discovery`
 request with a two-second deadline and returns only `service: "hybro-mcp"` and
 `status: "ready" | "unavailable" | "unsupported_auth"`. It never executes
 agents or exposes Cards. A rejected authentication probe (`401`/`403`) reports
-`unsupported_auth`; Compose marks the container unhealthy if it cannot report
-ready, including with Clerk. The public frontend `GET /hybro-mcp` route exposes
+`unsupported_auth`, including with Clerk. The public frontend `GET /hybro-mcp` route exposes
 only this sanitized status, not backend data or credentials.
 
 The adapter has **no MCP authentication or user isolation** and supplies no
@@ -474,10 +464,11 @@ adapter only calls the public agent-network API; Execution ownership is unchange
 To run the isolated regression tests from the repository root:
 
 ```sh
-uv run --project MCP --frozen --no-env-file pytest MCP/tests
+uv run --project backend --frozen --extra mcp --extra dev --no-env-file pytest MCP/tests
 ```
 
-The `MCP CI (local adapter)` job runs this same frozen, dotenv-disabled test command.
+The `MCP CI (local adapter)` job runs this same frozen, dotenv-disabled test
+command in the backend environment.
 
 ## Validation
 

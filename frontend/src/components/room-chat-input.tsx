@@ -44,6 +44,8 @@ interface RoomChatInputProps {
    * For normal sending-state control, prefer using disableSend.
    */
   disabled?: boolean
+  /** Editor placeholder; defaults to the mention hint. */
+  placeholder?: string
   /**
    * When true, the Send button is disabled, but typing is still allowed.
    */
@@ -120,6 +122,7 @@ interface RoomChatInputProps {
 export function RoomChatInput({
   onSubmit,
   disabled = false,
+  placeholder = "Type a message... Use @ to mention agents",
   disableSend = false,
   sending = false,
   processing = false,
@@ -1088,7 +1091,7 @@ export function RoomChatInput({
                 disabled && "opacity-40 cursor-not-allowed"
               )}
               data-testid="chat-input"
-              data-placeholder="Type a message... Use @ to mention agents"
+              data-placeholder={placeholder}
               suppressContentEditableWarning
               style={{
                 caretColor: 'hsl(var(--color-primary))',

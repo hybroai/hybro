@@ -5,7 +5,8 @@ import logging
 import math
 import os
 from functools import lru_cache
-from typing import TYPE_CHECKING, Literal
+from pathlib import Path
+from typing import TYPE_CHECKING, Annotated, Literal
 from urllib.parse import urlsplit
 
 from pydantic import (
@@ -14,6 +15,8 @@ from pydantic import (
     BaseModel,
     ConfigDict,
     Field,
+    StringConstraints,
+    ValidationInfo,
     field_validator,
 )
 
@@ -157,9 +160,8 @@ class Settings(BaseModel):
     local_agent_discovery_interval_seconds: int = Field(default=120, gt=0)
     local_agent_discovery_connect_timeout_seconds: float = Field(default=0.05, gt=0)
     local_agent_discovery_probe_timeout_seconds: float = Field(default=3.0, gt=0)
-    # Host ports this deployment publishes for its own agents. The Compose stack
-    # generates this from the agent manifest; discovery skips them so the stack
-    # does not register its own agents a second time over the host URL.
+    # Host ports this deployment publishes for its own agents; discovery skips
+    # them so it does not register those agents a second time over the host URL.
     local_agent_discovery_excluded_ports: frozenset[int] = frozenset()
 
     # Compaction
@@ -168,13 +170,23 @@ class Settings(BaseModel):
     # Clerk Authentication
     clerk_secret_key: str = ""  # Clerk Secret Key for backend API
     auth_mode: Literal["mock", "clerk"] = "mock"  # "mock" or "clerk"
+    # Clerk user IDs allowed to change the model provider in the browser. Empty
+    # disables browser setup in clerk mode; mock mode is open (loopback trust).
+    admin_user_ids: list[
+        Annotated[str, StringConstraints(strip_whitespace=True, min_length=1)]
+    ] = Field(default_factory=list)
 
-    # Default-agent registrar bootstrap (service identity for one-shot registration)
-    default_agent_registrar_token: str = ""
-    # Separate inference-only credential; never grants registrar/user access.
+    # Inference-only credential for bundled agents; never grants user access.
     default_agent_llm_token: str = Field(default="", repr=False)
-    # provider_id assigned to agents registered through the service token.
+    # provider_id of the bundled agents the backend registers at boot.
     default_agent_provider_id: str = "Hybro AI"
+    # Bundled agent manifest (`default_agents/agents.yaml`). Empty disables
+    # boot registration of the bundled agents.
+    bundled_agents_manifest: str = ""
+    # Interface of the ChatGPT OAuth callback listener (port 1455). The image
+    # binds all interfaces, because Docker forwards the published port to the
+    # container's network interface, not its loopback.
+    oauth_callback_host: str = "127.0.0.1"
 
     # Agent Health Check Settings
     agent_health_check_enabled: bool = True  # enable/disable agent health check
@@ -411,18 +423,19 @@ PRIVATE_FIELDS = frozenset(
         "google_api_key",
         "gemini_api_key",
         "clerk_secret_key",
-        "default_agent_registrar_token",
         "default_agent_llm_token",
     }
 )
 # Retired backend settings. Existing config.json files may still carry them
-# (`config migrate --from-env` copied any matching env key), so they are
+# (0.3's `config migrate --from-env` copied any matching env key), so they are
 # accepted, dropped, and named in one startup warning instead of failing
 # validation. Remove this set in the next major release.
 REMOVED_FIELDS = frozenset(
     {
         "mongodb_host",
         "mongodb_port",
+        # Compose-only: bundled agents now always run on the container's loopback.
+        "bundled_agents_use_service_hosts",
         "mongodb_username",
         "orchestration_outcome_guardrails",
         "supervisor_max_steps",
@@ -535,7 +548,7 @@ def validate_backend(values: dict[str, object]) -> Settings:
     return Settings.model_validate(values)
 
 
-# Public projection fields the CLI derives per instance; config.json may not set them.
+# Public projection fields that are not settings: MCP is always `{origin}/mcp`.
 DERIVED_FRONTEND_FIELDS = frozenset({"mcp_url"})
 
 
@@ -544,7 +557,6 @@ class FrontendSettings(BaseModel):
     api_base_url: str = "http://localhost:8000"
     api_prefix: str = "/api/v1"
     server_url: str = "http://localhost:3000"
-    mcp_url: str = "http://127.0.0.1:8001/mcp"
     clerk_publishable_key: str = ""
     clerk_sign_in_url: str = "/sign-in"
     clerk_sign_up_url: str = "/sign-up"
@@ -554,9 +566,12 @@ class FrontendSettings(BaseModel):
     max_message_length: int = Field(default=10000, gt=0)
     inspection_timeout_ms: int = Field(default=300000, gt=0)
 
-    @field_validator("api_base_url", "server_url", "mcp_url")
+    @field_validator("api_base_url", "server_url")
     @classmethod
-    def validate_url(cls, value: str) -> str:
+    def validate_url(cls, value: str, info: ValidationInfo) -> str:
+        # An empty API base URL makes the browser call its own origin.
+        if info.field_name == "api_base_url" and value == "":
+            return value
         parsed = urlsplit(value)
         if (
             parsed.scheme not in {"http", "https"}
@@ -577,21 +592,34 @@ class FrontendSettings(BaseModel):
         return value
 
 
-_DEFAULT_FRONTEND_ORIGINS = Settings.model_fields["frontend_origins"].default
-# Hosts a configured URL or origin names when it means "this machine".
-LOOPBACK_HOSTS = frozenset({"localhost", "127.0.0.1", "::1"})
+# backend/common/config/loader.py -> the repository's default_agents/agents.yaml
+_REPO_MANIFEST = Path(__file__).resolve().parents[3] / "default_agents" / "agents.yaml"
 
 
-def _with_local_origin(configured: object, origin: str) -> list[str]:
-    entries = Settings.parse_frontend_origins(configured)
-    if not isinstance(entries, list) or not all(
-        isinstance(entry, str) for entry in entries
-    ):
-        raise ValueError("frontend_origins must be a string or a list of strings")
-    public = [
-        entry for entry in entries if urlsplit(entry).hostname not in LOOPBACK_HOSTS
-    ]
-    return [origin, *public]
+def _apply_image_defaults(values: dict) -> None:
+    """Defaults for the single image (``HYBRO_CONTAINER=image``).
+
+    Every service runs in one container on loopback. The entrypoint
+    (``runtime_entrypoint.py``) derives this instance's frontend origins and the
+    bundled agent ports and passes them as internal transport variables.
+    """
+    for key, value in {
+        "mongodb_url": "mongodb://127.0.0.1:27017/hybro?replicaSet=rs0",
+        "redis_url": "",
+        "hybro_file_dir": "/data/files",
+        "local_agent_discovery_enabled": True,
+        "bundled_agents_manifest": "/app/bundled_agents.yaml",
+        "oauth_callback_host": "0.0.0.0",
+        # Bundled agents on container loopback and host agents on the same port
+        # share a URL key, so discovery must not probe the manifest ports.
+        "local_agent_discovery_excluded_ports": os.environ.get(
+            "LOCAL_AGENT_DISCOVERY_EXCLUDED_PORTS", ""
+        ),
+    }.items():
+        values.setdefault(key, value)
+    origins = os.environ.get("HYBRO_FRONTEND_ORIGINS")
+    if origins:
+        values["frontend_origins"] = origins
 
 
 @lru_cache(maxsize=1)
@@ -606,6 +634,11 @@ def get_settings() -> Settings:
             "Delete them; they will be rejected in the next major release.",
             ", ".join(document.removed_backend_fields),
         )
+    if document.had_instances:
+        logger.warning(
+            "Ignoring instances in config.json: host ports are set with "
+            "`hybro start --port` since 0.4. It is dropped on the next save."
+        )
     values = dict(document.backend)
     services = store.read_service_credentials()
     if any(key in values and key in services for key in ("mongodb_url", "redis_url")):
@@ -614,27 +647,12 @@ def get_settings() -> Settings:
         )
     values.update({k: v for k, v in services.items() if k in Settings.model_fields})
     # Fixed Docker topology is a deployment context, not another user config source.
-    if os.environ.get("HYBRO_CONTAINER") == "1":
-        for key, value in {
-            "mongodb_url": "mongodb://mongo:27017/hybro",
-            "redis_url": "redis://redis:6379/0",
-            "hybro_file_dir": "/var/lib/hybro/files",
-            "local_agent_discovery_enabled": True,
-            # Generated into the stack file from the agent manifest, so the
-            # container learns its own published agent ports from Compose.
-            "local_agent_discovery_excluded_ports": os.environ.get(
-                "LOCAL_AGENT_DISCOVERY_EXCLUDED_PORTS", ""
-            ),
-        }.items():
-            values.setdefault(key, value)
-        # The CLI derives this instance's own frontend origin from its ports. It
-        # replaces loopback entries, so a dev frontend on another port is allowed,
-        # and keeps public entries such as a deployed domain.
-        origin = os.environ.get("HYBRO_FRONTEND_ORIGIN")
-        if origin:
-            values["frontend_origins"] = _with_local_origin(
-                values.get("frontend_origins", _DEFAULT_FRONTEND_ORIGINS), origin
-            )
+    container = os.environ.get("HYBRO_CONTAINER")
+    if container == "image":
+        _apply_image_defaults(values)
+    else:
+        # A checkout registers the repository's bundled agent manifest.
+        values.setdefault("bundled_agents_manifest", os.fspath(_REPO_MANIFEST))
     settings = Settings.model_validate(values)
     if settings.auth_mode == "clerk" and not settings.clerk_secret_key:
         raise ValueError("Clerk authentication requires auth.json credentials")

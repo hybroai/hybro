@@ -16,7 +16,7 @@ from llm_gateway.model_registry import ModelInfo
 def isolate_registry_provider_unit_layer(monkeypatch):
     # These tests exercise injected registry/provider behavior, not application
     # startup. Required JSON setup is covered by the configuration boundary tests.
-    monkeypatch.setattr("llm_gateway.gateway.load_optional_setup", lambda _: None)
+    monkeypatch.setattr("llm_gateway.gateway.load_provider_runtime", lambda: None)
 
 
 class FakeRegistry:
@@ -235,31 +235,31 @@ async def test_invalid_timeout_logs_terminal_validation_failure(caplog):
 
 
 @pytest.mark.asyncio
-async def test_unregistered_bedrock_provider_override_is_rejected():
+async def test_unregistered_provider_override_is_rejected():
     openai_provider = FakeProvider()
-    bedrock_provider = FakeProvider()
+    unregistered_provider = FakeProvider()
     gateway = LLMGatewayImpl(
         model_registry=FakeRegistry(),
-        providers={"openai": openai_provider, "bedrock": bedrock_provider},
+        providers={"openai": openai_provider, "unregistered": unregistered_provider},
         config=LLMGatewayConfig(max_attempts=1, request_timeout_seconds=0.2),
     )
 
     with pytest.raises(LLMModelRoutingError):
         await gateway.generate_structured(
             [{"role": "user", "content": "hi"}],
-            model="custom-bedrock-model",
+            model="custom-unregistered-model",
             json_mode=True,
         )
 
     with pytest.raises(LLMModelRoutingError, match="Unsupported provider hint"):
         await gateway.generate_structured_with_provider(
             [{"role": "user", "content": "hi"}],
-            model="custom-bedrock-model",
-            provider="bedrock",
+            model="custom-unregistered-model",
+            provider="unregistered",
             json_mode=True,
         )
 
-    assert bedrock_provider.structured_calls == []
+    assert unregistered_provider.structured_calls == []
     assert openai_provider.structured_calls == []
 
 

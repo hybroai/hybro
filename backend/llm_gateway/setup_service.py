@@ -35,6 +35,20 @@ class SetupError(ValueError):
     """Safe setup failure suitable for terminal output."""
 
 
+class StoredCredentialUnreadable(SetupError):
+    """``auth.json`` exists but is not valid JSON or does not have mode 0600.
+
+    A save cannot replace it safely, because the store reads it to keep its
+    service credentials and to detect a concurrent change.
+    """
+
+    def __init__(self) -> None:
+        super().__init__(
+            "auth.json in the configuration directory cannot be read; it must "
+            "be valid JSON with mode 0600. Fix the file, then save again."
+        )
+
+
 @dataclass(frozen=True, slots=True)
 class ModelChoices:
     """Already-eligible model IDs; first text entry is the recommendation."""
@@ -168,6 +182,40 @@ class SetupService:
             expected_stored=prepared.previous,
         )
         return SetupResult(changed, self.store.read_config().revision, resolved.source)
+
+    async def save_verified(
+        self, config: RuntimeConfig, credential: StoredCredential
+    ) -> SetupResult:
+        """Verify once and save, inside a running event loop (the setup API).
+
+        The credential comes from the request (an API key or a finished OAuth
+        login), never from the environment. Store I/O runs in worker threads.
+        The stored credential read before verification guards the save, as in
+        the CLI, so a concurrent change rejects it instead of being overwritten.
+        """
+        if config.provider is None:
+            raise SetupError("Select a Provider and models to save.")
+        if (credential.provider, credential.auth) != (
+            config.provider.id,
+            config.provider.auth,
+        ):
+            raise SetupError("Credential does not match the selected Provider/auth.")
+        self.choices(config.provider).validate(config)
+        saved = await asyncio.to_thread(self.store.read_config)
+        base_url = None
+        if config.provider.id == "openai" and config.provider.auth == "api_key":
+            value = saved.backend.get("openai_base_url")
+            base_url = _openai_base_url(value if isinstance(value, str) else None)
+        try:
+            previous = await asyncio.to_thread(self.store.read_stored_credential)
+        except RuntimeConfigurationError:
+            raise StoredCredentialUnreadable from None
+        await self._verify(config, ResolvedCredential("stored", credential), base_url)
+        changed = await asyncio.to_thread(
+            self.store.save, config, credential, {}, expected_stored=previous
+        )
+        revision = (await asyncio.to_thread(self.store.read_config)).revision
+        return SetupResult(changed, revision, "stored")
 
     async def _verify(
         self, config: RuntimeConfig, resolved: ResolvedCredential, base_url: str | None

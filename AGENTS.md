@@ -22,9 +22,10 @@ frontend/ -> backend/ -> A2A agents, Hub relay, and external services
 
 - `frontend/`: Next.js 16, React 19, and TypeScript UI.
 - `backend/`: Python 3.12 FastAPI platform backend.
-- `default_agents/`: bundled A2A agents, registration, and Compose generation.
-- `scripts/`: lifecycle and functional-test helpers.
-- `docker-compose.yml`: local product stack.
+- `default_agents/`: bundled A2A agents and their manifest.
+- `scripts/`: the `hybro` CLI (POSIX shell), its tests, and the image, migration, and functional-test helpers.
+- `install.sh`: installs the released `hybro` script.
+- `Dockerfile`: the single product image (UI, API, MCP, embedded MongoDB, and bundled agents behind Caddy on one port).
 
 Do not inspect or treat paths outside this repository as product source unless the task explicitly requires it.
 
@@ -49,13 +50,7 @@ Do not inspect or treat paths outside this repository as product source unless t
 - Keep frontend API types and behavior aligned with backend request/response contracts.
 - For room, SSE, streaming, HITL, processing-status, message-sending, or agent-response changes, preserve `client_request_id` correlation across frontend and backend.
 - A2A response ingestion and finalization are owned by backend Execution. Do not introduce a second response owner in Room or transport adapters.
-- `default_agents/agents.yaml` is the source of truth for bundled agents. It drives registration and the generated default-agent region in `docker-compose.yml`.
-- Do not edit the generated Compose region directly. After changing the agent manifest, run:
-
-```bash
-uv run --with pyyaml python default_agents/render_compose.py
-uv run --with pyyaml python default_agents/render_compose.py --check
-```
+- `default_agents/agents.yaml` is the source of truth for bundled agents. It drives boot registration and the image's agent processes. Keep it, the agent uv workspace, and the root `Dockerfile` in sync; `default_agents/tests/test_manifest_in_sync.py` checks this.
 
 - When changing a public backend `Protocol`, repository port, facade port, or compatibility interface, update exact method inventories and run the contract test documented in `backend/AGENTS.md`.
 - For API contract changes, update route/schema tests, frontend consumers, and the tracked `backend/openapi.json` snapshot together.
@@ -67,8 +62,8 @@ Run commands from the directory that owns the relevant configuration.
 - Documentation-only changes: run `git diff --check`.
 - Frontend changes: follow `frontend/AGENTS.md` and run the affected lint, test, and build checks.
 - Backend changes: follow `backend/AGENTS.md` and run both Ruff gates plus focused Pytest coverage.
-- Default-agent changes: run the renderer check and relevant tests.
-- Cross-service, Compose, container, configuration, or end-to-end changes: from the repository root, run `./scripts/hybro start --build --recreate` and exercise the affected flow when the environment is available. The CLI supplies validated JSON-derived projections and disables Compose dotenv discovery.
+- Default-agent changes: run `default_agents/tests/test_manifest_in_sync.py` and the relevant agent tests.
+- Cross-service, image, container, configuration, or end-to-end changes: from the repository root, build and smoke-test the image with `./scripts/hybro start --build` (dev mode: image `hybro:dev`, container `hybro-dev`, port 3100), then exercise the affected flow when the environment is available. CLI changes also run `scripts/test_hybro_cli.py` and `shellcheck -s sh scripts/hybro install.sh`.
 - If a test file is created or modified, run that test and iterate until it passes.
 - Do not use real provider APIs, keys, paid tokens, or external services unless the user explicitly requests live integration testing.
 - Do not claim a check passed unless it completed successfully. Report skipped checks and why.
@@ -83,12 +78,14 @@ Run commands from the directory that owns the relevant configuration.
 - Never commit secrets or print them in logs, fixtures, screenshots, or command output.
 - The configuration contract is JSON-based: `~/.hybro/config.json` is the single user configuration source for backend, frontend, and bundled agents. `HYBRO_HOME` is the only configuration-directory override; require an absolute path.
 - Keep secrets in the sibling `auth.json`, not in public frontend configuration. Reuse the existing secure credential store and OAuth refresh ownership; do not create a second credential system.
-- `.env`, `.env.example`, and `frontend/.env.local` are not required configuration sources under this contract. Do not add normal-startup dotenv loading, template-copy steps, or implicit legacy fallback. Only an explicitly invoked one-time `config migrate --from-env` importer may read legacy deployment values. The owner will remove existing environment files manually; do not delete or overwrite them on the owner's behalf.
+- `.env`, `.env.example`, and `frontend/.env.local` are not configuration sources. Do not add dotenv loading, template-copy steps, or implicit legacy fallback. The owner will remove existing environment files manually; do not delete or overwrite them on the owner's behalf.
 - Keep defaults, types, and validation in a thin configuration loader. Do not preserve a separate `settings.py` environment-loading path. Business code consumes the validated configuration object, not ad hoc file or environment reads.
-- CLI changes and manually edited JSON must use the same validation rules. Validate JSON syntax, supported fields, types, ranges, and required combinations at startup; report safe field-level errors. Missing model setup must explicitly direct the user to `hybro setup` instead of selecting a legacy Provider.
-- Load a startup snapshot; changes take effect after restart. Do not add hot reload, project-level overrides, configuration APIs, or a separate configuration-service process without a request.
-- Environment variables may remain framework metadata or allowlisted CLI-to-container/build transport; they are not an independently maintained user configuration source. Frontend builds receive only public settings, and agents receive only their scoped connection configuration and internal credential, never the whole auth store.
-- The JSON-only startup migration must be verified without any `.env` files before claiming deletion is safe. Keep README and architecture documentation explicit about any still-unmigrated runtime paths.
+- The Settings page and manually edited JSON must use the same validation rules. Validate JSON syntax, supported fields, types, ranges, and required combinations at startup; report safe field-level errors.
+- The model provider is optional. Without one, Hybro starts, the provider-free agents work, and the UI directs the user to Settings, Model provider; never select a legacy Provider implicitly.
+- Load a startup snapshot; other changes take effect after restart. The one exception is the provider settings saved from Settings, which reload live in the backend and the bundled agents. Do not add other hot reload, project-level overrides, configuration APIs, or a separate configuration-service process without a request.
+- In the image, the entrypoint (`backend/runtime_entrypoint.py`) owns the projections: it reads `config.json` and gives the frontend, MCP, and each agent only its scoped settings and internal credential, never the whole auth store.
+- Environment variables may remain framework metadata or allowlisted transport; they are not a user configuration source. The allowlisted script-to-container transport is `HYBRO_PUBLIC_PORT`, `HYBRO_LISTEN`, and `HYBRO_INSECURE_NO_AUTH`. `HYBRO_NO_UPDATE_CHECK` is a host-side switch for the script and never reaches the container.
+- Keep README, `docs/configuration.md`, and the architecture documentation explicit about any still-unmigrated runtime paths.
 - Do not broaden environment-variable, secret, workflow-permission, or container exposure without an explicit security reason.
 
 ## Git

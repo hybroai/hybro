@@ -14,7 +14,7 @@ These rules apply to `backend/` in addition to the repository-root `AGENTS.md`.
 
 - Follow the root JSON configuration contract: load `config.json` from `HYBRO_HOME` (default `~/.hybro`) through the thin shared loader and reuse its validated startup snapshot.
 - Keep defaults and validation in code, user overrides in JSON, and credentials in the existing secure `auth.json` store. Do not introduce another `settings.py` or dotenv fallback.
-- Reject malformed or unsupported configuration before service initialization, without echoing secrets or raw input values. Missing setup must report the required `hybro setup` action.
+- Reject malformed or unsupported configuration before service initialization, without echoing secrets or raw input values. Missing setup must direct the user to "open Settings, Model provider".
 - Keep LLM Provider authentication and OAuth refresh inside the gateway's existing credential boundary; ordinary business modules must not load the full auth file.
 
 ## Commands
@@ -28,7 +28,7 @@ uv run ruff format --check .
 uv run ruff check .
 ```
 
-Run focused tests for the changed path before broader suites. If formatting fails, run `uv run ruff format .`, then repeat both Ruff gates.
+Run focused tests for the changed path before broader suites. `tests/functional/` is opt-in (`HYBRO_FORCE_FUNCTIONAL_TESTS=1` or `HYBRO_API_URL`); never point it at a real instance or provider. If formatting fails, run `uv run ruff format .`, then repeat both Ruff gates.
 
 When adding, removing, or renaming a public method on a `Protocol`, repository port, facade port, or compatibility interface, update the relevant exact method inventory in `tests/test_common_foundation.py` and run:
 

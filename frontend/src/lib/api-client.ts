@@ -106,6 +106,8 @@ export async function apiClient<T = unknown>(
       )
     }
 
+    // 204 No Content has no body to parse.
+    if (response.status === 204) return undefined as T
     return await response.json()
   } catch (error) {
     clearTimeout(timeoutId)

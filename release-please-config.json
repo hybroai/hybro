@@ -41,44 +41,8 @@
           "jsonpath": "$.version"
         },
         {
-          "type": "json",
-          "path": "packaging/npm/cli/package.json",
-          "jsonpath": "$.optionalDependencies['@hybroai/cli-darwin-arm64']"
-        },
-        {
-          "type": "json",
-          "path": "packaging/npm/cli/package.json",
-          "jsonpath": "$.optionalDependencies['@hybroai/cli-darwin-x64']"
-        },
-        {
-          "type": "json",
-          "path": "packaging/npm/cli/package.json",
-          "jsonpath": "$.optionalDependencies['@hybroai/cli-linux-arm64']"
-        },
-        {
-          "type": "json",
-          "path": "packaging/npm/cli/package.json",
-          "jsonpath": "$.optionalDependencies['@hybroai/cli-linux-x64']"
-        },
-        {
-          "type": "json",
-          "path": "packaging/npm/cli-darwin-arm64/package.json",
-          "jsonpath": "$.version"
-        },
-        {
-          "type": "json",
-          "path": "packaging/npm/cli-darwin-x64/package.json",
-          "jsonpath": "$.version"
-        },
-        {
-          "type": "json",
-          "path": "packaging/npm/cli-linux-arm64/package.json",
-          "jsonpath": "$.version"
-        },
-        {
-          "type": "json",
-          "path": "packaging/npm/cli-linux-x64/package.json",
-          "jsonpath": "$.version"
+          "type": "generic",
+          "path": "scripts/hybro"
         }
       ]
     }

@@ -5,8 +5,8 @@ like "tell me a story about a cat" and it streams back a creative, well-structur
 narrative over A2A (Agent2Agent). LangChain calls Hybro's internal LLM gateway;
 the backend's configured Provider and model handle generation.
 
-This agent ships with Hybro and is built and registered with the backend
-automatically when you run `./scripts/hybro start --build` after `hybro setup`.
+This agent ships with Hybro: the image runs it and the backend registers it at
+startup. It becomes active once a model provider is set up on the Settings page.
 
 ## Task outcomes
 
