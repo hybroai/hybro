@@ -7,7 +7,11 @@ import pytest
 
 from execution.orchestrator.budget import BudgetPolicy
 from execution.orchestrator.context import ContextCompiler
-from execution.orchestrator.kernel import KernelRunResult, OrchestratorKernel
+from execution.orchestrator.kernel import (
+    KernelConflict,
+    KernelRunResult,
+    OrchestratorKernel,
+)
 from execution.orchestrator.lifecycle import LifecycleEmitter
 from execution.orchestrator.models import TextPart, ToolObservation, ToolResult
 from execution.orchestrator.session import (
@@ -369,6 +373,89 @@ async def test_live_execution_publishes_and_releases_a_driver_lease():
     assert released.terminal_reason == "interrupted"
     assert released.recovery_claim.owner_id is None
     assert released.recovery_claim.lease_expires_at is None
+
+
+class _YieldingTerminalizeKernel:
+    """Blocks in run(); terminalize() yields between load and CAS like Mongo I/O."""
+
+    def __init__(self, store, *, fail_settlement=False):
+        self.store = store
+        self.fail_settlement = fail_settlement
+        self.started = asyncio.Event()
+
+    async def run(self, run_id, *, signal, lifecycle=None):
+        del run_id, signal, lifecycle
+        self.started.set()
+        return await asyncio.Event().wait()
+
+    async def terminalize(self, run_id, *, status, reason, lifecycle=None, **kw):
+        del lifecycle, kw
+        run = await self.store.load(run_id)
+        for _ in range(5):
+            await asyncio.sleep(0)
+        if self.fail_settlement:
+            raise KernelConflict("checkpoint failed: fixture")
+        saved = await self.store.cas_mutate(
+            run.model_copy(
+                update={
+                    "status": status,
+                    "terminal_reason": reason,
+                    "state_version": run.state_version + 1,
+                }
+            ),
+            expected_state_version=run.state_version,
+            command_id=f"terminalize:{status}:{run.state_version}",
+        )
+        if saved.outcome != "accepted":
+            raise KernelConflict(f"checkpoint failed: {saved.outcome}")
+        return KernelRunResult("failed", saved.run)
+
+
+async def _shutdown_mid_run(kernel, store):
+    config = session_config()
+    session = RoomAgentSession(
+        config=config,
+        kernel=kernel,
+        run_store=store,
+        run_factory=DefaultRunFactory(clock=FixedClock(), id_factory=FixedIDs()),
+        clock=FixedClock(),
+    )
+    prompt_task = asyncio.create_task(
+        session.prompt(user_message(), client_request_id="request-shutdown")
+    )
+    await kernel.started.wait()
+    await session.shutdown()
+    with pytest.raises(asyncio.CancelledError):
+        await prompt_task
+    return session, config, next(iter(store.runs.values()))
+
+
+async def test_shutdown_settlement_is_not_raced_by_the_cancelled_waiter():
+    """The cancelled prompt must not release the lease under terminalize's CAS."""
+    store = InMemoryOrchestratorRunStore()
+
+    _, _, saved = await _shutdown_mid_run(_YieldingTerminalizeKernel(store), store)
+
+    assert saved.status == "failed"
+    assert saved.terminal_reason == "interrupted"
+    assert saved.recovery_claim.owner_id is None
+    assert saved.recovery_claim.next_attempt_at is None
+
+
+async def test_failed_shutdown_settlement_leaves_the_run_to_interrupted_recovery():
+    """Keeping the driver claim makes recovery fail the Run instead of resuming it."""
+    from execution.orchestrator.session import interrupted_run_needs_settlement
+
+    store = InMemoryOrchestratorRunStore()
+    kernel = _YieldingTerminalizeKernel(store, fail_settlement=True)
+
+    session, config, saved = await _shutdown_mid_run(kernel, store)
+
+    assert saved.status == "running"
+    assert saved.recovery_claim.owner_id == execution_owner_id(config.session_id)
+    assert saved.recovery_claim.lease_expires_at is not None
+    assert interrupted_run_needs_settlement(saved.status, saved.recovery_claim.owner_id)
+    assert session._lease_task is None
 
 
 def test_interrupted_run_settlement_truth_table():

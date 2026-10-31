@@ -212,6 +212,9 @@ class RoomAgentSession:
         self._idle.set()
         self._lease_owner: str | None = None
         self._lease_task: asyncio.Task[None] | None = None
+        # Set once by shutdown() and never reset: a shut-down session is
+        # discarded by its host and must not start another Run.
+        self._shutting_down = False
 
     async def _acquire_execution_lease(self) -> None:
         """Publish a live driver lease before executing a Run."""
@@ -255,13 +258,16 @@ class RoomAgentSession:
                 + timedelta(seconds=_EXECUTION_LEASE_SECONDS),
             )
 
-    async def _release_execution_lease(self) -> None:
-        """Hand the claim back with the next attempt this Run still needs."""
+    async def _stop_lease_renewal(self) -> None:
         task, self._lease_task = self._lease_task, None
         if task is not None:
             task.cancel()
             with contextlib.suppress(asyncio.CancelledError):
                 await task
+
+    async def _release_execution_lease(self) -> None:
+        """Hand the claim back with the next attempt this Run still needs."""
+        await self._stop_lease_renewal()
         owner, self._lease_owner = self._lease_owner, None
         if owner is None or self._run_id is None:
             return
@@ -429,6 +435,9 @@ class RoomAgentSession:
         task = self._task
         if task is None or task.done():
             return
+        # The cancelled waiter in _await_task must not release the lease: that
+        # write would race the settlement CAS below. Shutdown releases it.
+        self._shutting_down = True
         task.cancel()
         try:
             await task
@@ -437,6 +446,8 @@ class RoomAgentSession:
         await self._terminalize_interrupted_run()
 
     async def _terminalize_interrupted_run(self) -> None:
+        # Renewal writes the Run too, so stop it before settling.
+        await self._stop_lease_renewal()
         if self._run_id is not None:
             run = await self.run_store.load(self._run_id)
             if run is not None and run.status not in TERMINAL_RUN_STATUSES:
@@ -448,12 +459,14 @@ class RoomAgentSession:
                         lifecycle=self._emit_kernel_event,
                     )
                 except Exception:
-                    # The lease release below still hands the Run to recovery,
-                    # which retries the same terminal settlement.
+                    # Keep this driver's claim: once its lease expires, recovery
+                    # sees an interrupted driver and retries the same settlement.
+                    # Releasing it would make recovery resume the Run instead.
                     logger.warning(
                         "interrupted Run settlement failed; recovery will retry",
                         exc_info=True,
                     )
+                    return
         await self._release_execution_lease()
 
     async def schedule_recovery(self, *, next_attempt_at: datetime) -> None:
@@ -508,7 +521,8 @@ class RoomAgentSession:
                     self._idle.set()
             return result
         finally:
-            await self._release_execution_lease()
+            if not self._shutting_down:
+                await self._release_execution_lease()
 
     async def _current_run(self) -> OrchestratorRunState:
         if self._run_id is None:

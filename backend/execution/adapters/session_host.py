@@ -308,12 +308,12 @@ class RoomSessionHost:
         return emitter
 
     async def shutdown(self) -> None:
-        """Cancel every in-process session task without persisting terminal state.
+        """Shut down every in-process session and forget it.
 
-        This is the graceful-shutdown surface: the asyncio tasks are cancelled
-        directly so Runs stay non-terminal and are re-entered by the recovery
-        workers (plan 2.3). ``RoomAgentSession.abort`` is the user-facing
-        cancellation path and persists ``canceled``; do not call it here.
+        Each session settles its in-flight Run as ``failed`` with reason
+        ``interrupted``; see ``RoomAgentSession.shutdown``.
+        ``RoomAgentSession.abort`` is the user-facing cancellation path and
+        persists ``canceled``; do not call it here.
         """
         for session in list(self._sessions.values()):
             await session.shutdown()

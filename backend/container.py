@@ -1981,8 +1981,8 @@ async def _runtime_lifespan(app: Any, runtime: ApplicationRuntime):  # noqa: C90
         async def cancel_execution() -> None:
             orchestrator_runtime = getattr(app.state, "orchestrator_runtime", None)
             if orchestrator_runtime is not None:
-                # Cancels in-process kernel tasks without persisting terminal
-                # state; recovery workers re-enter the Runs later.
+                # Settles in-flight Runs as failed/interrupted; Runs this
+                # cannot settle are settled by recovery once their lease lapses.
                 await orchestrator_runtime.session_host.shutdown()
             execution_deps = app.state.execution_deps
             cancelled = await execution_deps.execution_engine.cancel_inflight_tasks()
