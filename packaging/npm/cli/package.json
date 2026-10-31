@@ -1,6 +1,6 @@
 {
   "name": "@hybroai/cli",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "description": "Hybro command line: configure models and run the Hybro container stack",
   "keywords": [
     "hybro",
@@ -28,9 +28,9 @@
     "access": "public"
   },
   "optionalDependencies": {
-    "@hybroai/cli-darwin-arm64": "0.3.0",
-    "@hybroai/cli-darwin-x64": "0.3.0",
-    "@hybroai/cli-linux-arm64": "0.3.0",
-    "@hybroai/cli-linux-x64": "0.3.0"
+    "@hybroai/cli-darwin-arm64": "0.3.1",
+    "@hybroai/cli-darwin-x64": "0.3.1",
+    "@hybroai/cli-linux-arm64": "0.3.1",
+    "@hybroai/cli-linux-x64": "0.3.1"
   }
 }
