@@ -5,6 +5,14 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.2](https://github.com/hybroai/hybro/compare/v0.4.1...v0.4.2) (2026-11-01)
+
+
+### Features
+
+* **frontend:** rename sidebar tabs to Chats, Inbox, Access and reorder ([c7146f6](https://github.com/hybroai/hybro/commit/c7146f6e9639b0cf5ad9ec4cd0c3b88c1538a154))
+* **frontend:** rename sidebar tabs to Chats, Inbox, Access and reorder ([74a4890](https://github.com/hybroai/hybro/commit/74a48904b88c154440c27382971c731242f3ae6d))
+
 ## [0.4.1](https://github.com/hybroai/hybro/compare/v0.4.0...v0.4.1) (2026-11-01)
 
 

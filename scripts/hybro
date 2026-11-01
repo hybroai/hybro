@@ -5,7 +5,7 @@
 # package's bin, and the release asset that install.sh installs (release mode).
 set -u
 
-HYBRO_VERSION="0.4.1" # x-release-please-version
+HYBRO_VERSION="0.4.2" # x-release-please-version
 
 GITHUB_REPO="hybroai/hybro"
 RELEASE_IMAGE="ghcr.io/hybroai/hybro"
