@@ -5,6 +5,14 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.4](https://github.com/hybroai/hybro/compare/v0.4.3...v0.4.4) (2026-11-02)
+
+
+### Bug Fixes
+
+* **ui:** hide the legacy Thinking placeholder in the turn trace ([1567667](https://github.com/hybroai/hybro/commit/156766796da5097b482d012607f6810df5f313a4))
+* **ui:** keep the Thinking placeholder out of legacy turn traces ([eb1af60](https://github.com/hybroai/hybro/commit/eb1af602a40422635e72956904b77c0e3c1a684c))
+
 ## [0.4.3](https://github.com/hybroai/hybro/compare/v0.4.2...v0.4.3) (2026-11-02)
 
 
