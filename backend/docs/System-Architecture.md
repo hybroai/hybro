@@ -424,7 +424,8 @@ Owns orchestration after a user message is accepted.
 
 - `ExecutionFacade`: the route-facing engine (`ExecutionEngine`,
   `HITLManager`). `execute` replays an idempotent send, rejects a send while a
-  HITL request is pending or the room has an active Run, persists the user
+  HITL request is pending, the room has an active Run, or this process has an
+  admitted send for the room whose orchestration task has not ended, persists the user
   message and runs its preflight through `RoomCenterPort`, then
   `start_orchestration` or `schedule_orchestration` hands it to the router.
   `cancel`, HITL batch answers, pending reads, and interaction cancellation are
@@ -1474,8 +1475,16 @@ from the root.
      rejection;
    - returns the existing `message_id` without dispatch metadata for a valid
      replay, or a body-level `409` for a fingerprint conflict;
-   - for a new key, rejects the send while a HITL request is pending or the room
-     has a non-terminal Run;
+   - for a new key, rejects the send while a HITL request is pending; otherwise
+     claims the room in process (without awaiting) and rejects with
+     `409 Room is already processing another message.` when another send holds
+     the claim, then also when the room has a non-terminal Run. The durable check
+     cannot see a Run the background task has not created yet, so the claim
+     closes that window. A concurrent send with the same `client_request_id`
+     joins the claim and is deduplicated by persistence. The claim is dropped
+     when the send does not start orchestration, and otherwise when its
+     orchestration task ends; a claim whose orchestration was never scheduled
+     is dropped by the next send after 30 seconds;
    - persists through `RoomCenterPort.persist_message_to_room`, emits preflight
      `processing` only when this request won the insert, runs
      `run_message_preflight_to_room`, and emits a terminal preflight status when
@@ -1495,6 +1504,14 @@ from the root.
    artifacts from the current Room epoch), and Agent tool catalog, loads up to
    ten recent canonical history turns from `room_memories` (4,000 characters
    each), creates the canonical Run, and prompts the room's `RoomSessionHost`.
+   Right before the Run is created it asks the facade's `before_run_start`
+   gate, which refuses when the message was canceled first; the router then
+   drops the prepared session and creates no Run. If the task raises before a
+   Run exists (for example `SessionConflict`, an unsupported envelope, catalog
+   preparation, or a store outage), the facade emits a terminal `failed`
+   `processing_status` for the message with the request's `client_request_id`
+   and the safe detail "Message processing could not start."; once a Run
+   exists, the Run's own lifecycle reports its end.
 7. `OrchestratorKernel` runs the bounded model/tool loop; the final assistant
    message reaches the room through the projection outbox (see
    [Orchestrator](#orchestrator)).
@@ -2081,7 +2098,8 @@ durable postcondition. Canceled Runs persist one typed cause (`user_requested`,
 
 Cancellation flow for `POST /api/v1/sse/message/{message_id}/cancel`:
 
-1. The route verifies message and room ownership.
+1. The route verifies message and room ownership. A message whose persisted
+   orchestration status is already terminal returns `already_terminal`.
 2. `ExecutionFacade.cancel` calls the router's
    `route_cancellation_by_user_message`, which claims cancellation on the Run
    with command ID `cancel:{run_id}:user_requested`. A terminal Run, or one
@@ -2099,6 +2117,19 @@ Cancellation flow for `POST /api/v1/sse/message/{message_id}/cancel`:
    `canceled`, leaves the durable claim and returns `cancellation_pending`. Once
    `canceled`, the router signals the in-process session; a failure there is
    logged.
+5. When no Run exists yet, the facade checks its in-process orchestration task
+   for the message. Before the router asked to start the Run, the cancel is
+   recorded (the run-start gate then refuses), a terminal `canceled`
+   `processing_status` is emitted with the request's `client_request_id`, and
+   the response is `canceled`; repeating it returns `canceled` again. The room
+   stays claimed until the canceled task reaches the gate, so a send in that
+   window still gets `409`; releasing earlier would let the preparing task
+   replace the next send's session. While the
+   router is creating the Run, the facade retries the durable cancellation every
+   50 ms until the Run exists or the task ends. A task that failed before its
+   Run returns `already_terminal` with status `failed`. With no Run and no task,
+   the route returns 404. Unexpected failures return 500 with a fixed detail
+   that does not include the exception text.
 
 Recovery cancellation and HITL expiry stay local. When a supervisor approval
 fails or expires, `terminalize_canonical_hitl_run` cancels the Run's calls

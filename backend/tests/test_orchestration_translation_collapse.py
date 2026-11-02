@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import inspect
 from types import SimpleNamespace
-from unittest.mock import AsyncMock
+from unittest.mock import ANY, AsyncMock
 
 import pytest
 
@@ -112,5 +112,5 @@ async def test_facade_passes_the_execution_request_and_message_id_to_the_router(
     )
 
     router.process_room_user_message.assert_awaited_once_with(
-        request, message_id="msg-1"
+        request, message_id="msg-1", before_run_start=ANY
     )

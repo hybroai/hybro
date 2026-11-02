@@ -20,6 +20,7 @@ from api_gateway.routes.sse_routes import (
     get_room_sse_status,
     stream_room_messages,
 )
+from common.errors import NotFoundError
 
 # =============================================================================
 # SSE Stream Tests
@@ -414,6 +415,54 @@ class TestCancelMessage:
         assert "Failed to persist cancellation" in exc_info.value.detail
 
     @pytest.mark.asyncio
+    async def test_returns_404_when_message_has_no_run_or_pending_processing(
+        self, mock_user, sample_room, sample_user_message, patch_sse_deps
+    ):
+        """A message with no Run and no orchestration task has nothing to cancel."""
+        deps = patch_sse_deps
+        deps[
+            "db_service"
+        ].get_room_user_message_by_message_id.return_value = sample_user_message
+        deps["db_service"].get_room_by_room_id.return_value = sample_room
+        deps["execution_engine"].cancel.side_effect = NotFoundError(
+            "Message processing", sample_user_message.message_id
+        )
+
+        with pytest.raises(HTTPException) as exc_info:
+            await cancel_message(
+                sample_user_message.message_id,
+                mock_user,
+                db=deps["db_service"],
+                engine=deps["execution_engine"],
+            )
+
+        assert exc_info.value.status_code == 404
+
+    @pytest.mark.asyncio
+    async def test_unexpected_cancel_failure_does_not_leak_error_text(
+        self, mock_user, sample_room, sample_user_message, patch_sse_deps
+    ):
+        deps = patch_sse_deps
+        deps[
+            "db_service"
+        ].get_room_user_message_by_message_id.return_value = sample_user_message
+        deps["db_service"].get_room_by_room_id.return_value = sample_room
+        deps["execution_engine"].cancel.side_effect = RuntimeError(
+            "mongodb://internal-host:27017 timed out"
+        )
+
+        with pytest.raises(HTTPException) as exc_info:
+            await cancel_message(
+                sample_user_message.message_id,
+                mock_user,
+                db=deps["db_service"],
+                engine=deps["execution_engine"],
+            )
+
+        assert exc_info.value.status_code == 500
+        assert "internal-host" not in exc_info.value.detail
+
+    @pytest.mark.asyncio
     async def test_execution_cancel_receives_audit_user(
         self, mock_user, sample_room, sample_user_message, patch_sse_deps
     ):
@@ -436,29 +485,6 @@ class TestCancelMessage:
             message_id=sample_user_message.message_id,
             requested_by_user_id=mock_user.user_id,
         )
-
-    @pytest.mark.asyncio
-    async def test_handles_execution_cancel_failure(
-        self, mock_user, sample_room, sample_user_message, patch_sse_deps
-    ):
-        """Should return 500 if Execution cancellation raises."""
-        deps = patch_sse_deps
-        deps[
-            "db_service"
-        ].get_room_user_message_by_message_id.return_value = sample_user_message
-        deps["db_service"].get_room_by_room_id.return_value = sample_room
-        deps["execution_engine"].cancel.side_effect = Exception("Execution cancel down")
-
-        with pytest.raises(HTTPException) as exc_info:
-            await cancel_message(
-                sample_user_message.message_id,
-                mock_user,
-                db=deps["db_service"],
-                engine=deps["execution_engine"],
-            )
-
-        assert exc_info.value.status_code == 500
-        assert "Execution cancel down" in exc_info.value.detail
 
     @pytest.mark.asyncio
     async def test_route_does_not_call_sse_cancel_directly(
