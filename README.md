@@ -173,8 +173,9 @@ agents were called.
 </p>
 
 **Answer an agent.** When an agent needs more information or approval, the chat
-shows the question and waits for you to **Send** an answer or **Reject** it.
-The **Chats** badge counts chats that need input.
+shows its questions and waits for your answer. Pick a suggested choice or type
+your own, then **Submit**, or **Reject** the request. A single open question
+uses **Send** instead. The **Chats** badge counts chats that need input.
 
 <p align="center">
   <img src="assets/screenshots/chat-input-request.png" alt="A chat waiting for the user's answer" width="800">
