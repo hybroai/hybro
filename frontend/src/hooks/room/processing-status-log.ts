@@ -17,6 +17,11 @@ export function createInitialProcessingStatusLog(timestamp: string): ProcessingS
   }
 }
 
+/** Real work-log entries, without the optimistic 'Thinking...' placeholder. */
+export function progressStatusLogs(entries: ProcessingStatusLogEntry[]): ProcessingStatusLogEntry[] {
+  return entries.filter((entry) => entry.message !== INITIAL_PROCESSING_STATUS_MESSAGE)
+}
+
 export function ensureInitialProcessingStatusLog(
   conversationId: string,
   userEntity: MessageEntity | undefined,

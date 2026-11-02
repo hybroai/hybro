@@ -3,6 +3,7 @@ import { cleanup, render, screen } from '../../../utils/test-utils'
 import { TurnRenderer } from '@/components/conversation/TurnRenderer'
 import { useMessageStore } from '@/stores/message-store'
 import type { TurnViewModel } from '@/lib/room-timeline/types'
+import { CANCELED_TURN_INTRO, FAILED_TURN_INTRO } from '@/lib/room-timeline/derive-final-answer'
 
 beforeEach(() => {
   useMessageStore.getState().clearRoom()
@@ -70,6 +71,78 @@ describe('TurnRenderer', () => {
     expect(screen.queryByRole('button', { name: /waiting for input,/i })).not.toBeInTheDocument()
     expect(container.querySelector('.conversation-trace')).not.toBeInTheDocument()
     expect(container.querySelector('.conversation-trace-separator')).not.toBeInTheDocument()
+  })
+
+  it('keeps the Thinking placeholder out of a legacy Turn awaiting input', () => {
+    useMessageStore.getState().upsertMessage({
+      id: 'user-1', conversationId: 'room-1', messageType: 'user', content: 'weather?',
+      senderName: 'Test', timestamp: '2026-06-04T01:00:00.000Z', clientRequestId: 'request-1',
+    }, 'db')
+
+    const { container } = render(<TurnRenderer turn={makeTurn({
+      status: 'awaiting_input',
+      displayMode: 'awaiting_input',
+      finalAnswer: { kind: 'hitl', label: 'Needs input' },
+    })} />)
+
+    expect(screen.queryByText('Thinking...')).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /waiting for input,/i })).not.toBeInTheDocument()
+    expect(container.querySelector('.conversation-trace')).not.toBeInTheDocument()
+    expect(container.querySelector('.conversation-body-frame')).not.toBeInTheDocument()
+  })
+
+  it('renders no trace panel for a settled legacy Turn whose only log is the Thinking placeholder', () => {
+    useMessageStore.getState().upsertMessage({
+      id: 'user-1', conversationId: 'room-1', messageType: 'user', content: 'weather?',
+      senderName: 'Test', timestamp: '2026-06-04T01:00:00.000Z', clientRequestId: 'cr-1',
+    }, 'db')
+
+    const { container } = render(<TurnRenderer isLastTurn turn={makeTurn({
+      status: 'completed', phase: 'completed',
+      finalAnswer: { kind: 'deterministic_done', label: 'Combined agent responses' },
+      agentResults: [{
+        agentId: 'weather-agent', agentName: 'Weather Agent', messageId: 'call-1',
+        status: 'completed', content: 'Sunny', artifacts: [],
+        isSummaryAgent: false, isEphemeral: false,
+      }],
+    })} />)
+
+    expect(screen.queryByText('Thinking...')).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /finished,/i })).not.toBeInTheDocument()
+    expect(container.querySelector('.conversation-trace-separator')).not.toBeInTheDocument()
+  })
+
+  it.each([
+    ['failed', { kind: 'failed', label: 'Failed', failedIntro: FAILED_TURN_INTRO }, FAILED_TURN_INTRO],
+    ['canceled', { kind: 'canceled', label: 'Canceled', canceledIntro: CANCELED_TURN_INTRO }, CANCELED_TURN_INTRO],
+  ] as const)('keeps the %s message for a legacy Turn whose only log is the Thinking placeholder', (status, finalAnswer, intro) => {
+    useMessageStore.getState().upsertMessage({
+      id: 'user-1', conversationId: 'room-1', messageType: 'user', content: 'weather?',
+      senderName: 'Test', timestamp: '2026-06-04T01:00:00.000Z', clientRequestId: 'cr-1',
+    }, 'db')
+
+    const { container } = render(<TurnRenderer isLastTurn turn={makeTurn({
+      status: status === 'failed' ? 'failed' : 'partial',
+      phase: 'completed',
+      turnTerminalStatus: status,
+      finalAnswer,
+    })} />)
+
+    expect(container).toHaveTextContent(intro)
+    expect(screen.queryByText('Thinking...')).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /finished,/i })).not.toBeInTheDocument()
+  })
+
+  it('shows the preparing marker for a running legacy Turn whose only log is the Thinking placeholder', () => {
+    useMessageStore.getState().upsertMessage({
+      id: 'user-1', conversationId: 'room-1', messageType: 'user', content: 'weather?',
+      senderName: 'Test', timestamp: '2026-06-04T01:00:00.000Z', clientRequestId: 'cr-1',
+    }, 'db')
+
+    render(<TurnRenderer isLastTurn turn={makeTurn()} />)
+
+    expect(screen.getByText('Preparing a response')).toBeVisible()
+    expect(screen.queryByText('Thinking...')).not.toBeInTheDocument()
   })
 
   it('renders agent cards even when the detail drawer callback is absent', () => {

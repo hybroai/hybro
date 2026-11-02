@@ -26,6 +26,22 @@ it('treats the optimistic Thinking placeholder as no progress', () => {
   expect(screen.queryByRole('button', { name: /work logs/i })).not.toBeInTheDocument()
 })
 
+it('drops the Thinking placeholder when it sits next to real progress', () => {
+  render(
+    <TurnTracePanel
+      statusEntries={[
+        { id: 'log-0', message: 'Thinking...', timestamp: '2030-01-01T00:00:00.000Z' },
+        { id: 'log-1', message: 'Applying your answers…', timestamp: '2030-01-01T00:00:01.000Z' },
+      ]}
+      isRunning
+    />,
+  )
+
+  expect(screen.getByRole('button', { name: 'Work Logs, 1 update' })).toBeInTheDocument()
+  expect(screen.getByText('Applying your answers…')).toBeVisible()
+  expect(screen.queryByText('Thinking...')).not.toBeInTheDocument()
+})
+
 it('renders a finished header without activity once the Turn settles', () => {
   render(
     <TurnTracePanel statusEntries={[]} startedAt="1970-01-01T00:00:00.000Z" />,

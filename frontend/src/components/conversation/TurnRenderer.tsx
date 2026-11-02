@@ -2,6 +2,7 @@
 
 import { memo, type Ref } from 'react'
 import { useMessageStore } from '@/stores/message-store'
+import { progressStatusLogs } from '@/hooks/room/processing-status-log'
 import { Separator } from '@/components/ui/separator'
 import type { TurnProjection } from '@/lib/turn-lifecycle/types'
 import type { TurnViewModel } from '@/lib/room-timeline/types'
@@ -29,13 +30,19 @@ function LegacyTurnRenderer({
   const userEntity = useMessageStore((state) => (
     turn.userMessageId ? state.entities[turn.userMessageId] : undefined
   ))
-  const hasActivity = turn.processingStatusLogs.length > 0
-  const hasAssistantSurface = turn.agentResults.length > 0 || hasActivity
   const isActivityRunning = turn.status === 'active'
     && turn.phase !== 'completed'
     && turn.finalAnswer.kind !== 'hitl'
+  // The 'Thinking...' placeholder only stands for a running Turn; once the Turn
+  // waits or settles it gets no trace panel. It still keeps the body mounted
+  // when there is a body to show, such as a failed or canceled message.
+  const hasActivity = progressStatusLogs(turn.processingStatusLogs).length > 0
+    || (isActivityRunning && turn.processingStatusLogs.length > 0)
   const hasFollowingContent = turn.finalAnswer.kind !== 'hitl'
     && (turn.finalAnswer.kind !== 'pending' || turn.agentResults.length > 0)
+  const hasAssistantSurface = turn.agentResults.length > 0
+    || hasActivity
+    || (turn.processingStatusLogs.length > 0 && hasFollowingContent)
 
   return (
     <div className="conversation-turn" data-turn-kind="legacy">

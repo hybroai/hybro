@@ -7,7 +7,7 @@ import { Marker, MarkerContent, MarkerIcon } from '@/components/ui/marker'
 import { cn } from '@/lib/utils'
 import type { ProcessingStatusLogEntry } from '@/stores/message-store/types'
 import { useTurnDurationLabel } from './turn-trace-time'
-import { INITIAL_PROCESSING_STATUS_MESSAGE } from '@/hooks/room/processing-status-log'
+import { progressStatusLogs } from '@/hooks/room/processing-status-log'
 import { ProcessingStatusLog } from './ProcessingStatusLog'
 
 interface TurnTracePanelProps {
@@ -53,7 +53,7 @@ export function TurnTracePanel({
 
   // The optimistic 'Thinking...' placeholder is not progress; the trace header
   // and "Preparing a response" marker cover that state.
-  const progressEntries = statusEntries.filter((entry) => entry.message !== INITIAL_PROCESSING_STATUS_MESSAGE)
+  const progressEntries = progressStatusLogs(statusEntries)
   const workLogs = progressEntries.length > 0
     ? <ProcessingStatusLog entries={progressEntries} isRunning={isRunning || isWaiting} />
     : null
