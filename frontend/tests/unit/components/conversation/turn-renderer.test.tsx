@@ -57,6 +57,11 @@ describe('TurnRenderer', () => {
     const { container } = render(<TurnRenderer turn={makeTurn({
       status: 'awaiting_input',
       displayMode: 'awaiting_input',
+      processingStatusLogs: [{
+        id: 'processing-log-1',
+        message: 'Asking Weather Agent',
+        timestamp: '2026-06-04T01:00:01.000Z',
+      }],
       finalAnswer: { kind: 'hitl', label: 'Needs input' },
     })} />)
 

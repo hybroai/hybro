@@ -13,6 +13,19 @@ it('shows a preparing marker while a Turn runs without progress logs', () => {
   expect(screen.getByRole('log')).toBeInTheDocument()
 })
 
+it('treats the optimistic Thinking placeholder as no progress', () => {
+  render(
+    <TurnTracePanel
+      statusEntries={[{ id: 'log-0', message: 'Thinking...', timestamp: '2030-01-01T00:00:00.000Z' }]}
+      isRunning
+    />,
+  )
+
+  expect(screen.getByText('Preparing a response')).toBeVisible()
+  expect(screen.queryByText('Thinking...')).not.toBeInTheDocument()
+  expect(screen.queryByRole('button', { name: /work logs/i })).not.toBeInTheDocument()
+})
+
 it('renders a finished header without activity once the Turn settles', () => {
   render(
     <TurnTracePanel statusEntries={[]} startedAt="1970-01-01T00:00:00.000Z" />,
