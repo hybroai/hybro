@@ -757,6 +757,12 @@ class DualRuntimeRouter:
             status="canceled", cancellation_applied=True, reconciled=True
         )
 
+    async def has_run_for_user_message(self, user_message_id: str) -> bool:
+        if self._runtime is None:
+            raise OrchestratorRoutingError("orchestrator run store is not bound")
+        run = await self._runtime.run_store.load_by_user_message_id(user_message_id)
+        return run is not None
+
     async def _request_run_cancellation(self, run: Any) -> Any:
         return await request_run_cancellation(self._runtime.run_store, run)
 
@@ -1131,8 +1137,17 @@ class DualRuntimeRouter:
         return envelope, profile
 
     async def process_room_user_message(
-        self, request: ExecutionRequest, *, message_id: str
+        self,
+        request: ExecutionRequest,
+        *,
+        message_id: str,
+        before_run_start: Callable[[], bool],
     ) -> OrchestrationResponse:
+        """Prepare and run the Room's next Run for one user message.
+
+        ``before_run_start`` is asked right before the Run is created; False
+        means the message was canceled first, so no Run starts.
+        """
         envelope, profile = await self._resolve_envelope_and_profile(
             request, message_id=message_id
         )
@@ -1202,6 +1217,14 @@ class DualRuntimeRouter:
             run_factory=_PreparedRunFactory(run_id, self._run_factory),
         )
 
+        if not before_run_start():
+            session_host.drop_session(conversation_id)
+            return OrchestrationResponse(
+                conversation_id=conversation_id,
+                success=False,
+                error="Message was canceled before its Run started.",
+                status_code=409,
+            )
         message = UserMessage(
             message_id=message_id,
             content=[

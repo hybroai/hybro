@@ -33,5 +33,23 @@
     "expects_run_event_sse": false,
     "transport_only_reason": "Canonical terminal events and run_settled own closure",
     "terminal_status": true
+  },
+  {
+    "call_id": "execution.facade.ExecutionFacade._emit_orchestration_status.status",
+    "path": "execution/facade.py",
+    "function_or_method": "ExecutionFacade._emit_orchestration_status",
+    "line": 608,
+    "conversation_id_expression": "ack.conversation_id or request.conversation_id",
+    "status_expression": "status",
+    "sse_message_id_expression": "ack.message_id",
+    "lifecycle_message_id_expression": "ack.dispatch_root_message_id or ack.message_id",
+    "client_request_id_expression": "request.client_request_id",
+    "details_expression": "details",
+    "delivery_expression": "self._event_publisher",
+    "recording_kind": "transport_only",
+    "requires_recording": false,
+    "expects_run_event_sse": false,
+    "transport_only_reason": "Closes a message whose orchestration ended before any Run existed",
+    "terminal_status": true
   }
 ]
