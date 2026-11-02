@@ -7,7 +7,6 @@ import {
 } from '@/lib/hitl/hitl-message-projection'
 import { useMessageStore } from '@/stores/message-store'
 import { normalizeTimestampOrNow } from '@/lib/time'
-import { appendEvent } from '@/lib/room-timeline/event-log'
 import { findProcessingStatusUserEntity } from '../../processing-status-log'
 import type { SSEHandlerDeps } from '../types'
 
@@ -39,12 +38,11 @@ export async function handleHitlRequest(
     findProcessingStatusUserEntity(conversationId, {
       clientRequestId: eventClientRequestId,
       relatedMessageId: related_user_message_id ?? related_message_id,
-      latestWithLogs: !hasEventTurnIdentity,
     }) ??
     (!hasEventTurnIdentity
       ? findProcessingStatusUserEntity(conversationId, {
           messageId: lifecycle.getMessageId(),
-          latestWithLogs: true,
+          latestUser: true,
         })
       : undefined)
   const activeClientRequestId = lifecycle.getPendingRunEventAck()
@@ -123,14 +121,6 @@ export async function handleHitlRequest(
   store.upsertMessage(incoming, 'sse')
   const requestKey = hitlRequestKey(interaction_id, request_id)
   hitlRequestIndex.current.set(requestKey, incoming.id)
-
-  appendEvent(conversationId, {
-    kind: 'hitl_requested',
-    timestamp: sseMessage.timestamp,
-    agentId: agent_id ?? undefined,
-    label: 'Input requested',
-    hitlPayload: { prompt: prompt ?? '' },
-  })
 }
 
 export function handleHitlResponse(
@@ -224,11 +214,5 @@ export function handleHitlResponse(
   if (resolved) {
     ctx.hitlRequestIndex.current.delete(requestKey)
     ctx.hitlRequestIndex.current.delete(request_id)
-    appendEvent(ctx.conversationId, {
-      kind: 'hitl_answered',
-      timestamp: sseMessage.timestamp,
-      agentId: entity.agentId,
-      label: 'Input provided',
-    })
   }
 }

@@ -46,13 +46,6 @@ describe('handleHitlRequest', () => {
           senderName: 'User',
           timestamp,
           clientRequestId: 'current-cr',
-          processingStatusLogs: [
-            {
-              id: 'log-1',
-              message: 'Thinking...',
-              timestamp,
-            },
-          ],
         },
       ],
       'sse',

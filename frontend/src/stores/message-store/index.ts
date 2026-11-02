@@ -135,7 +135,6 @@ export const useMessageStore = create<MessageStoreState>()(
             // Preserve optimistic correlation metadata if the newer entity
             // was created from SSE and omitted it.
             clientRequestId: newEntity.clientRequestId ?? oldEntity.clientRequestId,
-            processingStatusLogs: newEntity.processingStatusLogs ?? oldEntity.processingStatusLogs,
             turnTerminalStatus: newEntity.turnTerminalStatus ?? oldEntity.turnTerminalStatus,
             sourceVersion: Math.max(newEntity.sourceVersion, oldEntity.sourceVersion) + 1,
             updatedAt: Date.now(),
@@ -197,7 +196,6 @@ export const useMessageStore = create<MessageStoreState>()(
             ...existingAtNewId,
             id: newId,
             clientRequestId: existingAtNewId.clientRequestId ?? oldEntity.clientRequestId,
-            processingStatusLogs: existingAtNewId.processingStatusLogs ?? oldEntity.processingStatusLogs,
             turnTerminalStatus: existingAtNewId.turnTerminalStatus ?? oldEntity.turnTerminalStatus,
             sourceVersion: Math.max(existingAtNewId.sourceVersion, oldEntity.sourceVersion) + 1,
             updatedAt: Date.now(),

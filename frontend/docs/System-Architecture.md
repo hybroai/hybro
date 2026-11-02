@@ -284,13 +284,11 @@ src/components/
 The current room UI is centered on `src/components/conversation/`:
 
 - `ConversationMessageList.tsx`: top-level message/timeline list.
-- `TurnRenderer.tsx`, `TurnBody.tsx`: turn-level rendering. `TurnRenderer` selects `CanonicalTurnRenderer` for a turn with an exact canonical root and the message-store renderer otherwise.
 - `CanonicalTurnRenderer.tsx`, `CanonicalTurnTrace.tsx`, `turn-trace-time.ts`: the canonical Turn (User, Trace, Final Answer, Agent Cards).
-- `TurnTracePanel.tsx`: Work Logs (or a Running/Preparing header when there are none) for pending and non-canonical Turns.
-- `ProcessingStatusLog.tsx`: progress entries for turns without a canonical root.
-- `UserMessageBlock.tsx`, `UserAttachmentCard.tsx`, `UserAnswerCard.tsx`: user-side turn content.
-- `AgentCard.tsx`, `AgentContentBlock.tsx`, `AgentResultContent.tsx`, `AgentIndex.tsx`: agent response presentation. In the message-store renderer, multi-agent turns with LLM synthesis (`llm_synthesis`) show the combined answer in the primary surface and compact per-agent index rows below. Supervisor DONE without synthesis (`deterministic_done`) shows the digest intro in the primary surface and full per-agent bodies in the expanded `AgentIndex`. Substantive `summary-*` content classifies as `llm_synthesis`; the short coordinator digest stub (`"N agents responded. Expand below…"`) classifies as `deterministic`.
-- `FinalAnswerSurface.tsx`, `SynthesisContent.tsx`: final/synthesis answer surfaces.
+- `PendingTurnHeader.tsx`: the Running / "Preparing a response" header for a sent message whose canonical root has not arrived.
+- `TranscriptTurn.tsx`: read-only view of a User message without a canonical root (history from before the canonical lifecycle): the message and each Agent's final reply as Markdown, with no trace or live state. `src/lib/conversation/transcript.ts` builds its User/reply grouping.
+- `UserMessageBlock.tsx`, `UserAttachmentCard.tsx`: user-side turn content.
+- `AgentCard.tsx`, `AgentIndex.tsx`: canonical Agent Card presentation.
 - `AgentResponseDetailPane.tsx`: right-side detail pane for a selected agent response.
 - `ScrollToBottomButton.tsx`, `scroll-state.ts`: scroll affordances and state.
 - `conversation-tokens.css`, `shimmer.css`: conversation-specific CSS tokens and loading effects. Reading typography uses 16px / 1.75 line-height, system UI sans, 400 weight (light and dark), neutral letter-spacing, 1em paragraph gaps, 2.75rem turn spacing, an 800px content column, and 14px table cell text.
@@ -305,7 +303,6 @@ Top-level hooks live in `src/hooks/`; room-specific orchestration lives in `src/
 src/hooks/
 |-- useRoomWebhook.ts          # public re-export/entry hook
 |-- useRoomSSE.ts              # low-level SSE connection hook
-|-- useTurnViewModels.ts       # turn view model builder
 |-- useChatRoomCreation.ts     # room creation and navigation
 |-- useGroupManagement.ts      # saved subnets and room scope selection
 |-- useNetworks.ts             # owner-scoped subnet queries, agent inventory, and confirmed CRUD writes
@@ -462,7 +459,9 @@ projection when its `client_request_id` and related User message exactly match
 one canonical Turn; it never infers or mutates Turn lifecycle state. Canonical
 renderers never consume message-store prose. This is a
 per-User-request boundary: exact `run_started`/snapshot root binding selects the
-canonical renderer; otherwise the message-store renderer is used.
+canonical renderer. Without a root, the latest User message shows the pending
+header while the room is processing and no Agent reply has arrived; any other
+User message renders as a read-only transcript.
 
 The backend room stream sends `Cache-Control: no-cache, no-transform` and
 `X-Accel-Buffering: no`. These headers must survive the frontend API rewrite:
@@ -514,11 +513,15 @@ Only active content is live-announced, and motion has reduced-motion fallbacks.
 HYBRO AI summary/presenter entities own final-answer data but render no Agent
 Card; only delegated Agent executions appear as Agent Cards.
 
-Turns without a canonical root show progress entries through `ProcessingStatusLog`, including
-logs restored from stream snapshots. The compact log remains readable without
-expanding it. These Turns have no per-turn Tool trace: retired non-canonical
-`run_event` kinds are not folded, so old history renders its messages and logs
-only.
+User messages without a canonical root render through `TranscriptTurn`: the
+User message plus each routed Agent reply (`relatedMessageId` chain, then
+`clientRequestId`, then the nearest preceding User message) that has content or
+artifacts. Agent messages before the first User message are dropped. Ephemeral
+messages, HITL question rows, unanswered HITL prompts and deterministic digest
+messages are omitted; an Agent reply that asked a question and then finished is
+kept. User shells without content are skipped, and so are their replies until
+hydration fills them. Retired non-canonical `run_event` kinds and `processing_status` details
+are not shown; the frontend keeps no progress-log state.
 
 Trace and Agent Cards are separate UI projections of the same canonical
 `TurnProjection.activity` Tool row selected by `(run_id, tool_call_id)`;
@@ -544,11 +547,10 @@ the exact derived `orchestrator:{run_id}:{opaque_public_call_id}` message
 identity. Any `task_*`, partial-agent, raw artifact, or `processing_status` frame is excluded from canonical lifecycle state only when it matches an exact
 canonical User/client root; canonical capability elsewhere in the same room does
 not suppress unrelated message-store activity. Malformed duplicate status owners
-trigger snapshot recovery. Before `run_started`, the latest optimistic User root
-renders a preparation or Work Logs surface while no Agent responses are available.
-Received message-store Agent responses remain visible even while that User
-message is optimistic. An exact canonical root atomically takes ownership of the
-matching turn, so message-store cards do not duplicate canonical cards. Memoized Turn boundaries
+trigger snapshot recovery. Before `run_started`, the latest User message renders
+the pending header while the room is processing and no Agent reply is available.
+An exact canonical root atomically takes ownership of the matching turn, so
+transcript replies never duplicate canonical cards. Memoized Turn boundaries
 and card-ID-scoped selectors keep
 active deltas from rerendering historical Turns. Canonical cards without a
 real Agent profile ID render a non-link label (never a fabricated
@@ -737,30 +739,6 @@ owns processing and that no new send or pending run-event acknowledgement has
 started. This preserves the send-race guard while allowing backend-confirmed
 failures with zero agent tasks to recover without a page refresh.
 
-**Message-store turn completion.** Turns without a canonical root (room history
-written before canonical Runs) are completed from message-store evidence. The
-backend sends no completion kind; per-agent terminal SSE alone does not complete
-a multi-agent turn. Backend-truth stamping (`turn-terminal-stamp.ts`) checks
-`inquiryActiveRuns` and, when no Run is active and
-`isBackendRunConfirmedNonSynthesisCompletion` holds, records
-`turnTerminalStatus` together with `turnCompletionKind: 'deterministic'`.
-`shouldScheduleTurnTerminalRecovery` schedules that check 1.5 s after a terminal
-`FAILED`/`REJECTED`/`CANCELED`, or `COMPLETED` once all real agents are terminal;
-summary-agent `agent_response` frames never schedule it. `deriveFinalAnswer`
-returns `llm_synthesis` whenever a non-deterministic `summary-*` entity has
-substantive content (`turnHasSubstantiveLlmSynthesis` also blocks stamping over
-it), promotes to `deterministic_done` on a deterministic stamp, a deterministic
-`summary-*` digest, or mixed terminal agents without synthesis
-(`isDeterministicCompletionExpected` gates live promotion), and otherwise keeps
-the turn `pending`/`synthesizing`. `hasActiveSynthesisGap` treats positive
-synthesis evidence (`turnPhase: 'synthesizing'` logs, "synthesiz" or "compiling
-summary" log lines, synthesis ephemerals, or a working non-deterministic summary
-agent) as synthesis in progress; stale synthesis logs are ignored once all real
-agents are terminal and one failed. Hydrated turns without live-run evidence stay
-`completed`. When `turnTerminalStatus === 'completed'` and the summary agent has
-content, `buildAgentResult` treats a `submitted` `system:hybro` entity as
-completed.
-
 **Live streaming checkpoints:** `artifact_update` is the primary path into
 `streaming-store.append(message_id, …)`, and `agent_response_partial` shims into
 the same message-keyed append. Terminal `task_update` and final `agent_response`
@@ -793,30 +771,28 @@ Room DB synchronization lives under `src/lib/room-sync/`:
 - Rehydrates pending HITL requests on reconnect.
 - Reconciles with DB after reconnect gaps.
 - On reconnect while a turn is processing, checks whether the backend still has
-  an active Run; if not, it reconciles with the DB and recovers the turn's
-  terminal state from backend truth. There is no periodic poll: missed events are
-  recovered by the reducer's gap detection and snapshot re-request.
+  an active Run; if not, it reconciles with the DB and stops processing once the
+  DB shows the turn terminal (`turnTerminalStatus` or all Agent tasks terminal).
+  There is no periodic poll: missed events are recovered by the reducer's gap
+  detection and snapshot re-request.
 
 ## 11. Timeline And View Models
 
-Timeline construction lives under `src/lib/room-timeline/`.
+Conversation Turns come from the canonical turn store (`useCanonicalTurns`);
+`buildTranscriptTurnSources` in `src/lib/conversation/transcript.ts` lists the
+room's User messages with their routed Agent replies for messages without a
+canonical root. `src/lib/room-timeline/` keeps the Agent Card view models and
+helpers that canonical rendering and the processing lifecycle still use:
 
 ```text
 src/lib/room-timeline/
-|-- build-turns.ts
-|-- derive-final-answer.ts
-|-- event-log.ts
-|-- map-result-display.ts
-|-- message-groups.ts
-|-- multi-agent-turn-complete.ts
-|-- stamp-live-turn-terminal.ts
-|-- turn-agent-terminal.ts
-|-- turn-live-shell.ts
-|-- turn-terminal-stamp.ts
-`-- types.ts
+|-- escape-css-ident.ts         # scroll-target selector escaping
+|-- failed-addressed-agents.ts  # mentioned-Agent failure notice
+|-- map-result-display.ts       # Agent Card display props
+|-- turn-agent-terminal.ts      # all-Agents-terminal check for the lifecycle
+|-- turn-live-shell.ts          # AgentIndex summary and default open state
+`-- types.ts                    # AgentIndex/Agent Card view-model types
 ```
-
-`buildTurns` groups normalized messages into turn view models. User messages define turn boundaries. Agent messages route by `relatedMessageId`, `clientRequestId`, and fallback order. System messages before the first user message are placed in a synthetic system turn.
 
 Selectors under `src/lib/selectors/` adapt store state into UI-specific slices:
 

@@ -28,15 +28,6 @@ export interface ArtifactData {
   isSynthetic?: boolean
 }
 
-export type TurnPhaseLog = 'collecting' | 'synthesizing' | 'terminal'
-
-export interface ProcessingStatusLogEntry {
-  id: string
-  message: string
-  timestamp: string
-  turnPhase?: TurnPhaseLog
-}
-
 /** Which pipeline last wrote this entity. */
 export type MessageSource = 'db' | 'sse' | 'optimistic'
 
@@ -127,14 +118,8 @@ export interface MessageEntity {
   // the turn store receiving direct writes (derived-only constraint).
   turnTerminalStatus?: 'completed' | 'failed' | 'canceled'
 
-  /** Frontend stamp set when backend truth confirms a non-synthesis completion. */
-  turnCompletionKind?: 'deterministic'
-
   /** Parsed from backend extend_info.summary_origin for summary-family agents. */
   summaryOrigin?: 'llm' | 'deterministic'
-
-  /** Transient in-memory processing_status detail log for the live turn. */
-  processingStatusLogs?: ProcessingStatusLogEntry[]
 }
 
 /**
@@ -192,7 +177,5 @@ export interface IncomingMessage {
   quotedSenderName?: string
   quoteId?: string
   turnTerminalStatus?: 'completed' | 'failed' | 'canceled'
-  turnCompletionKind?: 'deterministic'
   summaryOrigin?: 'llm' | 'deterministic'
-  processingStatusLogs?: ProcessingStatusLogEntry[]
 }

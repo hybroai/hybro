@@ -1,11 +1,4 @@
 import type { AgentResultViewModel, FinalAnswerKind, TurnViewModel } from './types'
-import { isSupervisorClarifyAgent } from '@/lib/system-agents'
-
-export function getStripSourceResults(turn: TurnViewModel): AgentResultViewModel[] {
-  return turn.agentResults.filter(r =>
-    !r.isSummaryAgent && !r.isEphemeral && !isSupervisorClarifyAgent(r.agentId),
-  )
-}
 
 export function getAgentIndexSummary(
   turn: TurnViewModel,
@@ -46,68 +39,6 @@ export function getAgentIndexSummary(
         working > 0 ? `${working} working` : '',
       ].filter(Boolean).join(' · ')
   }
-}
-
-export function getSupervisorStatusLine(turn: TurnViewModel): string | null {
-  // Supervisor stage details are transient progress UI, never part of the
-  // completed user-facing answer. Persisted/hydrated turns can still carry the
-  // last stage (for example "Requesting ..."), so stop it at this boundary.
-  if (turn.status !== 'active' || turn.phase === 'completed') return null
-
-  const ephemeral = turn.agentResults.find(
-    r => r.isEphemeral && (r.taskStatusMessage?.trim().length ?? 0) > 0,
-  )
-  const status = ephemeral?.taskStatusMessage?.trim()
-    ?? turn.supervisorStage?.details?.trim()
-    ?? null
-  
-  if (status && status.length > 200) {
-    return null
-  }
-  
-  const summary = turn.agentResults.find(r => r.isSummaryAgent)
-  if (summary && status === summary.content.trim()) {
-    return null
-  }
-
-  return status
-}
-
-/** Build dynamic progress label from agent results during collecting phase. */
-export function getCollectingProgressLabel(turn: TurnViewModel): string {
-  const real = turn.agentResults.filter(r =>
-    !r.isSummaryAgent && !r.isEphemeral && !isSupervisorClarifyAgent(r.agentId),
-  )
-  if (real.length === 0) return 'Agents working on your request…'
-
-  const completed = real.filter(r => r.status === 'completed')
-  const failed = real.filter(r => r.status === 'failed')
-  const working = real.filter(r => r.status === 'working')
-  const terminal = completed.length + failed.length
-
-  const activeAgent = working.find(r => r.taskStatusMessage?.trim())
-  if (activeAgent?.taskStatusMessage) {
-    const prefix = real.length > 1 ? `${terminal}/${real.length} done · ` : ''
-    return `${prefix}${activeAgent.agentName}: ${activeAgent.taskStatusMessage.trim()}`
-  }
-
-  if (terminal > 0 && working.length > 0) {
-    return `${terminal} of ${real.length} agents done · ${working.length} still working…`
-  }
-
-  if (failed.length === real.length && working.length === 0) {
-    return `All ${real.length} agents failed`
-  }
-
-  if (completed.length > 0 && working.length === 0 && failed.length === 0) {
-    return `All ${real.length} agents done · Preparing response…`
-  }
-
-  if (terminal > 0 && working.length === 0) {
-    return `${completed.length} succeeded · ${failed.length} failed`
-  }
-
-  return `${real.length} agent${real.length === 1 ? '' : 's'} working on your request…`
 }
 
 /**

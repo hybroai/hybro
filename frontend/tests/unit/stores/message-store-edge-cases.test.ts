@@ -336,21 +336,12 @@ describe('useMessageStore - Edge Cases', () => {
 
     it('merges when real id already exists and keeps clientRequestId correlation', () => {
       const store = useMessageStore.getState()
-      const processingStatusLogs = [
-        {
-          id: 'processing-log-1',
-          message: 'Dispatching agents',
-          timestamp: '2026-06-03T12:00:01.000Z',
-        },
-      ]
-
       store.upsertMessage(
         createMessage({
           id: 'cr:req-2',
           content: 'optimistic user',
           clientRequestId: 'req-2',
           messageType: 'user',
-          processingStatusLogs,
           turnTerminalStatus: 'completed',
         }),
         'optimistic'
@@ -372,28 +363,18 @@ describe('useMessageStore - Edge Cases', () => {
       expect(state.entities['cr:req-2']).toBeUndefined()
       expect(state.entities['msg-real-2']).toBeDefined()
       expect(state.entities['msg-real-2'].clientRequestId).toBe('req-2')
-      expect(state.entities['msg-real-2'].processingStatusLogs).toEqual(processingStatusLogs)
       expect(state.entities['msg-real-2'].turnTerminalStatus).toBe('completed')
       expect(state.orderedIds.filter(id => id === 'msg-real-2')).toHaveLength(1)
     })
 
-    it('preserves optimistic processing metadata when real id already exists during patch replacement', () => {
+    it('preserves the optimistic turn terminal status when real id already exists during patch replacement', () => {
       const store = useMessageStore.getState()
-      const processingStatusLogs = [
-        {
-          id: 'processing-log-1',
-          message: 'Dispatching agents',
-          timestamp: '2026-06-03T12:00:01.000Z',
-        },
-      ]
-
       store.upsertMessage(
         createMessage({
           id: 'cr:req-3',
           content: 'optimistic user',
           clientRequestId: 'req-3',
           messageType: 'user',
-          processingStatusLogs,
           turnTerminalStatus: 'failed',
         }),
         'optimistic'
@@ -403,7 +384,6 @@ describe('useMessageStore - Edge Cases', () => {
           id: 'msg-real-3',
           content: 'real user',
           messageType: 'user',
-          processingStatusLogs: undefined,
         }),
         'sse'
       )
@@ -412,7 +392,6 @@ describe('useMessageStore - Edge Cases', () => {
 
       const state = useMessageStore.getState()
       expect(state.entities['cr:req-3']).toBeUndefined()
-      expect(state.entities['msg-real-3'].processingStatusLogs).toEqual(processingStatusLogs)
       expect(state.entities['msg-real-3'].turnTerminalStatus).toBe('failed')
       expect(state.orderedIds.filter(id => id === 'msg-real-3')).toHaveLength(1)
     })
@@ -439,70 +418,5 @@ describe('useMessageStore - Edge Cases', () => {
       store.setRoom('new-room')
       expect(useMessageStore.getState().hydratedFromDb).toBe(false)
     })
-  })
-
-  it('preserves and replaces transient processing status logs through upserts', () => {
-    const store = useMessageStore.getState()
-    store.clearRoom()
-    store.setRoom('room-1')
-
-    store.upsertMessage({
-      id: 'user-1',
-      conversationId: 'room-1',
-      messageType: 'user',
-      content: 'Plan a trip',
-      senderName: 'User',
-      timestamp: '2026-06-03T12:00:00.000Z',
-      processingStatusLogs: [
-        {
-          id: 'processing-log-1',
-          message: 'Dispatching agents',
-          timestamp: '2026-06-03T12:00:01.000Z',
-        },
-      ],
-    }, 'sse')
-
-    store.upsertMessage({
-      id: 'user-1',
-      conversationId: 'room-1',
-      messageType: 'user',
-      content: 'Plan a trip',
-      senderName: 'User',
-      timestamp: '2026-06-03T12:00:00.000Z',
-    }, 'sse')
-
-    expect(useMessageStore.getState().entities['user-1'].processingStatusLogs).toEqual([
-      {
-        id: 'processing-log-1',
-        message: 'Dispatching agents',
-        timestamp: '2026-06-03T12:00:01.000Z',
-      },
-    ])
-
-    store.upsertMessage({
-      id: 'user-1',
-      conversationId: 'room-1',
-      messageType: 'user',
-      content: 'Plan a trip',
-      senderName: 'User',
-      timestamp: '2026-06-03T12:00:00.000Z',
-      processingStatusLogs: [],
-    }, 'sse')
-
-    expect(useMessageStore.getState().entities['user-1'].processingStatusLogs).toEqual([])
-
-    const sourceVersionBeforeNoOp = useMessageStore.getState().entities['user-1'].sourceVersion
-
-    store.upsertMessage({
-      id: 'user-1',
-      conversationId: 'room-1',
-      messageType: 'user',
-      content: 'Plan a trip',
-      senderName: 'User',
-      timestamp: '2026-06-03T12:00:00.000Z',
-      processingStatusLogs: [],
-    }, 'sse')
-
-    expect(useMessageStore.getState().entities['user-1'].sourceVersion).toBe(sourceVersionBeforeNoOp)
   })
 })

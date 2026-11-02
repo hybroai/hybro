@@ -5,37 +5,10 @@ import { useStreamingStore } from '@/stores/streaming-store'
 import type { ArtifactData } from '@/stores/message-store/types'
 import { normalizeTimestampOrNow } from '@/lib/time'
 import { isSummarySystemAgent } from '@/lib/system-agents'
-import { isDeterministicDigestContent } from '@/lib/room-timeline/derive-final-answer'
-import { stampLiveTurnTerminalIfInferable } from '@/lib/room-timeline/stamp-live-turn-terminal'
-import { scheduleTurnTerminalBackendTruthCheck } from '@/lib/room-timeline/turn-terminal-stamp'
-import type { SummaryOrigin } from '@/lib/room-timeline/types'
+import { isDeterministicDigestContent, type SummaryOrigin } from '@/lib/conversation/transcript'
 import { partsToReplacementArtifacts } from '../artifacts'
 import type { SSEHandlerDeps } from '../types'
 import { resolveUserMessageId } from '../client-request'
-
-function isSummaryAgentResponse(agentId: string | undefined, messageId: string): boolean {
-  if (messageId.startsWith('summary-')) return true
-  return agentId ? isSummarySystemAgent(agentId) : false
-}
-
-function maybeScheduleTurnTerminalRecovery(
-  ctx: SSEHandlerDeps,
-  hint: {
-    clientRequestId?: string | null
-    relatedMessageId?: string | null
-  },
-  messageId: string,
-  agentId: string | undefined,
-): void {
-  if (isSummaryAgentResponse(agentId, messageId)) return
-
-  scheduleTurnTerminalBackendTruthCheck(
-    ctx.conversationId,
-    ctx.lifecycle,
-    hint,
-    ctx.getToken,
-  )
-}
 
 const PARTIAL_STREAM_ARTIFACT_SUFFIX = '-partial-stream'
 
@@ -119,7 +92,6 @@ export function handleAgentResponsePartial(
 export async function handleAgentResponse(
   ctx: SSEHandlerDeps,
   sseMessage: RoomSSEFrameMap['agent_response'],
-  canonical = false,
 ): Promise<void> {
   if (!sseMessage.data.message_id) return
 
@@ -164,18 +136,6 @@ export async function handleAgentResponse(
         }, 'sse')
       }
       streaming.clear(messageId)
-      if (!canonical) {
-        const stamped = stampLiveTurnTerminalIfInferable(ctx.conversationId, ctx.lifecycle, {
-          clientRequestId: existing.clientRequestId || sseMessage.data.client_request_id,
-          relatedMessageId: existing.relatedMessageId ?? sseMessage.data.related_message_id,
-        })
-        if (!stamped) {
-          maybeScheduleTurnTerminalRecovery(ctx, {
-            clientRequestId: existing.clientRequestId || sseMessage.data.client_request_id,
-            relatedMessageId: existing.relatedMessageId ?? sseMessage.data.related_message_id,
-          }, messageId, existing.agentId)
-        }
-      }
       return
     }
   }
@@ -214,17 +174,4 @@ export async function handleAgentResponse(
     ...(summaryOrigin ? { summaryOrigin } : {}),
   }, 'sse')
   streaming.clear(messageId)
-
-  if (!canonical) {
-    const stamped = stampLiveTurnTerminalIfInferable(ctx.conversationId, ctx.lifecycle, {
-      clientRequestId: entity?.clientRequestId || sseMessage.data.client_request_id,
-      relatedMessageId: entity?.relatedMessageId ?? sseMessage.data.related_message_id,
-    })
-    if (!stamped) {
-      maybeScheduleTurnTerminalRecovery(ctx, {
-        clientRequestId: entity?.clientRequestId || sseMessage.data.client_request_id,
-        relatedMessageId: entity?.relatedMessageId ?? sseMessage.data.related_message_id,
-      }, messageId, agentId)
-    }
-  }
 }

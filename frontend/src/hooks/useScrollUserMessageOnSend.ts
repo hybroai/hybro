@@ -2,7 +2,7 @@
 
 import { useCallback, useLayoutEffect, useRef, type RefObject } from 'react'
 import { scrollUserMessageToFocus } from '@/lib/conversation/focus-scroll'
-import { escapeCssIdent } from '@/lib/room-timeline/message-groups'
+import { escapeCssIdent } from '@/lib/room-timeline/escape-css-ident'
 
 interface UseScrollUserMessageOnSendOptions {
   scrollRef: RefObject<HTMLDivElement | null>

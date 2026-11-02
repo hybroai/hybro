@@ -71,14 +71,11 @@ function agentIndexAdapter(turn: TurnProjection, results: AgentResultViewModel[]
     userAttachments: [],
     timestamp: turn.startedAt,
     status: turn.state === 'canceled' ? 'partial' : turn.state,
-    events: [],
-    summary: null,
     agentResults: results,
     activeAgentIds: results.filter((result) => result.status === 'working').flatMap((result) => result.agentId ?? []),
     isSupervisorTurn: false,
     displayMode: turn.state === 'awaiting_input' ? 'awaiting_input' : turn.state === 'active' ? 'working' : 'parallel_results',
     phase: turn.state === 'completed' ? 'completed' : 'answering',
-    processingStatusLogs: [],
     finalAnswer: turn.state === 'awaiting_input'
       ? { kind: 'hitl', label: 'Needs input' }
       : { kind: 'deterministic_done', label: 'Combined agent responses' },

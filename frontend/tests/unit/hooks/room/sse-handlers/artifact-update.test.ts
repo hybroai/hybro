@@ -4,7 +4,6 @@ import { useMessageStore } from '@/stores/message-store'
 import { useStreamingStore } from '@/stores/streaming-store'
 import { TASK_STATE } from '@/lib/types/sse'
 import type { ProcessingLifecycle } from '@/hooks/room/processing-lifecycle'
-import { appendEvent, getEvents, resetEventStore } from '@/lib/room-timeline/event-log'
 
 function makeLifecycle(): ProcessingLifecycle {
   return {
@@ -20,7 +19,6 @@ describe('handleArtifactUpdate', () => {
   beforeEach(() => {
     useStreamingStore.setState({ buffers: {} })
     useMessageStore.setState({ entities: {}, orderedIds: [] })
-    resetEventStore()
   })
 
   it('defaults append to true for terminal frames when the same artifact id already exists in the buffer', () => {
@@ -79,16 +77,9 @@ describe('handleArtifactUpdate', () => {
         senderName: 'Agent',
         timestamp: '2026-07-13T00:00:00.000Z',
       }, 'sse')
-      appendEvent('room-1', {
-        kind: 'agent_started',
-        timestamp: '2026-07-13T00:00:00.000Z',
-        agentId: 'agent-1',
-        label: 'Agent started',
-      })
 
       const buffersBefore = useStreamingStore.getState().buffers
       const entitiesBefore = useMessageStore.getState().entities
-      const eventsBefore = [...getEvents('room-1')]
       const data: Record<string, unknown> = {
         message_id: 'private-msg',
         agent_id: 'agent-1',
@@ -126,16 +117,13 @@ describe('handleArtifactUpdate', () => {
 
       const streamingState = useStreamingStore.getState().buffers
       const entityState = useMessageStore.getState().entities
-      const eventState = getEvents('room-1')
       const publicState = JSON.stringify({
         streamingState,
         entityState,
-        eventState,
       })
 
       expect(streamingState).toEqual(buffersBefore)
       expect(entityState).toEqual(entitiesBefore)
-      expect(eventState).toEqual(eventsBefore)
       expect(publicState).not.toContain(privateText)
       expect(publicState).not.toContain(privateMetadata)
       expect(publicState).not.toContain(privateBytes)

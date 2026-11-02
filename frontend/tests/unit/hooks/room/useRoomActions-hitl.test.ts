@@ -378,7 +378,6 @@ describe('useRoomActions HITL deferred ACK authority', () => {
     expect(lifecycle.getMessageId()).toBeNull()
     expect(lifecycle.getClientRequestId()).toBeNull()
     expect(lifecycle.getPendingRunEventAck()).toBeNull()
-    expect(useMessageStore.getState().entities['user-1'].processingStatusLogs).toBeUndefined()
     expectConfirmedAnswer()
   })
 
@@ -436,8 +435,6 @@ describe('useRoomActions HITL deferred ACK authority', () => {
     expect(lifecycle.getMessageId()).toBe('user-1')
     expect(lifecycle.getClientRequestId()).toBe('client-1')
     expect(lifecycle.getPendingRunEventAck()).toBe('client-1')
-    expect(useMessageStore.getState().entities['user-1'].processingStatusLogs?.at(-1)?.message)
-      .toBe('Applying your answers…')
     expectConfirmedAnswer()
   })
 
@@ -465,7 +462,6 @@ describe('useRoomActions HITL deferred ACK authority', () => {
     expect(lifecycle.getMessageId()).toBe(messageId)
     expect(lifecycle.getClientRequestId()).toBe(clientId)
     expect(lifecycle.getPendingRunEventAck()).toBe(clientId)
-    expect(useMessageStore.getState().entities['user-1'].processingStatusLogs).toBeUndefined()
     expectConfirmedAnswer()
   })
 

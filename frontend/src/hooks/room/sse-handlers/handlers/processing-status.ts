@@ -5,9 +5,7 @@ import { useMessageStore } from '@/stores/message-store'
 import type { MessageEntity } from '@/stores/message-store/types'
 import { useRoomUiStore } from '@/stores/room-ui-store'
 import {
-  appendProcessingStatusLog,
   findProcessingStatusUserEntity,
-  parseTurnPhaseFromDetails,
   processingDetailsToLogMessage,
 } from '../../processing-status-log'
 import { resolveUserMessageId } from '../client-request'
@@ -169,15 +167,6 @@ export function handleProcessingStatus(
     if (!processingUserEntity && !lifecycleMessageId && !pendingAckClientRequestId) {
       return
     }
-
-    appendProcessingStatusLog(
-      conversationId,
-      processingUserEntity,
-      processingDetailsToLogMessage(sseMessage.data.details),
-      sseMessage.timestamp,
-      'sse',
-      { turnPhase: parseTurnPhaseFromDetails(sseMessage.data.details) },
-    )
 
     lifecycle.startProcessing(processingUserEntity?.id ?? lifecycleMessageId ?? userMsgId)
     return

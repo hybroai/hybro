@@ -8,42 +8,13 @@ import type { ProcessingLifecycle } from './processing-lifecycle'
 import { useRoomUiStore } from '@/stores/room-ui-store'
 import { useMessageStore } from '@/stores/message-store'
 import { allAgentsTerminalForUserMessage } from '@/lib/room-timeline/turn-agent-terminal'
-import { ensureTurnTerminalStampedFromBackendTruth } from '@/lib/room-timeline/turn-terminal-stamp'
 import { findProcessingStatusUserEntity } from './processing-status-log'
-
-function resolveLiveTurnUserMessageId(conversationId: string, lifecycle: ProcessingLifecycle): string | undefined {
-  const userEntity = findProcessingStatusUserEntity(conversationId, {
-    messageId: lifecycle.getMessageId(),
-    clientRequestId: lifecycle.getPendingRunEventAck(),
-    latestWithLogs: true,
-  })
-  return lifecycle.getMessageId() ?? userEntity?.id
-}
-
-async function tryRecoverTurnTerminalFromBackendTruth(
-  conversationId: string,
-  lifecycle: ProcessingLifecycle,
-  getToken: (() => Promise<string | null>) | undefined,
-): Promise<boolean> {
-  const userMessageId = resolveLiveTurnUserMessageId(conversationId, lifecycle)
-  if (!userMessageId) return false
-
-  return ensureTurnTerminalStampedFromBackendTruth(
-    conversationId,
-    lifecycle,
-    {
-      relatedMessageId: userMessageId,
-      clientRequestId: lifecycle.getPendingRunEventAck(),
-    },
-    getToken,
-  )
-}
 
 function hasTerminalEvidenceForCurrentTurn(conversationId: string, lifecycle: ProcessingLifecycle): boolean {
   const userEntity = findProcessingStatusUserEntity(conversationId, {
     messageId: lifecycle.getMessageId(),
     clientRequestId: lifecycle.getPendingRunEventAck(),
-    latestWithLogs: true,
+    latestUser: true,
   })
   const userMessageId = lifecycle.getMessageId() ?? userEntity?.id
   if (!userMessageId) return false
@@ -164,7 +135,6 @@ export function useRoomSSEConnection(
         if (hasActive === false && lifecycle.getMessageId() === messageIdAtReconnect && !sending) {
           await reconcileWithDb(conversationId)
           if (lifecycle.getMessageId() !== messageIdAtReconnect) return
-          await tryRecoverTurnTerminalFromBackendTruth(conversationId, lifecycle, getToken)
           if (!hasTerminalEvidenceForCurrentTurn(conversationId, lifecycle)) {
             return
           }

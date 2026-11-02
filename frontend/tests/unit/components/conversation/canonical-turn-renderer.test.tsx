@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, fireEvent, render, screen } from '../../../utils/test-utils'
-import { TurnRenderer } from '@/components/conversation/TurnRenderer'
+import { CanonicalTurnRenderer } from '@/components/conversation/CanonicalTurnRenderer'
 import type { TurnActivityItem, TurnProjection } from '@/lib/turn-lifecycle/types'
 import { useMessageStore } from '@/stores/message-store'
 import { useTurnPresentationStore } from '@/stores/turn-presentation-store'
@@ -104,7 +104,7 @@ describe('canonical Turn renderer', () => {
       })],
     })
     useTurnPresentationStore.getState().ensure(value, false)
-    const { container } = render(<TurnRenderer canonicalTurn={value} isLastTurn />)
+    const { container } = render(<CanonicalTurnRenderer turn={value} isLastTurn />)
 
     expect(screen.getByText('Weather?')).toBeInTheDocument()
     expect(screen.getByText('Sunny', { selector: '[data-streamdown="strong"]' })).toBeInTheDocument()
@@ -147,7 +147,7 @@ describe('canonical Turn renderer', () => {
       })],
     })
     useTurnPresentationStore.getState().ensure(value, true)
-    render(<TurnRenderer canonicalTurn={value} />)
+    render(<CanonicalTurnRenderer turn={value} />)
 
     expect(await screen.findByRole('img', { name: 'generated-image.png' })).toHaveAttribute(
       'src',
@@ -189,7 +189,7 @@ describe('canonical Turn renderer', () => {
       })],
     })
     useTurnPresentationStore.getState().ensure(value, true)
-    render(<TurnRenderer canonicalTurn={value} />)
+    render(<CanonicalTurnRenderer turn={value} />)
 
     expect(await screen.findByRole('img', { name: 'retry-image.png' })).toBeInTheDocument()
     expect(fetchCanonicalAgentCallDetail).toHaveBeenCalledTimes(2)
@@ -208,7 +208,7 @@ describe('canonical Turn renderer', () => {
       })],
     })
     useTurnPresentationStore.getState().ensure(value, true)
-    render(<TurnRenderer canonicalTurn={value} />)
+    render(<CanonicalTurnRenderer turn={value} />)
 
     expect(await screen.findByText('Generated files could not be loaded.')).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Retry' })).toBeInTheDocument()
@@ -238,7 +238,7 @@ describe('canonical Turn renderer', () => {
       })],
     })
     useTurnPresentationStore.getState().ensure(value, false)
-    const { container } = render(<TurnRenderer canonicalTurn={value} />)
+    const { container } = render(<CanonicalTurnRenderer turn={value} />)
 
     // The question content lives only in the composer interaction UI; the
     // body/final slot stays empty while the Trace records the event.
@@ -266,7 +266,7 @@ describe('canonical Turn renderer', () => {
       })],
     })
     useTurnPresentationStore.getState().ensure(value, false)
-    render(<TurnRenderer canonicalTurn={value} />)
+    render(<CanonicalTurnRenderer turn={value} />)
 
     fireEvent.click(screen.getByRole('button', { name: /agent responses/i }))
     expect(screen.getByRole('status', { name: /unknown agent — completed/i })).toBeInTheDocument()
@@ -283,7 +283,7 @@ describe('canonical Turn renderer', () => {
       })],
     })
     useTurnPresentationStore.getState().ensure(value, false)
-    render(<TurnRenderer canonicalTurn={value} />)
+    render(<CanonicalTurnRenderer turn={value} />)
 
     fireEvent.click(screen.getByRole('button', { name: /agent responses/i }))
     expect(screen.getByRole('status', { name: /acme - claims — completed/i })).toBeInTheDocument()
@@ -301,8 +301,8 @@ describe('canonical Turn renderer', () => {
     })
     useTurnPresentationStore.getState().ensure(value, false)
     render(
-      <TurnRenderer
-        canonicalTurn={value}
+      <CanonicalTurnRenderer
+        turn={value}
         onOpenAgentDetail={onOpenAgentDetail}
       />,
     )
@@ -319,7 +319,7 @@ describe('canonical Turn renderer', () => {
   it('opens active Trace, derives a concise preparation action, and uses active-only live roles with decorative icons', () => {
     const value = turn()
     useTurnPresentationStore.getState().ensure(value, false)
-    const { container } = render(<TurnRenderer canonicalTurn={value} />)
+    const { container } = render(<CanonicalTurnRenderer turn={value} />)
 
     expect(screen.getByRole('button', { name: /running, 0\.0s/i })).toHaveAttribute('aria-expanded', 'true')
     expect(screen.getByRole('log')).toHaveAttribute('aria-live', 'polite')
@@ -338,7 +338,7 @@ describe('canonical Turn renderer', () => {
       },
     })
     useTurnPresentationStore.getState().ensure(value, false)
-    render(<TurnRenderer canonicalTurn={value} />)
+    render(<CanonicalTurnRenderer turn={value} />)
     expect(screen.getByText('Preparing a response')).toBeInTheDocument()
     expect(screen.queryByText('Thinking…')).not.toBeInTheDocument()
   })
@@ -361,7 +361,7 @@ describe('canonical Turn renderer', () => {
       },
     })
     useTurnPresentationStore.getState().ensure(value, true)
-    render(<TurnRenderer canonicalTurn={value} />)
+    render(<CanonicalTurnRenderer turn={value} />)
 
     const trigger = screen.getByRole('button', { name: /finished, 18\.6s/i })
     expect(trigger).toHaveAttribute('aria-expanded', 'false')
@@ -384,7 +384,7 @@ describe('canonical Turn renderer', () => {
       }],
     })
     useTurnPresentationStore.getState().ensure(value, false)
-    const { container } = render(<TurnRenderer canonicalTurn={value} isLastTurn />)
+    const { container } = render(<CanonicalTurnRenderer turn={value} isLastTurn />)
 
     const traceCall = container.querySelector('[data-kind="agent-call"]')
     const card = container.querySelector('.conversation-agent-card')
@@ -407,7 +407,7 @@ describe('canonical Turn renderer', () => {
       }],
     })
     useTurnPresentationStore.getState().ensure(value, true)
-    const { container } = render(<TurnRenderer canonicalTurn={value} isLastTurn />)
+    const { container } = render(<CanonicalTurnRenderer turn={value} isLastTurn />)
 
     const trigger = screen.getByRole('button', { name: /finished, 1\.2s/i })
     fireEvent.click(trigger)
@@ -431,7 +431,7 @@ describe('canonical Turn renderer', () => {
       })],
     })
     useTurnPresentationStore.getState().ensure(value, false)
-    const { container } = render(<TurnRenderer canonicalTurn={value} isLastTurn />)
+    const { container } = render(<CanonicalTurnRenderer turn={value} isLastTurn />)
 
     expect(screen.queryByRole('button', { name: /show weather agent input and output/i })).not.toBeInTheDocument()
     expect(screen.queryByText(/city: Shanghai/)).not.toBeInTheDocument()
@@ -451,7 +451,7 @@ describe('canonical Turn renderer', () => {
     })]
     const active = turn({ activity: toolActivity })
     useTurnPresentationStore.getState().ensure(active, false)
-    const { rerender } = render(<TurnRenderer canonicalTurn={active} />)
+    const { rerender } = render(<CanonicalTurnRenderer turn={active} />)
     const traceTrigger = screen.getByRole('button', { name: /running, 0\.0s/i })
     traceTrigger.focus()
     expect(traceTrigger).toHaveFocus()
@@ -463,7 +463,7 @@ describe('canonical Turn renderer', () => {
         toolCallIds: ['inv_weather_0001'], status: 'error',
       }],
     })
-    rerender(<TurnRenderer canonicalTurn={settled} />)
+    rerender(<CanonicalTurnRenderer turn={settled} />)
     const settledTrigger = screen.getByRole('button', { name: /finished, 0\.4s/i })
     expect(settledTrigger).toHaveAttribute('aria-expanded', 'true')
 
@@ -477,7 +477,7 @@ describe('canonical Turn renderer', () => {
   it('preserves manual reopen after the one-time settlement collapse', () => {
     const active = turn()
     useTurnPresentationStore.getState().ensure(active, false)
-    const { rerender } = render(<TurnRenderer canonicalTurn={active} />)
+    const { rerender } = render(<CanonicalTurnRenderer turn={active} />)
     const activeTrigger = screen.getByRole('button', { name: /running, 0\.0s/i })
     fireEvent.click(activeTrigger)
     expect(activeTrigger).toHaveAttribute('aria-expanded', 'false')
@@ -488,13 +488,13 @@ describe('canonical Turn renderer', () => {
         internalTurnId: 'turn-1', attempt: 1, messageIds: [], toolCallIds: [], status: 'error',
       }],
     })
-    rerender(<TurnRenderer canonicalTurn={settled} />)
+    rerender(<CanonicalTurnRenderer turn={settled} />)
     const settledTrigger = screen.getByRole('button', { name: /finished, 0\.8s/i })
     expect(settledTrigger).toHaveAttribute('aria-expanded', 'false')
     fireEvent.click(settledTrigger)
     expect(settledTrigger).toHaveAttribute('aria-expanded', 'true')
 
-    rerender(<TurnRenderer canonicalTurn={{ ...settled }} />)
+    rerender(<CanonicalTurnRenderer turn={{ ...settled }} />)
     expect(screen.getByRole('button', { name: /finished, 0\.8s/i })).toHaveAttribute('aria-expanded', 'true')
   })
 })

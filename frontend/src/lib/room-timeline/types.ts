@@ -1,5 +1,6 @@
-import type { ArtifactData, ProcessingStatusLogEntry } from '@/stores/message-store/types'
+import type { ArtifactData } from '@/stores/message-store/types'
 import type { AttachmentData } from '@/lib/types/attachments'
+import type { SummaryOrigin } from '@/lib/conversation/transcript'
 
 // ── Turn-level status ──────────────────────────────────────────
 
@@ -33,39 +34,17 @@ export interface TurnViewModel {
   userAttachments: AttachmentData[]
   timestamp: string
   status: TurnStatus
-  events: TimelineEventViewModel[]
-  summary: TurnSummaryViewModel | null
   agentResults: AgentResultViewModel[]
   activeAgentIds: string[]
   /** Whether this turn was dispatched via Supervisor orchestration.
    *  Derived from presence of system:clarifier / system:hybro entities. */
   isSupervisorTurn: boolean
-  /** Supervisor stage details (active turns only). */
-  supervisorStage?: {
-    stepNumber?: number
-    totalSteps?: number
-    details?: string
-  }
   /** Resolved display mode (legacy; derived from finalAnswer for incremental rebuild). */
   displayMode: TurnDisplayMode
   /** Layout phase within a live turn. */
   phase?: TurnPhase
-  /** Message whose stream drives scroll-follow (synthesis streaming). */
-  primaryStreamMessageId?: string
-  /** Scroll-follow target; equals primaryStreamMessageId when set. */
-  primaryMessageId?: string
   /** Room-level terminal signal from user entity (processing_status SSE). */
   turnTerminalStatus?: 'completed' | 'failed' | 'canceled'
-  /** Frontend stamp set when backend truth confirms a non-synthesis completion. */
-  turnCompletionKind?: 'deterministic'
-  /** Transient room-level processing status details shown while the turn is live. */
-  processingStatusLogs: ProcessingStatusLogEntry[]
-  /** Ephemeral build-time live-run context; not persisted to the backend. */
-  liveRunBuildContext?: {
-    roomProcessingActive?: boolean
-    isLatestUserTurn?: boolean
-    activeRunTriggerMessageIds?: ReadonlySet<string>
-  }
   /** V3: unified final-answer slot (§17). */
   finalAnswer: FinalAnswerViewModel
 }
@@ -80,8 +59,6 @@ export type FinalAnswerKind =
   | 'canceled'
   | 'failed'
   | 'single'
-
-export type SummaryOrigin = 'llm' | 'deterministic'
 
 export type FinalAnswerLabel =
   | 'Synthesized'
@@ -128,42 +105,6 @@ export interface FinalAnswerViewModel {
   hitl?: FinalAnswerHitlViewModel
 }
 
-// ── Timeline event types ───────────────────────────────────────
-
-export type TimelineEventKind =
-  | 'user_prompt'
-  | 'agent_started'
-  | 'agent_progress'
-  | 'hitl_requested'
-  | 'hitl_answered'
-  | 'artifact_emitted'
-  | 'agent_completed'
-  | 'agent_failed'
-
-export interface TimelineEventViewModel {
-  id: string
-  kind: TimelineEventKind
-  timestamp: string
-  agentId?: string
-  agentName?: string
-  label: string
-  body?: string
-  artifactPayload?: ArtifactData
-  hitlPayload?: { prompt: string; answer?: string }
-  isLive: boolean
-  isHiddenInCompact: boolean
-}
-
-// ── Turn summary ───────────────────────────────────────────────
-
-export interface TurnSummaryViewModel {
-  sourceAgentId?: string
-  sourceAgentName: string
-  title: string
-  body: string
-  confidence?: 'high' | 'medium' | 'low'
-}
-
 // ── Agent result ───────────────────────────────────────────────
 
 export interface AgentResultViewModel {
@@ -196,17 +137,4 @@ export interface AgentResultViewModel {
   isEphemeral?: boolean
   /** When isSummaryAgent — distinguishes LLM synthesis from deterministic DONE intro. */
   summaryOrigin?: SummaryOrigin
-}
-
-// ── Event log input (raw event from SSE handler) ───────────────
-
-export interface RawTimelineEvent {
-  kind: TimelineEventKind
-  timestamp: string
-  agentId?: string
-  agentName?: string
-  label: string
-  body?: string
-  artifactPayload?: ArtifactData
-  hitlPayload?: { prompt: string; answer?: string }
 }

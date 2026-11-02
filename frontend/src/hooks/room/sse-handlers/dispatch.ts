@@ -169,15 +169,7 @@ async function foldDelta(deps: SSEHandlerDeps, roomMessage: DeltaMessage): Promi
 
   switch (roomMessage.type) {
     case 'agent_response':
-      await handleAgentResponse(
-        deps,
-        roomMessage,
-        isCanonicalRoot(
-          deps.conversationId,
-          roomMessage.data.client_request_id,
-          roomMessage.data.related_message_id,
-        ),
-      )
+      await handleAgentResponse(deps, roomMessage)
       break
     case 'agent_response_partial':
       handleAgentResponsePartial(deps, roomMessage, clientReqId)
@@ -189,20 +181,10 @@ async function foldDelta(deps: SSEHandlerDeps, roomMessage: DeltaMessage): Promi
       handleError(deps, roomMessage)
       break
     case 'task_submitted':
-      await handleTaskSubmitted(
-        deps,
-        roomMessage,
-        clientReqId,
-        false,
-      )
+      await handleTaskSubmitted(deps, roomMessage, clientReqId)
       break
     case 'task_update':
-      await handleTaskUpdate(
-        deps,
-        roomMessage,
-        clientReqId,
-        false,
-      )
+      await handleTaskUpdate(deps, roomMessage, clientReqId)
       break
     case 'artifact_update':
       handleArtifactUpdate({ conversationId: deps.conversationId, lifecycle: deps.lifecycle }, roomMessage, clientReqId)
