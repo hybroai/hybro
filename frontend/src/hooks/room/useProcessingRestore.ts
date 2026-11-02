@@ -1,13 +1,8 @@
 import { useEffect } from 'react'
 import type { ProcessingLifecycle } from './processing-lifecycle'
-import {
-  appendProcessingStatusLog,
-  ensureInitialProcessingStatusLog,
-} from './processing-status-log'
 import { useMessageStore } from '@/stores/message-store'
 import { useRoomUiStore } from '@/stores/room-ui-store'
 import { allAgentsTerminalForUserMessage } from '@/lib/room-timeline/turn-agent-terminal'
-import { ensureTurnTerminalStampedFromBackendTruth } from '@/lib/room-timeline/turn-terminal-stamp'
 import { inquiryActiveRuns } from '@/lib/api/room'
 import type { ActiveRunRefWire } from '@/lib/types/response'
 import { isTerminalState } from '@/lib/types/sse'
@@ -77,13 +72,6 @@ export function useProcessingRestore(
 
       if (backendRunActive) return
 
-      await ensureTurnTerminalStampedFromBackendTruth(
-        conversationId,
-        lifecycle,
-        { relatedMessageId: lifecycleMessageId },
-        getToken,
-      )
-
       const { sending } = useRoomUiStore.getState().rooms[conversationId] ?? {}
       if (!sending) {
         store.removeMessage(lifecycle.placeholderId(conversationId))
@@ -104,10 +92,6 @@ export function useProcessingRestore(
         triggerMsg?.clientRequestId ?? null,
       )
       useRoomUiStore.getState().setCancelling(conversationId, cancellationPending)
-      if (cancellationPending) {
-        ensureInitialProcessingStatusLog(conversationId, triggerMsg)
-        appendProcessingStatusLog(conversationId, triggerMsg, 'Stopping...')
-      }
 
       // Cached active_runs may be stale — verify with backend before stopping processing.
       if (lifecycleMessageId) {
@@ -141,7 +125,6 @@ export function useProcessingRestore(
       }
 
       store.removeMessage(lifecycle.placeholderId(conversationId))
-      ensureInitialProcessingStatusLog(conversationId, triggerMsg)
     } else {
       useRoomUiStore.getState().setCancelling(conversationId, false)
       // Backend truth says no active processing — clean up lifecycle state left

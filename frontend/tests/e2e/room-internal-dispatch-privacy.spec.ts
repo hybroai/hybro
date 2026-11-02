@@ -270,9 +270,6 @@ test('streaming agent turn never displays internal dispatch prompt', async ({ pa
 
   sseRelease(clientRequestId as string)
 
-  await expect(page.getByRole('button', { name: 'Open Insurer Agent response', exact: true })).toBeVisible()
-  await page.getByRole('button', { name: 'Open Insurer Agent response', exact: true }).click()
-  await expect(page.getByText(PUBLIC_LABEL)).toBeVisible()
   await expect(page.getByText(STREAM_PUBLIC_TEXT)).toBeVisible()
   expect(sseTaskUpdateClientRequestId).toBe(clientRequestId)
   await expectInternalPromptNeverRendered(page)

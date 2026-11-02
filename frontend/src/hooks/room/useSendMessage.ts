@@ -12,7 +12,6 @@ import type { AgentScopeInput, ExecutionMode } from '@/lib/types/request'
 import { useMessageStore } from '@/stores/message-store'
 import type { PendingAttachment } from '@/lib/types/attachments'
 import type { ProcessingLifecycle } from './processing-lifecycle'
-import { createInitialProcessingStatusLog } from './processing-status-log'
 import { useRoomUiStore } from '@/stores/room-ui-store'
 
 export type SendUserMessageInput = {
@@ -95,9 +94,6 @@ export function useSendMessage(
       attachments: optimisticAttachments,
       quotedText: quoteData?.content ?? undefined,
       quotedSenderName: quoteData?.senderName ?? undefined,
-      processingStatusLogs: [
-        createInitialProcessingStatusLog(new Date(Date.now() + 1).toISOString()),
-      ],
     }, 'optimistic')
     lifecycle.startProcessing(optimisticUserMessageId)
     useRoomUiStore.getState().setActiveRunTriggerMessageIds(conversationId, [optimisticUserMessageId])

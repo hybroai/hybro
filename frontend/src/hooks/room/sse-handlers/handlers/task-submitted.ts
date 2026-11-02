@@ -3,14 +3,12 @@ import { TASK_STATE } from '@/lib/types/sse'
 import { useMessageStore } from '@/stores/message-store'
 import { normalizeTimestampOrNow } from '@/lib/time'
 import { specificPublicAgentName } from '@/lib/agent-display-name'
-import { appendEvent } from '@/lib/room-timeline/event-log'
 import type { SSEHandlerDeps } from '../types'
 
 export async function handleTaskSubmitted(
   ctx: SSEHandlerDeps,
   sseMessage: RoomSSEFrameMap['task_submitted'],
   _clientReqId: string | null,
-  canonical = false,
 ): Promise<void> {
   if (!sseMessage.data.message_id) return
 
@@ -38,14 +36,4 @@ export async function handleTaskSubmitted(
     timestamp: normalizeTimestampOrNow(taskTimestamp),
     taskCreatedAt: normalizeTimestampOrNow(taskTimestamp),
   }, 'sse')
-
-  if (!canonical) {
-    appendEvent(ctx.conversationId, {
-      kind: 'agent_started',
-      timestamp: sseMessage.timestamp,
-      agentId: sseMessage.data.agent_id ?? undefined,
-      agentName: senderName,
-      label: `${senderName} started`,
-    })
-  }
 }

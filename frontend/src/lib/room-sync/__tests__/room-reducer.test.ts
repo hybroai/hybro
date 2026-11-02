@@ -776,7 +776,7 @@ describe('applySnapshotToStores', () => {
     expect(buffers['m2']?.text).toBe('Par')
   })
 
-  it('retains turn logs when snapshot arrives before DB hydration', () => {
+  it('retains the turn terminal status when snapshot arrives before DB hydration', () => {
     applySnapshotToStores('room-1', {
       room_seq: 2,
       turn_lifecycle_schema: 1,
@@ -818,12 +818,6 @@ describe('applySnapshotToStores', () => {
       messageType: 'user',
       clientRequestId: 'cr-1',
       turnTerminalStatus: 'completed',
-      processingStatusLogs: [
-        expect.objectContaining({
-          message: 'Planning the next actions',
-          turnPhase: 'collecting',
-        }),
-      ],
     })
 
     useMessageStore.getState().upsertMessage({
@@ -838,9 +832,6 @@ describe('applySnapshotToStores', () => {
     expect(useMessageStore.getState().entities['user-1']).toMatchObject({
       content: 'Actual persisted prompt',
       turnTerminalStatus: 'completed',
-      processingStatusLogs: [
-        expect.objectContaining({ message: 'Planning the next actions' }),
-      ],
     })
   })
 })

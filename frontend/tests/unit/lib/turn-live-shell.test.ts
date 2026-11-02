@@ -2,7 +2,6 @@ import { describe, expect, it } from 'vitest'
 import type { TurnViewModel } from '@/lib/room-timeline/types'
 import {
   getAgentIndexSummary,
-  getSupervisorStatusLine,
   defaultAgentIndexOpen,
 } from '@/lib/room-timeline/turn-live-shell'
 
@@ -15,12 +14,9 @@ function makeTurn(overrides: Partial<TurnViewModel>): TurnViewModel {
     userAttachments: [],
     timestamp: '2026-01-01T00:00:00Z',
     status: 'completed',
-    events: [],
-    summary: null,
     agentResults: [],
     activeAgentIds: [],
     isSupervisorTurn: true,
-    processingStatusLogs: [],
     displayMode: 'parallel_results',
     phase: 'completed',
     finalAnswer: { kind: 'pending', label: 'Working' },
@@ -121,32 +117,6 @@ describe('getAgentIndexSummary', () => {
     const summary = getAgentIndexSummary(turn, agents)
     expect(summary).toContain('Activity')
     expect(summary).toContain('2 working')
-  })
-})
-
-describe('getSupervisorStatusLine', () => {
-  it('does not expose a persisted supervisor stage after the turn completes', () => {
-    const turn = makeTurn({
-      status: 'completed',
-      phase: 'completed',
-      supervisorStage: {
-        details: 'Requesting Cyber Insurer Agent',
-      },
-    })
-
-    expect(getSupervisorStatusLine(turn)).toBeNull()
-  })
-
-  it('keeps a short supervisor stage visible while work is active', () => {
-    const turn = makeTurn({
-      status: 'active',
-      phase: 'collecting',
-      supervisorStage: {
-        details: 'Evaluating agent results...',
-      },
-    })
-
-    expect(getSupervisorStatusLine(turn)).toBe('Evaluating agent results...')
   })
 })
 

@@ -6,10 +6,6 @@ import { useMessageStore } from '@/stores/message-store'
 import type { RoomSSEFrameMap } from '@/lib/types/sse'
 import type { SSEHandlerDeps } from '../types'
 
-vi.mock('@/lib/room-timeline/event-log', () => ({
-  appendEvent: vi.fn(),
-}))
-
 function makeDeps(): SSEHandlerDeps {
   const lifecycle = createProcessingLifecycle(() => {})
   return {

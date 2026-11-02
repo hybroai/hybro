@@ -6,7 +6,7 @@ import { isInteractiveState, isTerminalState, TASK_STATE } from '@/lib/types/sse
 import { isSupervisorClarifyAgent } from '@/lib/system-agents'
 import type { AttachmentData } from '@/lib/types/attachments'
 import { normalizeTimestampOrNow } from '@/lib/time'
-import { parseSummaryOrigin } from '@/lib/room-timeline/derive-final-answer'
+import { parseSummaryOrigin } from '@/lib/conversation/transcript'
 import { deduplicateArtifactsByPart } from '@/lib/artifacts/artifact-identity'
 import { specificPublicAgentName } from '@/lib/agent-display-name'
 import type { ArtifactData, ArtifactPart, IncomingMessage } from './types'

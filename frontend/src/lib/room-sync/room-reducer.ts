@@ -413,16 +413,14 @@ function applySnapshotMessages(
         'sse',
       )
     }
-    if (!canonicalUserMessageIds.has(message.message_id)
-      && (message.status || message.status_logs.length > 0)) {
+    if (!canonicalUserMessageIds.has(message.message_id) && message.status) {
       // Turn-level processing state belongs to the USER entity. Snapshot may
       // arrive before DB hydration; create a correlation-preserving shell so
-      // the durable logs/status are never discarded because of arrival order.
+      // the durable status is never discarded because of arrival order.
       // DB hydration later fills content/sender fields and preserves the SSE
       // overlay through the normal message-store merge rules.
       let userEntity = useMessageStore.getState().entities[message.message_id]
       if (!userEntity || userEntity.messageType !== 'user') {
-        const firstLogTimestamp = message.status_logs[0]?.timestamp
         store.upsertMessage(
           {
             id: message.message_id,
@@ -430,7 +428,7 @@ function applySnapshotMessages(
             messageType: 'user',
             content: '',
             senderName: 'You',
-            timestamp: firstLogTimestamp || message.ts || new Date().toISOString(),
+            timestamp: message.ts || new Date().toISOString(),
             clientRequestId: message.client_request_id ?? undefined,
             isEphemeral: false,
           },
@@ -456,52 +454,8 @@ function applySnapshotMessages(
           'sse',
         )
       }
-      for (const log of message.status_logs) {
-        appendSnapshotStatusLog(
-          conversationId,
-          userEntity,
-          log.message,
-          log.timestamp,
-          log.turn_phase,
-        )
-      }
     }
   }
-}
-
-function appendSnapshotStatusLog(
-  conversationId: string,
-  userEntity: MessageEntity,
-  message: string,
-  timestamp: string,
-  turnPhase?: 'collecting' | 'synthesizing' | 'terminal',
-): void {
-  const trimmed = message.trim()
-  if (!trimmed) return
-  const store = useMessageStore.getState()
-  const latest = store.entities[userEntity.id] ?? userEntity
-  const existing = latest.processingStatusLogs ?? []
-  if (existing.some((entry) => entry.message === trimmed)) return
-  store.upsertMessage(
-    {
-      id: latest.id,
-      conversationId,
-      messageType: 'user',
-      content: latest.content,
-      senderName: latest.senderName,
-      timestamp: latest.timestamp,
-      processingStatusLogs: [
-        ...existing,
-        {
-          id: `processing-log-${timestamp}-${existing.length}`,
-          message: trimmed,
-          timestamp,
-          ...(turnPhase ? { turnPhase } : {}),
-        },
-      ],
-    },
-    'sse',
-  )
 }
 
 function applySnapshotStreaming(conversationId: string, snapshot: SnapshotData): void {

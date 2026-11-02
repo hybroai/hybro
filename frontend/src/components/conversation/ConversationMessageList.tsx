@@ -3,10 +3,9 @@
 import { useRef, useState, useCallback, useEffect, useLayoutEffect, useMemo } from 'react'
 import { useMessageStore } from '@/stores/message-store'
 import { useInitialHydrationSeq, useLocalSendSeq, useRoomProcessing, useRoomUiStore } from '@/stores/room-ui-store'
-import { useTurnViewModels } from '@/hooks/useTurnViewModels'
 import { useCanonicalTurns } from '@/stores/turn-store'
 import type { TurnProjection } from '@/lib/turn-lifecycle/types'
-import type { TurnViewModel } from '@/lib/room-timeline/types'
+import { buildTranscriptTurnSources } from '@/lib/conversation/transcript'
 import { usePrimaryStreamScroll } from '@/hooks/usePrimaryStreamScroll'
 import { useScrollUserMessageOnSend } from '@/hooks/useScrollUserMessageOnSend'
 import {
@@ -17,8 +16,8 @@ import {
 import { contentEndScrollTop, isNearContentEnd, scrollToContentEnd } from '@/lib/conversation/content-end-scroll'
 import { FOCUS_SCROLL_MIN_SPACER_PX } from '@/lib/conversation/focus-scroll'
 import { CanonicalTurnRenderer } from './CanonicalTurnRenderer'
-import { TurnRenderer } from './TurnRenderer'
-import { TurnTracePanel } from './TurnTracePanel'
+import { PendingTurnHeader } from './PendingTurnHeader'
+import { TranscriptTurn } from './TranscriptTurn'
 import { UserMessageBlock } from './UserMessageBlock'
 import { ScrollToBottomButton } from './ScrollToBottomButton'
 import { resolveScrollStateAfterEvent } from './scroll-state'
@@ -43,73 +42,64 @@ function readMetrics(el: HTMLElement): ScrollMetrics {
 
 type ConversationTurn =
   | { kind: 'pending-user'; id: string; messageId: string }
-  | { kind: 'legacy'; id: string; turn: TurnViewModel }
+  | { kind: 'transcript'; id: string; messageId: string; replyIds: string[] }
   | { kind: 'canonical'; id: string; turn: TurnProjection }
 
-function PendingUserTurn({ messageId, live }: { messageId: string; live: boolean }) {
+function PendingUserTurn({ messageId }: { messageId: string }) {
   const entity = useMessageStore((state) => state.entities[messageId])
   if (!entity || entity.messageType !== 'user') return null
   return (
     <div className="conversation-turn" data-turn-kind="pending-user">
-      <div className="conversation-user-sticky">
+      <div className="conversation-user-sticky" data-turn-slot="user">
         <UserMessageBlock entity={entity} />
       </div>
-      {live ? (
-        <div className="conversation-body-frame conversation-turn-content flex flex-col">
-          <TurnTracePanel
-            statusEntries={entity.processingStatusLogs ?? []}
-            isRunning
-            startedAt={entity.timestamp}
-          />
+      <div className="conversation-body-frame conversation-turn-content flex flex-col">
+        <div data-turn-slot="trace">
+          <PendingTurnHeader startedAt={entity.timestamp} />
         </div>
-      ) : null}
+      </div>
     </div>
   )
 }
 
 export function ConversationMessageList({ conversationId, selectedAgentMessageId, enableAgentDetail = true }: ConversationMessageListProps) {
-  const legacyTurns = useTurnViewModels(conversationId)
   const canonicalTurns = useCanonicalTurns(conversationId)
   const processing = useRoomProcessing(conversationId)
+  const storeVersion = useMessageStore(s => s.version)
   const turns = useMemo<ConversationTurn[]>(() => {
+    const { entities, orderedIds } = useMessageStore.getState()
     const canonicalByUser = new Map(canonicalTurns.map((turn) => [turn.userMessageId, turn]))
     const included = new Set<string>()
     const ordered: ConversationTurn[] = []
-    // Canonical roots own their turns. Before a root arrives, keep the pending
-    // user shell only while there are no legacy responses to display.
-    for (const pending of legacyTurns) {
-      if (!pending.userMessageId) {
-        // HITL prompts belong exclusively to the composer questionnaire. A
-        // message-derived orphan can otherwise duplicate the same request as
-        // an "Unattributed responses" card above the canonical Turn.
-        if (pending.finalAnswer.kind === 'hitl') continue
-        ordered.push({ kind: 'legacy', id: `legacy:${pending.id}`, turn: pending })
-        continue
-      }
-      const canonical = canonicalByUser.get(pending.userMessageId)
+    // Canonical roots own their Turns. A user message without one is either a
+    // just-sent message waiting for its root (pending shell) or history from
+    // before the canonical lifecycle (read-only transcript).
+    const sources = buildTranscriptTurnSources(conversationId, entities, orderedIds)
+    sources.forEach((source, index) => {
+      const canonical = canonicalByUser.get(source.userMessageId)
       if (canonical) {
         if (!included.has(canonical.id)) {
           included.add(canonical.id)
           ordered.push({ kind: 'canonical', id: canonical.id, turn: canonical })
         }
+      } else if (processing && index === sources.length - 1 && source.replyIds.length === 0) {
+        ordered.push({ kind: 'pending-user', id: `pending:${source.userMessageId}`, messageId: source.userMessageId })
       } else {
-        const entity = useMessageStore.getState().entities[pending.userMessageId]
-        if (entity?.source === 'optimistic' && processing && pending.agentResults.length === 0) {
-          ordered.push({
-            kind: 'pending-user',
-            id: `pending:${pending.userMessageId}`,
-            messageId: pending.userMessageId,
-          })
-        } else {
-          ordered.push({ kind: 'legacy', id: `legacy:${pending.id}`, turn: pending })
-        }
+        ordered.push({
+          kind: 'transcript',
+          id: `transcript:${source.userMessageId}`,
+          messageId: source.userMessageId,
+          replyIds: source.replyIds,
+        })
       }
-    }
+    })
     for (const turn of canonicalTurns) {
       if (!included.has(turn.id)) ordered.push({ kind: 'canonical', id: turn.id, turn })
     }
     return ordered
-  }, [canonicalTurns, legacyTurns, processing])
+    // storeVersion re-derives the Turns whenever the message store changes.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [canonicalTurns, conversationId, processing, storeVersion])
   const scrollRef = useRef<HTMLDivElement>(null)
   const frameRef = useRef<HTMLDivElement>(null)
   const [showScrollBtn, setShowScrollBtn] = useState(false)
@@ -146,19 +136,13 @@ export function ConversationMessageList({ conversationId, selectedAgentMessageId
   const lastTurn = turns[turns.length - 1]
   const primaryStreamMessageId = lastTurn?.kind === 'canonical'
     ? lastTurn.turn.currentAssistant?.messageId
-    : lastTurn?.kind === 'legacy'
-      ? lastTurn.turn.primaryStreamMessageId
-      : undefined
+    : undefined
   const lastUserMessageId = lastTurn?.kind === 'canonical'
     ? lastTurn.turn.userMessageId
-    : lastTurn?.kind === 'legacy'
-      ? lastTurn.turn.userMessageId ?? undefined
-      : lastTurn?.messageId
+    : lastTurn?.messageId
   const turnLive = lastTurn?.kind === 'canonical'
     ? lastTurn.turn.state === 'active'
-    : processing && Boolean(lastUserMessageId)
-
-  const storeVersion = useMessageStore(s => s.version)
+    : lastTurn?.kind === 'pending-user' && processing
   const hydratedFromDb = useMessageStore(s => s.hydratedFromDb)
 
   const saveConversationScroll = useCallback((targetConversationId: string) => {
@@ -432,20 +416,12 @@ export function ConversationMessageList({ conversationId, selectedAgentMessageId
                   primarySurfaceRef={index === turns.length - 1 ? primarySurfaceRef : undefined}
                   isLastTurn={index === turns.length - 1}
                 />
-              ) : entry.kind === 'legacy' ? (
-                <TurnRenderer
-                  key={entry.id}
-                  turn={entry.turn}
-                  selectedAgentMessageId={selectedAgentMessageId}
-                  onOpenAgentDetail={enableAgentDetail ? handleOpenAgentDetail : undefined}
-                  primarySurfaceRef={index === turns.length - 1 ? primarySurfaceRef : undefined}
-                  isLastTurn={index === turns.length - 1}
-                />
+              ) : entry.kind === 'transcript' ? (
+                <TranscriptTurn key={entry.id} userMessageId={entry.messageId} replyIds={entry.replyIds} />
               ) : (
                 <PendingUserTurn
                   key={entry.id}
                   messageId={entry.messageId}
-                  live={processing && index === turns.length - 1}
                 />
               )
             ))}

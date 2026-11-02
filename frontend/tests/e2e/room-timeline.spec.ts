@@ -177,86 +177,16 @@ test.describe('Room Timeline', () => {
     await expect(page.getByText('Hello from E2E test')).toBeVisible({ timeout: 10000 })
   })
 
-  test('multiple agents are grouped in a single turn', async ({ page }) => {
-    // This test requires a room with multiple agent responses
-    // Navigate to an existing room with messages (or create via API)
-    // For now, verify the structural elements exist
-    await page.goto('/chat')
-
-    const input = page.locator('[data-testid="chat-input"], [contenteditable="true"]').first()
-    await input.fill('Test multi-agent grouping')
-
-    const sendButton = page.locator('button[aria-label*="Send"], button[type="submit"]').first()
-    await sendButton.click()
-
-    await page.waitForURL(/\/room\//)
-
-    const completedTurn = page
-      .locator('.conversation-turn')
-      .filter({ hasText: 'Seeded multi-agent request' })
-    await expect(completedTurn).toHaveCount(1)
-
-    const activityToggle = completedTurn.locator('.agent-index button').first()
-    await expect(activityToggle).toHaveAttribute('aria-expanded', 'false')
-    await activityToggle.click()
-
-    await expect(
-      completedTurn.getByRole('link', { name: 'Agent One', exact: true })
-    ).toBeVisible()
-    await expect(
-      completedTurn.getByRole('link', { name: 'Agent Two', exact: true })
-    ).toBeVisible()
-  })
-
-  test('collapse and expand a completed multi-agent activity strip', async ({ page }) => {
-    // Navigate to a room with at least 2 completed turns
-    // This test is structural — verifies the collapse/expand interaction
-    await page.goto('/chat')
-
-    const input = page.locator('[data-testid="chat-input"], [contenteditable="true"]').first()
-    await input.fill('First question for collapse test')
-
-    const sendButton = page.locator('button[aria-label*="Send"], button[type="submit"]').first()
-    await sendButton.click()
-
-    await page.waitForURL(/\/room\//)
-
-    const completedTurn = page
-      .locator('.conversation-turn')
-      .filter({ hasText: 'Seeded multi-agent request' })
-    const activityToggle = completedTurn.locator('.agent-index button').first()
-    const agentOne = completedTurn.getByRole('link', { name: 'Agent One', exact: true })
-
-    await expect(activityToggle).toHaveAttribute('aria-expanded', 'false')
-    await expect(agentOne).toBeHidden()
-
-    await activityToggle.click()
-    await expect(activityToggle).toHaveAttribute('aria-expanded', 'true')
-    await expect(agentOne).toBeVisible()
-
-    await activityToggle.click()
-    await expect(activityToggle).toHaveAttribute('aria-expanded', 'false')
-    await expect(agentOne).toBeHidden()
-  })
-
-  test('opens agent details while keeping the separate history column visible', async ({ page }, testInfo) => {
-    await page.setViewportSize({ width: 1440, height: 900 })
+  test('renders history without a canonical root as a read-only transcript', async ({ page }, testInfo) => {
     await page.goto(`/room/room-timeline-${testInfo.workerIndex}-${testInfo.retry}`)
-    const history = page.getByRole('region', { name: 'History', exact: true })
-    await expect(history).toBeVisible()
-    const card = page.locator('.conversation-agent-card').filter({ hasText: 'Agent One' })
-    await expect(card).toBeVisible()
-    await card.getByRole('button', { name: 'Open Agent One response', exact: true }).click()
-    const detail = page.getByRole('complementary', { name: 'Agent response detail' })
-    await expect(detail.getByText('Agent One response', { exact: true })).toBeVisible()
-    await expect(history).toBeVisible()
-    await expect(page.getByRole('button', { name: 'Expand sidebar', exact: true })).toBeVisible()
-    await expect(card).toBeVisible()
-    await page.getByRole('button', { name: 'Close agent response', exact: true }).click()
-    await expect(detail).toHaveCount(0)
-    await expect(page.getByRole('button', { name: 'Collapse sidebar', exact: true })).toBeVisible()
-    await expect(history).toBeVisible()
-    await expect(card).toBeVisible()
+
+    const turn = page
+      .locator('[data-turn-kind="transcript"]')
+      .filter({ hasText: 'Seeded multi-agent request' })
+    await expect(turn).toHaveCount(1)
+    await expect(turn.getByText('Agent One response', { exact: true })).toBeVisible()
+    await expect(turn.getByText('Agent Two response', { exact: true })).toBeVisible()
+    await expect(turn.locator('.agent-index, .conversation-agent-card, [data-canonical-turn-trace]')).toHaveCount(0)
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
   })
 })

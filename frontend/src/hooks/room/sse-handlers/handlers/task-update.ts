@@ -1,19 +1,12 @@
 import type { RoomSSEFrameMap, TaskState } from '@/lib/types/sse'
-import { isTerminalState, TASK_STATE } from '@/lib/types/sse'
+import { isTerminalState } from '@/lib/types/sse'
 import { useMessageStore } from '@/stores/message-store'
 import { useStreamingStore } from '@/stores/streaming-store'
 import { useRoomUiStore } from '@/stores/room-ui-store'
 import { normalizeTimestampOrNow } from '@/lib/time'
 import { patchedPublicAgentName } from '@/lib/agent-display-name'
-import { appendEvent } from '@/lib/room-timeline/event-log'
 import { partsToArtifacts } from '../artifacts'
 import { applyRoomCommands } from '../apply-commands'
-import { stampLiveTurnTerminalIfInferable } from '@/lib/room-timeline/stamp-live-turn-terminal'
-import {
-  buildTurnForRecoveryHint,
-  scheduleTurnTerminalBackendTruthCheck,
-  shouldScheduleTurnTerminalRecovery,
-} from '@/lib/room-timeline/turn-terminal-stamp'
 import type { SSEHandlerDeps } from '../types'
 
 function safeTaskStatusMessage(
@@ -27,30 +20,10 @@ function safeTaskStatusMessage(
   return text
 }
 
-function maybeScheduleTurnTerminalRecovery(
-  ctx: SSEHandlerDeps,
-  hint: {
-    clientRequestId?: string | null
-    relatedMessageId?: string | null
-  },
-  taskStatus: TaskState,
-): void {
-  const turn = buildTurnForRecoveryHint(ctx.conversationId, hint)
-  if (!shouldScheduleTurnTerminalRecovery(turn, taskStatus)) return
-
-  scheduleTurnTerminalBackendTruthCheck(
-    ctx.conversationId,
-    ctx.lifecycle,
-    hint,
-    ctx.getToken,
-  )
-}
-
 export async function handleTaskUpdate(
   ctx: SSEHandlerDeps,
   sseMessage: RoomSSEFrameMap['task_update'],
   _clientReqId: string | null,
-  canonical = false,
 ): Promise<void> {
   if (!sseMessage.data.message_id) return
 
@@ -134,42 +107,6 @@ export async function handleTaskUpdate(
     ])
     if (!rootCancellationPending) {
       ctx.lifecycle.dismissPlaceholder()
-    }
-
-    if (!canonical) {
-      if (status === TASK_STATE.COMPLETED) {
-        appendEvent(ctx.conversationId, {
-          kind: 'agent_completed',
-          timestamp: sseMessage.timestamp,
-          agentId: sseMessage.data.agent_id ?? undefined,
-          agentName: senderName,
-          label: `${senderName} completed`,
-        })
-      } else if (
-        status === TASK_STATE.FAILED ||
-        status === TASK_STATE.REJECTED ||
-        status === TASK_STATE.CANCELED
-      ) {
-        appendEvent(ctx.conversationId, {
-          kind: 'agent_failed',
-          timestamp: sseMessage.timestamp,
-          agentId: sseMessage.data.agent_id ?? undefined,
-          agentName: senderName,
-          label: `${senderName} failed`,
-          body: sseMessage.data.error ?? undefined,
-        })
-      }
-
-      const stamped = stampLiveTurnTerminalIfInferable(ctx.conversationId, ctx.lifecycle, {
-        clientRequestId: sseMessage.data.client_request_id,
-        relatedMessageId: sseMessage.data.related_message_id,
-      })
-      if (!stamped) {
-        maybeScheduleTurnTerminalRecovery(ctx, {
-          clientRequestId: sseMessage.data.client_request_id,
-          relatedMessageId: sseMessage.data.related_message_id,
-        }, status)
-      }
     }
   } else {
     store.upsertMessage({

@@ -122,10 +122,6 @@ describe('useRoomActions cancellation', () => {
     expect(requestSnapshot).toHaveBeenCalledOnce()
     expect(useMessageStore.getState().entities['agent-1'].taskStatus).toBe('working')
     expect(useMessageStore.getState().entities['user-1'].turnTerminalStatus).toBeUndefined()
-      expect(
-        useMessageStore.getState().entities['user-1'].processingStatusLogs
-          ?.map(entry => entry.message),
-      ).toContain('Stopping...')
     },
   )
 

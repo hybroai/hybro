@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from 'vitest'
 import { cleanup, render } from '../../../utils/test-utils'
-import { TurnRenderer } from '@/components/conversation/TurnRenderer'
+import { CanonicalTurnRenderer } from '@/components/conversation/CanonicalTurnRenderer'
 import type { AssistantProjection, TurnProjection } from '@/lib/turn-lifecycle/types'
 import { useTurnPresentationStore } from '@/stores/turn-presentation-store'
 
@@ -44,7 +44,7 @@ describe('canonical final answer quote source', () => {
   it('marks the completed final answer as a synthesis quote source', () => {
     const value = turn({ state: 'completed', finalCommitted: true, finalAnswer: assistant('completed') })
     useTurnPresentationStore.getState().ensure(value, true)
-    const { container } = render(<TurnRenderer canonicalTurn={value} />)
+    const { container } = render(<CanonicalTurnRenderer turn={value} />)
 
     const surface = finalAnswerSurface(container)
     expect(surface).toHaveAttribute('data-quote-message-id', 'assistant-1')
@@ -55,7 +55,7 @@ describe('canonical final answer quote source', () => {
   it('does not mark a completed answer as quotable before it is stored', () => {
     const value = turn({ state: 'completed', finalCommitted: false, finalAnswer: assistant('completed') })
     useTurnPresentationStore.getState().ensure(value, true)
-    const { container } = render(<TurnRenderer canonicalTurn={value} />)
+    const { container } = render(<CanonicalTurnRenderer turn={value} />)
 
     expect(finalAnswerSurface(container)).not.toHaveAttribute('data-quote-message-id')
   })
@@ -63,7 +63,7 @@ describe('canonical final answer quote source', () => {
   it('does not mark a streaming answer as quotable', () => {
     const value = turn({ currentAssistant: assistant('streaming') })
     useTurnPresentationStore.getState().ensure(value, true)
-    const { container } = render(<TurnRenderer canonicalTurn={value} />)
+    const { container } = render(<CanonicalTurnRenderer turn={value} />)
 
     const surface = finalAnswerSurface(container)
     expect(surface).not.toBeNull()

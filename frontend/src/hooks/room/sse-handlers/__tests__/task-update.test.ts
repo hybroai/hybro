@@ -13,20 +13,6 @@ vi.mock('sonner', () => ({
   },
 }))
 
-vi.mock('@/lib/room-timeline/event-log', () => ({
-  appendEvent: vi.fn(),
-}))
-
-vi.mock('@/lib/room-timeline/stamp-live-turn-terminal', () => ({
-  stampLiveTurnTerminalIfInferable: vi.fn(() => true),
-}))
-
-vi.mock('@/lib/room-timeline/turn-terminal-stamp', () => ({
-  buildTurnForRecoveryHint: vi.fn(),
-  scheduleTurnTerminalBackendTruthCheck: vi.fn(),
-  shouldScheduleTurnTerminalRecovery: vi.fn(() => false),
-}))
-
 function makeDeps(): SSEHandlerDeps {
   const lifecycle = createProcessingLifecycle(() => {})
   return {

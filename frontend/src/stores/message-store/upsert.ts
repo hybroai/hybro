@@ -2,7 +2,7 @@ import { presentationEqual } from '@/lib/hitl/presentation'
 import { isTerminalState } from '@/lib/types/sse'
 import { patchedPublicAgentName } from '@/lib/agent-display-name'
 import { resolveDisplayType } from './resolve-display-type'
-import type { MessageEntity, IncomingMessage, MessageSource, ArtifactData, ProcessingStatusLogEntry } from './types'
+import type { MessageEntity, IncomingMessage, MessageSource, ArtifactData } from './types'
 
 /**
  * Core upsert logic, extracted so it can be used by both single and batch writes.
@@ -164,9 +164,7 @@ function mergeIncoming(
       artifacts: incoming.artifacts,
       attachments: incoming.attachments,
       turnTerminalStatus: incoming.turnTerminalStatus,
-      turnCompletionKind: incoming.turnCompletionKind,
       summaryOrigin: incoming.summaryOrigin,
-      processingStatusLogs: incoming.processingStatusLogs,
       quotedText: incoming.quotedText,
       quotedSenderName: incoming.quotedSenderName,
       quoteId: incoming.quoteId,
@@ -347,9 +345,7 @@ function mergeIncoming(
     artifacts: incoming.artifacts !== undefined ? incoming.artifacts : existing.artifacts,
     attachments: incoming.attachments !== undefined ? incoming.attachments : existing.attachments,
     turnTerminalStatus: incoming.turnTerminalStatus !== undefined ? incoming.turnTerminalStatus : existing.turnTerminalStatus,
-    turnCompletionKind: incoming.turnCompletionKind !== undefined ? incoming.turnCompletionKind : existing.turnCompletionKind,
     summaryOrigin: incoming.summaryOrigin !== undefined ? incoming.summaryOrigin : existing.summaryOrigin,
-    processingStatusLogs: incoming.processingStatusLogs !== undefined ? incoming.processingStatusLogs : existing.processingStatusLogs,
     quotedText: incoming.quotedText !== undefined ? incoming.quotedText : existing.quotedText,
     quotedSenderName: incoming.quotedSenderName !== undefined ? incoming.quotedSenderName : existing.quotedSenderName,
     quoteId: incoming.quoteId !== undefined ? incoming.quoteId : existing.quoteId,
@@ -386,20 +382,6 @@ function artifactsEqual(
   return JSON.stringify(a) === JSON.stringify(b)
 }
 
-function processingLogsEqual(
-  a: ProcessingStatusLogEntry[] | undefined,
-  b: ProcessingStatusLogEntry[] | undefined,
-): boolean {
-  if (a === b) return true
-  if (!a || !b) return a === b
-  if (a.length !== b.length) return false
-  for (let i = 0; i < a.length; i++) {
-    if (a[i].id !== b[i].id) return false
-    if (a[i].message !== b[i].message) return false
-    if (a[i].timestamp !== b[i].timestamp) return false
-  }
-  return true
-}
 
 /**
  * Detect whether an incoming update changes any rendering-visible fields.
@@ -447,9 +429,7 @@ export function isNoOpUpdate(
     artifactsEqual(existing.artifacts, coalesce(incoming.artifacts, existing.artifacts)) &&
     existing.attachments       === coalesce(incoming.attachments, existing.attachments) &&
     existing.turnTerminalStatus === coalesce(incoming.turnTerminalStatus, existing.turnTerminalStatus) &&
-    existing.turnCompletionKind === coalesce(incoming.turnCompletionKind, existing.turnCompletionKind) &&
     existing.summaryOrigin === coalesce(incoming.summaryOrigin, existing.summaryOrigin) &&
-    processingLogsEqual(existing.processingStatusLogs, coalesce(incoming.processingStatusLogs, existing.processingStatusLogs)) &&
     existing.quoteId === coalesce(incoming.quoteId, existing.quoteId)
   )
 }

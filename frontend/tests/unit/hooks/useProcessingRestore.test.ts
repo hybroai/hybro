@@ -72,7 +72,7 @@ describe('useProcessingRestore', () => {
     cleanup()
   })
 
-  it('restores the initial processing log when placeholder was dismissed but processing is not resolved', async () => {
+  it('restores processing when placeholder was dismissed but processing is not resolved', async () => {
     const lifecycle = createLifecycle({
       placeholderDismissed: true,
       processingResolved: false,
@@ -87,14 +87,11 @@ describe('useProcessingRestore', () => {
     ))
 
     await waitFor(() => {
-      expect(useMessageStore.getState().entities['msg-active'].processingStatusLogs?.map((entry) => entry.message)).toEqual([
-        'Thinking...',
-      ])
+      expect(lifecycle.startProcessing).toHaveBeenCalledWith(
+        'msg-active',
+        'client-request-active',
+      )
     })
-    expect(lifecycle.startProcessing).toHaveBeenCalledWith(
-      'msg-active',
-      'client-request-active',
-    )
   })
 
   it('restores a canceling run with stopping state and durable correlation', async () => {
@@ -117,10 +114,6 @@ describe('useProcessingRestore', () => {
         'client-request-active',
       )
       expect(useRoomUiStore.getState().getRoomFlags('room-1').cancelling).toBe(true)
-      expect(
-        useMessageStore.getState().entities['msg-active'].processingStatusLogs
-          ?.map(entry => entry.message),
-      ).toContain('Stopping...')
     })
     expect(lifecycle.stopProcessing).not.toHaveBeenCalled()
   })
@@ -133,11 +126,6 @@ describe('useProcessingRestore', () => {
       content: 'Live SSE turn',
       senderName: 'User',
       timestamp: new Date().toISOString(),
-      processingStatusLogs: [{
-        id: 'processing-log-live',
-        message: 'Working...',
-        timestamp: new Date().toISOString(),
-      }],
     }, 'sse')
 
     const lifecycle = createLifecycle({
@@ -167,11 +155,6 @@ describe('useProcessingRestore', () => {
       content: 'What content in this pdf?',
       senderName: 'User',
       timestamp: new Date().toISOString(),
-      processingStatusLogs: [{
-        id: 'processing-log-live',
-        message: 'Planning...',
-        timestamp: new Date().toISOString(),
-      }],
     }, 'sse')
 
     const lifecycle = createLifecycle({
@@ -224,11 +207,6 @@ describe('useProcessingRestore', () => {
       content: 'What content is in this PDF?',
       senderName: 'User',
       timestamp: new Date().toISOString(),
-      processingStatusLogs: [{
-        id: 'processing-log-live',
-        message: 'Planning...',
-        timestamp: new Date().toISOString(),
-      }],
     }, 'sse')
 
     const lifecycle = createLifecycle({

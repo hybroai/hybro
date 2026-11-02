@@ -8,11 +8,7 @@ import { useMessageStore } from '@/stores/message-store'
 import { useTurnStore } from '@/stores/turn-store'
 import { selectPendingHitls } from '@/lib/selectors/select-hitl'
 import type { ProcessingLifecycle } from './processing-lifecycle'
-import {
-  appendProcessingStatusLog,
-  ensureInitialProcessingStatusLog,
-  findProcessingStatusUserEntity,
-} from './processing-status-log'
+import { findProcessingStatusUserEntity } from './processing-status-log'
 import { hydrateRoomFromDb } from '@/lib/room-sync/hydrate-room'
 import { hitlRequestKey } from '@/lib/hitl/hitl-message-projection'
 import { acquireHitlSubmissionFence } from './hitl-submission-fence'
@@ -47,15 +43,6 @@ export function useRoomActions(
         cancellation.outcome === 'pending_reconciliation'
         || cancellation.outcome === 'canceled'
       ) {
-        const store = useMessageStore.getState()
-        const userMessage = store.entities[messageId]
-        ensureInitialProcessingStatusLog(conversationId, userMessage)
-        appendProcessingStatusLog(
-          conversationId,
-          userMessage,
-          'Stopping...',
-          new Date().toISOString(),
-        )
         lifecycle.armCancelTimeout(() => {
           const cancelling = useRoomUiStore.getState().getRoomFlags(conversationId).cancelling
           if (cancelling) {
@@ -241,13 +228,6 @@ export function useRoomActions(
       lifecycle.resetProcessingResolved()
       lifecycle.setPendingRunEventAck(resumeClientRequestId ?? null)
       store.removeMessage(lifecycle.placeholderId(conversationId))
-      ensureInitialProcessingStatusLog(conversationId, processingUserEntity)
-      appendProcessingStatusLog(
-        conversationId,
-        processingUserEntity,
-        'Applying your answers…',
-        new Date(Date.now() + 1).toISOString(),
-      )
       lifecycle.startProcessing(processingUserEntity?.id)
     }
   }, [

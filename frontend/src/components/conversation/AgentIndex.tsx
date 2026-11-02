@@ -11,11 +11,7 @@ import {
   hasUnavailableArtifactOutput,
   hasUsableArtifactOutput,
 } from '@/lib/artifacts/artifact-identity'
-import {
-  getAgentIndexSummary,
-  defaultAgentIndexOpen,
-  getStripSourceResults,
-} from '@/lib/room-timeline/turn-live-shell'
+import { getAgentIndexSummary, defaultAgentIndexOpen } from '@/lib/room-timeline/turn-live-shell'
 import { useResultStreamDisplay } from '@/hooks/useStreamBuffer'
 import { AgentCard } from './AgentCard'
 import { cn } from '@/lib/utils'
@@ -155,8 +151,4 @@ export function AgentIndex({
       </CollapsibleContent>
     </Collapsible>
   )
-}
-
-export function shouldShowAgentIndex(turn: TurnViewModel): boolean {
-  return getStripSourceResults(turn).length > 0
 }

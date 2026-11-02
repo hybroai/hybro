@@ -2,7 +2,6 @@ import type { RoomSSEFrameMap } from '@/lib/types/sse'
 import { isTerminalState } from '@/lib/types/sse'
 import { useMessageStore } from '@/stores/message-store'
 import { useStreamingStore } from '@/stores/streaming-store'
-import { appendEvent } from '@/lib/room-timeline/event-log'
 import type { ProcessingLifecycle } from '../../processing-lifecycle'
 import { sseArtifactDataFromPayload } from '../artifacts'
 import { resolveUserMessageId } from '../client-request'
@@ -51,13 +50,4 @@ export function handleArtifactUpdate(
     userMessageId: resolveUserMessageId(ctx.conversationId, clientReqId),
   })
   if (last_chunk) streaming.markComplete(message_id)
-
-  if (!resolvedAppend) {
-    appendEvent(ctx.conversationId, {
-      kind: 'artifact_emitted',
-      timestamp: sseMessage.timestamp,
-      agentId: sseMessage.data.agent_id,
-      label: `Artifact: ${(artifact as Record<string, unknown>).name ?? 'output'}`,
-    })
-  }
 }
