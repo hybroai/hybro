@@ -5,6 +5,14 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.3](https://github.com/hybroai/hybro/compare/v0.4.2...v0.4.3) (2026-11-02)
+
+
+### Bug Fixes
+
+* **execution:** reject racing sends and keep pre-run cancels ([487e148](https://github.com/hybroai/hybro/commit/487e148eed043c4cf5a8ea3f304887eb3e1b96dd))
+* **execution:** reject racing sends and keep pre-run cancels ([90fda90](https://github.com/hybroai/hybro/commit/90fda90919aeda93edd50e4b3ded7998dfa1fb94))
+
 ## [0.4.2](https://github.com/hybroai/hybro/compare/v0.4.1...v0.4.2) (2026-11-01)
 
 
