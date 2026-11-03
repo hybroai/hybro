@@ -48,7 +48,7 @@ _CONTEXT_FIELDS = frozenset(
         "dispatch_intent_id",
     }
 )
-# Library loggers whose text is kept (sanitised) rather than blanked.
+# Library loggers (exact names) whose text is kept, sanitised, not blanked.
 PASSTHROUGH_LOGGERS = ("uvicorn", "uvicorn.error", "py.warnings")
 _SENSITIVE_FIELD_PARTS = frozenset(
     {
@@ -94,8 +94,10 @@ _CANONICAL_CREDENTIAL_FIELD_PARTS = frozenset(
 _CONTEXT_VALUE_PATTERN = re.compile(r"^[A-Za-z0-9._:-]{1,128}$")
 _EVENT_PATTERN = re.compile(r"^[a-z][a-z0-9]*(?:_[a-z0-9]+)*$")
 _BEARER_PATTERN = re.compile(r"(?i)\bbearer\s+[a-z0-9._~+/=-]+")
+# Matches suffixed keys (`client_secret`, `refresh_token`) and JSON-quoted pairs.
 _CREDENTIAL_PATTERN = re.compile(
-    r"(?i)\b(api[_-]?key|token|secret|password)\s*[=:]\s*[^\s,;]+"
+    r"(?i)\b([a-z0-9_-]*(?:api[_-]?key|token|secret|password))"
+    r"[\"']?\s*[=:]\s*[\"']?[^\s,;\"'}]+"
 )
 _EMBEDDED_URL_PATTERN = re.compile(
     r"(?i)\b(?:https?|redis|mongodb(?:\+srv)?):[^\s\"'<>]+"
@@ -302,13 +304,6 @@ def _safe_record_message(record: logging.LogRecord) -> str:
         return template
 
 
-def _is_passthrough_logger(name: str) -> bool:
-    return any(
-        name == passthrough or name.startswith(f"{passthrough}.")
-        for passthrough in PASSTHROUGH_LOGGERS
-    )
-
-
 def _passthrough_message(record: logging.LogRecord) -> str:
     try:
         return _sanitize_string(record.getMessage())
@@ -406,7 +401,7 @@ class StructuredFormatter(logging.Formatter):
             getattr(record, EVENT_MARKER, False)
             or getattr(record, BRIDGE_MARKER, False)
         )
-        if is_library and _is_passthrough_logger(record.name):
+        if is_library and record.name in PASSTHROUGH_LOGGERS:
             message = _passthrough_message(record)
         else:
             message = _safe_record_message(record)

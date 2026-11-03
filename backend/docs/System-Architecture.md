@@ -343,8 +343,10 @@ registered on `events.CATALOG`. Code logs through
   library records until they migrate.
 
 Records from libraries render as `event=library_message` with their logger
-name. `uvicorn`, `uvicorn.error` and `py.warnings` keep their rendered text,
-sanitised (URL credentials, bearer tokens and `key=value` secrets redacted);
+name. The loggers named exactly `uvicorn`, `uvicorn.error` and `py.warnings`
+keep their rendered text, sanitised (URL credentials, bearer tokens, and
+`key=value` or JSON-quoted secrets such as `client_secret` or `refresh_token`
+redacted);
 other library text keeps the existing redaction (template arguments other than
 URLs become `[REDACTED]`, and argument-less free text is blanked with
 `message_redacted=true`).

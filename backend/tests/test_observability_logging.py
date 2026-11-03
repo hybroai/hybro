@@ -568,3 +568,28 @@ def test_get_logger_returns_event_logger_bound_to_backend_catalog():
     assert isinstance(logger, EventLogger)
     assert logger.catalog is events.CATALOG
     assert logger.name == "tests.bound"
+
+
+def test_passthrough_is_limited_to_exact_logger_names():
+    access = json.loads(
+        _formatter().format(_library_record("uvicorn.access", "GET /private"))
+    )
+
+    assert access["event"] == "library_message"
+    assert access["message"] == "[REDACTED]"
+    assert access["message_redacted"] is True
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "client_secret=PRIVATE_VALUE",
+        "refresh_token: PRIVATE_VALUE",
+        '{"access_token": "PRIVATE_VALUE"}',
+        "x-api-key=PRIVATE_VALUE",
+    ],
+)
+def test_passthrough_text_redacts_suffixed_and_quoted_credentials(text):
+    output = _formatter().format(_library_record("py.warnings", "%s", text))
+
+    assert "PRIVATE_VALUE" not in output
