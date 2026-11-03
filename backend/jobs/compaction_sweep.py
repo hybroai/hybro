@@ -114,6 +114,7 @@ class CompactionSweep:
             ttl = int(self.interval_minutes * 60 * 2)
             acquired = await self._leader.try_acquire(COMPACTION_SWEEP, ttl)
             if not acquired:
+                logger.emit(E.JOB_SKIPPED_NOT_LEADER, job=COMPACTION_SWEEP)
                 return  # another instance is the leader
             try:
                 await self.sweep()

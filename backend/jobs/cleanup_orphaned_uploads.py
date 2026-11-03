@@ -95,6 +95,7 @@ class OrphanedUploadCleaner:
             ttl = int(self.interval_hours * 3600 * 2)
             acquired = await self._leader.try_acquire(ORPHANED_UPLOAD_CLEANER, ttl)
             if not acquired:
+                logger.emit(E.JOB_SKIPPED_NOT_LEADER, job=ORPHANED_UPLOAD_CLEANER)
                 return  # another instance is the leader
             try:
                 deleted = await self.cleanup_orphaned_uploads()

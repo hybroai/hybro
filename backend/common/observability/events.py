@@ -105,6 +105,18 @@ INDEX_CREATION_FAILED = define(
 SEARCH_INDEX_CREATION_FAILED = define(
     "search_index_creation_failed", WARNING, required={"index_name"}
 )
+EVENTING_DEAD_LETTER = define(
+    "eventing_dead_letter",
+    WARNING,
+    required={"failure_stage", "exception_class"},
+    system=True,
+)
+EVENTING_DEAD_LETTER_PUBLISH_FAILED = define(
+    "eventing_dead_letter_publish_failed",
+    WARNING,
+    required={"failure_stage"},
+    system=True,
+)
 
 # container
 
@@ -193,6 +205,15 @@ ORCHESTRATOR_RUN_RECOVERY_FAILED = define(
     "orchestrator_run_recovery_failed",
     ERROR,
     required={"run_id", "failure_count"},
+)
+
+# dal
+
+REDIS_LOCK_OPERATION_FAILED = define(
+    "redis_lock_operation_failed",
+    WARNING,
+    required={"operation", "lock_kind"},
+    system=True,
 )
 
 # delivery

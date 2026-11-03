@@ -111,6 +111,7 @@ class OrchestratorRecoveryJob:
             ttl = int(self.interval_seconds * 2)
             acquired = await self._leader.try_acquire(ORCHESTRATOR_RECOVERY, ttl)
             if not acquired:
+                logger.emit(E.JOB_SKIPPED_NOT_LEADER, job=ORCHESTRATOR_RECOVERY)
                 return
             try:
                 await deps.recover_once()
@@ -184,6 +185,7 @@ class OrchestratorProjectionJob:
             ttl = int(self.interval_seconds * 2)
             acquired = await self._leader.try_acquire(ORCHESTRATOR_PROJECTION, ttl)
             if not acquired:
+                logger.emit(E.JOB_SKIPPED_NOT_LEADER, job=ORCHESTRATOR_PROJECTION)
                 return
             try:
                 await deps.project_once()
@@ -256,6 +258,7 @@ class OrchestratorCanaryJob:
             ttl = int(self.interval_seconds * 2)
             acquired = await self._leader.try_acquire(ORCHESTRATOR_CANARY, ttl)
             if not acquired:
+                logger.emit(E.JOB_SKIPPED_NOT_LEADER, job=ORCHESTRATOR_CANARY)
                 return
             try:
                 await self._evaluate(deps)

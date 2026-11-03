@@ -10,6 +10,7 @@ from typing import Any
 
 import pytest
 
+from agent.health import AgentHealthService
 from jobs.cleanup_orphaned_uploads import (
     OrphanedUploadCleaner,
     OrphanedUploadCleanerDeps,
@@ -120,17 +121,19 @@ def _enable_flagged_jobs(monkeypatch):
     )
 
 
-def _events(caplog, event: str) -> list[logging.LogRecord]:
+def _events(caplog, event: str, prefix: str = "jobs.") -> list[logging.LogRecord]:
     return [
         record
         for record in caplog.records
-        if record.name.startswith("jobs.") and record.getMessage() == event
+        if record.name.startswith(prefix) and record.getMessage() == event
     ]
 
 
-async def _wait_for(caplog, event: str) -> list[logging.LogRecord]:
+async def _wait_for(
+    caplog, event: str, prefix: str = "jobs."
+) -> list[logging.LogRecord]:
     for _ in range(200):
-        found = _events(caplog, event)
+        found = _events(caplog, event, prefix)
         if found:
             return found
         await asyncio.sleep(0.005)
@@ -175,4 +178,81 @@ async def test_job_iteration_failure_emits_job_iteration_failed(
     record = failures[0]
     assert record.levelno == logging.ERROR
     assert record.job == job_name
+    assert record.error_type == "_DepsFailed"
+
+
+class _Follower:
+    """A leader gate held by another instance."""
+
+    def __init__(self) -> None:
+        self.released: list[str] = []
+
+    async def try_acquire(self, name: str, ttl_seconds: int) -> bool:
+        del name, ttl_seconds
+        return False
+
+    async def release(self, name: str) -> None:
+        self.released.append(name)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(("factory", "job_name", "interval"), JOBS, ids=JOB_IDS)
+async def test_job_skipped_when_not_leader(caplog, factory, job_name, interval):
+    del interval
+    caplog.set_level(logging.DEBUG)
+    job = factory(fast=False)
+    leader = _Follower()
+    job.set_leader_election(leader)
+
+    await job._run_one_iteration()
+
+    [skipped] = _events(caplog, "job_skipped_not_leader")
+    assert skipped.levelno == logging.DEBUG
+    assert skipped.job == job_name
+    assert _events(caplog, "job_iteration_failed") == []
+    assert leader.released == []
+
+
+class _FailingHealthLeader:
+    async def try_acquire(self, name: str, ttl_seconds: int) -> bool:
+        del name, ttl_seconds
+        raise _DepsFailed
+
+    async def release(self, name: str) -> None:
+        del name
+
+
+@pytest.mark.asyncio
+async def test_health_loop_skipped_when_not_leader(caplog):
+    caplog.set_level(logging.DEBUG)
+    service = AgentHealthService(check_interval_seconds=30)
+    service.set_leader_election(_Follower(), lock_name="agent_health_checker")
+
+    await service._run_one_iteration()
+
+    [skipped] = _events(caplog, "job_skipped_not_leader", prefix="agent.")
+    assert skipped.levelno == logging.DEBUG
+    assert skipped.job == "agent_health_checker"
+
+
+@pytest.mark.asyncio
+async def test_health_loop_failure_emits_job_iteration_failed(caplog, monkeypatch):
+    caplog.set_level(logging.DEBUG)
+    monkeypatch.setattr(
+        "agent.health.settings", SimpleNamespace(agent_health_check_enabled=True)
+    )
+    service = AgentHealthService(check_interval_seconds=30)
+    service.set_leader_election(
+        _FailingHealthLeader(), lock_name="agent_health_checker"
+    )
+
+    await service.start()
+    try:
+        failures = await _wait_for(caplog, "job_iteration_failed", prefix="agent.")
+    finally:
+        await service.stop()
+
+    record = failures[0]
+    assert record.levelno == logging.ERROR
+    assert record.job == "agent_health_checker"
     assert record.error_type == "_DepsFailed"

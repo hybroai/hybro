@@ -331,7 +331,20 @@ registered on `events.CATALOG`. Code logs through
   `CATALOG.strict = True`, which raises instead.
 - `system=True` marks events a later phase copies into a system event store
   (`http_request_completed`, `llm_call_completed`, `a2a_call_completed`,
-  `job_iteration_failed`); nothing reads the flag yet.
+  `job_iteration_failed`, `eventing_dead_letter`,
+  `eventing_dead_letter_publish_failed`, `redis_lock_operation_failed`);
+  nothing reads the flag yet.
+- The event bus emits `eventing_dead_letter` for every dead letter (ERROR for
+  the `handler` and `worker` stages, WARNING otherwise) with `failure_stage`,
+  `event_type`, `exception_class`, `origin` and the dead letter's bounded
+  metadata, and `eventing_dead_letter_publish_failed` when the transport
+  cannot store one. Neither is rate-limited: under overload one dropped
+  event can log up to three lines (the dead letter, an
+  `auxiliary_task_capacity` dead letter for its publish, and the publish
+  failure). The Redis leader election and locks emit
+  `redis_lock_operation_failed` (`operation`, `lock_kind`, the unprefixed
+  `lock_name`, `error_type`) where they return `False` or `None` on a Redis
+  error; a flapping Redis logs once per job per interval.
 - `common.middleware.request_logging` emits one `http_request_completed` per
   HTTP request with `method`, `route` (the template), `status`, `outcome`
   and `duration_ms`, and binds `request_id` and `trace_id` (the inbound

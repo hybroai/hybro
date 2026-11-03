@@ -5,6 +5,7 @@ from typing import Protocol
 
 from a2a_adapter.agent_card_health import probe_agent_card_for_health
 from common.config.loader import settings
+from common.observability import events as E
 from common.observability import get_logger, traced_create_task
 from common.protocols import LeaderElector
 from common.types import AgentCard as CommonAgentCard
@@ -474,10 +475,7 @@ class AgentHealthService:
                 await self._run_one_iteration()
                 await asyncio.sleep(self.check_interval)
             except Exception as exc:
-                logger.error(
-                    "agent_health_loop_failed",
-                    extra={"error_type": type(exc).__name__},
-                )
+                logger.emit(E.JOB_ITERATION_FAILED, exc=exc, job=self._leader_lock_name)
                 await asyncio.sleep(60)
 
     async def _run_one_iteration(self) -> None:
@@ -486,6 +484,7 @@ class AgentHealthService:
             ttl = self.check_interval * 2
             acquired = await self._leader.try_acquire(self._leader_lock_name, ttl)
             if not acquired:
+                logger.emit(E.JOB_SKIPPED_NOT_LEADER, job=self._leader_lock_name)
                 return  # another instance is the leader
             try:
                 await self.run_health_check_cycle()

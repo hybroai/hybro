@@ -7,6 +7,10 @@ from typing import Any
 import redis.asyncio as aioredis
 
 from common.config import settings
+from common.observability import events as E
+from common.observability import get_logger
+
+log = get_logger(__name__)
 
 _RELEASE_SCRIPT = """
 if redis.call('get', KEYS[1]) == ARGV[1] then
@@ -40,22 +44,48 @@ class _RedisOwnerClient:
         self._client = aioredis.from_url(self._url, **kwargs)
         return self._client
 
-    async def _owner_eval(self, script: str, key: str, owner: str, *args: str) -> bool:
+    @staticmethod
+    def _log_failure(
+        operation: str,
+        lock_kind: str,
+        exc: Exception,
+        lock_name: str | None = None,
+    ) -> None:
+        fields = {} if lock_name is None else {"lock_name": lock_name}
+        log.emit(
+            E.REDIS_LOCK_OPERATION_FAILED,
+            exc=exc,
+            operation=operation,
+            lock_kind=lock_kind,
+            **fields,
+        )
+
+    async def _owner_eval(
+        self,
+        script: str,
+        key: str,
+        owner: str,
+        *args: str,
+        operation: str,
+        lock_kind: str,
+        lock_name: str,
+    ) -> bool:
         client = self._ensure_client()
         if client is None:
             return False
         try:
             result = await client.eval(script, 1, key, owner, *args)
             return result == 1
-        except Exception:
+        except Exception as exc:
+            self._log_failure(operation, lock_kind, exc, lock_name)
             return False
 
     async def close(self) -> None:
         if self._client is not None:
             try:
                 await self._client.aclose()
-            except Exception:
-                pass
+            except Exception as exc:
+                self._log_failure("close", "client", exc)
         self._client = None
 
 
@@ -68,14 +98,30 @@ class DistributedLockImpl(_RedisOwnerClient):
             return False
         try:
             return bool(await client.set(f"lock:{key}", owner, nx=True, ex=ttl))
-        except Exception:
+        except Exception as exc:
+            self._log_failure("acquire", "lock", exc, key)
             return False
 
     async def release(self, key: str, owner: str) -> bool:
-        return await self._owner_eval(_RELEASE_SCRIPT, f"lock:{key}", owner)
+        return await self._owner_eval(
+            _RELEASE_SCRIPT,
+            f"lock:{key}",
+            owner,
+            operation="release",
+            lock_kind="lock",
+            lock_name=key,
+        )
 
     async def renew(self, key: str, owner: str, ttl: int = 60) -> bool:
-        return await self._owner_eval(_RENEW_SCRIPT, f"lock:{key}", owner, str(ttl))
+        return await self._owner_eval(
+            _RENEW_SCRIPT,
+            f"lock:{key}",
+            owner,
+            str(ttl),
+            operation="renew",
+            lock_kind="lock",
+            lock_name=key,
+        )
 
 
 class RoomRedisDistributedLock(_RedisOwnerClient):
@@ -107,7 +153,8 @@ class RoomRedisDistributedLock(_RedisOwnerClient):
                 ex=ttl,
             )
             return bool(result)
-        except Exception:
+        except Exception as exc:
+            self._log_failure("acquire", "room", exc, conversation_id)
             return None
 
     async def renew(self, conversation_id: str, owner: str, ttl: int) -> bool | None:
@@ -125,7 +172,8 @@ class RoomRedisDistributedLock(_RedisOwnerClient):
                 str(ttl),
             )
             return result == 1
-        except Exception:
+        except Exception as exc:
+            self._log_failure("renew", "room", exc, conversation_id)
             return None
 
     async def release(self, conversation_id: str, owner: str) -> None:
@@ -135,6 +183,9 @@ class RoomRedisDistributedLock(_RedisOwnerClient):
             _RELEASE_SCRIPT,
             f"{self._ROOM_LOCK_PREFIX}{conversation_id}",
             owner,
+            operation="release",
+            lock_kind="room",
+            lock_name=conversation_id,
         )
 
 
@@ -167,7 +218,8 @@ class LeaderElectorImpl(_RedisOwnerClient):
                     ex=resolved_ttl,
                 )
             )
-        except Exception:
+        except Exception as exc:
+            self._log_failure("try_acquire", "leader", exc, job_name)
             return False
 
     async def renew(
@@ -179,6 +231,9 @@ class LeaderElectorImpl(_RedisOwnerClient):
             f"leader:{job_name}",
             self._instance_id,
             str(resolved_ttl),
+            operation="renew",
+            lock_kind="leader",
+            lock_name=job_name,
         )
 
     async def release(self, job_name: str) -> None:
@@ -186,6 +241,9 @@ class LeaderElectorImpl(_RedisOwnerClient):
             _RELEASE_SCRIPT,
             f"leader:{job_name}",
             self._instance_id,
+            operation="release",
+            lock_kind="leader",
+            lock_name=job_name,
         )
 
     async def release_all(self, job_names: list[str]) -> None:

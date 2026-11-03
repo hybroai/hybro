@@ -94,6 +94,7 @@ class StaleTaskChecker:
             ttl = int(self.check_interval_minutes * 60 * 2)
             acquired = await self._leader.try_acquire(STALE_TASK_CHECKER, ttl)
             if not acquired:
+                logger.emit(E.JOB_SKIPPED_NOT_LEADER, job=STALE_TASK_CHECKER)
                 return  # another instance is the leader
             try:
                 await self.check_stale_tasks()
