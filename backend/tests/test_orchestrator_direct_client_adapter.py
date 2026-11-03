@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import base64
 import json
+import logging
 from datetime import UTC, datetime, timedelta
 from hashlib import sha256
 
@@ -821,7 +822,7 @@ async def test_send_reraises_recoverable_materialization_errors():
         await client.send(_dispatch_command())
 
 
-async def test_send_oversized_artifact_stays_terminal_failure(monkeypatch):
+async def test_send_oversized_artifact_stays_terminal_failure(monkeypatch, caplog):
     from a2a_adapter import artifact_storage
 
     monkeypatch.setattr(artifact_storage, "MAX_FILE_RAW_BYTES", 4)
@@ -836,6 +837,7 @@ async def test_send_oversized_artifact_stays_terminal_failure(monkeypatch):
     async def send(card, message, kwargs):
         return {"kind": "task", "result": task}
 
+    caplog.set_level(logging.ERROR, logger="a2a_adapter.orchestrator_direct_client")
     receipt = await _client(FakeSdk(send=send), epoch_owner=EpochOwner()).send(
         _dispatch_command()
     )
@@ -843,6 +845,15 @@ async def test_send_oversized_artifact_stays_terminal_failure(monkeypatch):
     assert receipt.terminal_observation is not None
     assert receipt.terminal_observation.status == "failed"
     assert receipt.terminal_observation.error_code == "artifact_materialization_failed"
+    [record] = [
+        r
+        for r in caplog.records
+        if r.getMessage() == "task_artifacts_materialization_failed"
+    ]
+    assert record.levelno == logging.ERROR
+    assert record.operation == "send"
+    assert record.call_record_id == "call-1"
+    assert record.error_type
 
 
 async def test_inspect_terminal_uses_resolved_task_identity():

@@ -16,6 +16,7 @@ import aiohttp
 from aiohttp.abc import AbstractResolver
 
 from common.errors import FileStoragePlatformError, RetryableFileStoragePlatformError
+from common.observability import events as E
 from common.types import DataPart, FileContent, Part
 from common.utils.artifact_delivery import (
     record_materialization_attempt,
@@ -171,19 +172,17 @@ def _record_failure(
         source=source,
         exception_type=type(exc).__name__,
     )
-    logger.warning(
-        "artifact_materialization_failed",
-        extra={
-            "conversation_id": conversation_id,
-            "message_id": message_id,
-            "artifact_ref": artifact_ref,
-            "part_slot": part_slot,
-            "content_source": source,
-            "failure_code": code,
-            "exception_type": type(exc).__name__,
-            "platform_status": getattr(exc, "status_code", None),
-            "platform_failure_category": _platform_failure_category(exc),
-        },
+    logger.emit(
+        E.ARTIFACT_MATERIALIZATION_FAILED,
+        exc=exc,
+        conversation_id=conversation_id,
+        message_id=message_id,
+        artifact_ref=artifact_ref,
+        part_slot=part_slot,
+        content_source=source,
+        failure_code=code,
+        platform_status=getattr(exc, "status_code", None),
+        platform_failure_category=_platform_failure_category(exc),
     )
 
 
@@ -327,17 +326,15 @@ async def _store_with_retry(**kwargs: Any) -> dict[str, Any]:
         except Exception as exc:
             if attempt >= STORE_ATTEMPTS or not _is_retryable_store_error(exc):
                 raise
-            logger.warning(
-                "artifact_materialization_store_retry",
-                extra={
-                    "conversation_id": kwargs.get("conversation_id"),
-                    "message_id": kwargs.get("message_id"),
-                    "attempt": attempt,
-                    "max_attempts": STORE_ATTEMPTS,
-                    "exception_type": type(exc).__name__,
-                    "platform_status": getattr(exc, "status_code", None),
-                    "platform_failure_category": _platform_failure_category(exc),
-                },
+            logger.emit(
+                E.ARTIFACT_MATERIALIZATION_STORE_RETRIED,
+                exc=exc,
+                conversation_id=kwargs.get("conversation_id"),
+                message_id=kwargs.get("message_id"),
+                attempt=attempt,
+                max_attempts=STORE_ATTEMPTS,
+                platform_status=getattr(exc, "status_code", None),
+                platform_failure_category=_platform_failure_category(exc),
             )
             await asyncio.sleep(STORE_RETRY_DELAYS[attempt - 1])
     raise RuntimeError("artifact store retry loop exited unexpectedly")

@@ -20,6 +20,7 @@ from common.idempotency import (
     MAX_CLIENT_REQUEST_ID_LENGTH,
     normalize_client_request_id,
 )
+from common.observability import events as E
 from common.protocols import ExecutionEngine, RoomRouteReader
 from common.utils.logger import get_logger
 from models.file_upload import MAX_ATTACHMENT_REFS_PER_REQUEST
@@ -98,11 +99,9 @@ async def _active_run_refs_for_room(
 ) -> list[ActiveRunRef]:
     try:
         runs = await engine.get_runs_for_room(conversation_id)
-    except Exception:
-        logger.warning(
-            "active-run lookup failed for conversation_id=%s",
-            conversation_id,
-            exc_info=True,
+    except Exception as exc:
+        logger.emit(
+            E.ACTIVE_RUN_LOOKUP_FAILED, exc=exc, conversation_id=conversation_id
         )
         return []
     return [_run_info_to_active_run_ref(run) for run in runs]
@@ -600,18 +599,16 @@ async def send_message(
     if err is not None:
         return err
 
-    logger.info(
-        "gateway_send_message_received",
-        extra={
-            "conversation_id": conversation_id,
-            "client_request_id": client_request_id,
-            "mode": mode,
-            "scope_source": source,
-            "scope_size": len(mentioned_agent_ids or []),
-            "attachment_count": len(attachments or []),
-            "inline_file_count": len(inline_file_ids or []),
-            "message_length": _message_text_len(message),
-        },
+    logger.emit(
+        E.GATEWAY_SEND_MESSAGE_RECEIVED,
+        conversation_id=conversation_id,
+        client_request_id=client_request_id,
+        mode=mode,
+        scope_source=source,
+        scope_size=len(mentioned_agent_ids or []),
+        attachment_count=len(attachments or []),
+        inline_file_count=len(inline_file_ids or []),
+        message_length=_message_text_len(message),
     )
 
     related_message_id = ""
@@ -637,30 +634,26 @@ async def send_message(
         rooms=rooms,
     )
     ack = await engine.execute(execution_request)
-    logger.info(
-        "gateway_send_message_completed",
-        extra={
-            "conversation_id": conversation_id,
-            "message_id": ack.message_id,
-            "user_message_id": ack.message_id,
-            "client_request_id": client_request_id,
-            "outcome": "success" if ack.success else "error",
-            "status": ack.status_code,
-            "should_start_orchestration": ack.should_start_orchestration,
-            "preflight_outcome": ack.preflight_outcome,
-        },
+    logger.emit(
+        E.GATEWAY_SEND_MESSAGE_COMPLETED,
+        conversation_id=conversation_id,
+        message_id=ack.message_id,
+        user_message_id=ack.message_id,
+        client_request_id=client_request_id,
+        outcome="success" if ack.success else "error",
+        status=ack.status_code,
+        should_start_orchestration=ack.should_start_orchestration,
+        preflight_outcome=ack.preflight_outcome,
     )
 
     # Auto-trigger processing as background task if message was created successfully
     if ack.success and ack.message_id and ack.should_start_orchestration:
-        logger.info(
-            "gateway_send_message_background_scheduled",
-            extra={
-                "conversation_id": conversation_id,
-                "message_id": ack.message_id,
-                "user_message_id": ack.message_id,
-                "client_request_id": client_request_id,
-            },
+        logger.emit(
+            E.GATEWAY_SEND_MESSAGE_BACKGROUND_SCHEDULED,
+            conversation_id=conversation_id,
+            message_id=ack.message_id,
+            user_message_id=ack.message_id,
+            client_request_id=client_request_id,
         )
         engine.schedule_orchestration(execution_request, ack)
 

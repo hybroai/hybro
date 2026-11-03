@@ -9,6 +9,7 @@ Tests cover:
 """
 
 import json
+import logging
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -190,7 +191,7 @@ class TestCancelMessage:
 
     @pytest.mark.asyncio
     async def test_cancels_message_for_owner(
-        self, mock_user, sample_room, sample_user_message, patch_sse_deps
+        self, mock_user, sample_room, sample_user_message, patch_sse_deps, caplog
     ):
         """Should cancel message when user owns the room."""
         deps = patch_sse_deps
@@ -199,6 +200,7 @@ class TestCancelMessage:
         ].get_room_user_message_by_message_id.return_value = sample_user_message
         deps["db_service"].get_room_by_room_id.return_value = sample_room
 
+        caplog.set_level(logging.INFO, logger="api_gateway.routes.sse_routes")
         result = await cancel_message(
             sample_user_message.message_id,
             mock_user,
@@ -210,6 +212,9 @@ class TestCancelMessage:
         assert result["message_id"] == sample_user_message.message_id
         assert result["status"] == "canceled"
         assert result["outcome"] == "canceled"
+        [record] = [r for r in caplog.records if r.getMessage() == "message_cancelled"]
+        assert record.message_id == sample_user_message.message_id
+        assert record.user_id == mock_user.user_id
         deps["execution_engine"].cancel.assert_awaited_once_with(
             conversation_id=sample_user_message.conversation_id,
             message_id=sample_user_message.message_id,

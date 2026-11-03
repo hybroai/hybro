@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import ast
 import asyncio
+import logging
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -442,6 +443,22 @@ async def test_discovery_cycle_prunes_long_inactive_local_records():
     await _service(Scanner(), Probe(), writer).request_discovery()
 
     assert writer.prune_calls == 1
+
+
+@pytest.mark.asyncio
+async def test_discovery_cycle_logs_pruned_record_count(caplog):
+    class PruningWriter(Writer):
+        async def prune_inactive_local_agents(self):
+            await super().prune_inactive_local_agents()
+            return 2
+
+    with caplog.at_level(logging.INFO, logger="local_agents.service"):
+        await _service(Scanner(), Probe(), PruningWriter()).request_discovery()
+
+    [record] = [
+        r for r in caplog.records if r.getMessage() == "local_agent_records_pruned"
+    ]
+    assert record.pruned_record_count == 2
 
 
 @pytest.mark.asyncio

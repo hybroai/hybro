@@ -8,6 +8,7 @@ port instead of 1455.
 from __future__ import annotations
 
 import asyncio
+import logging
 import socket
 import time
 from pathlib import Path
@@ -338,7 +339,8 @@ async def test_oauth_paste_completion_checks_host_port_and_state(harness, port):
     assert harness.exchange.codes == ["pasted"]
 
 
-async def test_oauth_paste_works_without_a_listener(tmp_path, port):
+async def test_oauth_paste_works_without_a_listener(tmp_path, port, caplog):
+    caplog.set_level(logging.INFO, logger="llm_gateway.setup_api")
     with socket.socket() as busy:
         busy.bind(("127.0.0.1", port))
         busy.listen()
@@ -346,6 +348,12 @@ async def test_oauth_paste_works_without_a_listener(tmp_path, port):
         try:
             login = (await harness.http.post("/oauth/start")).json()
             assert login["listener"] is False
+            [record] = [
+                r
+                for r in caplog.records
+                if r.getMessage() == "oauth_callback_listener_start_failed"
+            ]
+            assert record.error_type
             url = (
                 f"http://localhost:{port}/auth/callback"
                 f"?code=pasted&state={oauth_state(login)}"

@@ -354,6 +354,12 @@ registered on `events.CATALOG`. Code logs through
   `status_code` is 500 or above and `client_error` otherwise, with
   `envelope_status` when the status is an integer. Streaming and
   multi-chunk bodies are never buffered.
+- `llm_gateway` emits one `llm_call_completed` per model call and
+  `a2a_adapter.client_facade` one `a2a_call_completed` per agent call, at
+  ERROR when `outcome=error` and INFO otherwise. A call that failed with an
+  exception carries the exception fields and `error_code`; an A2A error response
+  without an exception (a JSON-RPC error) carries only `error_type` and
+  `error_code`.
 - Background jobs share `job_started` (with `interval_seconds`),
   `job_already_started`, `job_start_skipped` (with `reason`), `job_stopped`,
   `job_iteration_failed` and `job_skipped_not_leader`, each

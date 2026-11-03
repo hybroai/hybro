@@ -38,11 +38,46 @@ A2A_CALL_COMPLETED = define(
 
 # a2a_adapter
 
-ARTIFACT_MATERIALIZATION_FAILED = define("artifact_materialization_failed", WARNING)
-ARTIFACT_MATERIALIZATION_STORE_RETRY = define(
-    "artifact_materialization_store_retry", WARNING
+ARTIFACT_MATERIALIZATION_FAILED = define(
+    "artifact_materialization_failed",
+    WARNING,
+    required={
+        "conversation_id",
+        "message_id",
+        "artifact_ref",
+        "part_slot",
+        "failure_code",
+    },
 )
-A2A_DOCKER_HOST_FALLBACK_SELECTED = define("a2a_docker_host_fallback_selected", DEBUG)
+ARTIFACT_MATERIALIZATION_STORE_RETRIED = define(
+    "artifact_materialization_store_retried",
+    WARNING,
+    required={"conversation_id", "message_id", "attempt", "max_attempts"},
+)
+A2A_DOCKER_HOST_FALLBACK_SELECTED = define(
+    "a2a_docker_host_fallback_selected",
+    DEBUG,
+    required={"original_url", "fallback_url"},
+)
+AGENT_CARD_HEALTH_PROBE_TIMED_OUT = define(
+    "agent_card_health_probe_timed_out",
+    WARNING,
+    required={"agent_url", "timeout_seconds"},
+)
+AGENT_CARD_HEALTH_PROBE_FAILED = define(
+    "agent_card_health_probe_failed", WARNING, required={"agent_url"}
+)
+AGENT_CARD_RESOLUTION_FAILED = define(
+    "agent_card_resolution_failed", WARNING, required={"agent_url"}
+)
+TASK_ARTIFACTS_MATERIALIZATION_FAILED = define(
+    "task_artifacts_materialization_failed",
+    ERROR,
+    required={"operation", "call_record_id", "task_id"},
+)
+REMOTE_TASK_FETCH_FAILED = define(
+    "remote_task_fetch_failed", ERROR, required={"task_id"}
+)
 
 # agent
 
@@ -58,18 +93,49 @@ AGENT_HEALTH_CYCLE_FAILED = define("agent_health_cycle_failed", ERROR)
 
 # api_gateway
 
-AGENT_CARD_INSPECTION_RECEIVED = define("agent_card_inspection_received", INFO)
+AGENT_CARD_INSPECTION_RECEIVED = define(
+    "agent_card_inspection_received", INFO, required={"agent_url"}
+)
 AGENT_CONNECTION_INSPECTION_RECEIVED = define(
-    "agent_connection_inspection_received", INFO
+    "agent_connection_inspection_received", INFO, required={"agent_url"}
 )
-GATEWAY_SEND_MESSAGE_RECEIVED = define("gateway_send_message_received", INFO)
-GATEWAY_SEND_MESSAGE_COMPLETED = define("gateway_send_message_completed", INFO)
+GATEWAY_SEND_MESSAGE_RECEIVED = define(
+    "gateway_send_message_received",
+    INFO,
+    required={"conversation_id", "client_request_id", "mode"},
+)
+GATEWAY_SEND_MESSAGE_COMPLETED = define(
+    "gateway_send_message_completed",
+    INFO,
+    required={"conversation_id", "message_id", "client_request_id", "outcome"},
+)
 GATEWAY_SEND_MESSAGE_BACKGROUND_SCHEDULED = define(
-    "gateway_send_message_background_scheduled", INFO
+    "gateway_send_message_background_scheduled",
+    INFO,
+    required={"conversation_id", "message_id", "client_request_id"},
 )
-MESSAGE_CANCELLATION_FAILED = define("message_cancellation_failed", ERROR)
-SSE_STREAM_FAILED = define("sse_stream_failed", ERROR)
-SSE_CONNECTION_FAILED = define("sse_connection_failed", ERROR)
+ACTIVE_RUN_LOOKUP_FAILED = define(
+    "active_run_lookup_failed", WARNING, required={"conversation_id"}
+)
+SSE_SNAPSHOT_BUILD_FAILED = define(
+    "sse_snapshot_build_failed", WARNING, required={"conversation_id"}
+)
+SSE_STREAM_STARTED = define(
+    "sse_stream_started", INFO, required={"conversation_id", "connection_id"}
+)
+SSE_STREAM_CLOSED = define(
+    "sse_stream_closed", INFO, required={"conversation_id", "connection_id"}
+)
+SSE_STREAM_FAILED = define("sse_stream_failed", ERROR, required={"conversation_id"})
+SSE_CONNECTION_FAILED = define(
+    "sse_connection_failed", ERROR, required={"conversation_id"}
+)
+MESSAGE_CANCELLED = define(
+    "message_cancelled", INFO, required={"message_id", "user_id"}
+)
+MESSAGE_CANCELLATION_FAILED = define(
+    "message_cancellation_failed", ERROR, required={"message_id"}
+)
 
 # common
 
@@ -216,9 +282,48 @@ REDIS_LOCK_OPERATION_FAILED = define(
     system=True,
 )
 
+# context_memory
+
+CONTEXT_MEMORY_PROJECTION_FAILED = define(
+    "context_memory_projection_failed",
+    ERROR,
+    required={"conversation_id", "message_id"},
+)
+CONTEXT_MEMORY_CONTENT_CLEANUP_FAILED = define(
+    "context_memory_content_cleanup_failed", ERROR, required={"conversation_id"}
+)
+TURN_COMPACTION_WRITE_FAILED = define(
+    "turn_compaction_write_failed",
+    ERROR,
+    required={"conversation_id", "compacted_turn_count"},
+)
+OBSOLETE_INDEX_DROP_FAILED = define(
+    "obsolete_index_drop_failed",
+    WARNING,
+    required={"collection_name", "index_name"},
+)
+
 # delivery
 
-DELIVERY_COMPLETED = define("delivery_completed", INFO)
+DELIVERY_COMPLETED = define(
+    "delivery_completed",
+    INFO,
+    required={
+        "conversation_id",
+        "message_id",
+        "outcome",
+        "terminal_kind",
+        "duration_ms",
+    },
+)
+CANONICAL_FINAL_CONFLICT_IGNORED = define(
+    "canonical_final_conflict_ignored", WARNING, required={"message_id", "run_id"}
+)
+TERMINAL_DEDUP_REDIS_OPERATION_TIMED_OUT = define(
+    "terminal_dedup_redis_operation_timed_out",
+    WARNING,
+    required={"operation", "timeout_seconds"},
+)
 
 # execution
 
@@ -233,31 +338,50 @@ HITL_CONTINUATION_RECOVERY_DEFERRED = define(
 
 # llm_gateway
 
-PROVIDER_CONFIG_RELOADED = define("provider_config_reloaded", INFO)
-PROVIDER_CONFIG_RELOAD_FAILED = define("provider_config_reload_failed", WARNING)
+PROVIDER_CONFIG_RELOADED = define(
+    "provider_config_reloaded", INFO, required={"provider_state"}
+)
+PROVIDER_CONFIG_RELOAD_FAILED = define(
+    "provider_config_reload_failed", WARNING, required={"reason"}
+)
 PROVIDER_CONFIG_REFRESH_FAILED = define("provider_config_refresh_failed", WARNING)
 PROVIDER_LISTENER_FAILED = define("provider_listener_failed", WARNING)
-OAUTH_CALLBACK_LISTENER_UNAVAILABLE = define(
-    "oauth_callback_listener_unavailable", INFO
+OAUTH_CALLBACK_LISTENER_START_FAILED = define(
+    "oauth_callback_listener_start_failed", INFO
 )
 OAUTH_CODE_EXCHANGE_FAILED = define("oauth_code_exchange_failed", WARNING)
 
 # local_agents
 
-LOCAL_AGENT_DISCOVERY_CYCLE_FAILED = define("local_agent_discovery_cycle_failed", ERROR)
+LOCAL_AGENT_DISCOVERY_CYCLE_FAILED = define(
+    "local_agent_discovery_cycle_failed", ERROR, required={"trigger"}
+)
+LOCAL_AGENT_RECORDS_PRUNED = define(
+    "local_agent_records_pruned", INFO, required={"pruned_record_count"}
+)
 
 # session
 
 SESSION_ORPHAN_CONTAINER_DELETE_FAILED = define(
-    "session_orphan_container_delete_failed", WARNING
+    "session_orphan_container_delete_failed",
+    WARNING,
+    required={"session_id", "conversation_id"},
 )
-SESSION_MEMBER_ADD_FAILED = define("session_member_add_failed", WARNING)
+SESSION_MEMBER_ADD_FAILED = define(
+    "session_member_add_failed", WARNING, required={"session_id", "agent_id"}
+)
 SESSION_CLOSE_PENDING_LOOKUP_FAILED = define(
-    "session_close_pending_lookup_failed", WARNING
+    "session_close_pending_lookup_failed", WARNING, required={"conversation_id"}
 )
 SESSION_CLOSE_INTERACTION_CANCEL_FAILED = define(
-    "session_close_interaction_cancel_failed", WARNING
+    "session_close_interaction_cancel_failed",
+    WARNING,
+    required={"conversation_id", "interaction_id"},
 )
-SESSION_CLOSE_RUN_CANCEL_FAILED = define("session_close_run_cancel_failed", WARNING)
+SESSION_CLOSE_RUN_CANCEL_FAILED = define(
+    "session_close_run_cancel_failed",
+    WARNING,
+    required={"conversation_id", "run_id"},
+)
 
 del define

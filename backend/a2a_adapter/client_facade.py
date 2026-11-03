@@ -14,6 +14,7 @@ so a card refresh cannot silently move an accepted task onto another interface.
 from __future__ import annotations
 
 import asyncio
+import logging
 import time
 from collections.abc import AsyncGenerator
 from contextlib import aclosing
@@ -27,7 +28,8 @@ from a2a.types import AgentCard, SendMessageRequest
 from a2a.utils.errors import JSON_RPC_ERROR_CODE_MAP, A2AError
 from google.protobuf.json_format import ParseError
 
-from common.observability import get_logger, safe_exception_metadata
+from common.observability import events as E
+from common.observability import get_logger
 
 from .bounded_http import bounded_client, event_bounded_client
 from .card_data import build_agent_card
@@ -472,7 +474,6 @@ def _log_a2a_completed(
         "duration_ms": round((time.perf_counter() - started_at) * 1000, 3),
     }
     if error is not None:
-        fields.update(safe_exception_metadata(error))
         fields["error_code"] = (
             error_code
             if error_code is not None
@@ -481,8 +482,12 @@ def _log_a2a_completed(
     elif outcome == "error":
         fields["error_type"] = error_type or "A2AResponseError"
         fields["error_code"] = error_code
-    log_method = logger.error if outcome == "error" else logger.info
-    log_method("a2a_call_completed", extra=fields)
+    logger.emit(
+        E.A2A_CALL_COMPLETED,
+        level=logging.ERROR if outcome == "error" else logging.INFO,
+        exc=error,
+        **fields,
+    )
 
 
 __all__ = [

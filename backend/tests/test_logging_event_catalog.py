@@ -32,13 +32,6 @@ _EXCEPTED = frozenset(
 # migration batch removes its files; the set is deleted once it is empty.
 _PENDING_MIGRATION = frozenset(
     {
-        "a2a_adapter/agent_card_health.py",
-        "a2a_adapter/artifact_storage.py",
-        "a2a_adapter/card_resolver.py",
-        "a2a_adapter/client_facade.py",
-        "a2a_adapter/docker_host_fallback.py",
-        "a2a_adapter/orchestrator_direct_client.py",
-        "a2a_adapter/remote_task.py",
         "agent/bundled.py",
         "agent/catalog.py",
         "agent/facade.py",
@@ -48,17 +41,11 @@ _PENDING_MIGRATION = frozenset(
         "agent/repository/documents.py",
         "agent/repository/runtime_store.py",
         "agent/selection_service.py",
-        "api_gateway/routes/inspection_routes.py",
-        "api_gateway/routes/room_routes.py",
-        "api_gateway/routes/sse_routes.py",
         "approval/application.py",
         "approval/reconciler.py",
         "approval/repository/hitl_lifecycle_store.py",
         "approval/repository/hitl_store.py",
         "approval/service.py",
-        "context_memory/events.py",
-        "context_memory/facade.py",
-        "context_memory/repository/mongo.py",
         "conversation/deletion.py",
         "conversation/facade.py",
         "conversation/membership_source.py",
@@ -73,9 +60,6 @@ _PENDING_MIGRATION = frozenset(
         "conversation/target_scope.py",
         "conversation/timeline_projection.py",
         "conversation/user_message_persistence.py",
-        "delivery/facade.py",
-        "delivery/snapshot.py",
-        "delivery/sse/deduplication.py",
         "execution/adapters/session_host.py",
         "execution/events.py",
         "execution/facade.py",
@@ -91,11 +75,6 @@ _PENDING_MIGRATION = frozenset(
         "execution/orchestrator_routing.py",
         "execution/repository/orchestrator/indexes.py",
         "execution/repository/orchestrator/run_store.py",
-        "llm_gateway/gateway.py",
-        "llm_gateway/provider_runtime.py",
-        "llm_gateway/setup_api.py",
-        "local_agents/service.py",
-        "session/facade.py",
     }
 )
 

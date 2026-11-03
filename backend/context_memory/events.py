@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import Any, Protocol, runtime_checkable
 
 from common.dto import CompactionResult, MessageCommitted
+from common.observability import events as E
 from common.utils.logger import get_logger
 
 logger = get_logger(__name__)
@@ -38,12 +39,11 @@ class ContextMemoryEventHandler:
             )
             if status.get("projected"):
                 await self._projection.run_compaction(event.conversation_id)
-        except Exception:
-            logger.exception(
-                "Context & Memory projection failed",
-                extra={
-                    "conversation_id": event.conversation_id,
-                    "message_id": event.message_id,
-                },
+        except Exception as exc:
+            logger.emit(
+                E.CONTEXT_MEMORY_PROJECTION_FAILED,
+                exc=exc,
+                conversation_id=event.conversation_id,
+                message_id=event.message_id,
             )
             raise

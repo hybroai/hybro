@@ -10,6 +10,7 @@ from common.dto import (
     TaskSubmittedEvent,
     TaskUpdateEvent,
 )
+from common.observability import events as E
 from common.observability import get_logger
 from common.protocols import EventPublisher, RedisKV
 from delivery.config import DeliveryConfig
@@ -264,19 +265,14 @@ class DeliveryFacade:
             delivery_key,
             time.perf_counter(),
         )
-        logger.info(
-            "delivery_completed",
-            extra={
-                "conversation_id": conversation_id,
-                "message_id": message_id,
-                "agent_id": agent_id,
-                "outcome": outcome,
-                "terminal_kind": terminal_kind,
-                "duration_ms": round(
-                    (time.perf_counter() - started_at) * 1000,
-                    3,
-                ),
-            },
+        logger.emit(
+            E.DELIVERY_COMPLETED,
+            conversation_id=conversation_id,
+            message_id=message_id,
+            agent_id=agent_id,
+            outcome=outcome,
+            terminal_kind=terminal_kind,
+            duration_ms=round((time.perf_counter() - started_at) * 1000, 3),
         )
 
 

@@ -22,6 +22,7 @@ from common.config.runtime_store import (
     RuntimeSnapshot,
     RuntimeState,
 )
+from common.observability import events as E
 from common.observability import get_logger
 from llm_gateway.catalog import TextModel, validate_models
 from llm_gateway.errors import ProviderNotConfigured
@@ -153,8 +154,9 @@ class ProviderRuntime:
                 # Keep serving the last valid pair, as a restart-only setting
                 # would, and do not re-read the same broken files on every call.
                 if seen is None or seen != self._failed_signature:
-                    logger.warning(
-                        "provider_config_reload_failed", extra={"reason": str(exc)}
+                    # RuntimeConfigurationError messages are credential-free.
+                    logger.emit(
+                        E.PROVIDER_CONFIG_RELOAD_FAILED, exc=exc, reason=str(exc)
                     )
                 if seen is not None:
                     self._failed_signature = seen
@@ -169,19 +171,14 @@ class ProviderRuntime:
             if pair.digest != self._pair.digest:
                 self._pair = pair
                 self._last_error = None
-                logger.info(
-                    "provider_config_reloaded", extra={"provider_state": pair.state}
-                )
+                logger.emit(E.PROVIDER_CONFIG_RELOADED, provider_state=pair.state)
                 for listener in self._listeners:
                     try:
                         result = listener(pair)
                         if result is not None and work is not None:
                             work.append(result)
                     except Exception as exc:  # One listener must not block a swap.
-                        logger.warning(
-                            "provider_listener_failed",
-                            extra={"error_type": type(exc).__name__},
-                        )
+                        logger.emit(E.PROVIDER_LISTENER_FAILED, exc=exc)
             elif self._last_error in _FILE_ERRORS:
                 self._last_error = None
             return self._pair
@@ -205,10 +202,7 @@ class ProviderRuntime:
             try:
                 await self.refresh()
             except Exception as exc:  # The timer must survive one bad cycle.
-                logger.warning(
-                    "provider_config_refresh_failed",
-                    extra={"error_type": type(exc).__name__},
-                )
+                logger.emit(E.PROVIDER_CONFIG_REFRESH_FAILED, exc=exc)
 
 
 __all__ = ["ProviderPair", "ProviderRuntime", "ProviderState", "TextSelection"]

@@ -2,19 +2,20 @@
 
 from __future__ import annotations
 
-import logging
 from dataclasses import dataclass
 from typing import Any
 
 import httpx
 
+from common.observability import events as E
+from common.observability import get_logger
 from common.types import AgentCard
 
 from .card_data import build_agent_card
 from .constants import AGENT_CARD_WELL_KNOWN_PATH, PREV_AGENT_CARD_WELL_KNOWN_PATH
 from .docker_host_fallback import with_docker_host_url_fallback
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 
 @dataclass(frozen=True)
@@ -75,30 +76,26 @@ async def probe_agent_card_for_health(
                 ),
             )
     except httpx.TimeoutException as exc:
-        logger.warning("Agent card health probe timed out for %s", agent_url)
+        logger.emit(
+            E.AGENT_CARD_HEALTH_PROBE_TIMED_OUT,
+            exc=exc,
+            agent_url=agent_url,
+            timeout_seconds=timeout,
+        )
         return AgentCardHealthResult(
             is_healthy=False,
             card=None,
             error=str(exc),
         )
     except httpx.RequestError as exc:
-        logger.warning(
-            "Agent card health probe failed for %s: %s",
-            agent_url,
-            exc,
-        )
+        logger.emit(E.AGENT_CARD_HEALTH_PROBE_FAILED, exc=exc, agent_url=agent_url)
         return AgentCardHealthResult(
             is_healthy=False,
             card=None,
             error=str(exc),
         )
     except Exception as exc:
-        logger.warning(
-            "Unexpected agent card health probe failure for %s: %s",
-            agent_url,
-            exc,
-            exc_info=True,
-        )
+        logger.emit(E.AGENT_CARD_HEALTH_PROBE_FAILED, exc=exc, agent_url=agent_url)
         return AgentCardHealthResult(
             is_healthy=False,
             card=None,
