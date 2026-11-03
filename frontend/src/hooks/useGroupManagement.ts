@@ -10,6 +10,7 @@ import {
   BUILTIN_GROUP_ROOM_TEAM,
   resolveSelectedGroupDispatch,
 } from "@/lib/types/agent-group"
+import { log } from '@/lib/log'
 
 interface UseGroupManagementOptions {
   userId?: string
@@ -188,7 +189,7 @@ export function useGroupManagement(
           setGroupsLoadStatus('error')
         }
       } catch (error) {
-        console.error('Failed to load groups:', error)
+        log.error('agent_groups_load_failed', { error })
         setGroupsLoadStatus('error')
       } finally {
         setLoadingGroups(false)
@@ -226,7 +227,7 @@ export function useGroupManagement(
         setAgentsError(response.error || 'Failed to load agents')
       }
     } catch (error) {
-      console.error('Failed to load agents:', error)
+      log.error('agents_load_failed', { source: 'group_management', error })
       setAgentsError(error instanceof Error ? error.message : 'Failed to load agents')
     } finally {
       setLoadingAgents(false)
@@ -250,7 +251,7 @@ export function useGroupManagement(
         setGroupsLoadStatus('success')
       }
     } catch (error) {
-      console.error('Failed to refresh groups:', error)
+      log.error('agent_groups_refresh_failed', { error })
     }
   }, [userId, getToken])
 

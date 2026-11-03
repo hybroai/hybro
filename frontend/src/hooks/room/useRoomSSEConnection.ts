@@ -9,6 +9,7 @@ import { useRoomUiStore } from '@/stores/room-ui-store'
 import { useMessageStore } from '@/stores/message-store'
 import { allAgentsTerminalForUserMessage } from '@/lib/room-timeline/turn-agent-terminal'
 import { findProcessingStatusUserEntity } from './processing-status-log'
+import { log } from '@/lib/log'
 
 function hasTerminalEvidenceForCurrentTurn(conversationId: string, lifecycle: ProcessingLifecycle): boolean {
   const userEntity = findProcessingStatusUserEntity(conversationId, {
@@ -116,7 +117,7 @@ export function useRoomSSEConnection(
         getAgentSource,
         hitlRequestIndex,
       }).catch((err) => {
-        console.error('[HITL] Failed to restore pending requests on reconnect:', err)
+        log.error('hitl_overlay_failed', { conversation_id: conversationId, phase: 'reconnect', error: err })
       })
     }
 

@@ -12,6 +12,7 @@ import { findProcessingStatusUserEntity } from './processing-status-log'
 import { hydrateRoomFromDb } from '@/lib/room-sync/hydrate-room'
 import { hitlRequestKey } from '@/lib/hitl/hitl-message-projection'
 import { acquireHitlSubmissionFence } from './hitl-submission-fence'
+import { log } from '@/lib/log'
 
 export function useRoomActions(
   conversationId: string,
@@ -53,12 +54,12 @@ export function useRoomActions(
         try {
           await reconcileWithDb(conversationId)
         } catch (reconcileError) {
-          console.error('Failed to reconcile pending cancellation:', reconcileError)
+          log.error('cancel_reconcile_failed', { conversation_id: conversationId, error: reconcileError })
         }
         try {
           requestCanonicalSnapshot?.()
         } catch (snapshotError) {
-          console.error('Failed to request cancellation snapshot:', snapshotError)
+          log.error('cancel_snapshot_request_failed', { conversation_id: conversationId, error: snapshotError })
         }
         return true
       }
@@ -77,7 +78,7 @@ export function useRoomActions(
 
       throw new Error('Cancellation response did not include a recognized outcome')
     } catch (error) {
-      console.error('Error cancelling message:', error)
+      log.error('cancel_failed', { conversation_id: conversationId, error })
       setCancelling(false)
       toast.error(`Failed to stop processing: ${error instanceof Error ? error.message : 'Unknown error'}`)
       return false
@@ -128,7 +129,7 @@ export function useRoomActions(
         try {
           requestCanonicalSnapshot?.()
         } catch (snapshotError) {
-          console.error('Failed to request canonical HITL snapshot:', snapshotError)
+          log.error('hitl_snapshot_request_failed', { conversation_id: conversationId, error: snapshotError })
         }
         if (!getAgentName || !getAgentSource) {
           throw new Error('Authoritative HITL refresh is unavailable.', { cause: error })
@@ -278,7 +279,7 @@ export function useRoomActions(
         try {
           await reconcileWithDb(conversationId)
         } catch (reconcileError) {
-          console.error('Failed to reconcile rejected HITL cancellation:', reconcileError)
+          log.error('hitl_cancel_reconcile_failed', { conversation_id: conversationId, outcome: 'rejected', error: reconcileError })
         }
       }
       setCancelling(false)
@@ -313,12 +314,12 @@ export function useRoomActions(
     try {
       await reconcileWithDb(conversationId)
     } catch (reconcileError) {
-      console.error('Failed to reconcile accepted HITL cancellation:', reconcileError)
+      log.error('hitl_cancel_reconcile_failed', { conversation_id: conversationId, outcome: 'accepted', error: reconcileError })
     }
     try {
       requestCanonicalSnapshot?.()
     } catch (snapshotError) {
-      console.error('Failed to request HITL cancellation snapshot:', snapshotError)
+      log.error('hitl_cancel_snapshot_request_failed', { conversation_id: conversationId, error: snapshotError })
     }
   }, [
     getToken,

@@ -11,6 +11,7 @@ import {
 import { resolveUserMessageId } from '../client-request'
 import { applyRoomCommands } from '../apply-commands'
 import type { SSEHandlerDeps } from '../types'
+import { log } from '@/lib/log'
 
 // ── Turn-level gating (post-heuristic, Room Stream Snapshot plan §8) ───────
 // Terminal frames are durable-confirmed (§4 rule 4), so the old id-matching
@@ -86,10 +87,11 @@ export function handleProcessingStatus(
     const details = sseMessage.data && typeof sseMessage.data === 'object'
       ? (sseMessage.data as Record<string, unknown>).details
       : undefined
-    const message = details === undefined
-      ? 'Ignoring processing_status without required object/null details:'
-      : 'Ignoring invalid processing_status data:'
-    console.debug(message, details ?? sseMessage.data)
+    log.debug('sse_frame_ignored', {
+      conversation_id: sseMessage.conversation_id,
+      type: sseMessage.type,
+      reason: details === undefined ? 'missing_details' : 'invalid_data',
+    })
     return
   }
 

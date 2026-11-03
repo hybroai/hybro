@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import { log } from "@/lib/log";
 
 /** Local identity adapter used by the self-hosted frontend. */
 const localGetToken = async () => "mock-jwt-token";
@@ -23,10 +24,10 @@ export async function getClientAuthHeaders(
         'Authorization': `Bearer ${token}`,
       }
     } else {
-      console.warn('Token getter returned null - user may not be authenticated')
+      log.warn('auth_token_unavailable', { reason: 'empty' })
     }
   } catch (error) {
-    console.warn('Failed to get auth token:', error)
+    log.warn('auth_token_unavailable', { reason: 'getter_failed', error })
   }
   
   return baseHeaders
@@ -45,17 +46,17 @@ const mockUser = {
   imageUrl: "",
   passwordEnabled: false,
   deleteSelfEnabled: false,
-  delete: async () => console.log("Mock delete user"),
-  setProfileImage: async (_args: unknown) => console.log("Mock set profile image"),
-  reload: async () => console.log("Mock reload user"),
-  update: async (_args: unknown) => console.log("Mock update user"),
-  updatePassword: async (_args: unknown) => console.log("Mock update password"),
+  delete: async () => log.info('auth_mock_action', { action: 'delete_user' }),
+  setProfileImage: async (_args: unknown) => log.info('auth_mock_action', { action: 'set_profile_image' }),
+  reload: async () => log.info('auth_mock_action', { action: 'reload_user' }),
+  update: async (_args: unknown) => log.info('auth_mock_action', { action: 'update_user' }),
+  updatePassword: async (_args: unknown) => log.info('auth_mock_action', { action: 'update_password' }),
   getSessions: async () => [{
     id: "sess_local_dev",
     status: "active",
     latestActivity: { browserName: "MockBrowser", deviceType: "Desktop", ipAddress: "127.0.0.1" },
     lastActiveAt: new Date(),
-    revoke: async () => console.log("Mock revoke session"),
+    revoke: async () => log.info('auth_mock_action', { action: 'revoke_session' }),
   }],
 };
 
@@ -80,12 +81,12 @@ export function useAuth() {
 export function useAuthClient() {
   return {
     signOut: (_opts?: unknown) => {
-      console.log("Mock sign out");
+      log.info('auth_mock_action', { action: 'sign_out' });
       window.location.href = "/";
     },
-    openUserProfile: () => console.log("Mock open user profile"),
-    openSignIn: () => console.log("Mock open sign in"),
-    openSignUp: () => console.log("Mock open sign up"),
+    openUserProfile: () => log.info('auth_mock_action', { action: 'open_user_profile' }),
+    openSignIn: () => log.info('auth_mock_action', { action: 'open_sign_in' }),
+    openSignUp: () => log.info('auth_mock_action', { action: 'open_sign_up' }),
   };
 }
 

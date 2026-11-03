@@ -812,7 +812,63 @@ Selectors under `src/lib/selectors/` adapt store state into UI-specific slices:
 - Wraps HTTP failures in `ApiError`, with the parsed JSON error body in
   `details`.
 - Returns `undefined` for a 204 response instead of parsing a body.
-- Logs client errors as warnings and server/unexpected errors as errors.
+- Sends a fresh `X-Request-ID` on every call.
+- Logs `api_request_client_error` (warn, 4xx), `api_request_failed` (error),
+  `api_request_timed_out` (error), and `api_request_aborted` (debug), each
+  with `request_id`, `method`, and `url`, plus `status` when there is one.
+
+### Logging and request ids
+
+`src/lib/log.ts` is the browser logger and the only module in `src/` that
+writes to `console`; ESLint enforces this with `no-console` (tests are
+exempt), and `tests/unit/lib/log-guard.test.ts` checks that every call passes
+a snake_case string literal event.
+
+- `log.debug|info|warn|error(event, fields?)` records `{ts, level, event,
+  fields}`. Events are named by area (`api_request_failed`, `sse_connected`,
+  `sse_frame_ignored`, `room_hydration_failed`, `hitl_overlay_failed`,
+  `send_blocked`, `auth_token_unavailable`, `auth_mock_action`, ...).
+- Fields must be flat primitives (ids, counts, reasons, flags) and are stored
+  as given. Only two kinds of value are reduced. An `Error` under any key
+  becomes `{name}`, plus `status` when it has a numeric one; its message is
+  never logged, because HTTP errors embed the response body, JSON parse
+  errors quote it, and wrappers such as `new Error(response.error)` carry
+  server text. Outside production the error also keeps the V8 frame lines
+  (`at ...`) of its stack: the `<name>: <message>` header is skipped by exact
+  line count, so a message that imitates frames never survives, and a stack
+  whose header does not match the message, or that has no frames, is
+  omitted.
+  A non-`Error` value under `error` becomes a string of at most 200
+  characters, or `{type}` for objects.
+- Fields never carry message text, tokens, or response bodies. `apiClient`
+  and `sse_frame_failed` log only `error_name` for non-HTTP failures.
+  Wire-supplied identifiers (an unknown frame `type`, an error frame's
+  `error_type`) pass through `logToken`, which keeps a string matching
+  `^[a-z0-9_.-]{1,64}$` (case-insensitive) and otherwise logs `invalid`.
+  Room-flow events include `conversation_id` and, when known,
+  `client_request_id`; `agents_load_failed` carries a `source` naming the
+  caller.
+- The level comes from `NODE_ENV` only: in production `debug` is buffered but
+  not printed; other levels always print.
+- `recentLogs()` returns the last 500 entries of a module-level ring buffer.
+  Nothing reads it yet.
+- `newRequestId()` returns 32 lowercase hex characters from
+  `crypto.getRandomValues` (which, unlike `crypto.randomUUID`, also exists on
+  plain-http non-loopback origins). `requestHeaders(extra?)` returns
+  `{ headers: { 'X-Request-ID': id, ...extra }, requestId: id }`.
+
+Every backend HTTP call sends its own `X-Request-ID`: `apiClient`, the room
+stream (`SSEConnection.connect`, a new id per connect attempt, logged in
+`sse_connected` with `attempt`; a non-OK stream response logs
+`sse_connect_failed` (warn) with `request_id`, `status`, and `attempt` before
+reconnecting; `sse_reconnect_scheduled` records the backoff), `getSSEStatus` and `cancelMessage` in `api/sse.ts`, and file
+download and upload in `api/files.ts`. The `/hybro-mcp` probe and the image
+lightbox's `blob:` fetch are not backend calls and send none.
+
+`X-Request-ID` is per HTTP call, never stored, and never used for matching.
+`client_request_id` keeps its contract: minted once per user message, carried
+in the send body and every SSE frame, and used for optimistic replacement.
+The send request carries both, so a backend log line can show the pair.
 
 API modules live in `src/lib/api/`. Consumers import the specific module they
 need rather than a shared barrel, keeping client bundles scoped to the active
@@ -843,6 +899,7 @@ quote.ts, request.ts, response.ts, sse.ts
 Other library modules:
 
 - `auth.tsx`: local self-hosted identity and authentication-header adapter.
+- `log.ts`: browser logger, ring buffer, and `X-Request-ID` helpers.
 - `routes.ts`: canonical public and management route vocabulary.
 - `utils.ts`: `cn`, `getApiUrl`, and formatting helpers.
 - `consumer-nav.ts`, `nav-items.ts`: top-level navigation configuration.
@@ -1322,7 +1379,7 @@ src/
 |-- app/                 # Next.js App Router routes and layouts
 |-- components/          # UI, portal shells, room workspace, conversation renderer
 |-- hooks/               # public hooks and room orchestration
-|-- lib/                 # API clients, type definitions, selectors, room sync, timeline logic
+|-- lib/                 # API clients, logger (log.ts), type definitions, selectors, room sync, timeline logic
 `-- stores/              # Zustand message, streaming, and room UI stores
 ```
 

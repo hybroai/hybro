@@ -1,8 +1,9 @@
-import { describe, it, expect, beforeEach } from 'vitest'
+import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { http, HttpResponse } from 'msw'
 import { server } from '../../setup/msw-server'
 import { errorHandlers } from '../../setup/msw-handlers'
 import { getApiUrl } from '@/lib/utils'
+import { recentLogs } from '@/lib/log'
 import {
   createNewRoom,
   inquiryActiveRuns,
@@ -489,6 +490,89 @@ describe('Room API', () => {
       await expect(
         SendMessage(errorSendParams)
       ).rejects.toThrow()
+    })
+  })
+
+  describe('X-Request-ID', () => {
+    it('sends a fresh backend-valid request id on every call', async () => {
+      const captured: Array<string | null> = []
+      server.use(
+        http.get(`${rooms}/:conversationId`, ({ request, params }) => {
+          captured.push(request.headers.get('x-request-id'))
+          return HttpResponse.json({
+            success: true,
+            conversation_id: params.conversationId,
+            room: { conversation_id: params.conversationId, room_name: 'Test Room' },
+          })
+        })
+      )
+
+      await inquiryRoomSetting('room-42')
+      await inquiryRoomSetting('room-42')
+
+      expect(captured).toHaveLength(2)
+      for (const id of captured) {
+        expect(id).toMatch(/^[0-9a-f]{32}$/)
+        expect(id).toMatch(/^[A-Za-z0-9._:-]{1,128}$/)
+      }
+      expect(captured[0]).not.toBe(captured[1])
+    })
+  })
+
+  describe('apiClient logging', () => {
+    const SECRET = 'user-secret-text'
+
+    function entriesFor(conversationId: string) {
+      return recentLogs().filter((entry) => String(entry.fields.url ?? '').endsWith(`/${conversationId}`))
+    }
+
+    it('logs a 4xx as api_request_client_error without the response body', async () => {
+      vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+      server.use(
+        http.get(`${rooms}/:conversationId`, () =>
+          HttpResponse.json({ detail: [{ msg: 'bad', input: SECRET }] }, { status: 422 }))
+      )
+
+      await expect(inquiryRoomSetting('log-4xx')).rejects.toThrow()
+
+      const entries = entriesFor('log-4xx')
+      expect(entries.map((entry) => entry.event)).toEqual(['api_request_client_error'])
+      expect(entries[0].fields).toMatchObject({ method: 'GET', status: 422 })
+      expect(entries[0].fields.request_id).toMatch(/^[0-9a-f]{32}$/)
+      expect(JSON.stringify(entries)).not.toContain(SECRET)
+      vi.restoreAllMocks()
+    })
+
+    it('logs a 5xx as api_request_failed without the response body', async () => {
+      vi.spyOn(console, 'error').mockImplementation(() => undefined)
+      server.use(
+        http.get(`${rooms}/:conversationId`, () =>
+          HttpResponse.json({ error: SECRET }, { status: 500 }))
+      )
+
+      await expect(inquiryRoomSetting('log-5xx')).rejects.toThrow()
+
+      const entries = entriesFor('log-5xx')
+      expect(entries.map((entry) => entry.event)).toEqual(['api_request_failed'])
+      expect(entries[0].fields).toMatchObject({ method: 'GET', status: 500 })
+      expect(JSON.stringify(entries)).not.toContain(SECRET)
+      vi.restoreAllMocks()
+    })
+
+    it('logs only the error name when a 200 body is not JSON', async () => {
+      vi.spyOn(console, 'error').mockImplementation(() => undefined)
+      server.use(
+        http.get(`${rooms}/:conversationId`, () =>
+          new HttpResponse(`${SECRET} not json`, { status: 200 }))
+      )
+
+      await expect(inquiryRoomSetting('log-parse')).rejects.toThrow()
+
+      const entries = entriesFor('log-parse')
+      expect(entries.map((entry) => entry.event)).toEqual(['api_request_failed'])
+      expect(entries[0].fields.error_name).toBe('SyntaxError')
+      expect(JSON.stringify(entries)).not.toContain(SECRET)
+      vi.restoreAllMocks()
     })
   })
 })

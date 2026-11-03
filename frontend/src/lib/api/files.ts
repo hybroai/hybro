@@ -1,5 +1,6 @@
 import { getApiUrl } from '../utils'
 import { publicConfig } from '../config'
+import { requestHeaders } from '../log'
 
 const API_BASE_URL = getApiUrl('files')
 
@@ -28,7 +29,7 @@ export async function fetchRoomFileBlob(
     throw new Error('Invalid file id')
   }
   const token = await getToken?.()
-  const headers: Record<string, string> = {}
+  const { headers } = requestHeaders()
   if (token) headers.Authorization = `Bearer ${token}`
 
   const response = await fetch(`${getAuthenticatedFilePath()}/${fileId}/content`, {
@@ -53,7 +54,7 @@ export async function uploadFile(
   formData.append('file', file)
   formData.append('conversation_id', conversationId)
 
-  const headers: Record<string, string> = {}
+  const { headers } = requestHeaders()
   if (getToken) {
     const token = await getToken()
     if (token) {

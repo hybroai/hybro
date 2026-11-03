@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef } from 'react'
 import type { MutableRefObject } from 'react'
 import { useMessageStore } from '@/stores/message-store'
 import { hydrateRoomFromDb } from '@/lib/room-sync/hydrate-room'
+import { log } from '@/lib/log'
 
 export function useRoomHydration(
   conversationId: string,
@@ -60,7 +61,7 @@ export function useRoomHydration(
         })
       }
     } catch (error) {
-      console.error('[NormalizedStore] Reconciliation failed:', error)
+      log.error('room_reconcile_failed', { conversation_id: targetConversationId, error })
     } finally {
       if (reconcileInflightRef.current === targetConversationId) {
         reconcileInflightRef.current = null

@@ -3,6 +3,7 @@ import { skipToken, useQuery } from '@tanstack/react-query'
 import { getAllAgents } from '@/lib/api/agent'
 import { SYSTEM_AGENTS } from '@/lib/system-agents'
 import type { Agent } from '@/lib/types/agent'
+import { log } from '@/lib/log'
 
 export const AGENT_CATALOG_KEY = ['agents', 'all'] as const
 
@@ -34,7 +35,7 @@ export function useAgentCatalog(userId?: string, getToken?: () => Promise<string
         if (error instanceof Error && error.name === 'AbortError') {
           return []
         }
-        console.error('❌ Failed to load agents:', error)
+        log.error('agents_load_failed', { source: 'agent_catalog', error })
         throw error
       }
     },

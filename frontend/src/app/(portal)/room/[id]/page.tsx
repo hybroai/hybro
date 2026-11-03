@@ -19,6 +19,7 @@ import {
 import type { MessageDispatchInput } from '@/lib/types/agent-group'
 import type { ChatMode } from '@/lib/types/chat-mode'
 import { chatModeToExecutionMode, roomDefaultToChatMode } from '@/lib/types/chat-mode'
+import { log } from '@/lib/log'
 
 export default function RoomChatPage() {
   const params = useParams()
@@ -138,7 +139,7 @@ export default function RoomChatPage() {
     initialMessageSentRef.current = true
 
     if (!pendingData.mode || !pendingData.agentScope || !pendingData.clientRequestId) {
-      console.debug('Blocked pending room autosend without immutable execution contract')
+      log.debug('room_autosend_blocked', { conversation_id: conversationId, reason: 'missing_execution_contract' })
       return
     }
 

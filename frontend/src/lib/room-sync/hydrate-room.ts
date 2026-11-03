@@ -11,6 +11,7 @@ import type { IncomingMessage } from '@/stores/message-store/types'
 import { applyDbMessages } from './apply-db-messages'
 import { overlayHitlForRoom } from './hitl-overlay'
 import type { HydrateRoomOptions, HydrateRoomResult } from './types'
+import { log } from '@/lib/log'
 
 function markInitialHydrationComplete(targetConversationId: string): boolean {
   const store = useMessageStore.getState()
@@ -78,7 +79,7 @@ export async function hydrateRoomFromDb(options: HydrateRoomOptions): Promise<Hy
 
   if (phase === 'hitl_overlay') {
     if (!options.hitlRequestIndex) {
-      console.warn('[room-sync] hitl_overlay skipped — missing hitlRequestIndex')
+      log.warn('hitl_overlay_skipped', { conversation_id: conversationId, reason: 'missing_request_index' })
       return { ...EMPTY_RESULT }
     }
     try {
@@ -91,7 +92,7 @@ export async function hydrateRoomFromDb(options: HydrateRoomOptions): Promise<Hy
       })
       return { ...EMPTY_RESULT, pendingHitlCount: pending.size }
     } catch (err) {
-      console.error('[HITL] overlay failed:', err)
+      log.error('hitl_overlay_failed', { conversation_id: conversationId, phase, error: err })
       return { ...EMPTY_RESULT, hitlFetchFailed: true }
     }
   }
@@ -99,7 +100,7 @@ export async function hydrateRoomFromDb(options: HydrateRoomOptions): Promise<Hy
   try {
     const fetched = await fetchAndNormalizeMessages(conversationId, options)
     if ('fetchFailed' in fetched) {
-      console.error(`❌ [room-sync] Failed to load messages for room ${conversationId}`)
+      log.error('room_hydration_failed', { conversation_id: conversationId, phase, reason: 'fetch_failed' })
       if (phase === 'initial') {
         markInitialHydrationComplete(conversationId)
       }
@@ -143,7 +144,7 @@ export async function hydrateRoomFromDb(options: HydrateRoomOptions): Promise<Hy
         pendingHitlCount = pending.size
       } catch (hitlErr) {
         hitlFetchFailed = true
-        console.error('[HITL] Failed to overlay HITL state during hydration:', hitlErr)
+        log.error('hitl_overlay_failed', { conversation_id: conversationId, phase, error: hitlErr })
       }
     }
 
@@ -156,7 +157,7 @@ export async function hydrateRoomFromDb(options: HydrateRoomOptions): Promise<Hy
       hitlFetchFailed,
     }
   } catch (error) {
-    console.error(`❌ [room-sync] ${phase} failed for room ${conversationId}:`, error)
+    log.error('room_hydration_failed', { conversation_id: conversationId, phase, error })
     if (phase === 'initial') {
       markInitialHydrationComplete(conversationId)
     }

@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeAll, beforeEach, afterAll, afterEach, vi } from 'vitest'
-import { SSEConnection, type SSEConnectionOptions } from '@/lib/api/sse'
+import { SSEConnection, cancelMessage, getSSEStatus, type SSEConnectionOptions } from '@/lib/api/sse'
+import { recentLogs } from '@/lib/log'
 import { MockSSEStream } from '../../setup/mock-fetch-sse'
 import { server } from '../../setup/msw-server'
 
@@ -386,6 +387,131 @@ describe('SSEConnection', () => {
       await vi.runAllTimersAsync()
 
       expect(MockSSEStream.getFetchCallCount()).toBe(countBefore)
+    })
+  })
+
+  describe('request ids', () => {
+    const REQUEST_ID = /^[0-9a-f]{32}$/
+
+    function requestIdOf(call: { options: RequestInit }): string {
+      return (call.options.headers as Record<string, string>)['X-Request-ID']
+    }
+
+    it('sends X-Request-ID on the stream request', async () => {
+      await connectAndOpen()
+
+      expect(requestIdOf(MockSSEStream.getLastFetchCallOrFail())).toMatch(REQUEST_ID)
+    })
+
+    it('mints a new request id for each reconnect attempt', async () => {
+      const { instance } = await connectAndOpen({ conversationId: 'rid-room' })
+      const firstId = requestIdOf(MockSSEStream.getLastFetchCallOrFail())
+
+      instance.simulateClose()
+      await vi.advanceTimersByTimeAsync(0)
+      await vi.advanceTimersByTimeAsync(1000)
+
+      const secondId = requestIdOf(MockSSEStream.getLastFetchCallOrFail())
+      expect(secondId).toMatch(REQUEST_ID)
+      expect(secondId).not.toBe(firstId)
+    })
+
+    it('records sse_connected and sse_reconnect_scheduled with conversation_id and attempt', async () => {
+      const { instance } = await connectAndOpen({ conversationId: 'log-room' })
+
+      instance.simulateClose()
+      await vi.advanceTimersByTimeAsync(0)
+      await vi.advanceTimersByTimeAsync(1000)
+
+      const events = recentLogs().filter((entry) => entry.fields.conversation_id === 'log-room')
+      const connected = events.filter((entry) => entry.event === 'sse_connected')
+      const scheduled = events.filter((entry) => entry.event === 'sse_reconnect_scheduled')
+      expect(connected.map((entry) => entry.fields.attempt)).toEqual([0, 1])
+      expect(connected[0].fields.request_id).toMatch(REQUEST_ID)
+      expect(scheduled).toHaveLength(1)
+      expect(scheduled[0].fields).toMatchObject({ conversation_id: 'log-room', attempt: 1, delay_ms: 1000 })
+    })
+
+    it('logs sse_frame_failed with only the error name, never frame data', async () => {
+      const SECRET = 'frame-secret-text'
+      const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {})
+      const onMessage = vi.fn(() => {
+        throw new Error(`handler choked on ${SECRET}`)
+      })
+      const { instance } = await connectAndOpen({ conversationId: 'frame-room', onMessage })
+
+      instance.simulateMessage({
+        type: 'agent_response',
+        conversation_id: 'frame-room',
+        timestamp: new Date().toISOString(),
+        data: { content: SECRET },
+      })
+      instance.simulateRawData(`data: {"not json ${SECRET}\n\n`)
+      await vi.advanceTimersByTimeAsync(0)
+
+      const failed = recentLogs().filter(
+        (entry) => entry.event === 'sse_frame_failed' && entry.fields.conversation_id === 'frame-room',
+      )
+      expect(failed.map((entry) => entry.fields.error_name)).toEqual(['Error', 'SyntaxError'])
+      expect(JSON.stringify(recentLogs())).not.toContain(SECRET)
+      expect(JSON.stringify(consoleError.mock.calls)).not.toContain(SECRET)
+      consoleError.mockRestore()
+    })
+
+    it('logs sse_connect_failed for a non-OK stream response before reconnecting', async () => {
+      vi.spyOn(console, 'warn').mockImplementation(() => {})
+      mockFetch.mockImplementationOnce(async (url, init) => {
+        MockSSEStream.recordFetchCall({ url: String(url), options: init ?? {} })
+        return new Response('unavailable', { status: 503 })
+      })
+      const connection = new SSEConnection({ conversationId: 'fail-room' })
+
+      void connection.connect()
+      await vi.advanceTimersByTimeAsync(0)
+
+      const requestId = requestIdOf(MockSSEStream.getLastFetchCallOrFail())
+      const events = recentLogs().filter((entry) => entry.fields.conversation_id === 'fail-room')
+      expect(events.map((entry) => entry.event)).toEqual(['sse_connect_failed', 'sse_reconnect_scheduled'])
+      expect(events[0].fields).toEqual({
+        conversation_id: 'fail-room',
+        request_id: requestId,
+        status: 503,
+        attempt: 0,
+      })
+      expect(events[0].level).toBe('warn')
+      connection.disconnect()
+      vi.mocked(console.warn).mockRestore()
+    })
+
+    it('getSSEStatus sends X-Request-ID with the auth headers', async () => {
+      mockFetch.mockImplementationOnce(async (url, init) => {
+        MockSSEStream.recordFetchCall({ url: String(url), options: init ?? {} })
+        return Response.json({ conversation_id: 'room-1', active_connections: 1, status: 'active' })
+      })
+
+      await getSSEStatus('room-1', async () => 'status-token')
+
+      const call = MockSSEStream.getLastFetchCallOrFail()
+      const headers = call.options.headers as Record<string, string>
+      expect(call.url).toContain('/sse/room/room-1/status')
+      expect(headers['X-Request-ID']).toMatch(REQUEST_ID)
+      expect(headers['Authorization']).toBe('Bearer status-token')
+    })
+
+    it('cancelMessage sends X-Request-ID with the auth headers', async () => {
+      mockFetch.mockImplementationOnce(async (url, init) => {
+        MockSSEStream.recordFetchCall({ url: String(url), options: init ?? {} })
+        return Response.json({ success: true, message_id: 'm1', message: 'ok' })
+      })
+
+      await cancelMessage('m1', async () => 'cancel-token')
+
+      const call = MockSSEStream.getLastFetchCallOrFail()
+      const headers = call.options.headers as Record<string, string>
+      expect(call.url).toContain('/sse/message/m1/cancel')
+      expect(call.options.method).toBe('POST')
+      expect(headers['X-Request-ID']).toMatch(REQUEST_ID)
+      expect(headers['Authorization']).toBe('Bearer cancel-token')
     })
   })
 })
