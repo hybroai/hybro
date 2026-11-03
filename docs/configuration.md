@@ -107,6 +107,7 @@ Logging:
 |---|---|---|
 | `backend.log_level` | `INFO` | Lowest level the backend writes: `DEBUG`, `INFO`, `WARNING`, `ERROR`, or `CRITICAL`. |
 | `backend.log_format` | `auto` in a checkout, `json` in the image | `json`, `logfmt`, or `auto` (logfmt when `backend.app_env` is `development`, JSON otherwise). The image defaults to `json` so backend lines in `hybro logs` are machine-readable; a value in `config.json` wins. |
+| MCP server (not configurable) | `INFO`; JSON in the image | The MCP server logs JSON at level `info` in the image (logfmt from a checkout) and does not read `backend.log_level` or `backend.log_format`. |
 
 `hybro logs --service <name> --level <level> --trace <id>` filters the
 container's log stream on the host; these are command options, not

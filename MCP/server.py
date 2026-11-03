@@ -4,14 +4,20 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import functools
 import json
+import logging
 import os
 import re
+import time
+from collections.abc import Awaitable, Callable
+from types import SimpleNamespace
 from typing import Annotated, Literal
 from urllib.parse import quote
 from uuid import uuid4
 
 import httpx
+import uvicorn
 from mcp.server import MCPServer
 from mcp.server.transport_security import (
     TransportSecurityMiddleware,
@@ -25,8 +31,17 @@ from pydantic import (
     JsonValue,
     ValidationError,
 )
+from starlette.applications import Starlette
 from starlette.requests import Request
 from starlette.responses import JSONResponse, Response
+
+from common.observability import (
+    bind_log_context,
+    configure_logging,
+    get_log_context,
+    safe_exception_metadata,
+)
+from common.observability.catalog import Catalog, EventLogger
 
 BACKEND_API_URL = "http://127.0.0.1:8000/api/v1/"
 MCP_HOST = "127.0.0.1"
@@ -108,6 +123,34 @@ HTTP_NEXT_ACTIONS = {
         "resend automatically; tell the user."
     ),
 }
+
+# The MCP server's own event catalog, rendered by the backend's formatter.
+EVENTS = Catalog()
+# Emitted before uvicorn binds; uvicorn's own startup line confirms the bind.
+MCP_SERVER_STARTING = EVENTS.define(
+    "mcp_server_starting", logging.INFO, required={"host", "port"}
+)
+# outcome is "success", "error" (an error result or a raised exception), or
+# "cancelled" (the call was cancelled, for example by a client disconnect).
+MCP_TOOL_CALLED = EVENTS.define(
+    "mcp_tool_called",
+    logging.INFO,
+    required={"tool", "outcome", "duration_ms", "http_request_id"},
+)
+# code is the tool error code, or HTTP_ERROR for a non-2xx response; status is
+# set when a response arrived.
+MCP_BACKEND_CALL_FAILED = EVENTS.define(
+    "mcp_backend_call_failed",
+    logging.WARNING,
+    required={"code", "http_request_id"},
+    system=True,
+)
+log = EventLogger(
+    logging.getLogger("hybro.mcp"),
+    EVENTS,
+    exception_fields=safe_exception_metadata,
+    context=get_log_context,
+)
 
 
 class ConnectionConfig(BaseModel):
@@ -296,9 +339,59 @@ def http_next_action(status: int, body: dict[str, JsonValue]) -> str:
     return HTTP_NEXT_ACTIONS.get(status, "Tell the user the Hybro request failed.")
 
 
+def logged_tool(
+    handler: Callable[..., Awaitable[CallToolResult]],
+) -> Callable[..., Awaitable[CallToolResult]]:
+    """Give one tool call a request id for its backend calls and log its outcome.
+
+    functools.wraps keeps the handler's name, docstring and signature, which
+    the MCP SDK reads to build the tool's schema.
+    """
+
+    @functools.wraps(handler)
+    async def call(**arguments: object) -> CallToolResult:
+        http_request_id = uuid4().hex
+        started = time.perf_counter()
+        outcome = "error"
+        error: BaseException | None = None
+        with bind_log_context(request_id=http_request_id, trace_id=http_request_id):
+            try:
+                result = await handler(**arguments)
+                if not result.is_error:
+                    outcome = "success"
+                return result
+            except asyncio.CancelledError:
+                outcome = "cancelled"
+                raise
+            except BaseException as exc:
+                error = exc
+                raise
+            finally:
+                correlation = {
+                    key: arguments[key]
+                    for key in ("session_id", "client_request_id")
+                    if arguments.get(key) is not None
+                }
+                log.emit(
+                    MCP_TOOL_CALLED,
+                    level=logging.ERROR if outcome == "error" else None,
+                    exc=error,
+                    tool=handler.__name__,
+                    outcome=outcome,
+                    duration_ms=round((time.perf_counter() - started) * 1000, 3),
+                    http_request_id=http_request_id,
+                    **correlation,
+                )
+
+    return call
+
+
 def create_server(client: httpx.AsyncClient) -> MCPServer:
-    """Register network tools over a caller-owned HTTP client, without backend
-    imports."""
+    """Register network tools over a caller-owned HTTP client.
+
+    From the backend it imports only the common.observability logging modules,
+    not the runtime.
+    """
     server = MCPServer(
         "Hybro Agent Network",
         instructions=(
@@ -337,7 +430,9 @@ def create_server(client: httpx.AsyncClient) -> MCPServer:
             # Discovery is read-only: no agent execution or Provider requests.
             async with asyncio.timeout(HEALTH_TIMEOUT_SECONDS):
                 response = await client.get(
-                    "agents/discovery", timeout=HEALTH_TIMEOUT_SECONDS
+                    "agents/discovery",
+                    headers={"X-Request-ID": uuid4().hex},
+                    timeout=HEALTH_TIMEOUT_SECONDS,
                 )
                 if response.status_code in {401, 403}:
                     status = "unsupported_auth"
@@ -360,6 +455,8 @@ def create_server(client: httpx.AsyncClient) -> MCPServer:
         payload: dict[str, JsonValue] | None = None,
     ) -> dict[str, JsonValue] | CallToolResult:
         """Return the JSON body of a successful call, or a tool error result."""
+        # Bound by logged_tool for every tool call.
+        http_request_id = get_log_context()["request_id"]
         correlation = (
             {
                 key: payload[key]
@@ -369,6 +466,15 @@ def create_server(client: httpx.AsyncClient) -> MCPServer:
             if payload is not None
             else {}
         )
+
+        def failed(code: str, status: int | None = None) -> None:
+            fields = {} if status is None else {"status": status}
+            log.emit(
+                MCP_BACKEND_CALL_FAILED,
+                code=code,
+                http_request_id=http_request_id,
+                **fields,
+            )
 
         def error(code: str, message: str, next_action: str) -> CallToolResult:
             return tool_result(
@@ -382,15 +488,21 @@ def create_server(client: httpx.AsyncClient) -> MCPServer:
         try:
             async with asyncio.timeout(REQUEST_TIMEOUT_SECONDS):
                 response = await client.request(
-                    method, path, params=params, json=payload
+                    method,
+                    path,
+                    params=params,
+                    json=payload,
+                    headers={"X-Request-ID": http_request_id},
                 )
         except (TimeoutError, httpx.TimeoutException):
+            failed("BACKEND_TIMEOUT")
             return error(
                 "BACKEND_TIMEOUT",
                 "Hybro did not respond in time. Remote execution may continue.",
                 HTTP_NEXT_ACTIONS[504],
             )
         except httpx.RequestError:
+            failed("BACKEND_UNAVAILABLE")
             return error(
                 "BACKEND_UNAVAILABLE",
                 "Could not complete the Hybro request; delivery is uncertain.",
@@ -401,18 +513,21 @@ def create_server(client: httpx.AsyncClient) -> MCPServer:
         try:
             body = response.json()
         except ValueError:
+            failed("INVALID_BACKEND_RESPONSE", response.status_code)
             return error(
                 "INVALID_BACKEND_RESPONSE",
                 f"Hybro returned non-JSON content (HTTP {response.status_code}).",
                 "Check the Hybro backend logs.",
             )
         if not isinstance(body, dict):
+            failed("INVALID_BACKEND_RESPONSE", response.status_code)
             return error(
                 "INVALID_BACKEND_RESPONSE",
                 "Hybro returned a non-object response.",
                 "Check the Hybro backend logs.",
             )
         if not response.is_success:
+            failed("HTTP_ERROR", response.status_code)
             return tool_result(
                 {**body, "next_action": http_next_action(response.status_code, body)},
                 is_error=True,
@@ -424,6 +539,7 @@ def create_server(client: httpx.AsyncClient) -> MCPServer:
             read_only_hint=True, idempotent_hint=True, open_world_hint=False
         ),
     )
+    @logged_tool
     async def list_subnets() -> Annotated[CallToolResult, SubnetList]:
         """List your subnets: named groups of agents, such as business teams.
 
@@ -449,6 +565,7 @@ def create_server(client: httpx.AsyncClient) -> MCPServer:
             read_only_hint=True, idempotent_hint=True, open_world_hint=False
         ),
     )
+    @logged_tool
     async def find_agents(
         query: Annotated[
             str,
@@ -487,6 +604,7 @@ def create_server(client: httpx.AsyncClient) -> MCPServer:
             read_only_hint=True, idempotent_hint=True, open_world_hint=False
         ),
     )
+    @logged_tool
     async def get_agent(
         agent_id: Annotated[
             str, Field(description="An agent_id from find_agents or discovery.")
@@ -506,6 +624,7 @@ def create_server(client: httpx.AsyncClient) -> MCPServer:
             read_only_hint=True, idempotent_hint=True, open_world_hint=False
         ),
     )
+    @logged_tool
     async def discover_agents(
         subnet_id: Annotated[
             str | None,
@@ -533,6 +652,7 @@ def create_server(client: httpx.AsyncClient) -> MCPServer:
             open_world_hint=True,
         ),
     )
+    @logged_tool
     async def send_message(
         agent_id: Annotated[
             str, Field(description="An agent_id from find_agents or discovery.")
@@ -634,6 +754,7 @@ def create_server(client: httpx.AsyncClient) -> MCPServer:
             read_only_hint=True, idempotent_hint=True, open_world_hint=False
         ),
     )
+    @logged_tool
     async def check_session(
         session_id: Annotated[
             str, Field(description="The session_id returned by send_message.")
@@ -661,6 +782,7 @@ def create_server(client: httpx.AsyncClient) -> MCPServer:
             open_world_hint=True,
         ),
     )
+    @logged_tool
     async def close_session(
         session_id: Annotated[
             str, Field(description="The session_id returned by send_message.")
@@ -678,24 +800,51 @@ def create_server(client: httpx.AsyncClient) -> MCPServer:
     return server
 
 
+def configure_for(*, image: bool) -> None:
+    """Log through the backend's formatter: JSON in the image, logfmt on a host.
+
+    The level is fixed at INFO; the server does not read backend.log_level.
+    """
+    configure_logging(
+        SimpleNamespace(log_level="INFO", log_format="json" if image else "auto"),
+        service="hybro-mcp",
+    )
+
+
+async def serve(app: Starlette) -> None:
+    """Run uvicorn without its own logging config, as backend/__main__.py does.
+
+    MCPServer.run_streamable_http_async would let uvicorn's dictConfig attach
+    plain-text handlers next to the structured one.
+    """
+    config = uvicorn.Config(
+        app, host=MCP_HOST, port=MCP_PORT, log_config=None, access_log=False
+    )
+    log.emit(MCP_SERVER_STARTING, host=MCP_HOST, port=MCP_PORT)
+    await uvicorn.Server(config).serve()
+
+
 async def main(*, image: bool = False) -> None:
     # The image passes the scoped projection; a host run uses defaults. Both
     # share loopback with the backend.
     config = connection_config(container=image)
+    # Order is load-bearing: MCPServer.__init__ calls logging.basicConfig, a
+    # no-op only once the root logger has a handler.
+    configure_for(image=image)
     async with httpx.AsyncClient(
         base_url=f"http://127.0.0.1:8000{config.api_prefix}/",
         timeout=httpx.Timeout(REQUEST_TIMEOUT_SECONDS, connect=5.0),
         follow_redirects=False,
         trust_env=False,
     ) as client:
-        await create_server(client).run_streamable_http_async(
-            host=MCP_HOST,
-            port=MCP_PORT,
+        app = create_server(client).streamable_http_app(
             streamable_http_path="/mcp",
             stateless_http=True,
             json_response=True,
             transport_security=TRANSPORT_SECURITY,
+            host=MCP_HOST,
         )
+        await serve(app)
 
 
 if __name__ == "__main__":

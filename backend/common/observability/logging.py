@@ -493,7 +493,7 @@ def _resolve_output_format(settings: Any) -> str:
     return configured
 
 
-def configure_logging(settings: Any = None) -> None:
+def configure_logging(settings: Any = None, *, service: str = "hybro-backend") -> None:
     """Configure the process-wide stdout logging pipeline idempotently."""
 
     global _configured_handler
@@ -504,6 +504,7 @@ def configure_logging(settings: Any = None) -> None:
     formatter = StructuredFormatter(
         output_format=_resolve_output_format(settings),
         environment=environment,
+        service=service,
     )
     root = logging.getLogger()
 

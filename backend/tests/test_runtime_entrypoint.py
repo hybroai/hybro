@@ -176,6 +176,9 @@ def test_mcp_runs_in_image_mode_with_the_api_prefix():
     mcp = build(loopback())["mcp"]
     assert mcp.command[1:] == ["server.py", "--image"]
     assert json.loads(mcp.env["HYBRO_MCP_CONFIG"]) == {"api_prefix": "/api/v1"}
+    # The server imports only the backend's logging modules from this path.
+    assert mcp.env["PYTHONPATH"] == "/app/backend"
+    assert set(mcp.env) == {"HYBRO_MCP_CONFIG", "PYTHONPATH"}
 
 
 def test_configured_mongodb_skips_the_embedded_server():

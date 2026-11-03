@@ -269,7 +269,11 @@ def projections(
         "mcp": Program(
             [str(BACKEND_PYTHON), "server.py", "--image"],
             str(APP_DIR / "MCP"),
-            {"HYBRO_MCP_CONFIG": json.dumps({"api_prefix": api_prefix})},
+            {
+                "HYBRO_MCP_CONFIG": json.dumps({"api_prefix": api_prefix}),
+                # The server imports only the backend's logging modules.
+                "PYTHONPATH": str(APP_DIR / "backend"),
+            },
         ),
         "frontend": Program(
             ["node", "server.js"],

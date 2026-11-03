@@ -1515,7 +1515,27 @@ loopback for the backend and its own listener. Caddy omits the `/mcp` route on a
 public listener, and the frontend then reports MCP as disabled. Native
 startup keeps fixed loopback endpoints and `/api/v1`. Host/Origin DNS-rebinding checks stay enabled.
 The adapter keeps one async HTTP client, uses stateless MCP transport with JSON
-responses, and does not import the backend runtime or access persistence.
+responses, and imports only the backend's `common.observability` logging
+modules, not the runtime; it does not access persistence. The image projection
+sets `PYTHONPATH=/app/backend` for it, `MCP/pytest.ini` adds `../backend`, and
+the host launch passes `PYTHONPATH=backend`.
+
+MCP logging: `main()` configures the backend's structured formatter with
+`service=hybro-mcp` at level `INFO` (JSON in the image, logfmt on a host) before
+building the server, and runs uvicorn itself with `log_config=None` and
+`access_log=False`, so the stream stays single-format. The inline catalog
+`server.EVENTS` has `mcp_server_starting` (`host`, `port`; emitted before uvicorn
+binds, whose own startup line confirms the bind), `mcp_tool_called` (`tool`,
+`outcome`, `duration_ms`, `http_request_id`, and the `session_id` and
+`client_request_id` arguments when given; `outcome` is `success`, `error`, or
+`cancelled`, and the level is `ERROR` only for `error`), and
+`mcp_backend_call_failed` (`code`, `http_request_id`, optional `status`). Each
+tool call mints an `http_request_id`, binds it as the log context's
+`request_id` and `trace_id` for the whole call including its
+`mcp_tool_called` line, and sends it to the backend as `X-Request-ID`, so
+`hybro logs --trace <id>` joins the MCP and backend lines. A `client_request_id`
+that `send_message` mints is not on the log line; join through the trace id.
+`/health` sends a request id without logging.
 
 `send_message` takes plain `text` (at most 10,000 characters), `agent_id`, and
 optionally `session_id`, `subnet_id`, `client_request_id` (minted when absent),

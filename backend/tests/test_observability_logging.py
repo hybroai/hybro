@@ -311,6 +311,37 @@ def test_configure_logging_is_idempotent_and_auto_selects_format():
             handler.setFormatter(formatter)
 
 
+def test_configure_logging_names_the_service():
+    root = logging.getLogger()
+    original_level = root.level
+    original_handlers = tuple(root.handlers)
+    original_handler_state = {
+        handler: (handler.level, handler.formatter) for handler in original_handlers
+    }
+    try:
+        configure_logging(
+            SimpleNamespace(log_level="INFO", log_format="json"), service="hybro-mcp"
+        )
+        [formatter] = [
+            handler.formatter
+            for handler in root.handlers
+            if isinstance(handler.formatter, StructuredFormatter)
+        ]
+        assert formatter.service == "hybro-mcp"
+        assert formatter.output_format == "json"
+    finally:
+        root.setLevel(original_level)
+        for handler in tuple(root.handlers):
+            if handler not in original_handlers:
+                root.removeHandler(handler)
+        for handler in original_handlers:
+            if handler not in root.handlers:
+                root.addHandler(handler)
+            level, formatter = original_handler_state[handler]
+            handler.setLevel(level)
+            handler.setFormatter(formatter)
+
+
 def test_console_entrypoint_does_not_replace_structured_logging(monkeypatch):
     import uvicorn
 
