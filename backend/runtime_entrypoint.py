@@ -353,15 +353,37 @@ def caddyfile(*, listener: Listener, api_prefix: str) -> str:
         "\tadmin off",
         "\tauto_https off",
         "\tpersist_config off",
+        # Error lines (a 5xx from a handler) carry the request through the
+        # default logger, outside the site's access-log filter.
+        "\tlog default {",
+        "\t\toutput stderr",
+        "\t\tformat filter {",
+        "\t\t\twrap json",
+        "\t\t\tfields {",
+        "\t\t\t\trequest>headers delete",
+        "\t\t\t\trequest>uri delete",
+        "\t\t\t}",
+        "\t\t}",
+        "\t}",
         "}",
         "",
         f":{CADDY_PORT} {{",
         # JSON access log on stdout, one format with the backend's lines.
-        # Credential headers stay redacted (log_credentials is unset).
+        # Request and response headers and the URI (query strings can carry
+        # tokens) are dropped; the request id and the bare path are appended.
         "\tlog {",
         "\t\toutput stdout",
-        "\t\tformat json",
+        "\t\tformat filter {",
+        "\t\t\twrap json",
+        "\t\t\tfields {",
+        "\t\t\t\trequest>headers delete",
+        "\t\t\t\trequest>uri delete",
+        "\t\t\t\tresp_headers delete",
+        "\t\t\t}",
+        "\t\t}",
         "\t}",
+        "\tlog_append trace_id {http.request.header.X-Request-ID}",
+        "\tlog_append path {http.request.uri.path}",
         "\t@static path /_next/static/*",
         "\tlog_skip @static",
     ]

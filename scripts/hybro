@@ -553,7 +553,6 @@ cmd_logs() {
         }
         function has_trace(text,    at, rest) {
             if (index(text, "\"trace_id\":\"" trace "\"")) return 1
-            if (index(text, "\"X-Request-Id\":[\"" trace "\"")) return 1
             rest = text
             while ((at = index(rest, "trace_id=" trace)) > 0) {
                 if ((at == 1 || substr(rest, at - 1, 1) == " ") && (at + 9 + length(trace) > length(rest) || substr(rest, at + 9 + length(trace), 1) == " ")) return 1

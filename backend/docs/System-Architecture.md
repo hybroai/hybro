@@ -1079,10 +1079,15 @@ listener), and everything else to the frontend. On a loopback listener it
 answers any `Host` other than `localhost`, `127.0.0.1`, or `::1` (any port)
 with 421, which blocks DNS rebinding against the unauthenticated local API.
 Caddy writes a JSON access log to stdout (`caddy | ` in `hybro logs`), skipping
-`/_next/static/*`. It logs 1xx-4xx responses at `info` and 5xx at `error`,
-keeps the browser's `X-Request-ID` under `request.headers.X-Request-Id`, and
-redacts `Authorization`, `Cookie` and `Set-Cookie` (`log_credentials` is
-unset). Requests without the header are correlated by time only.
+`/_next/static/*`. It logs 1xx-4xx responses at `info` and 5xx at `error`.
+A filter drops `request.headers`, `request.uri` (query strings can carry
+tokens) and `resp_headers`, and each line gains `trace_id` (the request's
+`X-Request-ID`, empty without one) and `path` (no query string), so
+`hybro logs --trace <id>` matches Caddy lines like backend ones. Caddy's error
+lines for a failed handler (for example a 502 while an upstream restarts) go
+through the default logger on stderr, which drops `request.headers` and
+`request.uri` the same way. Requests without the header are correlated by time
+only.
 
 On a fresh data volume the entrypoint starts `mongod`, initiates `rs0` with
 member `127.0.0.1:27017`, waits for primary, and stops it. Data whose stored

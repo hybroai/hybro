@@ -798,7 +798,7 @@ LOGS_SAMPLE = "\n".join(
     [
         'backend | {"timestamp":"t","level":"info","event":"http_request_completed","trace_id":"t-1"}',
         'backend | {"timestamp":"t","level":"error","event":"job_iteration_failed","trace_id":"t-2"}',
-        'caddy | {"level":"info","msg":"handled request","request":{"headers":{"X-Request-Id":["t-1"]}},"status":200}',
+        'caddy | {"level":"info","msg":"handled request","status":200,"trace_id":"t-1","path":"/api/v1/rooms"}',
         'caddy | {"level":"info","msg":"handled request","status":404}',
         'caddy | {"level":"error","msg":"handled request","status":502}',
         'caddy | {"level":"warn","msg":"synthetic warn line for the alias test"}',

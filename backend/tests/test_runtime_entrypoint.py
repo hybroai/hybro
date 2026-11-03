@@ -221,7 +221,7 @@ def test_public_caddyfile_omits_mcp_and_the_host_check():
 
 
 @pytest.mark.parametrize("listener", [loopback, public])
-def test_caddyfile_logs_json_and_skips_static_assets(listener):
+def test_caddyfile_logs_json_without_headers_or_query(listener):
     text = entry.caddyfile(listener=listener(), api_prefix="/api/v1")
     site = text[text.index(":8080 {") :]
     expected = "\n".join(
@@ -229,14 +229,46 @@ def test_caddyfile_logs_json_and_skips_static_assets(listener):
             ":8080 {",
             "\tlog {",
             "\t\toutput stdout",
-            "\t\tformat json",
+            "\t\tformat filter {",
+            "\t\t\twrap json",
+            "\t\t\tfields {",
+            "\t\t\t\trequest>headers delete",
+            "\t\t\t\trequest>uri delete",
+            "\t\t\t\tresp_headers delete",
+            "\t\t\t}",
+            "\t\t}",
             "\t}",
+            "\tlog_append trace_id {http.request.header.X-Request-ID}",
+            "\tlog_append path {http.request.uri.path}",
             "\t@static path /_next/static/*",
             "\tlog_skip @static",
         ]
     )
     assert site.startswith(expected)
     assert "log_credentials" not in text
+
+
+@pytest.mark.parametrize("listener", [loopback, public])
+def test_caddyfile_filters_the_default_logger(listener):
+    # Caddy's error logger (5xx lines) carries the request without the
+    # access log's filter; it writes to the default logger.
+    text = entry.caddyfile(listener=listener(), api_prefix="/api/v1")
+    options = text[: text.index("\n}\n") + 3]
+    expected = "\n".join(
+        [
+            "\tlog default {",
+            "\t\toutput stderr",
+            "\t\tformat filter {",
+            "\t\t\twrap json",
+            "\t\t\tfields {",
+            "\t\t\t\trequest>headers delete",
+            "\t\t\t\trequest>uri delete",
+            "\t\t\t}",
+            "\t\t}",
+            "\t}",
+        ]
+    )
+    assert expected in options
 
 
 def test_supervisor_starts_mongod_first_and_stops_services_together():
