@@ -168,6 +168,46 @@ def test_image_container_defaults(monkeypatch, tmp_path):
     ]
 
 
+def test_image_logs_json_by_default(monkeypatch, tmp_path):
+    from common.observability.logging import _resolve_output_format
+
+    monkeypatch.setenv("HYBRO_HOME", str(tmp_path / "missing"))
+    monkeypatch.setenv("HYBRO_CONTAINER", "image")
+    get_settings.cache_clear()
+    try:
+        settings = get_settings()
+    finally:
+        get_settings.cache_clear()
+    assert settings.log_format == "json"
+    assert _resolve_output_format(settings) == "json"
+
+
+def test_checkout_keeps_auto_log_format(monkeypatch, tmp_path):
+    from common.observability.logging import _resolve_output_format
+
+    monkeypatch.setenv("HYBRO_HOME", str(tmp_path / "missing"))
+    monkeypatch.delenv("HYBRO_CONTAINER", raising=False)
+    get_settings.cache_clear()
+    try:
+        settings = get_settings()
+    finally:
+        get_settings.cache_clear()
+    assert settings.log_format == "auto"
+    assert _resolve_output_format(settings) == "logfmt"
+
+
+def test_configured_log_format_wins_in_the_image(monkeypatch, tmp_path):
+    store = configured(tmp_path)
+    store.update_config(["backend", "log_format"], "logfmt")
+    monkeypatch.setenv("HYBRO_HOME", str(store.home))
+    monkeypatch.setenv("HYBRO_CONTAINER", "image")
+    get_settings.cache_clear()
+    try:
+        assert get_settings().log_format == "logfmt"
+    finally:
+        get_settings.cache_clear()
+
+
 def test_configured_mongodb_url_wins_in_the_image(monkeypatch, tmp_path):
     store = configured(tmp_path)
     store.update_config(["backend", "mongodb_url"], "mongodb://db.example:27017/x")

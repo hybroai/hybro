@@ -610,6 +610,8 @@ def _apply_image_defaults(values: dict) -> None:
         "local_agent_discovery_enabled": True,
         "bundled_agents_manifest": "/app/bundled_agents.yaml",
         "oauth_callback_host": "0.0.0.0",
+        # Machine-readable backend lines in the shared `hybro logs` stream.
+        "log_format": "json",
         # Bundled agents on container loopback and host agents on the same port
         # share a URL key, so discovery must not probe the manifest ports.
         "local_agent_discovery_excluded_ports": os.environ.get(

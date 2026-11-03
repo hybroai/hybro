@@ -352,6 +352,10 @@ URLs become `[REDACTED]`, and argument-less free text is blanked with
 Each line carries `version`, read from the nearest `VERSION` file above the
 module: the repository root in a checkout, `/app/VERSION` in the image.
 
+The image defaults `log_format` to `json`; a checkout keeps `auto` (logfmt
+when `app_env` is `development`, JSON otherwise). A `log_format` in
+`config.json` wins.
+
 ### `context_memory`
 
 The only runtime owner of room-memory projection, canonical conversation history,
@@ -1029,8 +1033,8 @@ The image sets `HYBRO_CONTAINER=image`. `loader.py` then defaults `mongodb_url`
 to `mongodb://127.0.0.1:27017/hybro?replicaSet=rs0`, `redis_url` to empty,
 `hybro_file_dir` to `/data/files`, enables discovery with the manifest ports
 excluded (bundled agents on container loopback and host agents on the same port
-share a URL key), sets `bundled_agents_manifest` to `/app/bundled_agents.yaml`
-and `oauth_callback_host` to `0.0.0.0`, and takes `frontend_origins` from the
+share a URL key), sets `bundled_agents_manifest` to `/app/bundled_agents.yaml`,
+`oauth_callback_host` to `0.0.0.0` and `log_format` to `json`, and takes `frontend_origins` from the
 entrypoint. Service hosts stay off, so bundled agent URLs are
 `http://127.0.0.1:<port>`. A `mongodb_url` in `config.json` or `auth.json` wins
 and skips the embedded `mongod`.

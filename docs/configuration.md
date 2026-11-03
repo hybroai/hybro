@@ -100,3 +100,10 @@ Sessions:
 | Field | Default | Meaning |
 |---|---|---|
 | `backend.session_run_start_grace_seconds` | `10` | Seconds after a send without any lifecycle event for the request before the session reports `failed` with `run_not_started`, unless this process is still running the task that starts the run. Must be greater than 0. |
+
+Logging:
+
+| Field | Default | Meaning |
+|---|---|---|
+| `backend.log_level` | `INFO` | Lowest level the backend writes: `DEBUG`, `INFO`, `WARNING`, `ERROR`, or `CRITICAL`. |
+| `backend.log_format` | `auto` in a checkout, `json` in the image | `json`, `logfmt`, or `auto` (logfmt when `backend.app_env` is `development`, JSON otherwise). The image defaults to `json` so backend lines in `hybro logs` are machine-readable; a value in `config.json` wins. |
