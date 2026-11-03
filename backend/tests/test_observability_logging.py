@@ -587,9 +587,23 @@ def test_passthrough_is_limited_to_exact_logger_names():
         "refresh_token: PRIVATE_VALUE",
         '{"access_token": "PRIVATE_VALUE"}',
         "x-api-key=PRIVATE_VALUE",
+        '{"password": "PRIVATE VALUE"}',
+        "password='PRIVATE \\' VALUE'",
+        "password=PRIVATE'VALUE}",
     ],
 )
 def test_passthrough_text_redacts_suffixed_and_quoted_credentials(text):
     output = _formatter().format(_library_record("py.warnings", "%s", text))
 
-    assert "PRIVATE_VALUE" not in output
+    assert "PRIVATE" not in output
+    assert "VALUE" not in output
+
+
+def test_credential_redaction_is_linear_on_long_identifiers():
+    import time
+
+    from common.observability.logging import _sanitize_string
+
+    started = time.perf_counter()
+    _sanitize_string("a-" * 5000)
+    assert time.perf_counter() - started < 0.2

@@ -95,9 +95,11 @@ _CONTEXT_VALUE_PATTERN = re.compile(r"^[A-Za-z0-9._:-]{1,128}$")
 _EVENT_PATTERN = re.compile(r"^[a-z][a-z0-9]*(?:_[a-z0-9]+)*$")
 _BEARER_PATTERN = re.compile(r"(?i)\bbearer\s+[a-z0-9._~+/=-]+")
 # Matches suffixed keys (`client_secret`, `refresh_token`) and JSON-quoted pairs.
+# The bounded prefix keeps matching linear; quoted values end at their closing
+# quote (escapes included), unquoted ones at whitespace, `,` or `;`.
 _CREDENTIAL_PATTERN = re.compile(
-    r"(?i)\b([a-z0-9_-]*(?:api[_-]?key|token|secret|password))"
-    r"[\"']?\s*[=:]\s*[\"']?[^\s,;\"'}]+"
+    r"(?i)\b([a-z0-9_-]{0,64}(?:api[_-]?key|token|secret|password))[\"']?\s*[=:]\s*"
+    r"(?:\"(?:[^\"\\]|\\.)*\"?|'(?:[^'\\]|\\.)*'?|[^\s,;]+)"
 )
 _EMBEDDED_URL_PATTERN = re.compile(
     r"(?i)\b(?:https?|redis|mongodb(?:\+srv)?):[^\s\"'<>]+"
