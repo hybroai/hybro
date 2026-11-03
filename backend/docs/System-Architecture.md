@@ -379,22 +379,43 @@ registered on `events.CATALOG`. Code logs through
   `_deferred` event (for example `hitl_interaction_expiry_deferred`), which
   means the next reconciler pass retries it. Store reads and writes that
   swallow an error emit `hitl_store_operation_failed` with `operation`.
+- `conversation` binds `conversation_id` and `client_request_id` to the log
+  context while it persists a user message and while it runs preflight (which
+  also binds `message_id`), so send-path events carry the request correlation
+  (`user_message_persist_started`, `user_message_persisted`,
+  `message_preflight_scope_resolved`, `orchestration_envelope_prepared`,
+  `message_preflight_completed` or `message_preflight_failed`). It logs counts
+  (`message_char_count`, `candidate_count`), never message text, mention text,
+  room or group names. Client-supplied values logged as fields
+  (`client_request_id`, `target_group`, a requested `group_id`, rejected agent
+  ids, and a quote source's `run_id`) pass through
+  `common.observability.log_id`, which keeps only strings shaped like a context
+  id and renders anything else as `invalid`. `target_scope_rejected` caps
+  `rejected_agent_ids` at ten next to `rejected_agent_count`. Inline mentions of
+  agents outside the room log one `mentions_dropped` per message with only
+  `dropped_mention_count`, since their ids come from the message text. Store
+  reads and writes that swallow an error emit
+  `conversation_store_operation_failed` with `operation`; an unreadable stored
+  document emits `conversation_document_parse_failed` with `document_kind` and
+  ids; room deletion reports each failed cleanup as `room_deletion_step_failed`
+  with `deletion_step`. Index readiness failures emit
+  `index_readiness_check_failed` with `readiness_check` and `issue_count`; the
+  sample ids stay in the startup error.
 - Background jobs share `job_started` (with `interval_seconds`),
   `job_already_started`, `job_start_skipped` (with `reason`), `job_stopped`,
   `job_iteration_failed` and `job_skipped_not_leader`, each
   with a `job` field holding the job's constant from `jobs/constants.py`.
-- `tests/test_logging_event_catalog.py` scans production code and fails on a
-  stdlib logger method call, an `emit` whose first argument is not a catalog
-  constant, or a direct `logging.getLogger`/`logging.basicConfig` outside
-  `common/observability/logging.py`. Modules not yet migrated to `emit` are
-  listed in its `_PENDING_MIGRATION` set; `EventLogger` keeps stdlib-style
-  `debug`/`info`/`warning`/`error`/`exception`/`critical`/`log` pass-throughs
-  for them, rendered as `event=log_message` as before. The pending modules
-  that still create a plain `logging.getLogger(__name__)` logger render as
-  library records until they migrate.
+- Every backend log call goes through `emit` with a catalog event;
+  `EventLogger` has no stdlib-style `debug`/`info`/`warning`/`error` methods.
+  `tests/test_logging_event_catalog.py` scans backend production code (every
+  module except `tests/` and `scripts/`) and fails on a stdlib logger method
+  call, an `emit` whose first argument is not a catalog constant, or a direct
+  `logging.getLogger`/`logging.basicConfig`. Three files are excepted:
+  `common/observability/logging.py`, `common/observability/catalog.py` and
+  `runtime_entrypoint.py`.
 
-Records from libraries render as `event=library_message` with their logger
-name. The loggers named exactly `uvicorn`, `uvicorn.error` and `py.warnings`
+Records not emitted through the catalog (third-party libraries) render as
+`event=library_message` with their logger name. The loggers named exactly `uvicorn`, `uvicorn.error` and `py.warnings`
 keep their rendered text, sanitised (URL credentials, bearer tokens, and
 `key=value` or JSON-quoted secrets such as `client_secret` or `refresh_token`
 redacted);

@@ -28,26 +28,6 @@ _EXCEPTED = frozenset(
         "runtime_entrypoint.py",
     }
 )
-# Migration ratchet: files that still call stdlib logger methods. Each
-# migration batch removes its files; the set is deleted once it is empty.
-_PENDING_MIGRATION = frozenset(
-    {
-        "conversation/deletion.py",
-        "conversation/facade.py",
-        "conversation/membership_source.py",
-        "conversation/mentions.py",
-        "conversation/message_reads.py",
-        "conversation/message_sending.py",
-        "conversation/preflight.py",
-        "conversation/repository/indexes.py",
-        "conversation/repository/message_documents.py",
-        "conversation/repository/messages.py",
-        "conversation/repository/rooms.py",
-        "conversation/target_scope.py",
-        "conversation/timeline_projection.py",
-        "conversation/user_message_persistence.py",
-    }
-)
 
 
 def _event_spec_names() -> frozenset[str]:
@@ -124,24 +104,10 @@ def _scan() -> dict[str, list[str]]:
 def test_logging_call_sites_emit_catalog_events():
     scanned = _scan()
 
-    unmigrated = {
-        path: found for path, found in scanned.items() if path not in _PENDING_MIGRATION
-    }
-    assert unmigrated == {}, (
+    assert scanned == {}, (
         "Log through get_logger(__name__).emit(events.X, **fields):\n"
-        + "\n".join(line for found in unmigrated.values() for line in found)
+        + "\n".join(line for found in scanned.values() for line in found)
     )
-
-
-def test_pending_migration_entries_are_not_stale():
-    scanned = _scan()
-
-    stale = sorted(
-        path
-        for path in _PENDING_MIGRATION
-        if not (BACKEND_ROOT / path).is_file() or path not in scanned
-    )
-    assert stale == [], f"Remove migrated paths from _PENDING_MIGRATION: {stale}"
 
 
 def test_guard_reports_free_text_aliases_and_unknown_events():

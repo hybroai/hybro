@@ -10,18 +10,18 @@ import re
 import sys
 import traceback
 import uuid
-from collections.abc import Iterator, Mapping
+from collections.abc import Iterable, Iterator, Mapping
 from contextlib import contextmanager
 from contextvars import ContextVar
 from datetime import UTC, date, datetime
 from enum import Enum
+from itertools import islice
 from pathlib import Path, PurePath
 from typing import Any
 from urllib.parse import urlsplit, urlunsplit
 
 from common.observability import events
 from common.observability.catalog import (
-    BRIDGE_MARKER,
     EVENT_MARKER,
     FIXED_FIELDS,
     RESERVED_RECORD_FIELDS,
@@ -110,6 +110,7 @@ _MAX_FIELD_CHARS = 2 * 1024
 _MAX_EXCEPTION_CHARS = 16 * 1024
 _MAX_EXCEPTION_CHAIN = 8
 _MAX_STACK_FRAMES = 24
+_MAX_LOGGED_IDS = 10
 _configured_handler: logging.Handler | None = None
 
 
@@ -379,17 +380,9 @@ class StructuredFormatter(logging.Formatter):
         self.service_version = service_version or release_version(Path(__file__))
 
     def _event(self, record: logging.LogRecord, message: str) -> str:
-        if not (
-            getattr(record, EVENT_MARKER, False)
-            or getattr(record, BRIDGE_MARKER, False)
-        ):
-            return "library_message"
-        explicit = getattr(record, "event", None)
-        if isinstance(explicit, str) and _EVENT_PATTERN.fullmatch(explicit):
-            return explicit
-        if _EVENT_PATTERN.fullmatch(message):
-            return message
-        return "log_message"
+        # A catalog event's message is its validated name; anything else is a
+        # library record.
+        return message if getattr(record, EVENT_MARKER, False) else "library_message"
 
     def _exception_fields(self, record: logging.LogRecord) -> dict[str, str]:
         if not record.exc_info:
@@ -400,10 +393,7 @@ class StructuredFormatter(logging.Formatter):
         return safe_exception_metadata(error)
 
     def event_dict(self, record: logging.LogRecord) -> dict[str, Any]:
-        is_library = not (
-            getattr(record, EVENT_MARKER, False)
-            or getattr(record, BRIDGE_MARKER, False)
-        )
+        is_library = not getattr(record, EVENT_MARKER, False)
         if is_library and record.name in PASSTHROUGH_LOGGERS:
             message = _passthrough_message(record)
         else:
@@ -571,6 +561,24 @@ def bind_log_context(**fields: Any) -> Iterator[None]:
         _LOG_CONTEXT.reset(token)
 
 
+def log_id(value: object) -> str:
+    """Return a client-supplied id for a log field, or ``"invalid"``.
+
+    Only id-shaped strings (the bound-context value format) pass, so free text
+    sent where an id belongs never reaches the log.
+    """
+
+    if isinstance(value, str) and _CONTEXT_VALUE_PATTERN.fullmatch(value):
+        return value
+    return "invalid"
+
+
+def log_ids(values: Iterable[object], *, limit: int = _MAX_LOGGED_IDS) -> list[str]:
+    """Return the first ``limit`` client-supplied ids, each passed through ``log_id``."""
+
+    return [log_id(value) for value in islice(values, limit)]
+
+
 def get_log_context() -> Mapping[str, str]:
     """Return a copy of the current correlation context."""
 
@@ -590,6 +598,8 @@ __all__ = [
     "get_log_context",
     "get_instance_id",
     "get_logger",
+    "log_id",
+    "log_ids",
     "release_version",
     "safe_exception_metadata",
 ]

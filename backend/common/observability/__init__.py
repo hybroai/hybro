@@ -4,6 +4,8 @@ from common.observability.logging import (
     get_instance_id,
     get_log_context,
     get_logger,
+    log_id,
+    log_ids,
     safe_exception_metadata,
 )
 from common.observability.metrics import MetricsCollector, NoopMetricsCollector
@@ -24,6 +26,8 @@ __all__ = [
     "get_instance_id",
     "get_log_context",
     "get_logger",
+    "log_id",
+    "log_ids",
     "safe_exception_metadata",
     "trace_id_context",
     "traced_create_task",

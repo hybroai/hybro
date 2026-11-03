@@ -179,7 +179,7 @@ def test_exc_puts_error_fields_on_the_record_without_exc_info(caplog):
     assert record.exc_info is None
 
 
-def test_emit_and_bridge_methods_report_the_caller_as_source(caplog):
+def test_emit_reports_the_caller_as_source(caplog):
     catalog = _catalog()
     spec = catalog.define("room_deleted", logging.INFO)
     event_logger = _event_logger(catalog)
@@ -187,40 +187,15 @@ def test_emit_and_bridge_methods_report_the_caller_as_source(caplog):
     with caplog.at_level(logging.DEBUG, logger=_LOGGER_NAME):
         emit_line = _line_after()
         event_logger.emit(spec)
-        bridge_line = _line_after()
-        event_logger.info("legacy %s", "text")
 
-    emitted, bridged = _records(caplog)
+    [emitted] = _records(caplog)
     assert emitted.pathname == __file__
     assert emitted.lineno == emit_line
-    assert bridged.lineno == bridge_line
-    assert (
-        emitted.funcName == "test_emit_and_bridge_methods_report_the_caller_as_source"
-    )
-    assert bridged.pathname == __file__
-    # Bridge test: deleted with the migration pass-throughs.
-    assert bridged._hybro_app is True
-    assert bridged.getMessage() == "legacy text"
+    assert emitted.funcName == "test_emit_reports_the_caller_as_source"
 
 
-def _bridge_helper(event_logger: EventLogger) -> None:
-    event_logger.warning("from helper", stacklevel=2)
-
-
-def test_bridge_forwards_stacklevel_extra_and_exception_info(caplog):
-    event_logger = _event_logger(_catalog())
-
-    with caplog.at_level(logging.DEBUG, logger=_LOGGER_NAME):
-        helper_line = _line_after()
-        _bridge_helper(event_logger)
-        event_logger.error("with extra", extra={"attempt": 2}, stack_info=True)
-        event_logger.exception("outside except")
-
-    helper, with_extra, outside = _records(caplog)
-    assert helper.funcName == "test_bridge_forwards_stacklevel_extra_and_exception_info"
-    assert helper.lineno == helper_line
-    assert with_extra.attempt == 2
-    assert with_extra._hybro_app is True
-    assert with_extra.stack_info is not None
-    assert outside.levelno == logging.ERROR
-    assert outside.exc_info == (None, None, None)
+@pytest.mark.parametrize(
+    "method", ["debug", "info", "warning", "error", "exception", "critical", "log"]
+)
+def test_event_logger_has_no_free_text_methods(method):
+    assert not hasattr(_event_logger(_catalog()), method)

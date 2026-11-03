@@ -1,3 +1,5 @@
+from common.observability import bind_log_context, log_id
+from common.observability import events as E
 from common.utils.logger import get_logger
 from common.utils.time import utcnow
 from conversation.attachments import resolve_and_apply_room_attachments
@@ -150,6 +152,29 @@ class RoomMessageSender:
             else None
         )
         request.client_request_id = client_request_id
+        with bind_log_context(
+            conversation_id=request.conversation_id,
+            client_request_id=client_request_id,
+        ):
+            return await self._persist_message_to_room(
+                request,
+                client_request_id,
+                target_group,
+                mentioned_agent_ids,
+                idempotency_fingerprint=idempotency_fingerprint,
+                idempotency_fingerprint_version=idempotency_fingerprint_version,
+            )
+
+    async def _persist_message_to_room(
+        self,
+        request: RoomCenterUserMessageRequest,
+        client_request_id: str | None,
+        target_group: str,
+        mentioned_agent_ids: list[str] | None,
+        *,
+        idempotency_fingerprint: str | None,
+        idempotency_fingerprint_version: int | None,
+    ) -> tuple[RoomCenterUserMessageResponse, RoomMessagePreflightContext | None]:
         if (
             client_request_id
             and idempotency_fingerprint is not None
@@ -265,19 +290,16 @@ class RoomMessageSender:
                 ),
                 None,
             )
-        logger.info(
-            "room_send_message_persist_started conversation_id=%s user_id=%s "
-            "client_request_id=%s target_group=%s "
-            "candidate_scope_mode=%s "
-            "selected_count=%d mentioned_count=%d message_len=%d",
-            request.conversation_id,
-            request.user_id,
-            client_request_id,
-            target_group,
-            candidate_scope_mode,
-            len(selected_agent_ids or []),
-            len(mentioned_agent_ids or []),
-            len(message_text or ""),
+        logger.emit(
+            E.USER_MESSAGE_PERSIST_STARTED,
+            conversation_id=request.conversation_id,
+            user_id=request.user_id,
+            client_request_id=log_id(client_request_id),
+            target_group=log_id(target_group),
+            candidate_scope_mode=candidate_scope_mode,
+            selected_agent_count=len(selected_agent_ids or []),
+            mentioned_agent_count=len(mentioned_agent_ids or []),
+            message_char_count=len(message_text or ""),
         )
 
         if selected_agent_ids is not None:
@@ -420,13 +442,12 @@ class RoomMessageSender:
                 None,
             )
 
-        logger.info(
-            "room_send_message_persisted conversation_id=%s message_id=%s "
-            "client_request_id=%s target_group=%s",
-            request.conversation_id,
-            user_message.message_id,
-            client_request_id,
-            target_group,
+        logger.emit(
+            E.USER_MESSAGE_PERSISTED,
+            conversation_id=request.conversation_id,
+            message_id=user_message.message_id,
+            client_request_id=log_id(client_request_id),
+            target_group=log_id(target_group),
         )
 
         return (
@@ -522,12 +543,13 @@ class RoomMessageSender:
             return
         try:
             await self._require_facade().delete_room_quote(quote_id)
-        except Exception:
-            logger.warning(
-                "Failed to remove uncommitted quoted snippet %s for room %s",
-                quote_id,
-                user_message.conversation_id,
-                exc_info=True,
+        except Exception as exc:
+            logger.emit(
+                E.QUOTE_DELETION_FAILED,
+                exc=exc,
+                conversation_id=user_message.conversation_id,
+                quote_id=quote_id,
+                client_request_id=log_id(user_message.client_request_id),
             )
 
     async def _persist_user_message(
@@ -570,10 +592,11 @@ def _discard_client_quote_display(user_message: RoomUserMessage) -> None:
     if not present:
         return
     if user_message.quote is None:
-        logger.debug(
-            "Ignoring unstructured quote fields %s for room %s",
-            present,
-            user_message.conversation_id,
+        logger.emit(
+            E.QUOTE_DISPLAY_FIELDS_DISCARDED,
+            conversation_id=user_message.conversation_id,
+            client_request_id=log_id(user_message.client_request_id),
+            field_names=present,
         )
     user_message.extend_info = {
         key: value

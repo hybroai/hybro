@@ -521,6 +521,176 @@ OBSOLETE_INDEX_DROP_FAILED = define(
     required={"collection_name", "index_name"},
 )
 
+# conversation
+
+CONVERSATION_STORE_OPERATION_FAILED = define(
+    "conversation_store_operation_failed", ERROR, required={"operation"}
+)
+CONVERSATION_DOCUMENT_PARSE_FAILED = define(
+    "conversation_document_parse_failed", WARNING, required={"document_kind"}
+)
+TIMELINE_MESSAGE_PARSE_FAILED = define(
+    "timeline_message_parse_failed",
+    ERROR,
+    required={"conversation_id", "message_id", "message_source"},
+)
+ROOM_TIMELINE_READ_FAILED = define(
+    "room_timeline_read_failed", ERROR, required={"conversation_id"}
+)
+INDEX_READINESS_CHECK_FAILED = define(
+    "index_readiness_check_failed",
+    ERROR,
+    required={"readiness_check", "issue_count"},
+)
+ROOM_EPOCH_ACTIVATION_FAILED = define(
+    "room_epoch_activation_failed", ERROR, required={"conversation_id"}
+)
+ROOM_CREATION_COMPENSATION_FAILED = define(
+    "room_creation_compensation_failed", WARNING, required={"conversation_id"}
+)
+ROOM_ACTIVITY_UPDATE_FAILED = define(
+    "room_activity_update_failed", WARNING, required={"conversation_id"}
+)
+ROOM_DELETION_STEP_FAILED = define(
+    "room_deletion_step_failed",
+    WARNING,
+    required={"conversation_id", "deletion_step"},
+)
+ROOM_EPOCH_DEACTIVATION_CONFLICT_DETECTED = define(
+    "room_epoch_deactivation_conflict_detected",
+    WARNING,
+    required={"conversation_id", "deletion_id", "room_epoch"},
+)
+QUOTE_SNIPPET_CREATION_FAILED = define(
+    "quote_snippet_creation_failed",
+    ERROR,
+    required={"conversation_id", "user_id", "client_request_id"},
+)
+QUOTE_SOURCE_LOOKUP_FAILED = define(
+    "quote_source_lookup_failed", WARNING, required={"conversation_id", "run_id"}
+)
+QUOTE_DELETION_FAILED = define(
+    "quote_deletion_failed",
+    WARNING,
+    required={"conversation_id", "quote_id", "client_request_id"},
+)
+QUOTE_DISPLAY_FIELDS_DISCARDED = define(
+    "quote_display_fields_discarded",
+    DEBUG,
+    required={"conversation_id", "client_request_id", "field_names"},
+)
+MEMBERSHIP_AGENTS_FALLBACK_SELECTED = define(
+    "membership_agents_fallback_selected", DEBUG, required={"user_id"}
+)
+MEMBERSHIP_AGENT_FIELDS_NOT_FOUND = define(
+    "membership_agent_fields_not_found",
+    WARNING,
+    required={"agent_id", "missing_agent_fields"},
+)
+MENTIONS_DROPPED = define(
+    "mentions_dropped",
+    WARNING,
+    required={"reason", "dropped_mention_count"},
+)
+TARGET_SCOPE_REJECTED = define(
+    "target_scope_rejected", WARNING, required={"scope_source", "reason"}
+)
+TARGET_SCOPE_RESOLVED = define(
+    "target_scope_resolved",
+    INFO,
+    required={"conversation_id", "scope_source", "candidate_count"},
+)
+TARGET_SCOPE_RESOLUTION_FAILED = define(
+    "target_scope_resolution_failed",
+    ERROR,
+    required={"conversation_id", "scope_source"},
+)
+USER_MESSAGE_PERSIST_STARTED = define(
+    "user_message_persist_started",
+    INFO,
+    required={
+        "conversation_id",
+        "user_id",
+        "client_request_id",
+        "target_group",
+        "candidate_scope_mode",
+        "selected_agent_count",
+        "mentioned_agent_count",
+        "message_char_count",
+    },
+)
+USER_MESSAGE_PERSISTED = define(
+    "user_message_persisted",
+    INFO,
+    required={"conversation_id", "message_id", "client_request_id", "target_group"},
+)
+FILE_REFERENCE_CLAIM_FAILED = define(
+    "file_reference_claim_failed",
+    WARNING,
+    required={"conversation_id", "message_id", "client_request_id", "file_count"},
+)
+FILE_REFERENCE_RELEASE_FAILED = define(
+    "file_reference_release_failed",
+    WARNING,
+    required={
+        "conversation_id",
+        "message_id",
+        "client_request_id",
+        "file_count",
+        "release_reason",
+    },
+)
+FILE_REFERENCE_COMMIT_FAILED = define(
+    "file_reference_commit_failed",
+    WARNING,
+    required={"conversation_id", "message_id", "client_request_id", "file_count"},
+)
+MESSAGE_PREFLIGHT_SCOPE_RESOLVED = define(
+    "message_preflight_scope_resolved",
+    INFO,
+    required={
+        "conversation_id",
+        "message_id",
+        "client_request_id",
+        "target_group",
+        "candidate_count",
+        "auto_assign",
+    },
+)
+ORCHESTRATION_ENVELOPE_PREPARED = define(
+    "orchestration_envelope_prepared",
+    INFO,
+    required={"conversation_id", "message_id", "client_request_id", "candidate_count"},
+)
+ORCHESTRATION_ENVELOPE_PERSIST_FAILED = define(
+    "orchestration_envelope_persist_failed",
+    WARNING,
+    required={"conversation_id", "message_id", "client_request_id"},
+)
+MESSAGE_PREFLIGHT_FAILED = define(
+    "message_preflight_failed",
+    WARNING,
+    required={"conversation_id", "message_id", "client_request_id", "canceled"},
+)
+MESSAGE_PREFLIGHT_COMPLETED = define(
+    "message_preflight_completed",
+    INFO,
+    required={
+        "conversation_id",
+        "message_id",
+        "client_request_id",
+        "preflight_outcome",
+    },
+)
+HITL_PROJECTION_VERIFICATION_FAILED = define(
+    "hitl_projection_verification_failed",
+    WARNING,
+    required={"conversation_id", "message_id", "hitl_request_id"},
+)
+ARTIFACT_APPEND_SKIPPED = define(
+    "artifact_append_skipped", WARNING, required={"message_id", "reason"}
+)
+
 # delivery
 
 DELIVERY_COMPLETED = define(

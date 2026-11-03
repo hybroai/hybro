@@ -1,4 +1,6 @@
 from agent import sanitize_routing_agent_ids
+from common.observability import events as E
+from common.observability import log_id, log_ids
 from common.utils.logger import get_logger
 from conversation.mentions import canonical_mentions_or_error
 from models.request import (
@@ -107,9 +109,13 @@ class TargetScopeResolver:
                 "Invalid or unauthorized selected candidate targets: "
                 f"{', '.join(invalid_ids)}"
             )
-            logger.warning(
-                "Selected candidate targets rejected (invalid/unauthorized): %s",
-                invalid_ids,
+            logger.emit(
+                E.TARGET_SCOPE_REJECTED,
+                scope_source="selected_candidates",
+                reason="unauthorized_targets",
+                rejected_agent_count=len(invalid_ids),
+                rejected_agent_ids=log_ids(invalid_ids),
+                user_id=sender_user_id,
             )
             return RoomCenterUserMessageResponse(
                 message_id=None,
@@ -275,19 +281,25 @@ class TargetScopeResolver:
                 selected = {
                     agent.agent_id: agent.agent_card.name for agent in full_agents
                 }
-                logger.info(
-                    "All Agents mode: Providing all %s active agents to Supervisor",
-                    len(full_agents),
+                logger.emit(
+                    E.TARGET_SCOPE_RESOLVED,
+                    conversation_id=room.conversation_id,
+                    scope_source="all_agents",
+                    candidate_count=len(full_agents),
                 )
                 return ResolvedRoutingScope(
                     selected_agent_set=selected,
                     auto_assign_agents=True,
                     agents=full_agents,
                 )
-            except Exception as e:
+            except Exception as exc:
                 error_msg = "Agent selection failed. Please try again."
-                logger.error(
-                    "All Agents mode selection failed: %s — returning scope error", e
+                logger.emit(
+                    E.TARGET_SCOPE_RESOLUTION_FAILED,
+                    exc=exc,
+                    conversation_id=room.conversation_id,
+                    scope_source="all_agents",
+                    user_id=sender_user_id,
                 )
                 return RoomCenterUserMessageResponse(
                     message_id=None,
@@ -306,10 +318,6 @@ class TargetScopeResolver:
 
         if target_group == "room_team":
             if room.room_agent_set:
-                logger.info(
-                    "Room Default mode: Using %s room agents as candidate scope",
-                    len(room.room_agent_set),
-                )
                 room_agents, _rejected = await self.sanitize(
                     room.room_agent_set,
                     sender_user_id=sender_user_id,
@@ -321,6 +329,12 @@ class TargetScopeResolver:
                     )
                     for agent in room_agents
                 }
+                logger.emit(
+                    E.TARGET_SCOPE_RESOLVED,
+                    conversation_id=room.conversation_id,
+                    scope_source="room_team",
+                    candidate_count=len(selected_agent_set),
+                )
                 return ResolvedRoutingScope(
                     selected_agent_set=selected_agent_set,
                     auto_assign_agents=True,
@@ -328,8 +342,11 @@ class TargetScopeResolver:
                 )
 
             error_msg = "This room has no agents. Add agents before sending a message."
-            logger.warning(
-                "Room Default mode: room has no agents — returning scope-resolution error"
+            logger.emit(
+                E.TARGET_SCOPE_REJECTED,
+                conversation_id=room.conversation_id,
+                scope_source="room_team",
+                reason="empty_scope",
             )
             return RoomCenterUserMessageResponse(
                 message_id=None,
@@ -347,9 +364,12 @@ class TargetScopeResolver:
         group = await self._store.get_agent_group_by_id(target_group)
         if not group:
             error_msg = "The selected agent group no longer exists. Please choose a different group."
-            logger.warning(
-                "Custom group %s not found — returning scope-resolution error",
-                target_group,
+            logger.emit(
+                E.TARGET_SCOPE_REJECTED,
+                conversation_id=room.conversation_id,
+                scope_source="saved_group",
+                reason="group_not_found",
+                group_id=log_id(target_group),
             )
             return RoomCenterUserMessageResponse(
                 message_id=None,
@@ -364,11 +384,13 @@ class TargetScopeResolver:
             )
 
         if group.type != "builtin" and group.owner_id != sender_user_id:
-            logger.warning(
-                "Sender %s not authorized to use saved group %s (owner: %s)",
-                sender_user_id,
-                target_group,
-                group.owner_id,
+            logger.emit(
+                E.TARGET_SCOPE_REJECTED,
+                conversation_id=room.conversation_id,
+                scope_source="saved_group",
+                reason="group_not_authorized",
+                group_id=log_id(target_group),
+                user_id=sender_user_id,
             )
             return RoomCenterUserMessageResponse(
                 message_id=None,
@@ -388,10 +410,12 @@ class TargetScopeResolver:
             selected_agent_set = {
                 agent.agent_id: agent.agent_card.name for agent in agents
             }
-            logger.info(
-                "Custom group '%s': Using %s agents",
-                group.name,
-                len(selected_agent_set),
+            logger.emit(
+                E.TARGET_SCOPE_RESOLVED,
+                conversation_id=room.conversation_id,
+                scope_source="saved_group",
+                group_id=log_id(target_group),
+                candidate_count=len(selected_agent_set),
             )
             return ResolvedRoutingScope(
                 selected_agent_set=selected_agent_set,
@@ -400,9 +424,12 @@ class TargetScopeResolver:
             )
 
         error_msg = f"The selected agent group '{group.name}' has no members."
-        logger.warning(
-            "Custom group '%s' has no agents — returning scope-resolution error",
-            group.name,
+        logger.emit(
+            E.TARGET_SCOPE_REJECTED,
+            conversation_id=room.conversation_id,
+            scope_source="saved_group",
+            reason="empty_scope",
+            group_id=log_id(target_group),
         )
         return RoomCenterUserMessageResponse(
             message_id=None,

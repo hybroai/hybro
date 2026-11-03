@@ -7,6 +7,8 @@ from typing import Protocol
 
 from common.eventing import InternalEventPublisher
 from common.message_commit_events import publish_message_committed
+from common.observability import events as E
+from common.observability import log_id
 from common.utils.logger import get_logger
 from conversation.dto import UserMessageInsertResult
 from conversation.idempotency import UserMessagePersistenceError
@@ -117,10 +119,7 @@ class UserMessageCommitService:
             await self._release_file_references(
                 message,
                 file_ids,
-                failure_log=(
-                    "Could not release pending room file references for %s; "
-                    "preserving persistence error and awaiting durable recovery"
-                ),
+                release_reason="persistence_failed",
             )
             raise
 
@@ -128,10 +127,7 @@ class UserMessageCommitService:
             await self._release_file_references(
                 message,
                 file_ids,
-                failure_log=(
-                    "Could not release losing room file references for %s; "
-                    "returning replay and awaiting durable recovery"
-                ),
+                release_reason="replay",
             )
             return persistence
 
@@ -161,17 +157,15 @@ class UserMessageCommitService:
                 file_ids=file_ids,
             )
         except Exception as exc:
-            logger.warning(
-                "Could not claim room file references for message %s",
-                message.message_id,
-                exc_info=True,
+            logger.emit(
+                E.FILE_REFERENCE_CLAIM_FAILED,
+                exc=exc,
+                **_file_log_fields(message, file_ids),
             )
             await self._release_file_references(
                 message,
                 file_ids,
-                failure_log=(
-                    "Could not release partial room file claims for message %s"
-                ),
+                release_reason="claim_failed",
             )
             raise UserMessagePersistenceError(
                 "Could not claim room file references"
@@ -182,7 +176,7 @@ class UserMessageCommitService:
         message: RoomUserMessage,
         file_ids: list[str],
         *,
-        failure_log: str,
+        release_reason: str,
     ) -> None:
         if not file_ids:
             return
@@ -191,8 +185,14 @@ class UserMessageCommitService:
                 message_id=message.message_id,
                 file_ids=file_ids,
             )
-        except Exception:
-            logger.warning(failure_log, message.message_id, exc_info=True)
+        except Exception as exc:
+            # Recovery releases the references later; the original outcome wins.
+            logger.emit(
+                E.FILE_REFERENCE_RELEASE_FAILED,
+                exc=exc,
+                release_reason=release_reason,
+                **_file_log_fields(message, file_ids),
+            )
 
     async def _commit_file_references(
         self,
@@ -206,11 +206,12 @@ class UserMessageCommitService:
                 message_id=message.message_id,
                 file_ids=file_ids,
             )
-        except Exception:
-            logger.warning(
-                "Room file references remain pending for recovery: %s",
-                message.message_id,
-                exc_info=True,
+        except Exception as exc:
+            # The references stay pending until durable recovery commits them.
+            logger.emit(
+                E.FILE_REFERENCE_COMMIT_FAILED,
+                exc=exc,
+                **_file_log_fields(message, file_ids),
             )
 
     async def _publish_message_committed(
@@ -235,6 +236,15 @@ class UserMessageCommitService:
         if self._files is None:
             raise RuntimeError("UserMessageCommitService room files are required")
         return self._files
+
+
+def _file_log_fields(message: RoomUserMessage, file_ids: list[str]) -> dict:
+    return {
+        "conversation_id": message.conversation_id,
+        "message_id": message.message_id,
+        "client_request_id": log_id(message.client_request_id),
+        "file_count": len(file_ids),
+    }
 
 
 __all__ = [

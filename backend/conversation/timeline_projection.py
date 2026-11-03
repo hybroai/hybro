@@ -9,6 +9,7 @@ from common.a2a_task_projection import (
     resolve_public_agent_response_text,
     resolve_public_task_label,
 )
+from common.observability import events as E
 from common.public_prompt import concrete_agent_input_prompt
 from common.types import Artifact, Part, Task, TaskState, TextPart
 from common.utils.a2a_helpers import get_message_from_task, get_text_from_message
@@ -96,11 +97,13 @@ class RoomTimelineProjector:
             request = self._hitl_reader.get_hitl_request(request_id)
             if inspect.isawaitable(request):
                 request = await request
-        except Exception:
-            logger.warning(
-                "Failed to verify HITL metadata for agent message %s",
-                agent_message.message_id,
-                exc_info=True,
+        except Exception as exc:
+            logger.emit(
+                E.HITL_PROJECTION_VERIFICATION_FAILED,
+                exc=exc,
+                conversation_id=agent_message.conversation_id,
+                message_id=agent_message.message_id,
+                hitl_request_id=request_id,
             )
             return None, None
 

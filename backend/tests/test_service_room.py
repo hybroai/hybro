@@ -511,10 +511,21 @@ async def test_canonical_send_sanitizes_server_owned_user_message_fields(
     assert response.message_id == "server-message"
     assert context is not None
     ignored_logged = any(
-        "Ignoring unstructured quote fields" in record.getMessage()
+        record.getMessage() == "quote_display_fields_discarded"
         for record in caplog.records
     )
     assert ignored_logged is (not with_structured_quote)
+    [started] = [
+        r for r in caplog.records if r.getMessage() == "user_message_persist_started"
+    ]
+    assert (started.client_request_id, started.message_char_count) == ("request-1", 5)
+    [persisted] = [
+        r for r in caplog.records if r.getMessage() == "user_message_persisted"
+    ]
+    assert (persisted.message_id, persisted.client_request_id) == (
+        "server-message",
+        "request-1",
+    )
 
 
 @pytest.mark.asyncio
@@ -603,6 +614,14 @@ async def test_idempotency_row_without_fingerprint_is_conflict():
     assert response.status_code == 409
     assert response.message_id is None
     facade.update_user_message.assert_not_awaited()
+
+
+def _release_reasons(caplog) -> list[str]:
+    return [
+        record.release_reason
+        for record in caplog.records
+        if record.getMessage() == "file_reference_release_failed"
+    ]
 
 
 @pytest.mark.asyncio
@@ -713,12 +732,12 @@ async def test_claim_release_failure_preserves_determined_idempotency_outcome(
         assert response.success is False
         assert response.status_code == 409
         assert response.message_id is None
-        assert "preserving persistence error" in caplog.text
+        assert _release_reasons(caplog) == ["persistence_failed"]
     else:
         assert response.success is True
         assert response.message_id == "winner-message"
         assert response.dispatch_root_message_id is None
-        assert "returning replay" in caplog.text
+        assert _release_reasons(caplog) == ["replay"]
     room_files.release_references.assert_awaited_once_with(
         message_id="loser-message",
         file_ids=["file-1"],

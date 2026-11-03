@@ -558,16 +558,6 @@ def test_reserved_name_sets_live_in_the_catalog_module():
     assert logging_module.FIXED_FIELDS is catalog.FIXED_FIELDS
 
 
-def test_bridge_record_renders_as_todays_log_message():
-    # Bridge test: deleted with the migration pass-throughs.
-    output = json.loads(
-        _formatter().format(_record(message="free text", _hybro_app=True))
-    )
-
-    assert output["event"] == "log_message"
-    assert output["message_redacted"] is True
-
-
 def test_emitted_event_renders_its_name(caplog):
     from common.observability import events, get_logger
 
@@ -639,3 +629,31 @@ def test_credential_redaction_is_linear_on_long_identifiers():
     started = time.perf_counter()
     _sanitize_string("a-" * 5000)
     assert time.perf_counter() - started < 0.2
+
+
+@pytest.mark.parametrize(
+    ("value", "logged"),
+    [
+        ("agent-1", "agent-1"),
+        ("a.b:c_d-1", "a.b:c_d-1"),
+        ("has space", "invalid"),
+        ("x" * 129, "invalid"),
+        ("", "invalid"),
+        (42, "invalid"),
+        (None, "invalid"),
+    ],
+)
+def test_log_id_keeps_only_id_shaped_strings(value, logged):
+    from common.observability import log_id
+
+    assert log_id(value) == logged
+
+
+def test_log_ids_gates_and_caps_at_ten():
+    from common.observability import log_ids
+
+    assert log_ids(["a", "b c", *[f"id{n}" for n in range(12)]]) == [
+        "a",
+        "invalid",
+        *[f"id{n}" for n in range(8)],
+    ]

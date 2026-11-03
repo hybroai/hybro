@@ -320,7 +320,7 @@ def test_room_delete_logs_when_context_memory_cleanup_is_unbound():
 
     source = inspect.getsource(RoomDeletionService._cleanup_context_memory_for_room)
 
-    assert "Context & Memory cleanup skipped" in source
+    assert '"cleanup_unbound"' in source
     assert "_memory_cleanup is None" in source
 
 

@@ -320,4 +320,4 @@ async def test_hitl_reader_error_fails_closed(caplog):
         None,
         None,
     )
-    assert "Failed to verify HITL metadata" in caplog.text
+    assert "hitl_projection_verification_failed" in caplog.text
