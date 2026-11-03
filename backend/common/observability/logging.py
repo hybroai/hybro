@@ -15,8 +15,7 @@ from contextlib import contextmanager
 from contextvars import ContextVar
 from datetime import UTC, date, datetime
 from enum import Enum
-from importlib.metadata import PackageNotFoundError, version
-from pathlib import PurePath
+from pathlib import Path, PurePath
 from typing import Any
 from urllib.parse import urlsplit, urlunsplit
 
@@ -114,12 +113,20 @@ _MAX_STACK_FRAMES = 24
 _configured_handler: logging.Handler | None = None
 
 
-def _package_version() -> str:
-    for package in ("hybro-backend", "hybro"):
-        try:
-            return version(package)
-        except PackageNotFoundError:
-            continue
+def release_version(start: Path) -> str:
+    """Return the release version from the nearest ``VERSION`` file above ``start``.
+
+    The repository root (checkout) and ``/app`` (image) hold the release
+    ``VERSION``; an unreadable file must not block startup.
+    """
+
+    for directory in start.parents:
+        candidate = directory / "VERSION"
+        if candidate.is_file():
+            try:
+                return candidate.read_text(encoding="utf-8").strip() or "unknown"
+            except (OSError, UnicodeDecodeError):
+                return "unknown"
     return "unknown"
 
 
@@ -362,7 +369,7 @@ class StructuredFormatter(logging.Formatter):
         self.output_format = output_format
         self.environment = environment
         self.service = service
-        self.service_version = service_version or _package_version()
+        self.service_version = service_version or release_version(Path(__file__))
 
     def _event(self, record: logging.LogRecord, message: str) -> str:
         explicit = getattr(record, "event", None)
@@ -555,5 +562,6 @@ __all__ = [
     "get_log_context",
     "get_instance_id",
     "get_logger",
+    "release_version",
     "safe_exception_metadata",
 ]

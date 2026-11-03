@@ -400,3 +400,49 @@ def test_formatter_redacts_prerendered_text_and_malformed_urls():
     assert parsed["message"] == "[REDACTED]"
     assert parsed["message_redacted"] is True
     assert parsed["source"].endswith("test_observability_logging.py:1:None")
+
+
+def test_release_version_reads_the_nearest_version_file(tmp_path):
+    from common.observability.logging import release_version
+
+    (tmp_path / "VERSION").write_text("1.2.3\n", encoding="utf-8")
+    nested = tmp_path / "a" / "b"
+    nested.mkdir(parents=True)
+
+    assert release_version(nested / "module.py") == "1.2.3"
+
+
+def test_release_version_is_unknown_without_a_version_file(tmp_path):
+    from common.observability.logging import release_version
+
+    assert release_version(tmp_path / "module.py") == "unknown"
+
+
+def test_formatter_defaults_to_the_repository_version():
+    import common.observability.logging as logging_module
+
+    repo_root = Path(__file__).resolve().parents[2]
+    expected = (repo_root / "VERSION").read_text(encoding="utf-8").strip()
+
+    assert not hasattr(logging_module, "_package_version")
+    assert (
+        StructuredFormatter(output_format="json", environment="test").service_version
+        == expected
+    )
+
+
+def test_image_ships_the_version_file():
+    dockerfile = Path(__file__).resolve().parents[2] / "Dockerfile"
+
+    assert (
+        "COPY VERSION /app/VERSION"
+        in dockerfile.read_text(encoding="utf-8").splitlines()
+    )
+
+
+def test_release_version_is_unknown_when_the_file_is_unreadable(tmp_path):
+    from common.observability.logging import release_version
+
+    (tmp_path / "VERSION").write_bytes(b"\xff\xfe")
+
+    assert release_version(tmp_path / "module.py") == "unknown"
