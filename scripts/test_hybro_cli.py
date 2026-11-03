@@ -158,7 +158,13 @@ if command == "rm":
     save()
     sys.exit(0)
 if command == "logs":
-    print("backend | ready")
+    if state.get("logs_exit"):
+        print("Error response from daemon: boom", file=sys.stderr)
+        sys.exit(state["logs_exit"])
+    sample = state.get("logs_sample", "backend | ready")
+    if "-t" in args:
+        sample = "\\n".join("2026-11-03T00:00:00.000Z " + line for line in sample.splitlines())
+    print(sample)
     sys.stdout.flush()
     if "-f" in args and state.get("logs_block"):
         import signal, time
@@ -788,6 +794,103 @@ def test_stop_status_and_logs(cli):
     assert cli.state["containers"]["hybro"]["status"] == "exited"
 
 
+LOGS_SAMPLE = "\n".join(
+    [
+        'backend | {"timestamp":"t","level":"info","event":"http_request_completed","trace_id":"t-1"}',
+        'backend | {"timestamp":"t","level":"error","event":"job_iteration_failed","trace_id":"t-2"}',
+        'caddy | {"level":"info","msg":"handled request","request":{"headers":{"X-Request-Id":["t-1"]}},"status":200}',
+        'caddy | {"level":"info","msg":"handled request","status":404}',
+        'caddy | {"level":"error","msg":"handled request","status":502}',
+        'caddy | {"level":"warn","msg":"synthetic warn line for the alias test"}',
+        'mcp | {"level":"warning","event":"mcp_backend_call_failed","trace_id":"t-1"}',
+        'backend | {"level":"info","event":"http_request_completed","trace_id":"t-10"}',
+        'mongod | {"t":{"$date":"x"},"s":"I","msg":"m"}',
+        "backend | timestamp=t level=warning event=redis_lock_operation_failed risk_level=info trace_id=t-3",
+        "agent | log_level=error plain text",
+    ]
+)
+
+
+def _logs(cli: Cli, *args: str) -> list[str]:
+    cli.state["containers"] = {"hybro": {"status": "running", "image": IMAGE, "port": "127.0.0.1:3000"}}
+    cli.state["logs_sample"] = LOGS_SAMPLE
+    result = cli.run("logs", *args)
+    assert result.returncode == 0, cli.output
+    return result.stdout.splitlines()
+
+
+def test_logs_filter_by_service(cli):
+    lines = _logs(cli, "--service", "backend")
+    assert lines and all(line.startswith("backend | ") for line in lines)
+    assert len(lines) == 4
+    assert ["logs", "hybro"] in cli.calls()
+
+
+def test_logs_level_is_a_threshold_across_formats(cli):
+    lines = _logs(cli, "--tail", "5", "--level", "warning")
+    assert ["logs", "--tail", "5", "hybro"] in cli.calls()
+    assert lines == [
+        'backend | {"timestamp":"t","level":"error","event":"job_iteration_failed","trace_id":"t-2"}',
+        'caddy | {"level":"error","msg":"handled request","status":502}',
+        'caddy | {"level":"warn","msg":"synthetic warn line for the alias test"}',
+        'mcp | {"level":"warning","event":"mcp_backend_call_failed","trace_id":"t-1"}',
+        "backend | timestamp=t level=warning event=redis_lock_operation_failed risk_level=info trace_id=t-3",
+    ]
+
+
+def test_logs_trace_matches_exactly(cli):
+    lines = _logs(cli, "--trace=t-1")
+    assert len(lines) == 3
+    assert all("t-10" not in line for line in lines)
+    assert any(line.startswith("caddy | ") for line in lines)
+
+
+def test_logs_filters_combine_and_follow_passes_through(cli):
+    lines = _logs(cli, "-f", "--service=caddy", "--level=error")
+    assert lines == ['caddy | {"level":"error","msg":"handled request","status":502}']
+    assert ["logs", "-f", "hybro"] in cli.calls()
+
+
+def test_logs_level_accepts_uppercase_and_warn(cli):
+    assert _logs(cli, "--level", "ERROR") == _logs(cli, "--level", "error")
+    assert _logs(cli, "--level", "warn") == _logs(cli, "--level", "warning")
+
+
+def test_logs_service_filter_works_with_timestamps(cli):
+    lines = _logs(cli, "-t", "--service", "caddy")
+    assert len(lines) == 4
+    assert all(" caddy | " in line for line in lines)
+
+
+def test_logs_filter_keeps_docker_errors_and_exit_status(cli):
+    cli.state["containers"] = {"hybro": {"status": "running", "image": IMAGE, "port": "127.0.0.1:3000"}}
+    cli.state["logs_exit"] = 3
+    result = cli.run("logs", "--service", "backend")
+    assert result.returncode == 3
+    assert "Error response from daemon: boom" in cli.output
+
+
+@pytest.mark.parametrize(
+    "args",
+    [("--level", "nope"), ("--trace",), ("--service=",), ("--trace", "")],
+    ids=["unknown_level", "missing_value", "empty_service", "empty_trace"],
+)
+def test_logs_rejects_bad_filters_before_docker(cli, args):
+    cli.state["containers"] = {"hybro": {"status": "running", "image": IMAGE, "port": "127.0.0.1:3000"}}
+    result = cli.run("logs", *args)
+    assert result.returncode == 1
+    assert args[0].split("=")[0] in cli.output
+    assert cli.calls() == []
+
+
+def test_logs_rejects_an_unknown_level_before_docker(cli):
+    cli.state["containers"] = {"hybro": {"status": "running", "image": IMAGE, "port": "127.0.0.1:3000"}}
+    result = cli.run("logs", "--level", "nope")
+    assert result.returncode == 1
+    assert "--level" in cli.output
+    assert cli.calls() == []
+
+
 # ---- cleanup-old ----
 
 
@@ -844,6 +947,8 @@ def test_help_lists_every_command():
     text = subprocess.run(["sh", str(SCRIPT), "help"], capture_output=True, text=True).stdout
     for command in ("start", "stop", "status", "logs", "upgrade", "cleanup-old", "version"):
         assert f"\n  {command} " in text
+    for option in ("--service", "--level", "--trace"):
+        assert f"\n  {option} " in text
 
 
 # ---- install.sh ----

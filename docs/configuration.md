@@ -107,3 +107,7 @@ Logging:
 |---|---|---|
 | `backend.log_level` | `INFO` | Lowest level the backend writes: `DEBUG`, `INFO`, `WARNING`, `ERROR`, or `CRITICAL`. |
 | `backend.log_format` | `auto` in a checkout, `json` in the image | `json`, `logfmt`, or `auto` (logfmt when `backend.app_env` is `development`, JSON otherwise). The image defaults to `json` so backend lines in `hybro logs` are machine-readable; a value in `config.json` wins. |
+
+`hybro logs --service <name> --level <level> --trace <id>` filters the
+container's log stream on the host; these are command options, not
+configuration fields.

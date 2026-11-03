@@ -235,6 +235,8 @@ hybro start -d               # start in the background
 hybro start --port 4000      # another host port (the default is 3000, 3100 from a checkout)
 hybro status                 # running or not, with the address
 hybro logs -f                # follow the logs; docker logs options pass through
+hybro logs --service backend --level warning   # one program, warnings and worse
+hybro logs --trace <id>      # one request: its X-Request-ID or trace id
 hybro stop                   # stop; data stays in the volume
 hybro upgrade                # newest release, its image, and any 0.3 migration
 hybro version
@@ -245,6 +247,12 @@ working tree and `--recreate` replaces a running container. Start options are
 flags only; environment variables do not become a second configuration source.
 Configuration changes apply after `hybro stop` and `hybro`, except the model
 provider, which applies at once.
+
+Each log line starts with its program's name (`backend | `, `caddy | `, ...).
+`--level` keeps lines at that level or above and hides lines without a
+recognised level, such as MongoDB's and the bundled agents' plain-text output.
+Filters apply after `docker logs`, so `--tail 50 --level error` shows the errors
+among the last 50 lines.
 
 ## Configuration
 
