@@ -590,6 +590,7 @@ def test_passthrough_is_limited_to_exact_logger_names():
         '{"password": "PRIVATE VALUE"}',
         "password='PRIVATE \\' VALUE'",
         "password=PRIVATE'VALUE}",
+        "a" * 80 + "_token=PRIVATE_VALUE",
     ],
 )
 def test_passthrough_text_redacts_suffixed_and_quoted_credentials(text):
