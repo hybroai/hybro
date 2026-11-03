@@ -217,6 +217,134 @@ MESSAGE_CANCELLATION_FAILED = define(
     "message_cancellation_failed", ERROR, required={"message_id"}
 )
 
+# approval
+
+HITL_STORE_OPERATION_FAILED = define(
+    "hitl_store_operation_failed", ERROR, required={"operation"}
+)
+PENDING_HITL_REQUEST_CONFLICT_DETECTED = define(
+    "pending_hitl_request_conflict_detected",
+    ERROR,
+    required={
+        "lookup",
+        "conversation_id",
+        "display_message_id",
+        "continuation_message_id",
+        "display_request_id",
+        "continuation_request_id",
+    },
+)
+PENDING_HITL_DUPLICATE_READBACK_FAILED = define(
+    "pending_hitl_duplicate_readback_failed",
+    ERROR,
+    required={
+        "conversation_id",
+        "hitl_request_id",
+        "display_message_id",
+        "continuation_message_id",
+    },
+)
+HITL_REQUEST_REJECTED = define(
+    "hitl_request_rejected",
+    ERROR,
+    required={
+        "conversation_id",
+        "interaction_id",
+        "run_id",
+        "public_source",
+        "reason",
+    },
+)
+HITL_ROUND_LIMIT_REACHED = define(
+    "hitl_round_limit_reached",
+    WARNING,
+    required={
+        "conversation_id",
+        "interaction_id",
+        "run_id",
+        "continuation_message_id",
+        "round_count",
+        "max_round_count",
+    },
+)
+HITL_REQUEST_PERSIST_FAILED = define(
+    "hitl_request_persist_failed",
+    ERROR,
+    required={
+        "conversation_id",
+        "interaction_id",
+        "run_id",
+        "hitl_request_id",
+        "public_source",
+    },
+)
+REUSED_HITL_REQUEST_REPAIR_FAILED = define(
+    "reused_hitl_request_repair_failed",
+    ERROR,
+    required={"conversation_id", "interaction_id", "run_id", "hitl_request_id"},
+)
+HITL_DISPLAY_PROJECTION_FAILED = define(
+    "hitl_display_projection_failed",
+    WARNING,
+    required={"conversation_id", "hitl_request_id", "display_message_id"},
+)
+HITL_RUN_STATE_READ_FAILED = define(
+    "hitl_run_state_read_failed", WARNING, required={"run_id"}
+)
+HITL_ANSWER_APPLICATION_FAILED = define(
+    "hitl_answer_application_failed",
+    ERROR,
+    required={"interaction_id", "conversation_id", "run_id", "client_request_id"},
+)
+HITL_INPUT_RECEIVED_EMISSION_FAILED = define(
+    "hitl_input_received_emission_failed",
+    WARNING,
+    required={"hitl_request_id", "interaction_id", "conversation_id"},
+)
+HITL_RECONCILIATION_PASS_FAILED = define(
+    "hitl_reconciliation_pass_failed", ERROR, required={"reconciliation_pass"}
+)
+HITL_MATERIALIZATION_RESUME_DEFERRED = define(
+    "hitl_materialization_resume_deferred",
+    WARNING,
+    required={"interaction_id", "conversation_id", "run_id"},
+)
+HITL_INTERACTION_EXPIRY_DEFERRED = define(
+    "hitl_interaction_expiry_deferred",
+    ERROR,
+    required={"interaction_id", "conversation_id", "run_id"},
+)
+HITL_ANSWER_REFS_REPAIR_DEFERRED = define(
+    "hitl_answer_refs_repair_deferred",
+    WARNING,
+    required={"interaction_id", "conversation_id", "run_id"},
+)
+HITL_APPLICATION_RESUME_DEFERRED = define(
+    "hitl_application_resume_deferred",
+    WARNING,
+    required={"interaction_id", "conversation_id", "run_id"},
+)
+HITL_RESUME_COMMAND_RECONCILE_DEFERRED = define(
+    "hitl_resume_command_reconcile_deferred",
+    WARNING,
+    required={"command_id", "interaction_id", "run_id"},
+)
+HITL_TERMINAL_INTERACTION_RECONCILE_DEFERRED = define(
+    "hitl_terminal_interaction_reconcile_deferred",
+    WARNING,
+    required={"interaction_id", "conversation_id", "run_id"},
+)
+HITL_TERMINAL_REQUEST_RECONCILE_DEFERRED = define(
+    "hitl_terminal_request_reconcile_deferred",
+    WARNING,
+    required={"hitl_request_id", "interaction_id", "conversation_id"},
+)
+HITL_OPEN_PROJECTION_RECOVERY_DEFERRED = define(
+    "hitl_open_projection_recovery_deferred",
+    WARNING,
+    required={"interaction_id", "conversation_id", "run_id"},
+)
+
 # common
 
 CLERK_USER_NAME_RESOLUTION_FAILED = define(
@@ -246,6 +374,16 @@ TOKEN_ESTIMATION_FALLBACK_SELECTED = define(
 INDEX_CREATION_FAILED = define(
     "index_creation_failed",
     WARNING,
+    required={"collection_name", "index_name", "critical"},
+)
+INDEX_CONFLICT_DETECTED = define(
+    "index_conflict_detected",
+    WARNING,
+    required={"collection_name", "index_name", "critical"},
+)
+INDEX_RECREATION_FAILED = define(
+    "index_recreation_failed",
+    ERROR,
     required={"collection_name", "index_name", "critical"},
 )
 SEARCH_INDEX_CREATION_FAILED = define(

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from approval.validation import validate_command_route_consistency
+from common.observability import events as E
 from common.utils.logger import get_logger
 from common.utils.time import utcnow
 from models.hitl import (
@@ -12,6 +13,14 @@ from models.hitl import (
 )
 
 logger = get_logger(__name__)
+
+
+def _interaction_ids(interaction: dict) -> dict[str, object]:
+    return {
+        "interaction_id": interaction.get("interaction_id"),
+        "conversation_id": interaction.get("room_id"),
+        "run_id": interaction.get("orchestration_run_id"),
+    }
 
 
 class HITLLifecycleReconciler:
@@ -55,9 +64,13 @@ class HITLLifecycleReconciler:
         for name, operation in passes:
             try:
                 counts[name] = await operation()
-            except Exception:
+            except Exception as exc:
                 counts["errors"] += 1
-                logger.exception("HITL lifecycle reconciliation pass failed: %s", name)
+                logger.emit(
+                    E.HITL_RECONCILIATION_PASS_FAILED,
+                    exc=exc,
+                    reconciliation_pass=name,
+                )
         return counts
 
     async def _resume_materializing(self) -> int:
@@ -70,11 +83,11 @@ class HITLLifecycleReconciler:
                     interaction
                 )
                 repaired += int(requests is not None)
-            except Exception:
-                logger.warning(
-                    "HITL interaction remains materializing",
-                    extra={"interaction_id": interaction.get("interaction_id")},
-                    exc_info=True,
+            except Exception as exc:
+                logger.emit(
+                    E.HITL_MATERIALIZATION_RESUME_DEFERRED,
+                    exc=exc,
+                    **_interaction_ids(interaction),
                 )
         return repaired
 
@@ -86,10 +99,11 @@ class HITLLifecycleReconciler:
             try:
                 await self._application.expire_interaction(self._service, interaction)
                 repaired += 1
-            except Exception:
-                logger.exception(
-                    "Failed to expire HITL interaction %s",
-                    interaction.get("interaction_id"),
+            except Exception as exc:
+                logger.emit(
+                    E.HITL_INTERACTION_EXPIRY_DEFERRED,
+                    exc=exc,
+                    **_interaction_ids(interaction),
                 )
         return repaired
 
@@ -110,11 +124,11 @@ class HITLLifecycleReconciler:
                     == HITLInteractionStatus.ANSWERS_RECORDED.value
                 ):
                     await self._application.apply_interaction(self._service, current)
-            except Exception:
-                logger.warning(
-                    "HITL answer reference repair remains pending",
-                    extra={"interaction_id": interaction.get("interaction_id")},
-                    exc_info=True,
+            except Exception as exc:
+                logger.emit(
+                    E.HITL_ANSWER_REFS_REPAIR_DEFERRED,
+                    exc=exc,
+                    **_interaction_ids(interaction),
                 )
         return repaired
 
@@ -161,11 +175,11 @@ class HITLLifecycleReconciler:
                     interaction = resumed
                 await self._application.apply_interaction(self._service, interaction)
                 repaired += 1
-            except Exception:
-                logger.warning(
-                    "HITL application remains pending",
-                    extra={"interaction_id": interaction.get("interaction_id")},
-                    exc_info=True,
+            except Exception as exc:
+                logger.emit(
+                    E.HITL_APPLICATION_RESUME_DEFERRED,
+                    exc=exc,
+                    **_interaction_ids(interaction),
                 )
         return repaired
 
@@ -255,11 +269,13 @@ class HITLLifecycleReconciler:
                     )
                     repaired += 1
                     continue
-            except Exception:
-                logger.warning(
-                    "HITL resume command remains pending",
-                    extra={"command_id": command.get("command_id")},
-                    exc_info=True,
+            except Exception as exc:
+                logger.emit(
+                    E.HITL_RESUME_COMMAND_RECONCILE_DEFERRED,
+                    exc=exc,
+                    command_id=command.get("command_id"),
+                    interaction_id=command.get("interaction_id"),
+                    run_id=command.get("orchestration_run_id"),
                 )
         return repaired
 
@@ -271,11 +287,11 @@ class HITLLifecycleReconciler:
             try:
                 await self._service.reconcile_terminal_interaction(interaction)
                 repaired += 1
-            except Exception:
-                logger.warning(
-                    "HITL terminal interaction remains unreconciled",
-                    extra={"interaction_id": interaction.get("interaction_id")},
-                    exc_info=True,
+            except Exception as exc:
+                logger.emit(
+                    E.HITL_TERMINAL_INTERACTION_RECONCILE_DEFERRED,
+                    exc=exc,
+                    **_interaction_ids(interaction),
                 )
         return repaired
 
@@ -295,11 +311,13 @@ class HITLLifecycleReconciler:
                     request, event_type=event_type
                 )
                 repaired += 1
-            except Exception:
-                logger.warning(
-                    "HITL terminal request remains unreconciled",
-                    extra={"request_id": row.get("request_id")},
-                    exc_info=True,
+            except Exception as exc:
+                logger.emit(
+                    E.HITL_TERMINAL_REQUEST_RECONCILE_DEFERRED,
+                    exc=exc,
+                    hitl_request_id=row.get("request_id"),
+                    interaction_id=row.get("interaction_id"),
+                    conversation_id=row.get("room_id"),
                 )
         return repaired
 
@@ -317,11 +335,11 @@ class HITLLifecycleReconciler:
                 repaired += await self._service.recover_open_interaction_projection(
                     interaction
                 )
-            except Exception:
-                logger.warning(
-                    "Failed to recover HITL open projection",
-                    extra={"interaction_id": interaction.get("interaction_id")},
-                    exc_info=True,
+            except Exception as exc:
+                logger.emit(
+                    E.HITL_OPEN_PROJECTION_RECOVERY_DEFERRED,
+                    exc=exc,
+                    **_interaction_ids(interaction),
                 )
         return repaired
 

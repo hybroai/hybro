@@ -371,6 +371,14 @@ registered on `events.CATALOG`. Code logs through
   `agent_deactivated` (WARNING) and `agent_reactivated` (INFO), each with
   `agent_id` and `trigger` (`health_check` or `liveness`). The agent health
   loop uses the shared job events below with `job=agent_health_checker`.
+- `approval` names a HITL request `hitl_request_id`, never `request_id`
+  (the bound HTTP request id), and carries `interaction_id`,
+  `conversation_id` and `run_id` where in hand. The lifecycle reconciler
+  reports a failed pass as `hitl_reconciliation_pass_failed` (with
+  `reconciliation_pass`). A failed item in a pass emits that pass's
+  `_deferred` event (for example `hitl_interaction_expiry_deferred`), which
+  means the next reconciler pass retries it. Store reads and writes that
+  swallow an error emit `hitl_store_operation_failed` with `operation`.
 - Background jobs share `job_started` (with `interval_seconds`),
   `job_already_started`, `job_start_skipped` (with `reason`), `job_stopped`,
   `job_iteration_failed` and `job_skipped_not_leader`, each

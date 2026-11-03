@@ -1,11 +1,13 @@
 from __future__ import annotations
 
+import logging
 from datetime import datetime, timedelta
 from typing import Any
 
 from pymongo import ReturnDocument
 from pymongo.errors import DuplicateKeyError, OperationFailure
 
+from common.observability import events as E
 from common.utils.logger import get_logger
 from common.utils.room_state import delete_room_rows
 from common.utils.time import utcnow
@@ -15,6 +17,12 @@ logger = get_logger(__name__)
 
 _PENDING_HITL_DISPLAY_INDEX = "uq_pending_hitl_display_message"
 _PENDING_HITL_CONTINUATION_INDEX = "uq_pending_hitl_continuation_message"
+_COLLECTION_NAME = "hitl_requests"
+
+
+def _default_index_name(keys) -> str:
+    """MongoDB's generated name for an unnamed index, e.g. ``room_id_1_status_1``."""
+    return "_".join(f"{field}_{direction}" for field, direction in keys)
 
 
 def _actionable_deadline_clause(now=None) -> dict[str, Any]:
@@ -75,8 +83,13 @@ class HITLRequestStore:
                 _pending_actionable_query(user_message_id=user_message_id),
                 exhaust=True,
             )
-        except Exception:
-            logger.error("Failed to get pending HITL requests", exc_info=True)
+        except Exception as exc:
+            logger.emit(
+                E.HITL_STORE_OPERATION_FAILED,
+                exc=exc,
+                operation="get_pending_hitl_requests_for_message",
+                user_message_id=user_message_id,
+            )
             return []
 
     async def get_pending_hitl_requests_for_message_strict(
@@ -101,15 +114,26 @@ class HITLRequestStore:
         try:
             await self._hitl_requests.insert_one(dict(request_data))
             return True
-        except Exception:
-            logger.error("Failed to create HITL request", exc_info=True)
+        except Exception as exc:
+            logger.emit(
+                E.HITL_STORE_OPERATION_FAILED,
+                exc=exc,
+                operation="create_hitl_request",
+                hitl_request_id=request_data.get("request_id"),
+                conversation_id=request_data.get("room_id"),
+            )
             return False
 
     async def get_hitl_request(self, request_id: str) -> dict | None:
         try:
             return await self._hitl_requests.find_one({"request_id": request_id})
-        except Exception:
-            logger.error("Failed to get HITL request", exc_info=True)
+        except Exception as exc:
+            logger.emit(
+                E.HITL_STORE_OPERATION_FAILED,
+                exc=exc,
+                operation="get_hitl_request",
+                hitl_request_id=request_id,
+            )
             return None
 
     async def update_hitl_request(self, request_id: str, **updates) -> bool:
@@ -118,8 +142,13 @@ class HITLRequestStore:
                 {"request_id": request_id},
                 {"$set": dict(updates)},
             )
-        except Exception:
-            logger.error("Failed to update HITL request", exc_info=True)
+        except Exception as exc:
+            logger.emit(
+                E.HITL_STORE_OPERATION_FAILED,
+                exc=exc,
+                operation="update_hitl_request",
+                hitl_request_id=request_id,
+            )
             return False
 
     async def cas_update_hitl_request(
@@ -133,8 +162,13 @@ class HITLRequestStore:
                 {"request_id": request_id, "status": expected_status},
                 {"$set": dict(updates)},
             )
-        except Exception:
-            logger.error("Failed to CAS update HITL request", exc_info=True)
+        except Exception as exc:
+            logger.emit(
+                E.HITL_STORE_OPERATION_FAILED,
+                exc=exc,
+                operation="cas_update_hitl_request",
+                hitl_request_id=request_id,
+            )
             return False
 
     async def cas_update_hitl_request_strict(
@@ -161,8 +195,13 @@ class HITLRequestStore:
                 {"request_id": request_id, "claim_id": claim_id},
                 {"$set": merged},
             )
-        except Exception:
-            logger.error("Failed to fenced-update HITL request", exc_info=True)
+        except Exception as exc:
+            logger.emit(
+                E.HITL_STORE_OPERATION_FAILED,
+                exc=exc,
+                operation="fenced_update_hitl_request",
+                hitl_request_id=request_id,
+            )
             return False
 
     async def claim_hitl_request(self, request_id: str, **updates) -> dict | None:
@@ -171,8 +210,13 @@ class HITLRequestStore:
                 _pending_actionable_query(request_id=request_id),
                 {"$set": dict(updates)},
             )
-        except Exception:
-            logger.error("Failed to claim HITL request", exc_info=True)
+        except Exception as exc:
+            logger.emit(
+                E.HITL_STORE_OPERATION_FAILED,
+                exc=exc,
+                operation="claim_hitl_request",
+                hitl_request_id=request_id,
+            )
             return None
 
     async def get_pending_hitl_requests(self, conversation_id: str) -> list[dict]:
@@ -182,8 +226,13 @@ class HITLRequestStore:
                 sort=[("created_at", 1), ("request_id", 1)],
                 exhaust=True,
             )
-        except Exception:
-            logger.error("Failed to get room HITL requests", exc_info=True)
+        except Exception as exc:
+            logger.emit(
+                E.HITL_STORE_OPERATION_FAILED,
+                exc=exc,
+                operation="get_pending_hitl_requests",
+                conversation_id=conversation_id,
+            )
             return []
 
     async def get_pending_hitl_requests_strict(
@@ -208,8 +257,13 @@ class HITLRequestStore:
                     "question_index": 0,
                 }
             )
-        except Exception:
-            logger.error("Failed to count HITL requests for message", exc_info=True)
+        except Exception as exc:
+            logger.emit(
+                E.HITL_STORE_OPERATION_FAILED,
+                exc=exc,
+                operation="count_hitl_requests_for_message",
+                continuation_message_id=continuation_message_id,
+            )
             return 0
 
     async def update_agent_message_task_state(
@@ -244,18 +298,17 @@ class HITLRequestStore:
                 display_message_id=display_message_id,
                 continuation_message_id=continuation_message_id,
             )
-        except Exception:
-            logger.error(
-                "Failed to find pending agent HITL request",
-                extra={
-                    "conversation_id": conversation_id,
-                    "display_message_id": display_message_id,
-                    "continuation_message_id": continuation_message_id,
-                    "agent_id": agent_id,
-                    "a2a_task_id": a2a_task_id,
-                    "a2a_context_id": a2a_context_id,
-                },
-                exc_info=True,
+        except Exception as exc:
+            logger.emit(
+                E.HITL_STORE_OPERATION_FAILED,
+                exc=exc,
+                operation="find_pending_hitl_request_for_agent_message",
+                conversation_id=conversation_id,
+                display_message_id=display_message_id,
+                continuation_message_id=continuation_message_id,
+                agent_id=agent_id,
+                a2a_task_id=a2a_task_id,
+                a2a_context_id=a2a_context_id,
             )
             return None
 
@@ -288,15 +341,14 @@ class HITLRequestStore:
             display_request_id = display_existing.get("request_id")
             continuation_request_id = continuation_existing.get("request_id")
             if display_request_id != continuation_request_id:
-                logger.error(
-                    "Ambiguous pending agent HITL request lookup",
-                    extra={
-                        "conversation_id": conversation_id,
-                        "display_message_id": display_message_id,
-                        "continuation_message_id": continuation_message_id,
-                        "display_request_id": display_request_id,
-                        "continuation_request_id": continuation_request_id,
-                    },
+                logger.emit(
+                    E.PENDING_HITL_REQUEST_CONFLICT_DETECTED,
+                    lookup="pending_lookup",
+                    conversation_id=conversation_id,
+                    display_message_id=display_message_id,
+                    continuation_message_id=continuation_message_id,
+                    display_request_id=display_request_id,
+                    continuation_request_id=continuation_request_id,
                 )
                 return None
             return display_existing
@@ -326,17 +378,22 @@ class HITLRequestStore:
             existing = await self._read_pending_hitl_after_duplicate(doc, error)
             if existing is not None:
                 return existing, False
-            logger.error(
-                "Failed to read existing pending agent HITL request after duplicate",
-                extra={
-                    "conversation_id": doc.get("room_id"),
-                    "display_message_id": doc.get("display_message_id"),
-                    "continuation_message_id": doc.get("continuation_message_id"),
-                },
+            logger.emit(
+                E.PENDING_HITL_DUPLICATE_READBACK_FAILED,
+                conversation_id=doc.get("room_id"),
+                hitl_request_id=doc.get("request_id"),
+                display_message_id=doc.get("display_message_id"),
+                continuation_message_id=doc.get("continuation_message_id"),
             )
             return None
-        except Exception:
-            logger.error("Failed to create pending HITL request", exc_info=True)
+        except Exception as exc:
+            logger.emit(
+                E.HITL_STORE_OPERATION_FAILED,
+                exc=exc,
+                operation="create_or_reuse_pending_hitl_request",
+                hitl_request_id=doc.get("request_id"),
+                conversation_id=doc.get("room_id"),
+            )
             return None
 
     async def _find_pending_hitl_duplicate_identity(
@@ -434,15 +491,14 @@ class HITLRequestStore:
             display_request_id = display_existing.get("request_id")
             continuation_request_id = continuation_existing.get("request_id")
             if display_request_id != continuation_request_id:
-                logger.error(
-                    "Ambiguous pending agent HITL duplicate readback",
-                    extra={
-                        "conversation_id": doc.get("room_id"),
-                        "display_message_id": display_message_id,
-                        "continuation_message_id": continuation_message_id,
-                        "display_request_id": display_request_id,
-                        "continuation_request_id": continuation_request_id,
-                    },
+                logger.emit(
+                    E.PENDING_HITL_REQUEST_CONFLICT_DETECTED,
+                    lookup="duplicate_readback",
+                    conversation_id=doc.get("room_id"),
+                    display_message_id=display_message_id,
+                    continuation_message_id=continuation_message_id,
+                    display_request_id=display_request_id,
+                    continuation_request_id=continuation_request_id,
                 )
                 return None
             return display_existing
@@ -585,23 +641,30 @@ class HITLRequestStore:
                 drop_fn = getattr(self._hitl_requests, "drop_index", None)
                 if is_conflict and index_name and drop_fn:
                     try:
-                        logger.warning(
-                            "Dropping and recreating conflicting non-critical HITL index: %s",
-                            index_name,
+                        logger.emit(
+                            E.INDEX_CONFLICT_DETECTED,
+                            collection_name=_COLLECTION_NAME,
+                            index_name=index_name,
+                            critical=False,
                         )
                         await drop_fn(index_name)
                         await self._hitl_requests.create_index(list(keys), **kwargs)
                         continue
-                    except Exception:
-                        logger.error(
-                            "Failed to recreate non-critical HITL index after conflict: %s",
-                            index_name,
-                            exc_info=True,
+                    except Exception as recreate_exc:
+                        logger.emit(
+                            E.INDEX_RECREATION_FAILED,
+                            level=logging.WARNING,
+                            exc=recreate_exc,
+                            collection_name=_COLLECTION_NAME,
+                            index_name=index_name,
+                            critical=False,
                         )
-                logger.error(
-                    "Failed to create non-critical HITL index",
-                    extra={"index_keys": list(keys), "index_options": kwargs},
-                    exc_info=True,
+                logger.emit(
+                    E.INDEX_CREATION_FAILED,
+                    exc=exc,
+                    collection_name=_COLLECTION_NAME,
+                    index_name=index_name or _default_index_name(keys),
+                    critical=False,
                 )
 
         critical_indexes = [
@@ -642,22 +705,29 @@ class HITLRequestStore:
                 drop_fn = getattr(self._hitl_requests, "drop_index", None)
                 if is_conflict and index_name and drop_fn:
                     try:
-                        logger.warning(
-                            "Dropping and recreating conflicting critical HITL index: %s",
-                            index_name,
+                        logger.emit(
+                            E.INDEX_CONFLICT_DETECTED,
+                            collection_name=_COLLECTION_NAME,
+                            index_name=index_name,
+                            critical=True,
                         )
                         await drop_fn(index_name)
                         await self._hitl_requests.create_index(keys, **kwargs)
                         continue
-                    except Exception:
-                        logger.error(
-                            "Failed to recreate critical HITL index after conflict: %s",
-                            index_name,
-                            exc_info=True,
+                    except Exception as recreate_exc:
+                        logger.emit(
+                            E.INDEX_RECREATION_FAILED,
+                            exc=recreate_exc,
+                            collection_name=_COLLECTION_NAME,
+                            index_name=index_name,
+                            critical=True,
                         )
-                logger.error(
-                    "Failed to create critical HITL unique index",
-                    extra={"index_name": kwargs["name"]},
-                    exc_info=True,
+                logger.emit(
+                    E.INDEX_CREATION_FAILED,
+                    level=logging.ERROR,
+                    exc=exc,
+                    collection_name=_COLLECTION_NAME,
+                    index_name=index_name,
+                    critical=True,
                 )
                 raise

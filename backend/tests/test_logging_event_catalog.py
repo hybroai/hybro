@@ -32,11 +32,6 @@ _EXCEPTED = frozenset(
 # migration batch removes its files; the set is deleted once it is empty.
 _PENDING_MIGRATION = frozenset(
     {
-        "approval/application.py",
-        "approval/reconciler.py",
-        "approval/repository/hitl_lifecycle_store.py",
-        "approval/repository/hitl_store.py",
-        "approval/service.py",
         "conversation/deletion.py",
         "conversation/facade.py",
         "conversation/membership_source.py",
