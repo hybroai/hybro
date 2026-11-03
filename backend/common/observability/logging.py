@@ -19,6 +19,15 @@ from pathlib import Path, PurePath
 from typing import Any
 from urllib.parse import urlsplit, urlunsplit
 
+from common.observability import events
+from common.observability.catalog import (
+    BRIDGE_MARKER,
+    EVENT_MARKER,
+    FIXED_FIELDS,
+    RESERVED_RECORD_FIELDS,
+    EventLogger,
+)
+
 _INSTANCE_ID = uuid.uuid4().hex[:8]
 _LOG_CONTEXT: ContextVar[dict[str, str] | None] = ContextVar(
     "hybro_log_context",
@@ -39,22 +48,8 @@ _CONTEXT_FIELDS = frozenset(
         "dispatch_intent_id",
     }
 )
-_STANDARD_RECORD_FIELDS = frozenset(logging.makeLogRecord({}).__dict__) | {
-    "asctime",
-    "message",
-}
-_FIXED_FIELDS = frozenset(
-    {
-        "timestamp",
-        "level",
-        "service",
-        "environment",
-        "version",
-        "instance_id",
-        "event",
-        "logger",
-    }
-)
+# Library loggers whose text is kept (sanitised) rather than blanked.
+PASSTHROUGH_LOGGERS = ("uvicorn", "uvicorn.error", "py.warnings")
 _SENSITIVE_FIELD_PARTS = frozenset(
     {
         "authorization",
@@ -307,6 +302,20 @@ def _safe_record_message(record: logging.LogRecord) -> str:
         return template
 
 
+def _is_passthrough_logger(name: str) -> bool:
+    return any(
+        name == passthrough or name.startswith(f"{passthrough}.")
+        for passthrough in PASSTHROUGH_LOGGERS
+    )
+
+
+def _passthrough_message(record: logging.LogRecord) -> str:
+    try:
+        return _sanitize_string(record.getMessage())
+    except Exception:
+        return _safe_record_message(record)
+
+
 def _compact_frame(filename: str, lineno: int, function: str) -> str:
     parts = PurePath(filename).parts
     safe_path = "/".join(parts[-3:]) if parts else "<unknown>"
@@ -372,6 +381,11 @@ class StructuredFormatter(logging.Formatter):
         self.service_version = service_version or release_version(Path(__file__))
 
     def _event(self, record: logging.LogRecord, message: str) -> str:
+        if not (
+            getattr(record, EVENT_MARKER, False)
+            or getattr(record, BRIDGE_MARKER, False)
+        ):
+            return "library_message"
         explicit = getattr(record, "event", None)
         if isinstance(explicit, str) and _EVENT_PATTERN.fullmatch(explicit):
             return explicit
@@ -388,7 +402,14 @@ class StructuredFormatter(logging.Formatter):
         return safe_exception_metadata(error)
 
     def event_dict(self, record: logging.LogRecord) -> dict[str, Any]:
-        message = _safe_record_message(record)
+        is_library = not (
+            getattr(record, EVENT_MARKER, False)
+            or getattr(record, BRIDGE_MARKER, False)
+        )
+        if is_library and _is_passthrough_logger(record.name):
+            message = _passthrough_message(record)
+        else:
+            message = _safe_record_message(record)
         event = self._event(record, message)
         values: dict[str, Any] = {
             "timestamp": datetime.fromtimestamp(
@@ -418,8 +439,8 @@ class StructuredFormatter(logging.Formatter):
         combined: dict[str, Any] = {
             key: value
             for key, value in record.__dict__.items()
-            if key not in _STANDARD_RECORD_FIELDS
-            and key not in _FIXED_FIELDS
+            if key not in RESERVED_RECORD_FIELDS
+            and key not in FIXED_FIELDS
             and key not in {"event", "exc_info", "exc_text", "stack_info"}
             and not key.startswith("_")
         }
@@ -517,10 +538,18 @@ def configure_logging(settings: Any = None) -> None:
         logger.setLevel(logging.WARNING)
 
 
-def get_logger(name: str) -> logging.Logger:
-    """Return a standard-library logger; configuration belongs to the app shell."""
+def get_logger(name: str) -> EventLogger:
+    """Return an event logger bound to the backend catalog.
 
-    return logging.getLogger(name)
+    Configuration belongs to the app shell.
+    """
+
+    return EventLogger(
+        logging.getLogger(name),
+        events.CATALOG,
+        exception_fields=safe_exception_metadata,
+        context=get_log_context,
+    )
 
 
 @contextmanager

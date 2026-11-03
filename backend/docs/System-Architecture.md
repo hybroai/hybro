@@ -300,8 +300,9 @@ Cross-cutting primitives with no domain imports:
 - `common.config`: the configuration loader, runtime credential store, and
   setup model (see [Runtime configuration](#runtime-configuration)).
 - `common.errors`: typed domain and platform errors.
-- `common.observability`: process logging, correlation context, tracing, and
-  metrics helpers.
+- `common.observability`: process logging, the log event catalog,
+  correlation context, tracing, and metrics helpers (see
+  [Logging events](#logging-events)).
 - `common.middleware`: request logging, request-size, and request-concurrency
   middleware.
 - `common.a2a_task_projection`: the persistence-safe public projection of A2A
@@ -310,6 +311,46 @@ Cross-cutting primitives with no domain imports:
   helpers (`create_index`, `ensure_text_index`), and the logger.
 
 `common` writes no collections and consumes no other package's protocols.
+
+### Logging events
+
+Every backend log line is a named event. `common.observability.events` is the
+catalog: one `EventSpec(name, level, required, system)` constant per event,
+registered on `events.CATALOG`. Code logs through
+`get_logger(__name__).emit(events.X, **fields)`; `get_logger` returns an
+`EventLogger` (`common.observability.catalog`) that wraps the stdlib logger.
+
+- `emit` uses the spec's level unless `level=` overrides it, turns `exc=` into
+  `error_type`, `error_chain`, `error_fingerprint` and `error_stack` fields
+  without exception messages, and reports the caller as the line's source.
+- A field required by the spec may come from the call or from the bound log
+  context; a field passed as `None` counts as present. A field named like a
+  `LogRecord` attribute or a fixed output key is renamed `field_<key>`.
+- An unknown event, a missing required field, or a renamed key still emits the
+  line, annotated with `catalog_violation`. The test suite sets
+  `CATALOG.strict = True`, which raises instead.
+- `system=True` marks events a later phase copies into a system event store
+  (`http_request_completed`, `llm_call_completed`, `a2a_call_completed`);
+  nothing reads the flag yet.
+- `tests/test_logging_event_catalog.py` scans production code and fails on a
+  stdlib logger method call, an `emit` whose first argument is not a catalog
+  constant, or a direct `logging.getLogger`/`logging.basicConfig` outside
+  `common/observability/logging.py`. Modules not yet migrated to `emit` are
+  listed in its `_PENDING_MIGRATION` set; `EventLogger` keeps stdlib-style
+  `debug`/`info`/`warning`/`error`/`exception`/`critical`/`log` pass-throughs
+  for them, rendered as `event=log_message` as before. The pending modules
+  that still create a plain `logging.getLogger(__name__)` logger render as
+  library records until they migrate.
+
+Records from libraries render as `event=library_message` with their logger
+name. `uvicorn`, `uvicorn.error` and `py.warnings` keep their rendered text,
+sanitised (URL credentials, bearer tokens and `key=value` secrets redacted);
+other library text keeps the existing redaction (template arguments other than
+URLs become `[REDACTED]`, and argument-less free text is blanked with
+`message_redacted=true`).
+
+Each line carries `version`, read from the nearest `VERSION` file above the
+module: the repository root in a checkout, `/app/VERSION` in the image.
 
 ### `context_memory`
 

@@ -34,9 +34,14 @@ from tests.fakes import config_bootstrap as _config_bootstrap  # noqa: F401
 # isort: split
 from common.auth import ClerkUser
 from common.dto.hitl import HITLApplicationRoute, HITLEvidenceOrigin, HITLPublicSource
+from common.observability import events as _observability_events
 from models.agent import Agent, AgentStatus
 from models.hitl import HITLPromptType, HITLRequest, HITLStatus
 from models.room import MessageContent, Room, RoomAgentMessage, RoomUserMessage
+
+# A catalog violation (unknown event, missing field, reserved key) raises in
+# tests and only annotates the line in production.
+_observability_events.CATALOG.strict = True
 
 FROZEN_TIME = datetime(2026, 1, 15, 12, 0, 0)
 
