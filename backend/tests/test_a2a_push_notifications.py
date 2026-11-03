@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import logging
 from datetime import UTC, datetime, timedelta
 from hashlib import sha256
 from unittest.mock import AsyncMock
@@ -78,6 +79,7 @@ from tests.test_orchestrator_a2a_runtime import Dispatch, setup
 ENDPOINT = "https://agent.example/a2a"
 SCOPE = endpoint_scope_digest(ENDPOINT)
 TOKEN = "push-token-" + "x" * 40
+_PUSH_LOGGER = "execution.orchestrator.a2a_runtime.push"
 
 
 def _card(*, push: bool) -> dict:
@@ -533,7 +535,7 @@ async def test_ingress_authenticate_checks_path_and_token_only():
 
 
 @pytest.mark.parametrize("site", ["ledger_load", "inbox_insert", "ledger_cas"])
-async def test_non_transient_store_errors_report_unavailable(site):
+async def test_non_transient_store_errors_report_unavailable(site, caplog):
     from pymongo.errors import OperationFailure
 
     receiver, ledger, inbox, _, _, _, _, call = await _push_setup()
@@ -550,20 +552,45 @@ async def test_non_transient_store_errors_report_unavailable(site):
         ledger.cas = AsyncMock(side_effect=error)
         body = _push_body(_status_update(TaskState.TASK_STATE_COMPLETED))
 
-    receipt = await receiver.receive(call.call_record_id, token=TOKEN, body=body)
+    with caplog.at_level(logging.WARNING, logger=_PUSH_LOGGER):
+        receipt = await receiver.receive(call.call_record_id, token=TOKEN, body=body)
 
     assert receipt == A2APushReceipt("unavailable")
+    # The ledger_load site also logs its earlier authenticate() failure.
+    records = [r for r in caplog.records if r.getMessage() == "a2a_push_ingress_failed"]
+    assert records
+    assert {r.error_type for r in records} == {"OperationFailure"}
+    assert {r.call_record_id for r in records} == {call.call_record_id}
+    assert "not transient" not in caplog.text
 
 
-async def test_store_outage_reports_unavailable():
+async def test_store_outage_reports_unavailable(caplog):
     receiver, ledger, *_ = await _push_setup()
     ledger.load_by_record_id = AsyncMock(side_effect=RecoverableAdapterError("down"))
 
-    receipt = await receiver.receive(
-        "call-1", token=TOKEN, body=_push_body(_completed_task())
-    )
+    with caplog.at_level(logging.WARNING, logger=_PUSH_LOGGER):
+        receipt = await receiver.receive(
+            "call-1", token=TOKEN, body=_push_body(_completed_task())
+        )
 
     assert receipt == A2APushReceipt("unavailable")
+    assert "a2a_push_ingress_failed" not in caplog.messages
+
+
+async def test_failed_push_processing_is_left_to_inbox_recovery(caplog):
+    receiver, *_ = await _push_setup()
+    receiver.processor = AsyncMock()
+    receiver.processor.process.side_effect = RuntimeError("kernel busy")
+
+    with caplog.at_level(logging.WARNING, logger=_PUSH_LOGGER):
+        await receiver.process("observation-1")
+
+    [record] = [
+        r for r in caplog.records if r.getMessage() == "a2a_push_processing_deferred"
+    ]
+    assert record.observation_id == "observation-1"
+    assert record.error_type == "RuntimeError"
+    assert "kernel busy" not in caplog.text
 
 
 @pytest.mark.parametrize(

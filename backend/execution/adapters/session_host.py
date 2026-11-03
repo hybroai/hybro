@@ -11,9 +11,10 @@ surface used by the composition root and tests.
 
 from __future__ import annotations
 
-import logging
 from collections.abc import Awaitable, Callable
 
+from common.observability import events as E
+from common.observability import get_logger
 from execution.orchestrator.a2a_runtime.catalog import FrozenToolCatalog
 from execution.orchestrator.a2a_runtime.observations import (
     RunAddressedToolObservationSink,
@@ -53,7 +54,7 @@ from execution.orchestrator.session import (
 KernelForCatalog = Callable[[FrozenToolCatalogSnapshot], OrchestratorKernel]
 
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 
 class RoomSessionHost:
@@ -159,6 +160,8 @@ class RoomSessionHost:
                 next_attempt_at=due
             ),
             now=self._clock.now,
+            conversation_id=session.config.conversation_id,
+            run_id=lambda: session.run_id,
         )
 
     async def abort(self, conversation_id: str) -> None:
@@ -298,9 +301,8 @@ class RoomSessionHost:
         # transient local/replica-set latency.
         emitter = LifecycleEmitter(
             settlement_timeout_seconds=30.0,
-            error_hook=lambda exc: logger.warning(
-                "orchestrator lifecycle listener failed",
-                exc_info=(type(exc), exc, exc.__traceback__),
+            error_hook=lambda exc: logger.emit(
+                E.ORCHESTRATOR_LIFECYCLE_LISTENER_FAILED, exc=exc
             ),
         )
         if self._listener is not None:

@@ -4,9 +4,11 @@ from __future__ import annotations
 
 import asyncio
 import json
-import logging
 from datetime import UTC, datetime
 from hashlib import sha256
+
+from common.observability import events as E
+from common.observability import get_logger
 
 from ..models import TextPart
 from .errors import RecoverableAdapterError, RecoverableCheckpointError
@@ -26,7 +28,7 @@ from .ports import (
 )
 from .terminal_interactions import TerminalInteractionFinalizer
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 
 class A2ACancellationCoordinator:
@@ -166,11 +168,11 @@ class A2ACancellationCoordinator:
     async def _send_remote_cancel(self, command: A2ACancellationCommand) -> None:
         try:
             await self.dispatch.cancel(command)
-        except Exception:
-            logger.warning(
-                "best-effort remote cancellation failed",
-                extra={"call_record_id": command.call_record_id},
-                exc_info=True,
+        except Exception as exc:
+            logger.emit(
+                E.REMOTE_CANCELLATION_FAILED,
+                exc=exc,
+                call_record_id=command.call_record_id,
             )
 
 

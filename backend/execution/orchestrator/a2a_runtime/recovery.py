@@ -10,6 +10,7 @@ from hashlib import sha256
 from typing import Any
 
 from common.dto.hitl import A2AInteractionSpec
+from common.observability import events as E
 from common.utils.logger import get_logger
 
 from ..kernel import KernelConflict
@@ -769,8 +770,8 @@ class A2ARecoveryCycle:
                 await phase()
             except asyncio.CancelledError:
                 raise
-            except Exception:
-                logger.error("A2A recovery phase failed: %s", name, exc_info=True)
+            except Exception as exc:
+                logger.emit(E.A2A_RECOVERY_PHASE_FAILED, exc=exc, phase=name)
 
 
 def _kernel_conflict_marker() -> str:

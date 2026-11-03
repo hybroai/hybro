@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from copy import deepcopy
 from datetime import datetime, timedelta
 
@@ -628,3 +629,33 @@ class _FakeMessageCollection:
         if message_id in self.documents:
             raise DuplicateKeyError("message_id")
         self.documents[message_id] = document
+
+
+async def test_worker_logs_a_raising_projector_without_its_message(caplog):
+    store, run = await _stored_terminal_run()
+
+    async def explode(intent, current_run):
+        raise RuntimeError("projector secret-detail")
+
+    worker = ProjectionOutboxWorker(
+        run_store=store,
+        projectors={
+            "append_orchestrator_event": explode,
+            "deliver_final_message": _noop_projector,
+            "project_terminal_run_status": _noop_projector,
+        },
+        worker_id="worker",
+    )
+    with caplog.at_level(logging.WARNING, logger="execution.orchestrator.projection"):
+        await worker.run_once(due_at=NOW)
+
+    [record] = [
+        r for r in caplog.records if r.getMessage() == "orchestrator_projection_failed"
+    ]
+    assert record.run_id == run.run_id
+    assert record.conversation_id == "room-1"
+    assert record.client_request_id == "request-run-1"
+    assert record.intent_id == "intent-event"
+    assert record.intent_kind == "append_orchestrator_event"
+    assert record.error_type == "RuntimeError"
+    assert "secret-detail" not in caplog.text

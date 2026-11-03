@@ -15,6 +15,7 @@ from __future__ import annotations
 from collections.abc import Awaitable, Callable, Mapping
 from datetime import UTC, datetime, timedelta
 
+from common.observability import events as E
 from common.utils.logger import get_logger
 
 from .models import OrchestratorRunState, ProjectionIntent
@@ -176,13 +177,15 @@ class ProjectionOutboxWorker:
             outcome: StoreOutcome = (
                 "error" if projector is None else await projector(intent, run)
             )
-        except Exception:
-            logger.warning(
-                "orchestrator projection failed run_id=%s intent_id=%s kind=%s",
-                run_id,
-                intent_id,
-                intent.kind,
-                exc_info=True,
+        except Exception as exc:
+            logger.emit(
+                E.ORCHESTRATOR_PROJECTION_FAILED,
+                exc=exc,
+                run_id=run_id,
+                conversation_id=run.conversation_id,
+                client_request_id=run.client_request_id,
+                intent_id=intent_id,
+                intent_kind=intent.kind,
             )
             outcome = "error"
 

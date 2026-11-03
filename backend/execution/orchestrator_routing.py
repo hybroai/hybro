@@ -43,6 +43,7 @@ from common.dto.hitl import (
     HITLSingleChoiceAnswer,
     HITLTextAnswer,
 )
+from common.observability import events as E
 from common.utils.context_utils import split_agent_mentions
 from common.utils.logger import get_logger
 from context_memory.translators import normalize_room_memory
@@ -736,22 +737,26 @@ class DualRuntimeRouter:
             if post_claim_cleanup is not None:
                 await post_claim_cleanup()
             settled = await self._runtime.session_host.reconcile_cancellation(run)
-        except Exception:
-            logger.warning(
-                "orchestrator local cancellation reconciliation remains pending",
-                extra={"run_id": run.run_id},
-                exc_info=True,
+        except Exception as exc:
+            logger.emit(
+                E.RUN_CANCELLATION_RECONCILIATION_DEFERRED,
+                exc=exc,
+                run_id=run.run_id,
+                conversation_id=run.conversation_id,
+                client_request_id=run.client_request_id,
             )
             return self._pending_cancellation_ack()
         if settled.run.status != "canceled":
             return self._pending_cancellation_ack()
         try:
             await self._runtime.session_host.signal_run_cancellation(run, command_id)
-        except Exception:
-            logger.warning(
-                "orchestrator post-cancellation cleanup failed",
-                extra={"run_id": run.run_id},
-                exc_info=True,
+        except Exception as exc:
+            logger.emit(
+                E.RUN_CANCELLATION_CLEANUP_FAILED,
+                exc=exc,
+                run_id=run.run_id,
+                conversation_id=run.conversation_id,
+                client_request_id=run.client_request_id,
             )
         return CancellationAck(
             status="canceled", cancellation_applied=True, reconciled=True
@@ -958,12 +963,12 @@ class DualRuntimeRouter:
                     due_at=datetime.now(UTC),
                     limit=100,
                 )
-            except Exception:
+            except Exception as exc:
                 matching = []
-                logger.warning(
-                    "HITL wake could not read exact pending observations",
-                    extra={"call_record_id": call_record_id},
-                    exc_info=True,
+                logger.emit(
+                    E.HITL_WAKE_OBSERVATION_READ_FAILED,
+                    exc=exc,
+                    call_record_id=call_record_id,
                 )
             matching.sort(
                 key=lambda record: (
@@ -978,14 +983,12 @@ class DualRuntimeRouter:
         for observation_id in dict.fromkeys(candidate_ids):
             try:
                 await processor.process(observation_id)
-            except Exception:
-                logger.warning(
-                    "HITL wake failed to process observation; trying older id",
-                    extra={
-                        "call_record_id": call_record_id,
-                        "observation_id": observation_id,
-                    },
-                    exc_info=True,
+            except Exception as exc:
+                logger.emit(
+                    E.HITL_WAKE_OBSERVATION_PROCESSING_FAILED,
+                    exc=exc,
+                    call_record_id=call_record_id,
+                    observation_id=observation_id,
                 )
                 continue
             break
@@ -1325,12 +1328,8 @@ class DualRuntimeRouter:
                 run = await run_store.load_by_user_message_id(
                     turn_id.removeprefix("message:")
                 )
-            except Exception:
-                logger.warning(
-                    "earlier turn Run is unavailable",
-                    extra={"turn_id": turn_id},
-                    exc_info=True,
-                )
+            except Exception as exc:
+                logger.emit(E.EARLIER_TURN_RUN_LOAD_FAILED, exc=exc, turn_id=turn_id)
         runs[turn_id] = run
         return run
 

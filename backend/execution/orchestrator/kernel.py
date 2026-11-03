@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import asyncio
 import json
-import logging
 import uuid
 from collections.abc import Awaitable, Callable, Iterable
 from contextvars import ContextVar
@@ -15,6 +14,9 @@ from typing import Literal, Protocol
 
 from jsonschema import Draft202012Validator
 from jsonschema.exceptions import ValidationError
+
+from common.observability import events as E
+from common.observability import get_logger
 
 from .budget import BudgetExceeded, BudgetPolicy, apply_suspension_clock
 from .context import ContextCompiler, UnresolvedToolBatchError
@@ -80,7 +82,7 @@ KernelLifecycle = Callable[
     [str, OrchestratorRunState, dict[str, object]], Awaitable[None]
 ]
 
-_kernel_logger = logging.getLogger(__name__)
+_kernel_logger = get_logger(__name__)
 
 KernelOutcome = Literal[
     "final_answer",
@@ -2184,15 +2186,14 @@ class OrchestratorKernel:
                 choices=choices,
             )
         except Exception as exc:
-            _kernel_logger.error(
-                "ask_user supervisor input creation failed",
-                extra={
-                    "run_id": run.run_id,
-                    "call_id": call.call_id,
-                    "interaction_id": interaction_id,
-                    "ask_error": f"{type(exc).__name__}: {exc}",
-                },
-                exc_info=True,
+            _kernel_logger.emit(
+                E.SUPERVISOR_ASK_USER_CREATION_FAILED,
+                exc=exc,
+                run_id=run.run_id,
+                conversation_id=run.conversation_id,
+                client_request_id=run.client_request_id,
+                call_id=call.call_id,
+                interaction_id=interaction_id,
             )
             raise
         invocation = ToolInvocation(

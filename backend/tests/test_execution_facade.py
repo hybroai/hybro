@@ -1,5 +1,6 @@
 import asyncio
 import inspect
+import logging
 from types import SimpleNamespace
 from typing import get_type_hints
 from unittest.mock import AsyncMock, MagicMock
@@ -530,7 +531,7 @@ async def test_schedule_orchestration_carries_live_mode_and_scope():
 
 
 @pytest.mark.asyncio
-async def test_scheduled_orchestration_is_pending_until_its_task_ends():
+async def test_scheduled_orchestration_is_pending_until_its_task_ends(caplog):
     facade, _deps = _make_facade()
     release = asyncio.Event()
 
@@ -558,11 +559,18 @@ async def test_scheduled_orchestration_is_pending_until_its_task_ends():
     assert facade.is_orchestration_pending("msg-2") is False
 
     # A failed task is no longer pending, so the session can report it.
-    release.set()
-    await asyncio.sleep(0)
-    await asyncio.sleep(0)
+    with caplog.at_level(logging.ERROR, logger="execution.facade"):
+        release.set()
+        await asyncio.sleep(0)
+        await asyncio.sleep(0)
 
     assert facade.is_orchestration_pending("msg-1") is False
+    [record] = [
+        r for r in caplog.records if r.getMessage() == "orchestration_task_failed"
+    ]
+    assert record.message_id == "msg-1"
+    assert record.error_type == "RuntimeError"
+    assert "routing failed" not in caplog.text
 
 
 @pytest.mark.asyncio
@@ -800,7 +808,12 @@ async def test_cleanup_failure_does_not_mask_original_processing_cancellation(ca
         )
 
     runtime.discard_message_preflight.assert_called_once_with(preflight_context)
-    assert "room preflight cleanup failed" in caplog.text
+    [record] = [
+        r for r in caplog.records if r.getMessage() == "preflight_cleanup_failed"
+    ]
+    assert record.conversation_id == "room-1"
+    assert record.error_type == "RuntimeError"
+    assert "cleanup failed" not in caplog.text
 
 
 @pytest.mark.asyncio

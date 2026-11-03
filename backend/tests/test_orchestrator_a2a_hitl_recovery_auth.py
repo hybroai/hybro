@@ -9,6 +9,7 @@ import pytest
 from common.dto.hitl import A2AInteractionSpec, HITLQuestionAnswer
 from execution.orchestrator.a2a_runtime.errors import (
     AmbiguousRemoteEffectError,
+    RecoverableAdapterError,
     RecoverableCheckpointError,
 )
 from execution.orchestrator.a2a_runtime.hitl import (
@@ -2062,3 +2063,30 @@ async def test_answer_for_closed_interaction_stops_reconciling(caplog):
     assert state == "input_required"
     assert dispatch.commands == []
     assert "hitl_answer_reconcile_deferred" not in caplog.text
+
+
+@pytest.mark.parametrize(
+    ("operation", "event"),
+    [
+        ("reconcile_answer", "hitl_answer_reconcile_deferred"),
+        ("recover_call", "hitl_continuation_recovery_deferred"),
+    ],
+)
+async def test_store_outage_defers_hitl_continuation(caplog, operation, event):
+    coordinator, ledger, _hitl, _refs, dispatch, call, _route = await setup_waiting()
+
+    async def unavailable(_call_record_id):
+        raise RecoverableAdapterError("ledger down")
+
+    ledger.load_by_record_id = unavailable
+    with caplog.at_level("WARNING"):
+        state = await getattr(coordinator, operation)(
+            call_record_id=call.call_record_id
+        )
+
+    assert state == "delivery_uncertain"
+    assert dispatch.commands == []
+    [record] = [r for r in caplog.records if r.getMessage() == event]
+    assert record.call_record_id == call.call_record_id
+    assert record.error_type == "RecoverableAdapterError"
+    assert "ledger down" not in caplog.text

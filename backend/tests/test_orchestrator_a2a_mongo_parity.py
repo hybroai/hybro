@@ -1792,8 +1792,13 @@ async def test_mongo_invalid_stored_run_does_not_block_other_due_runs(caplog):
     assert {item.run_id for item in due} == {valid.run_id, "run-stale-mirror"}
     stale = next(item for item in due if item.run_id == "run-stale-mirror")
     assert stale.recovery_claim.kind == "cancellation"
-    assert "run-invalid" in caplog.text
-    assert "error_fingerprint=" in caplog.text
+    [record] = [
+        r for r in caplog.records if r.getMessage() == "invalid_run_document_skipped"
+    ]
+    assert record.run_id == "run-invalid"
+    assert record.document_kind == "run"
+    assert len(record.validation_fingerprint) == 16
+    assert record.validation_errors
     loaded = await store.load("run-stale-mirror")
     assert loaded is not None and loaded.status == "canceling"
 

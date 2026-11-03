@@ -360,6 +360,13 @@ registered on `events.CATALOG`. Code logs through
   exception carries the exception fields and `error_code`; an A2A error response
   without an exception (a JSON-RPC error) carries only `error_type` and
   `error_code`.
+- `execution` failure events carry the ids in hand (`run_id`,
+  `conversation_id`, `client_request_id`, `call_record_id`, `observation_id`)
+  and the exception fields, never the exception message. A `_deferred` event
+  (`run_cancellation_reconciliation_deferred`, `hitl_answer_reconcile_deferred`,
+  `hitl_continuation_recovery_deferred`, `a2a_push_processing_deferred`) marks a
+  failure that durable recovery retries; `a2a_recovery_phase_failed` (with
+  `phase`) reports one recovery-cycle phase that failed while the cycle went on.
 - Background jobs share `job_started` (with `interval_seconds`),
   `job_already_started`, `job_start_skipped` (with `reason`), `job_stopped`,
   `job_iteration_failed` and `job_skipped_not_leader`, each
@@ -2157,7 +2164,7 @@ generic prompt.
   ledger, so `reconcile_answer` can rebuild and dispatch the continuation after a
   crash or a lost claim. Recovery logs `hitl_answer_reconcile_deferred`,
   `hitl_continuation_recovery_deferred`, and
-  `hitl_continuation_claim_unavailable` when it waits. An answer whose
+  `hitl_continuation_claim_rejected` when it waits. An answer whose
   interaction was since closed (abandoned, for example
   `superseded_by_new_interaction`) can never be projected, so reconciliation
   leaves the call in its parked state instead of retrying.

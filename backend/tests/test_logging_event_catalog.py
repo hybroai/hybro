@@ -60,21 +60,6 @@ _PENDING_MIGRATION = frozenset(
         "conversation/target_scope.py",
         "conversation/timeline_projection.py",
         "conversation/user_message_persistence.py",
-        "execution/adapters/session_host.py",
-        "execution/events.py",
-        "execution/facade.py",
-        "execution/orchestrator/a2a_runtime/call_counting.py",
-        "execution/orchestrator/a2a_runtime/cancellation.py",
-        "execution/orchestrator/a2a_runtime/hitl.py",
-        "execution/orchestrator/a2a_runtime/observations.py",
-        "execution/orchestrator/a2a_runtime/push.py",
-        "execution/orchestrator/a2a_runtime/recovery.py",
-        "execution/orchestrator/kernel.py",
-        "execution/orchestrator/projection.py",
-        "execution/orchestrator/session.py",
-        "execution/orchestrator_routing.py",
-        "execution/repository/orchestrator/indexes.py",
-        "execution/repository/orchestrator/run_store.py",
     }
 )
 

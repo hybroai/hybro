@@ -159,7 +159,14 @@ async def test_remote_cancel_failure_is_logged_not_raised(caplog):
 
     assert set(results.values()) == {"canceled"}
     assert len(dispatch.commands) == 2
-    assert "remote cancellation" in caplog.text
+    records = [
+        r for r in caplog.records if r.getMessage() == "remote_cancellation_failed"
+    ]
+    assert sorted(r.call_record_id for r in records) == sorted(
+        command.call_record_id for command in dispatch.commands
+    )
+    assert {r.error_type for r in records} == {"ConnectionError"}
+    assert "agent unreachable" not in caplog.text
 
 
 async def test_remote_cancel_does_not_delay_local_cancellation():
@@ -286,3 +293,74 @@ async def test_hitl_cancellation_sends_one_remote_cancel_per_aliased_call():
         [calls["aliased"].call_record_id, calls["parked"].call_record_id]
     )
     assert {command.reason for command in dispatch.commands} == {"hitl_canceled"}
+
+
+def _user_cancellation_router(coordinator, *, session_host):
+    run, canceling = _runs()
+    router = _router(
+        coordinator,
+        run_store=SimpleNamespace(
+            load_by_user_message_id=AsyncMock(return_value=run),
+            request_cancellation=AsyncMock(
+                return_value=SimpleNamespace(outcome="accepted", run=canceling)
+            ),
+        ),
+        hitl_port=SimpleNamespace(get_eligible_interactions=AsyncMock(return_value=[])),
+    )
+    router._runtime.session_host = session_host
+    return router
+
+
+async def test_failed_local_cancellation_reconciliation_is_logged_as_deferred(caplog):
+    coordinator, *_ = await _coordinator()
+    router = _user_cancellation_router(
+        coordinator,
+        session_host=SimpleNamespace(
+            signal_run_cancellation=AsyncMock(),
+            reconcile_cancellation=AsyncMock(side_effect=RuntimeError("store down")),
+        ),
+    )
+
+    with caplog.at_level(logging.WARNING, logger="execution.orchestrator_routing"):
+        ack = await router.route_cancellation_by_user_message(
+            "user-1", reason="user:user-1"
+        )
+        await _settle()
+
+    assert ack.status == "cancellation_pending"
+    [record] = [
+        r
+        for r in caplog.records
+        if r.getMessage() == "run_cancellation_reconciliation_deferred"
+    ]
+    assert record.run_id == "run-1"
+    assert record.conversation_id == "room-1"
+    assert record.client_request_id == "cr-1"
+    assert record.error_type == "RuntimeError"
+
+
+async def test_failed_post_cancellation_signal_is_logged(caplog):
+    coordinator, *_ = await _coordinator()
+    router = _user_cancellation_router(
+        coordinator,
+        session_host=SimpleNamespace(
+            signal_run_cancellation=AsyncMock(side_effect=RuntimeError("gone")),
+            reconcile_cancellation=AsyncMock(
+                return_value=SimpleNamespace(run=SimpleNamespace(status="canceled"))
+            ),
+        ),
+    )
+
+    with caplog.at_level(logging.WARNING, logger="execution.orchestrator_routing"):
+        ack = await router.route_cancellation_by_user_message(
+            "user-1", reason="user:user-1"
+        )
+        await _settle()
+
+    assert ack.status == "canceled"
+    [record] = [
+        r for r in caplog.records if r.getMessage() == "run_cancellation_cleanup_failed"
+    ]
+    assert record.run_id == "run-1"
+    assert record.conversation_id == "room-1"
+    assert record.error_type == "RuntimeError"

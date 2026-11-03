@@ -327,13 +327,98 @@ TERMINAL_DEDUP_REDIS_OPERATION_TIMED_OUT = define(
 
 # execution
 
-AGENT_CALL_COUNT_FAILED = define("agent_call_count_failed", WARNING)
-HITL_CONTINUATION_CLAIM_UNAVAILABLE = define(
-    "hitl_continuation_claim_unavailable", WARNING
+PENDING_HITL_LOOKUP_FAILED = define(
+    "pending_hitl_lookup_failed", WARNING, required={"conversation_id"}
 )
-HITL_ANSWER_RECONCILE_DEFERRED = define("hitl_answer_reconcile_deferred", WARNING)
+PREFLIGHT_STATUS_EMISSION_FAILED = define(
+    "preflight_status_emission_failed",
+    WARNING,
+    required={"conversation_id", "status_stage"},
+)
+PREFLIGHT_CLEANUP_FAILED = define(
+    "preflight_cleanup_failed", WARNING, required={"conversation_id"}
+)
+ORCHESTRATION_TASK_FAILED = define(
+    "orchestration_task_failed", ERROR, required={"message_id"}
+)
+CLIENT_REQUEST_ID_RESOLUTION_FAILED = define(
+    "client_request_id_resolution_failed", WARNING, required={"message_id"}
+)
+ORCHESTRATOR_LIFECYCLE_LISTENER_FAILED = define(
+    "orchestrator_lifecycle_listener_failed", WARNING
+)
+RUN_CANCELLATION_RECONCILIATION_DEFERRED = define(
+    "run_cancellation_reconciliation_deferred",
+    WARNING,
+    required={"run_id", "conversation_id"},
+)
+RUN_CANCELLATION_CLEANUP_FAILED = define(
+    "run_cancellation_cleanup_failed",
+    WARNING,
+    required={"run_id", "conversation_id"},
+)
+HITL_WAKE_OBSERVATION_READ_FAILED = define(
+    "hitl_wake_observation_read_failed", WARNING, required={"call_record_id"}
+)
+HITL_WAKE_OBSERVATION_PROCESSING_FAILED = define(
+    "hitl_wake_observation_processing_failed",
+    WARNING,
+    required={"call_record_id", "observation_id"},
+)
+EARLIER_TURN_RUN_LOAD_FAILED = define(
+    "earlier_turn_run_load_failed", WARNING, required={"turn_id"}
+)
+SUPERVISOR_ASK_USER_CREATION_FAILED = define(
+    "supervisor_ask_user_creation_failed",
+    ERROR,
+    required={"run_id", "conversation_id", "call_id", "interaction_id"},
+)
+INTERRUPTED_RUN_SETTLEMENT_FAILED = define(
+    "interrupted_run_settlement_failed", WARNING, required={"run_id"}
+)
+ORCHESTRATOR_PROJECTION_FAILED = define(
+    "orchestrator_projection_failed",
+    WARNING,
+    required={"run_id", "conversation_id", "intent_id", "intent_kind"},
+)
+INVALID_RUN_DOCUMENT_SKIPPED = define(
+    "invalid_run_document_skipped",
+    ERROR,
+    required={
+        "document_kind",
+        "run_id",
+        "validation_fingerprint",
+        "validation_errors",
+    },
+)
+AGENT_CALL_COUNT_FAILED = define(
+    "agent_call_count_failed", WARNING, required={"agent_id", "state"}
+)
+REMOTE_CANCELLATION_FAILED = define(
+    "remote_cancellation_failed", WARNING, required={"call_record_id"}
+)
+HITL_ANSWER_RECONCILE_DEFERRED = define(
+    "hitl_answer_reconcile_deferred", WARNING, required={"call_record_id"}
+)
 HITL_CONTINUATION_RECOVERY_DEFERRED = define(
-    "hitl_continuation_recovery_deferred", WARNING
+    "hitl_continuation_recovery_deferred", WARNING, required={"call_record_id"}
+)
+HITL_CONTINUATION_CLAIM_REJECTED = define(
+    "hitl_continuation_claim_rejected",
+    WARNING,
+    required={"call_record_id", "state_version", "current_state_version"},
+)
+RUN_RECOVERY_SCHEDULE_FAILED = define(
+    "run_recovery_schedule_failed", ERROR, required={"run_id", "conversation_id"}
+)
+A2A_PUSH_PROCESSING_DEFERRED = define(
+    "a2a_push_processing_deferred", WARNING, required={"observation_id"}
+)
+A2A_PUSH_INGRESS_FAILED = define(
+    "a2a_push_ingress_failed", WARNING, required={"call_record_id"}
+)
+A2A_RECOVERY_PHASE_FAILED = define(
+    "a2a_recovery_phase_failed", ERROR, required={"phase"}
 )
 
 # llm_gateway

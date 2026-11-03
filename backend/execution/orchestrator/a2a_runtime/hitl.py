@@ -14,6 +14,7 @@ from common.dto.hitl import (
     HITLAuthorizationResultAnswer,
     HITLQuestionAnswer,
 )
+from common.observability import events as E
 from common.utils.logger import get_logger
 
 from ..models import TextPart, ToolResult
@@ -489,9 +490,10 @@ class A2AContinuationCoordinator:
         try:
             return await self._reconcile_answer(call_record_id=call_record_id)
         except RecoverableAdapterError as exc:
-            logger.warning(
-                "hitl_answer_reconcile_deferred",
-                extra={"call_record_id": call_record_id, "reason": str(exc)},
+            logger.emit(
+                E.HITL_ANSWER_RECONCILE_DEFERRED,
+                exc=exc,
+                call_record_id=call_record_id,
             )
             return "delivery_uncertain"
 
@@ -536,9 +538,10 @@ class A2AContinuationCoordinator:
         try:
             return await self._recover_call(call_record_id=call_record_id)
         except RecoverableAdapterError as exc:
-            logger.warning(
-                "hitl_continuation_recovery_deferred",
-                extra={"call_record_id": call_record_id, "reason": str(exc)},
+            logger.emit(
+                E.HITL_CONTINUATION_RECOVERY_DEFERRED,
+                exc=exc,
+                call_record_id=call_record_id,
             )
             return "delivery_uncertain"
 
@@ -863,15 +866,14 @@ class A2AContinuationCoordinator:
         claimed = await self._claim(call)
         if claimed is None:
             current = await self.ledger.load_by_record_id(call.call_record_id)
-            logger.warning(
-                "hitl_continuation_claim_unavailable",
-                extra={
-                    "call_record_id": call.call_record_id,
-                    "state_version": call.state_version,
-                    "current_state_version": (
-                        current.state_version if current is not None else None
-                    ),
-                },
+            logger.emit(
+                E.HITL_CONTINUATION_CLAIM_REJECTED,
+                call_record_id=call.call_record_id,
+                conversation_id=call.conversation_id,
+                state_version=call.state_version,
+                current_state_version=(
+                    current.state_version if current is not None else None
+                ),
             )
             return current.state if current is not None else "delivery_uncertain"
         if not await self.room_epochs.verify_active(

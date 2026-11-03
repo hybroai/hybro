@@ -27,6 +27,7 @@ from typing import Any
 
 from pydantic import SecretStr, ValidationError
 
+from common.observability import events as E
 from common.utils.logger import get_logger
 from execution.ports import A2APushOutcome, A2APushReceipt
 
@@ -162,7 +163,7 @@ class A2APushNotificationIngress:
         try:
             await self._authenticated_call(call_record_id, token=token)
         except Exception as exc:
-            return _rejection_receipt(exc)
+            return _rejection_receipt(exc, call_record_id=call_record_id)
         return A2APushReceipt("accepted")
 
     async def receive(
@@ -174,7 +175,7 @@ class A2APushNotificationIngress:
         try:
             observation_id = await self._receive(call_record_id, token=token, body=body)
         except Exception as exc:
-            return _rejection_receipt(exc)
+            return _rejection_receipt(exc, call_record_id=call_record_id)
         return A2APushReceipt("accepted", observation_id)
 
     async def _authenticated_call(
@@ -239,10 +240,8 @@ class A2APushNotificationIngress:
         try:
             await self.processor.process(observation_id)
         except Exception as exc:
-            logger.warning(
-                "A2A push observation processing deferred to inbox recovery "
-                "error_type=%s",
-                type(exc).__name__,
+            logger.emit(
+                E.A2A_PUSH_PROCESSING_DEFERRED, exc=exc, observation_id=observation_id
             )
 
     async def _expedite_poll(self, call: AgentCallLedgerRecord) -> None:
@@ -264,14 +263,14 @@ class A2APushNotificationIngress:
         await self.ledger.cas(due, expected_state_version=call.state_version)
 
 
-def _rejection_receipt(exc: Exception) -> A2APushReceipt:
+def _rejection_receipt(exc: Exception, *, call_record_id: str) -> A2APushReceipt:
     if isinstance(exc, _Rejected):
         return A2APushReceipt(exc.outcome)
     if not isinstance(exc, RecoverableAdapterError | TimeoutError):
         # Stores translate only transient driver errors to
         # RecoverableAdapterError; at this external boundary any other store or
         # adapter failure still answers 503 instead of escaping as a 500.
-        logger.warning("A2A push ingress failed error_type=%s", type(exc).__name__)
+        logger.emit(E.A2A_PUSH_INGRESS_FAILED, exc=exc, call_record_id=call_record_id)
     return A2APushReceipt("unavailable")
 
 

@@ -857,7 +857,7 @@ async def test_recovery_cycle_bounds_permanent_kernel_conflict_without_error_loo
     assert quarantined.claim_owner is None
     assert quarantined.last_error.startswith("KernelConflict:")
     assert sink.attempts == 2
-    assert "A2A recovery phase failed" not in caplog.text
+    assert "a2a_recovery_phase_failed" not in caplog.messages
 
 
 class _LateSuspensionOutcomes:
