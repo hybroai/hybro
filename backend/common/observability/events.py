@@ -81,15 +81,95 @@ REMOTE_TASK_FETCH_FAILED = define(
 
 # agent
 
-BUNDLED_AGENT_URL_TAKEN = define("bundled_agent_url_taken", WARNING)
-BUNDLED_AGENT_REGISTERED = define("bundled_agent_registered", INFO)
-BUNDLED_AGENT_REGISTRATION_FAILED = define("bundled_agent_registration_failed", WARNING)
-AGENT_HEALTH_PROBE_UNREACHABLE = define("agent_health_probe_unreachable", WARNING)
-AGENT_HEALTH_CHECK_FAILED = define("agent_health_check_failed", ERROR)
-AGENT_CARD_UPDATE_FAILED = define("agent_card_update_failed", WARNING)
-AGENT_STATUS_UPDATE_FAILED = define("agent_status_update_failed", ERROR)
-AGENT_HEALTH_RETRY_FAILED = define("agent_health_retry_failed", ERROR)
+BUNDLED_AGENT_URL_TAKEN = define(
+    "bundled_agent_url_taken",
+    WARNING,
+    required={"bundled_name", "agent_id", "holder_source"},
+)
+BUNDLED_AGENT_REGISTERED = define(
+    "bundled_agent_registered", INFO, required={"bundled_name", "agent_id"}
+)
+BUNDLED_AGENT_REGISTRATION_FAILED = define(
+    "bundled_agent_registration_failed", WARNING, required={"bundled_name"}
+)
+AGENT_HEALTH_PROBE_SUCCEEDED = define(
+    "agent_health_probe_succeeded", DEBUG, required={"agent_id", "card_parsed"}
+)
+AGENT_HEALTH_PROBE_FAILED = define(
+    "agent_health_probe_failed", WARNING, required={"agent_id", "status_code"}
+)
+AGENT_HEALTH_CHECK_FAILED = define(
+    "agent_health_check_failed", ERROR, required={"agent_id"}
+)
+AGENT_HEALTH_CHECK_SKIPPED = define(
+    "agent_health_check_skipped", DEBUG, required={"agent_id", "reason"}
+)
+AGENT_CARD_SYNCED = define(
+    "agent_card_synced", DEBUG, required={"agent_id", "changed_field_count"}
+)
+AGENT_CARD_SYNC_FAILED = define(
+    "agent_card_sync_failed", WARNING, required={"agent_id"}
+)
+AGENT_STATUS_UPDATE_FAILED = define(
+    "agent_status_update_failed", ERROR, required={"agent_id", "agent_status"}
+)
+AGENT_DEACTIVATED = define(
+    "agent_deactivated", WARNING, required={"agent_id", "trigger"}
+)
+AGENT_REACTIVATED = define("agent_reactivated", INFO, required={"agent_id", "trigger"})
+AGENT_HEALTH_RETRY_SCHEDULED = define(
+    "agent_health_retry_scheduled",
+    DEBUG,
+    required={"agent_id", "delay_seconds", "consecutive_failure_count"},
+)
+AGENT_HEALTH_RETRY_CANCELLED = define(
+    "agent_health_retry_cancelled", DEBUG, required={"agent_id"}
+)
+AGENT_HEALTH_RETRY_FAILED = define(
+    "agent_health_retry_failed", ERROR, required={"agent_id"}
+)
+AGENT_HEALTH_CYCLE_STARTED = define(
+    "agent_health_cycle_started", INFO, required={"agent_count"}
+)
 AGENT_HEALTH_CYCLE_FAILED = define("agent_health_cycle_failed", ERROR)
+AGENT_LIVENESS_PROBE_FAILED = define(
+    "agent_liveness_probe_failed", WARNING, required={"agent_id"}
+)
+AGENT_REGISTRATION_FAILED = define(
+    "agent_registration_failed", ERROR, required={"provider_id"}
+)
+LOCAL_AGENT_RECORD_TAKEN_OVER = define(
+    "local_agent_record_taken_over", INFO, required={"agent_id", "provider_id"}
+)
+VISIBLE_AGENTS_LIST_FAILED = define(
+    "visible_agents_list_failed", ERROR, required={"user_id", "active_only"}
+)
+AGENT_INSPECTION_REQUEST_REJECTED = define(
+    "agent_inspection_request_rejected", WARNING, required={"inspection"}
+)
+AGENT_INSPECTION_FAILED = define(
+    "agent_inspection_failed", ERROR, required={"inspection"}
+)
+AGENT_DOCUMENT_PARSE_FAILED = define(
+    "agent_document_parse_failed", WARNING, required={"document_kind"}
+)
+AGENT_RUNTIME_STORE_OPERATION_FAILED = define(
+    "agent_runtime_store_operation_failed", ERROR, required={"operation"}
+)
+AGENT_TEXT_SEARCH_FAILED = define(
+    "agent_text_search_failed", WARNING, required={"candidate_count"}
+)
+AGENT_SELECTION_STARTED = define(
+    "agent_selection_started", INFO, required={"user_id", "message_char_count"}
+)
+AGENT_SELECTION_COMPLETED = define(
+    "agent_selection_completed",
+    INFO,
+    required={"user_id", "strategy", "selected_agent_count", "candidate_count"},
+)
+AGENT_SELECTION_RERANK_FAILED = define(
+    "agent_selection_rerank_failed", WARNING, required={"candidate_count"}
+)
 
 # api_gateway
 

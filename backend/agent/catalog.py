@@ -8,7 +8,8 @@ from agent.facade import AgentFacade, AgentRegistrationConflict
 from agent.views import agent_card_view, agent_view
 from common.auth import resolve_provider_name
 from common.dto import AgentInfo, AgentRouteResponse, AgentView
-from common.utils.logger import get_logger
+from common.observability import events as E
+from common.observability import get_logger
 
 logger = get_logger(__name__)
 
@@ -38,7 +39,7 @@ class AgentCatalogService:
         except ValueError as exc:
             return AgentRouteResponse(success=False, error=str(exc), status_code=500)
         except Exception as exc:
-            logger.error("Failed to register agent: %s", exc)
+            logger.emit(E.AGENT_REGISTRATION_FAILED, exc=exc, provider_id=provider_id)
             return AgentRouteResponse(success=False, error=str(exc), status_code=500)
         return AgentRouteResponse(success=True, agent=_view(info))
 
@@ -95,7 +96,12 @@ class AgentCatalogService:
                 active_only=active_only,
             )
         except Exception as exc:
-            logger.error("Failed to list visible agents: %s", exc)
+            logger.emit(
+                E.VISIBLE_AGENTS_LIST_FAILED,
+                exc=exc,
+                user_id=user_id,
+                active_only=active_only,
+            )
             return AgentRouteResponse(success=False, error=str(exc), status_code=500)
         return AgentRouteResponse(success=True, agents=[_view(info) for info in infos])
 

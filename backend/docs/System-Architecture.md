@@ -367,6 +367,10 @@ registered on `events.CATALOG`. Code logs through
   `hitl_continuation_recovery_deferred`, `a2a_push_processing_deferred`) marks a
   failure that durable recovery retries; `a2a_recovery_phase_failed` (with
   `phase`) reports one recovery-cycle phase that failed while the cycle went on.
+- `agent` logs a stored status change once, after the write succeeds:
+  `agent_deactivated` (WARNING) and `agent_reactivated` (INFO), each with
+  `agent_id` and `trigger` (`health_check` or `liveness`). The agent health
+  loop uses the shared job events below with `job=agent_health_checker`.
 - Background jobs share `job_started` (with `interval_seconds`),
   `job_already_started`, `job_start_skipped` (with `reason`), `job_stopped`,
   `job_iteration_failed` and `job_skipped_not_leader`, each

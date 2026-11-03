@@ -256,3 +256,45 @@ async def test_health_loop_failure_emits_job_iteration_failed(caplog, monkeypatc
     assert record.levelno == logging.ERROR
     assert record.job == "agent_health_checker"
     assert record.error_type == "_DepsFailed"
+
+
+@pytest.mark.asyncio
+async def test_health_loop_start_and_stop_emit_lifecycle_events(caplog, monkeypatch):
+    caplog.set_level(logging.DEBUG)
+    monkeypatch.setattr(
+        "agent.health.settings", SimpleNamespace(agent_health_check_enabled=True)
+    )
+    service = AgentHealthService(check_interval_seconds=30)
+    service.set_leader_election(_Follower(), lock_name="agent_health_checker")
+
+    await service.start()
+    await service.start()
+    await service.stop()
+
+    [started] = _events(caplog, "job_started", prefix="agent.")
+    assert started.levelno == logging.INFO
+    assert started.job == "agent_health_checker"
+    assert started.interval_seconds == 30
+    assert started.timeout_seconds == 10.0
+    assert started.max_consecutive_failure_count == 3
+    assert started.initial_retry_seconds == 30.0
+    [already] = _events(caplog, "job_already_started", prefix="agent.")
+    assert already.job == "agent_health_checker"
+    [stopped] = _events(caplog, "job_stopped", prefix="agent.")
+    assert stopped.job == "agent_health_checker"
+
+
+@pytest.mark.asyncio
+async def test_disabled_health_loop_emits_job_start_skipped(caplog, monkeypatch):
+    caplog.set_level(logging.DEBUG)
+    monkeypatch.setattr(
+        "agent.health.settings", SimpleNamespace(agent_health_check_enabled=False)
+    )
+    service = AgentHealthService(check_interval_seconds=30)
+    service.set_leader_election(None, lock_name="agent_health_checker")
+
+    await service.start()
+
+    [skipped] = _events(caplog, "job_start_skipped", prefix="agent.")
+    assert skipped.job == "agent_health_checker"
+    assert skipped.reason == "disabled"

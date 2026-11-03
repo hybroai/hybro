@@ -24,6 +24,7 @@ from agent.facade import AgentRepository
 from agent.translators import _status_value
 from agent.url_utils import normalize_agent_url
 from common.dto.agent import AgentCardSnapshot
+from common.observability import events as E
 from common.observability import get_logger, traced_create_task
 from common.protocols import AgentCardResolver
 
@@ -187,12 +188,11 @@ class BundledAgentService:
             if holder is not None and (
                 record is None or holder["agent_id"] != record["agent_id"]
             ):
-                logger.warning(
-                    "bundled_agent_url_taken",
-                    extra={
-                        "bundled_name": agent.name,
-                        "holder_source": holder.get("source", "cloud"),
-                    },
+                logger.emit(
+                    E.BUNDLED_AGENT_URL_TAKEN,
+                    bundled_name=agent.name,
+                    agent_id=holder["agent_id"],
+                    holder_source=holder.get("source", "cloud"),
                 )
                 return None
             now = self._now()
@@ -225,8 +225,10 @@ class BundledAgentService:
                         "created_at": now,
                     },
                 )
-                logger.info(
-                    "bundled_agent_registered", extra={"bundled_name": agent.name}
+                logger.emit(
+                    E.BUNDLED_AGENT_REGISTERED,
+                    bundled_name=agent.name,
+                    agent_id=agent_id,
                 )
                 return agent_id
             # Keeping agent_id lets room history still resolve the agent.
@@ -254,12 +256,10 @@ class BundledAgentService:
                     await self.reconcile(agent, card)
                     return
             except Exception as exc:  # Retry; a database blip must not end the task.
-                logger.warning(
-                    "bundled_agent_registration_failed",
-                    extra={
-                        "bundled_name": agent.name,
-                        "error_type": type(exc).__name__,
-                    },
+                logger.emit(
+                    E.BUNDLED_AGENT_REGISTRATION_FAILED,
+                    exc=exc,
+                    bundled_name=agent.name,
                 )
             await asyncio.sleep(delay)
             delay = min(delay * 2, self._max_retry_seconds)

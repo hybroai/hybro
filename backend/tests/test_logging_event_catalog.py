@@ -32,15 +32,6 @@ _EXCEPTED = frozenset(
 # migration batch removes its files; the set is deleted once it is empty.
 _PENDING_MIGRATION = frozenset(
     {
-        "agent/bundled.py",
-        "agent/catalog.py",
-        "agent/facade.py",
-        "agent/health.py",
-        "agent/inspection.py",
-        "agent/liveness.py",
-        "agent/repository/documents.py",
-        "agent/repository/runtime_store.py",
-        "agent/selection_service.py",
         "approval/application.py",
         "approval/reconciler.py",
         "approval/repository/hitl_lifecycle_store.py",

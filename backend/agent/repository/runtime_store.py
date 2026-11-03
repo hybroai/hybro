@@ -4,7 +4,8 @@ from agent.repository.documents import (
     _safe_parse_agent,
     _safe_parse_agent_group,
 )
-from common.utils.logger import get_logger
+from common.observability import events as E
+from common.observability import get_logger
 from common.utils.mongo_indexes import create_index
 from models.agent import Agent
 from models.agent_group import AgentGroup
@@ -31,8 +32,13 @@ class AgentRuntimeStore:
         try:
             await self._agent_groups.insert_one(agent_group.model_dump(mode="json"))
             return True
-        except Exception:
-            logger.error("Failed to add agent group", exc_info=True)
+        except Exception as exc:
+            logger.emit(
+                E.AGENT_RUNTIME_STORE_OPERATION_FAILED,
+                exc=exc,
+                operation="add_agent_group",
+                group_id=agent_group.group_id,
+            )
             return False
 
     async def get_agent_groups_by_owner(self, owner_id: str) -> list[AgentGroup]:
@@ -40,8 +46,13 @@ class AgentRuntimeStore:
             docs = await self._agent_groups.find({"owner_id": owner_id})
             groups = [_safe_parse_agent_group(doc) for doc in docs if doc is not None]
             return [group for group in groups if group is not None]
-        except Exception:
-            logger.error("Failed to get agent groups by owner", exc_info=True)
+        except Exception as exc:
+            logger.emit(
+                E.AGENT_RUNTIME_STORE_OPERATION_FAILED,
+                exc=exc,
+                operation="get_agent_groups_by_owner",
+                owner_id=owner_id,
+            )
             return []
 
     async def get_agent_group_by_id(self, group_id: str) -> AgentGroup | None:
@@ -49,8 +60,13 @@ class AgentRuntimeStore:
             return _safe_parse_agent_group(
                 await self._agent_groups.find_one({"group_id": group_id})
             )
-        except Exception:
-            logger.error("Failed to get agent group", exc_info=True)
+        except Exception as exc:
+            logger.emit(
+                E.AGENT_RUNTIME_STORE_OPERATION_FAILED,
+                exc=exc,
+                operation="get_agent_group_by_id",
+                group_id=group_id,
+            )
             return None
 
     async def update_agent_group(self, group_id: str, updates: dict) -> bool:
@@ -59,15 +75,25 @@ class AgentRuntimeStore:
                 {"group_id": group_id},
                 {"$set": dict(updates)},
             )
-        except Exception:
-            logger.error("Failed to update agent group", exc_info=True)
+        except Exception as exc:
+            logger.emit(
+                E.AGENT_RUNTIME_STORE_OPERATION_FAILED,
+                exc=exc,
+                operation="update_agent_group",
+                group_id=group_id,
+            )
             return False
 
     async def delete_agent_group(self, group_id: str) -> bool:
         try:
             return await self._agent_groups.delete_one({"group_id": group_id})
-        except Exception:
-            logger.error("Failed to delete agent group", exc_info=True)
+        except Exception as exc:
+            logger.emit(
+                E.AGENT_RUNTIME_STORE_OPERATION_FAILED,
+                exc=exc,
+                operation="delete_agent_group",
+                group_id=group_id,
+            )
             return False
 
     async def get_all_active_agents(self, user_id: str | None = None) -> list[Agent]:
@@ -79,15 +105,25 @@ class AgentRuntimeStore:
             )
             agents = [_safe_parse_agent(doc) for doc in docs if doc is not None]
             return [agent for agent in agents if agent is not None]
-        except Exception:
-            logger.error("Failed to get active agents", exc_info=True)
+        except Exception as exc:
+            logger.emit(
+                E.AGENT_RUNTIME_STORE_OPERATION_FAILED,
+                exc=exc,
+                operation="get_all_active_agents",
+                user_id=user_id,
+            )
             return []
 
     async def get_agent_name_by_agent_id(self, agent_id: str) -> str | None:
         try:
             doc = await self._agent_repository.get_by_id(agent_id)
-        except Exception:
-            logger.error("Failed to get agent name", exc_info=True)
+        except Exception as exc:
+            logger.emit(
+                E.AGENT_RUNTIME_STORE_OPERATION_FAILED,
+                exc=exc,
+                operation="get_agent_name_by_agent_id",
+                agent_id=agent_id,
+            )
             return None
         card = (doc or {}).get("agent_card") or {}
         return (
@@ -97,8 +133,13 @@ class AgentRuntimeStore:
     async def get_agent_by_agent_id(self, agent_id: str) -> Agent | None:
         try:
             return _safe_parse_agent(await self._agent_repository.get_by_id(agent_id))
-        except Exception:
-            logger.error("Failed to get agent", exc_info=True)
+        except Exception as exc:
+            logger.emit(
+                E.AGENT_RUNTIME_STORE_OPERATION_FAILED,
+                exc=exc,
+                operation="get_agent_by_agent_id",
+                agent_id=agent_id,
+            )
             return None
 
     async def increment_agent_call_count(self, agent_id: str, *, success: bool) -> None:
@@ -107,5 +148,10 @@ class AgentRuntimeStore:
                 agent_id,
                 success=success,
             )
-        except Exception:
-            logger.error("Failed to increment agent call count", exc_info=True)
+        except Exception as exc:
+            logger.emit(
+                E.AGENT_RUNTIME_STORE_OPERATION_FAILED,
+                exc=exc,
+                operation="increment_agent_call_count",
+                agent_id=agent_id,
+            )

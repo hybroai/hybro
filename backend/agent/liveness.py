@@ -11,11 +11,15 @@ from typing import Protocol
 
 from common.config.loader import settings
 from common.dto import AgentInfo
+from common.observability import events as E
+from common.observability import get_logger
 from common.types import AgentCard
-from common.utils.logger import get_logger
 from models.agent import AgentStatus
 
 logger = get_logger(__name__)
+
+# The ``trigger`` of status transitions made by this check.
+_TRIGGER = "liveness"
 
 
 class AgentHealthProbe(Protocol):
@@ -66,12 +70,9 @@ class AgentLivenessService:
                 agent.name,
                 timeout=settings.cloud_health_check_timeout,
             )
-        except Exception:
-            logger.warning(
-                "Liveness probe failed for cloud agent %s — returning stale status",
-                agent.agent_id,
-                exc_info=True,
-            )
+        except Exception as exc:
+            # The stored status is returned unchanged.
+            logger.emit(E.AGENT_LIVENESS_PROBE_FAILED, exc=exc, agent_id=agent.agent_id)
             return agent
 
         if is_healthy and fetched_card:
@@ -80,10 +81,12 @@ class AgentLivenessService:
             )
 
         if not is_healthy and agent.status == AgentStatus.active.value:
-            await health_service.update_agent_status(
+            if await health_service.update_agent_status(
                 agent.agent_id, AgentStatus.inactive
-            )
-            logger.info("Liveness: cloud agent %s marked inactive", agent.agent_id)
+            ):
+                logger.emit(
+                    E.AGENT_DEACTIVATED, agent_id=agent.agent_id, trigger=_TRIGGER
+                )
             return agent.model_copy(update={"status": AgentStatus.inactive.value})
 
         # A bundled agent gated by setup stays inactive while it is reachable;
@@ -94,9 +97,7 @@ class AgentLivenessService:
             and not agent.inactive_reason
             and await health_service.reactivate_agent(agent.agent_id)
         ):
-            logger.info(
-                "Liveness: cloud agent %s recovered — marked active", agent.agent_id
-            )
+            logger.emit(E.AGENT_REACTIVATED, agent_id=agent.agent_id, trigger=_TRIGGER)
             return agent.model_copy(update={"status": AgentStatus.active.value})
 
         return agent

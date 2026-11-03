@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import hashlib
-import logging
 from collections.abc import Callable
 from datetime import datetime, timedelta
 from typing import Any, Protocol, runtime_checkable
@@ -27,7 +26,8 @@ from common.dto.agent import (
     AgentInfo,
     AgentMatchResult,
 )
-from common.observability import NoopTracingProvider
+from common.observability import NoopTracingProvider, get_logger
+from common.observability import events as E
 from common.protocols import (
     AgentCardResolver,
     AgentExclusionReader,
@@ -80,7 +80,7 @@ class AgentRepository(Protocol):
     async def activate_agents(self, agent_ids: list[str]) -> int: ...
 
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 # An ownerless discovery record that stays inactive this long is deleted.
 LOCAL_AGENT_INACTIVE_RETENTION = timedelta(days=7)
@@ -290,8 +290,10 @@ class AgentFacade:
             if conflict is not None:
                 raise conflict
             agent_id = existing["agent_id"]
-            logger.info(
-                "agent_registration_took_over_local_record agent_id=%s", agent_id
+            logger.emit(
+                E.LOCAL_AGENT_RECORD_TAKEN_OVER,
+                agent_id=agent_id,
+                provider_id=provider_id,
             )
         else:
             agent_id = self._id_factory()
@@ -572,10 +574,12 @@ class AgentFacade:
                     continue
                 mongo_matched_ids.add(agent_id)
                 mongo_scores[agent_id] = float(result.get("score", 0.0) or 0.0)
-        except Exception:
-            logger.warning(
-                "Agent text search unavailable; using application lexical fallback",
-                exc_info=True,
+        except Exception as exc:
+            # Ranking falls back to the application's lexical scoring.
+            logger.emit(
+                E.AGENT_TEXT_SEARCH_FAILED,
+                exc=exc,
+                candidate_count=len(candidate_ids),
             )
         ranked = rank_agent_docs(
             candidates,
