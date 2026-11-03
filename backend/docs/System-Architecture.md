@@ -1072,6 +1072,11 @@ Caddy routes one port by path: `{api_prefix}` and `{api_prefix}/*` and
 listener), and everything else to the frontend. On a loopback listener it
 answers any `Host` other than `localhost`, `127.0.0.1`, or `::1` (any port)
 with 421, which blocks DNS rebinding against the unauthenticated local API.
+Caddy writes a JSON access log to stdout (`caddy | ` in `hybro logs`), skipping
+`/_next/static/*`. It logs 1xx-4xx responses at `info` and 5xx at `error`,
+keeps the browser's `X-Request-ID` under `request.headers.X-Request-Id`, and
+redacts `Authorization`, `Cookie` and `Set-Cookie` (`log_credentials` is
+unset). Requests without the header are correlated by time only.
 
 On a fresh data volume the entrypoint starts `mongod`, initiates `rs0` with
 member `127.0.0.1:27017`, waits for primary, and stops it. Data whose stored

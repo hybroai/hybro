@@ -217,6 +217,25 @@ def test_public_caddyfile_omits_mcp_and_the_host_check():
     assert "reverse_proxy 127.0.0.1:3000" in text
 
 
+@pytest.mark.parametrize("listener", [loopback, public])
+def test_caddyfile_logs_json_and_skips_static_assets(listener):
+    text = entry.caddyfile(listener=listener(), api_prefix="/api/v1")
+    site = text[text.index(":8080 {") :]
+    expected = "\n".join(
+        [
+            ":8080 {",
+            "\tlog {",
+            "\t\toutput stdout",
+            "\t\tformat json",
+            "\t}",
+            "\t@static path /_next/static/*",
+            "\tlog_skip @static",
+        ]
+    )
+    assert site.startswith(expected)
+    assert "log_credentials" not in text
+
+
 def test_supervisor_starts_mongod_first_and_stops_services_together():
     conf = entry.supervisord_conf(build(loopback()))
     sections = conf.split("\n\n")

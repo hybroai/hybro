@@ -352,6 +352,14 @@ def caddyfile(*, listener: Listener, api_prefix: str) -> str:
         "}",
         "",
         f":{CADDY_PORT} {{",
+        # JSON access log on stdout, one format with the backend's lines.
+        # Credential headers stay redacted (log_credentials is unset).
+        "\tlog {",
+        "\t\toutput stdout",
+        "\t\tformat json",
+        "\t}",
+        "\t@static path /_next/static/*",
+        "\tlog_skip @static",
     ]
     if listener.mode == "loopback":
         # A DNS-rebound request carries the attacker's host name. Any port is
