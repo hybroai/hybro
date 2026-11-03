@@ -222,3 +222,128 @@ async def test_request_cancellation_is_logged_and_propagated(caplog):
     assert record.status == 200
     assert record.outcome == "cancelled"
     assert record.error_type == "CancelledError"
+
+
+def _asgi_app(
+    bodies: list[bytes],
+    *,
+    status: int = 200,
+    content_type: bytes = b"application/json",
+):
+    async def application(scope, receive, send):
+        await send(
+            {
+                "type": "http.response.start",
+                "status": status,
+                "headers": [(b"content-type", content_type)],
+            }
+        )
+        for index, body in enumerate(bodies):
+            await send(
+                {
+                    "type": "http.response.body",
+                    "body": body,
+                    "more_body": index < len(bodies) - 1,
+                }
+            )
+
+    application.bodies = bodies
+    return application
+
+
+async def _completed_record(application, caplog) -> logging.LogRecord:
+    caplog.set_level(logging.INFO, logger="common.middleware.request_logging")
+    sent: list[dict] = []
+
+    async def receive():
+        return {"type": "http.request", "body": b"", "more_body": False}
+
+    async def send(message):
+        sent.append(message)
+
+    await RequestLoggingMiddleware(application)(
+        {"type": "http", "method": "GET", "path": "/x", "headers": []},
+        receive,
+        send,
+    )
+    sent_bodies = [m["body"] for m in sent if m["type"] == "http.response.body"]
+    assert sent[0]["type"] == "http.response.start"
+    assert sent_bodies == application.bodies  # forwarded untouched
+    [record] = [r for r in caplog.records if r.getMessage() == "http_request_completed"]
+    return record
+
+
+@pytest.mark.parametrize(
+    ("envelope", "outcome", "envelope_status"),
+    [
+        ({"success": False, "status_code": 404}, "client_error", 404),
+        ({"success": False, "status_code": 500}, "error", 500),
+        ({"success": False}, "client_error", None),
+        ({"success": False, "status_code": "500"}, "client_error", None),
+        ({"success": False, "status_code": 200}, "client_error", 200),
+        ({"success": True, "status_code": 500}, "success", None),
+    ],
+)
+async def test_failure_envelope_sets_the_outcome(
+    caplog, envelope, outcome, envelope_status
+):
+    record = await _completed_record(_asgi_app([json.dumps(envelope).encode()]), caplog)
+
+    assert record.status == 200
+    assert record.outcome == outcome
+    assert getattr(record, "envelope_status", None) == envelope_status
+
+
+@pytest.mark.parametrize(
+    "application",
+    [
+        _asgi_app([b'{"success": false}'], content_type=b"text/event-stream"),
+        _asgi_app([b"not json"]),
+        _asgi_app([b'{"success": false, "pad": "' + b"x" * (64 * 1024) + b'"}']),
+        _asgi_app([b'{"success": ', b"false}"]),
+        _asgi_app([b'{"success": false}'], status=201),
+        _asgi_app([b""]),
+        _asgi_app([b'{"success": false, "x": ' + b"[" * 30000 + b"]" * 30000 + b"}"]),
+    ],
+    ids=[
+        "streaming",
+        "non_json",
+        "oversized",
+        "two_chunks",
+        "not_200",
+        "empty",
+        "deeply_nested",
+    ],
+)
+async def test_uninspected_responses_stay_success(caplog, application):
+    record = await _completed_record(application, caplog)
+
+    assert record.outcome == "success"
+    assert not hasattr(record, "envelope_status")
+
+
+async def test_exception_after_a_failure_envelope_reports_error(caplog):
+    inner = _asgi_app([b'{"success": false, "status_code": 404}'])
+
+    async def application(scope, receive, send):
+        await inner(scope, receive, send)
+        raise RuntimeError("after body")
+
+    caplog.set_level(logging.INFO, logger="common.middleware.request_logging")
+
+    async def receive():
+        return {"type": "http.request", "body": b"", "more_body": False}
+
+    async def send(message):
+        return None
+
+    with pytest.raises(RuntimeError):
+        await RequestLoggingMiddleware(application)(
+            {"type": "http", "method": "GET", "path": "/x", "headers": []},
+            receive,
+            send,
+        )
+
+    [record] = [r for r in caplog.records if r.getMessage() == "http_request_completed"]
+    assert record.outcome == "error"
+    assert not hasattr(record, "envelope_status")

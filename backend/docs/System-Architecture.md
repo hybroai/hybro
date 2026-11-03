@@ -332,6 +332,15 @@ registered on `events.CATALOG`. Code logs through
 - `system=True` marks events a later phase copies into a system event store
   (`http_request_completed`, `llm_call_completed`, `a2a_call_completed`,
   `job_iteration_failed`); nothing reads the flag yet.
+- `common.middleware.request_logging` emits one `http_request_completed` per
+  HTTP request with `method`, `route` (the template), `status`, `outcome`
+  and `duration_ms`, and binds `request_id` and `trace_id` (the inbound
+  `X-Request-ID` when valid, else a new UUID, echoed in the response). A JSON
+  200 response whose single body chunk (at most 64 KiB) is a
+  `{"success": false}` envelope reports `outcome=error` when its integer
+  `status_code` is 500 or above and `client_error` otherwise, with
+  `envelope_status` when the status is an integer. Streaming and
+  multi-chunk bodies are never buffered.
 - Background jobs share `job_started` (with `interval_seconds`),
   `job_already_started`, `job_start_skipped` (with `reason`), `job_stopped`,
   `job_iteration_failed` and `job_skipped_not_leader`, each
