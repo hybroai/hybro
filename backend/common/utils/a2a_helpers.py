@@ -4,11 +4,13 @@ These are stateless, pure functions used by both WorkflowCenter
 and the execution path.
 """
 
+import logging
 import uuid
 from dataclasses import dataclass, field
 from types import SimpleNamespace
 from typing import Any, Protocol
 
+from common.observability import events as E
 from common.types import MessageRole
 from common.utils.logger import get_logger
 
@@ -136,7 +138,7 @@ def extract_parts(parts: list) -> ExtractedParts:
             if isinstance(text, str) and text:
                 result.text_parts.append(text)
             else:
-                logger.warning("Unknown part kind=%s, skipping", kind)
+                logger.emit(E.A2A_PART_SKIPPED, part_kind=kind)
     return result
 
 
@@ -196,7 +198,12 @@ def get_message_from_task(task: Any) -> Any | None:
             # Artifact.parts is a list of Part objects
             all_parts.extend(artifact.parts)
         if all_parts:
-            logger.debug("Found %d parts in task.artifacts", len(all_parts))
+            logger.emit(
+                E.TASK_MESSAGE_RESOLVED,
+                source="artifacts",
+                task_id=task.id,
+                part_count=len(all_parts),
+            )
             message = SimpleNamespace(
                 kind="message",
                 role=MessageRole.AGENT,
@@ -208,7 +215,7 @@ def get_message_from_task(task: Any) -> Any | None:
 
     # Check task.status.message (for status updates, less common for final output)
     if task.status and task.status.message:
-        logger.debug("Found message in task.status.message")
+        logger.emit(E.TASK_MESSAGE_RESOLVED, source="status_message", task_id=task.id)
         return task.status.message
 
     # Check task.history for the last agent message (fallback)
@@ -216,10 +223,10 @@ def get_message_from_task(task: Any) -> Any | None:
         for msg in reversed(task.history):
             role = getattr(msg, "role", None)
             if getattr(role, "value", role) == "agent":
-                logger.debug("Found agent message in task.history")
+                logger.emit(E.TASK_MESSAGE_RESOLVED, source="history", task_id=task.id)
                 return msg
 
-    logger.warning("No message found in task %s", task.id)
+    logger.emit(E.TASK_MESSAGE_NOT_FOUND, task_id=task.id)
     return None
 
 
@@ -430,23 +437,26 @@ def sanitize_artifact_parts(parts: list[dict]) -> list[dict]:
     cleaned: list[dict] = []
     for p in parts:
         if not isinstance(p, dict):
-            logger.warning(
-                "invalid_artifact_part_dropped",
-                extra={"part_type": type(p).__name__, "reason": "not_mapping"},
+            logger.emit(
+                E.INVALID_ARTIFACT_PART_DROPPED,
+                part_type=type(p).__name__,
+                reason="not_mapping",
             )
             continue
         root = p.get("root", p)
         if not isinstance(root, dict):
-            logger.warning(
-                "invalid_artifact_part_dropped",
-                extra={"part_type": type(root).__name__, "reason": "root_not_mapping"},
+            logger.emit(
+                E.INVALID_ARTIFACT_PART_DROPPED,
+                part_type=type(root).__name__,
+                reason="root_not_mapping",
             )
             continue
         normalized_root = _normalize_part_root(root)
         if normalized_root is None:
-            logger.debug(
-                "invalid_artifact_part_dropped",
-                extra={"reason": "unrecognized_shape"},
+            logger.emit(
+                E.INVALID_ARTIFACT_PART_DROPPED,
+                level=logging.DEBUG,
+                reason="unrecognized_shape",
             )
             continue
         if "root" in p and p.get("root") is root:
@@ -501,7 +511,7 @@ def append_artifact_to_task_dict(
 
     artifact_id = new_artifact.get("artifactId") or new_artifact.get("artifact_id")
     if not artifact_id:
-        logger.warning("Artifact missing artifactId, appending as new artifact")
+        logger.emit(E.TASK_ARTIFACT_ID_NOT_FOUND)
         existing_artifacts.append(new_artifact)
         return existing_artifacts
 
@@ -514,21 +524,24 @@ def append_artifact_to_task_dict(
 
     if not append:
         if existing_index is not None:
-            logger.debug("Replacing artifact at id %s", artifact_id)
+            logger.emit(
+                E.TASK_ARTIFACT_MERGED, artifact_id=artifact_id, merge_action="replaced"
+            )
             existing_artifacts[existing_index] = new_artifact
         else:
-            logger.debug("Adding new artifact with id %s", artifact_id)
+            logger.emit(
+                E.TASK_ARTIFACT_MERGED, artifact_id=artifact_id, merge_action="added"
+            )
             existing_artifacts.append(new_artifact)
     elif existing_index is not None:
-        logger.debug("Appending parts to artifact id %s", artifact_id)
+        logger.emit(
+            E.TASK_ARTIFACT_MERGED, artifact_id=artifact_id, merge_action="appended"
+        )
         existing_parts = existing_artifacts[existing_index].get("parts", [])
         new_parts = new_artifact.get("parts", [])
         existing_artifacts[existing_index]["parts"] = existing_parts + new_parts
     else:
-        logger.warning(
-            "Received append=True for nonexistent artifact id %s. Creating new artifact.",
-            artifact_id,
-        )
+        logger.emit(E.TASK_ARTIFACT_APPEND_TARGET_NOT_FOUND, artifact_id=artifact_id)
         existing_artifacts.append(new_artifact)
 
     return existing_artifacts

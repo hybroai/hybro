@@ -31,6 +31,7 @@ from a2a_adapter.client_facade import send_message as sdk_send_message
 from a2a_adapter.client_facade import stream_message as sdk_stream_message
 from a2a_adapter.orchestrator_direct_client import OrchestratorDirectA2AClient
 from a2a_adapter.remote_task import fetch_remote_task as sdk_fetch_remote_task
+from common.observability import events as E
 from common.utils.logger import get_logger
 from conversation.protocols import ConversationMessageWriter
 from execution.adapters.agent_candidates import AgentServiceCandidateSource
@@ -828,27 +829,25 @@ def create_orchestrator_runtime(  # noqa: C901
                     ):
                         # The dedicated lease makes this warning exactly-once:
                         # quarantined rows are excluded from every future scan.
-                        logger.warning(
-                            "generic orchestrator Run recovery quarantined "
-                            "run_id=%s reason=%s attempts=%s",
-                            run.run_id,
-                            decision.quarantine_reason,
-                            decision.failure_count,
+                        logger.emit(
+                            E.ORCHESTRATOR_RUN_RECOVERY_QUARANTINED,
+                            run_id=run.run_id,
+                            quarantine_reason=decision.quarantine_reason,
+                            failure_count=decision.failure_count,
                         )
                     elif isinstance(exc, KernelConflict):
-                        logger.debug(
-                            "generic orchestrator Run recovery invariant retry "
-                            "run_id=%s attempt=%s",
-                            run.run_id,
-                            decision.failure_count,
+                        logger.emit(
+                            E.ORCHESTRATOR_RUN_RECOVERY_CONFLICT_RETRIED,
+                            run_id=run.run_id,
+                            failure_count=decision.failure_count,
                         )
                     else:
-                        logger.exception(
-                            "generic orchestrator Run recovery failed "
-                            "run_id=%s error_type=%s retry_scheduled=true: %s",
-                            run.run_id,
-                            type(exc).__name__,
-                            exc,
+                        logger.emit(
+                            E.ORCHESTRATOR_RUN_RECOVERY_FAILED,
+                            exc=exc,
+                            run_id=run.run_id,
+                            failure_count=decision.failure_count,
+                            retry_scheduled=True,
                         )
 
     def _due_phase(recover: Callable[..., Any]) -> Callable[[], Any]:

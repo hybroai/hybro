@@ -73,10 +73,127 @@ SSE_CONNECTION_FAILED = define("sse_connection_failed", ERROR)
 
 # common
 
-CLERK_USER_NAME_RESOLUTION_FAILED = define("clerk_user_name_resolution_failed", WARNING)
+CLERK_USER_NAME_RESOLUTION_FAILED = define(
+    "clerk_user_name_resolution_failed", WARNING, required={"user_id"}
+)
 CLERK_TOKEN_VERIFICATION_FAILED = define("clerk_token_verification_failed", ERROR)
-INVALID_ARTIFACT_PART_DROPPED = define("invalid_artifact_part_dropped", WARNING)
-TOKEN_ESTIMATION_FALLBACK_SELECTED = define("token_estimation_fallback_selected", DEBUG)
+REMOVED_CONFIG_FIELDS_IGNORED = define(
+    "removed_config_fields_ignored", WARNING, required={"removed_fields"}
+)
+CONFIG_INSTANCES_IGNORED = define("config_instances_ignored", WARNING)
+INVALID_ARTIFACT_PART_DROPPED = define(
+    "invalid_artifact_part_dropped", WARNING, required={"reason"}
+)
+A2A_PART_SKIPPED = define("a2a_part_skipped", WARNING, required={"part_kind"})
+TASK_MESSAGE_RESOLVED = define("task_message_resolved", DEBUG, required={"source"})
+TASK_MESSAGE_NOT_FOUND = define("task_message_not_found", WARNING, required={"task_id"})
+TASK_ARTIFACT_ID_NOT_FOUND = define("task_artifact_id_not_found", WARNING)
+TASK_ARTIFACT_MERGED = define(
+    "task_artifact_merged", DEBUG, required={"artifact_id", "merge_action"}
+)
+TASK_ARTIFACT_APPEND_TARGET_NOT_FOUND = define(
+    "task_artifact_append_target_not_found", WARNING, required={"artifact_id"}
+)
+TOKEN_ESTIMATION_FALLBACK_SELECTED = define(
+    "token_estimation_fallback_selected", DEBUG, required={"reason"}
+)
+INDEX_CREATION_FAILED = define(
+    "index_creation_failed",
+    WARNING,
+    required={"collection_name", "index_name", "critical"},
+)
+SEARCH_INDEX_CREATION_FAILED = define(
+    "search_index_creation_failed", WARNING, required={"index_name"}
+)
+
+# container
+
+MULTI_WORKER_SAFETY_CHECK_PASSED = define("multi_worker_safety_check_passed", INFO)
+RUNTIME_CLEANUP_TASK_FAILED = define(
+    "runtime_cleanup_task_failed", WARNING, required={"cleanup_step"}
+)
+RUNTIME_CLEANUP_STEP_TIMED_OUT = define(
+    "runtime_cleanup_step_timed_out", WARNING, required={"cleanup_step"}
+)
+RUNTIME_CLEANUP_STEP_FAILED = define(
+    "runtime_cleanup_step_failed", WARNING, required={"cleanup_step"}
+)
+STARTUP_BINDINGS_VERIFIED = define("startup_bindings_verified", INFO)
+RESYNC_SNAPSHOT_BUILD_FAILED = define(
+    "resync_snapshot_build_failed", WARNING, required={"conversation_id"}
+)
+SUPERVISOR_ASK_USER_RESUME_FAILED = define(
+    "supervisor_ask_user_resume_failed",
+    WARNING,
+    required={"run_id", "call_id", "conversation_id"},
+)
+REDIS_DISABLED = define("redis_disabled", INFO)
+REDIS_KV_CONNECTED = define("redis_kv_connected", INFO)
+REDIS_KV_CONNECTION_FAILED = define("redis_kv_connection_failed", WARNING)
+REDIS_STREAMS_CONNECTED = define("redis_streams_connected", INFO)
+REDIS_STREAMS_CONNECTION_FAILED = define("redis_streams_connection_failed", WARNING)
+LEADER_ELECTION_ENABLED = define("leader_election_enabled", INFO)
+ORCHESTRATOR_PROJECTION_NUDGE_FAILED = define(
+    "orchestrator_projection_nudge_failed", WARNING
+)
+ORCHESTRATOR_RUNTIME_COMPOSED = define("orchestrator_runtime_composed", INFO)
+ORCHESTRATOR_INGRESS_ADAPTER_BOUND = define("orchestrator_ingress_adapter_bound", INFO)
+SHUTDOWN_EXECUTION_TASKS_CANCELLED = define(
+    "shutdown_execution_tasks_cancelled", INFO, required={"cancelled_tasks"}
+)
+
+# jobs
+
+JOB_STARTED = define("job_started", INFO, required={"job", "interval_seconds"})
+JOB_STOPPED = define("job_stopped", INFO, required={"job"})
+JOB_ITERATION_FAILED = define(
+    "job_iteration_failed", ERROR, required={"job"}, system=True
+)
+JOB_SKIPPED_NOT_LEADER = define("job_skipped_not_leader", DEBUG, required={"job"})
+JOB_ALREADY_STARTED = define("job_already_started", WARNING, required={"job"})
+JOB_START_SKIPPED = define("job_start_skipped", INFO, required={"job", "reason"})
+ORCHESTRATOR_CANARY_THRESHOLD_BREACHED = define(
+    "orchestrator_canary_threshold_breached",
+    WARNING,
+    required={"metric", "threshold", "observed"},
+)
+HITL_RECONCILIATION_SKIPPED = define(
+    "hitl_reconciliation_skipped", WARNING, required={"reason"}
+)
+ROOM_COMPACTED = define(
+    "room_compacted",
+    INFO,
+    required={"conversation_id", "compacted_turns", "tokens_saved"},
+)
+ROOM_COMPACTION_FAILED = define(
+    "room_compaction_failed", WARNING, required={"conversation_id"}
+)
+COMPACTION_SWEEP_COMPLETED = define(
+    "compaction_sweep_completed",
+    INFO,
+    required={"scanned_rooms", "compacted_rooms", "skipped_rooms", "failed_rooms"},
+)
+ORPHANED_UPLOADS_CLEANED = define(
+    "orphaned_uploads_cleaned", INFO, required={"deleted_uploads"}
+)
+
+# orchestrator_composition
+
+ORCHESTRATOR_RUN_RECOVERY_QUARANTINED = define(
+    "orchestrator_run_recovery_quarantined",
+    WARNING,
+    required={"run_id", "quarantine_reason", "failure_count"},
+)
+ORCHESTRATOR_RUN_RECOVERY_CONFLICT_RETRIED = define(
+    "orchestrator_run_recovery_conflict_retried",
+    DEBUG,
+    required={"run_id", "failure_count"},
+)
+ORCHESTRATOR_RUN_RECOVERY_FAILED = define(
+    "orchestrator_run_recovery_failed",
+    ERROR,
+    required={"run_id", "failure_count"},
+)
 
 # delivery
 

@@ -12,8 +12,8 @@ from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from typing import Any, Protocol
 
-from common.observability import traced_create_task
-from common.utils.logger import get_logger
+from common.observability import events as E
+from common.observability import get_logger, traced_create_task
 from jobs.constants import STALE_TASK_CHECKER
 
 logger = get_logger(__name__)
@@ -55,13 +55,15 @@ class StaleTaskChecker:
     async def start(self) -> None:
         """Start the background checker."""
         if self._running:
-            logger.warning("Stale task checker already running")
+            logger.emit(E.JOB_ALREADY_STARTED, job=STALE_TASK_CHECKER)
             return
 
         self._running = True
         self._task = traced_create_task(self._run_loop(), name="stale-task-checker")
-        logger.info(
-            f"Stale task checker started (interval: {self.check_interval_minutes}min)"
+        logger.emit(
+            E.JOB_STARTED,
+            job=STALE_TASK_CHECKER,
+            interval_seconds=self.check_interval_minutes * 60,
         )
 
     async def stop(self) -> None:
@@ -73,7 +75,7 @@ class StaleTaskChecker:
                 await self._task
             except asyncio.CancelledError:
                 pass
-        logger.info("Stale task checker stopped")
+        logger.emit(E.JOB_STOPPED, job=STALE_TASK_CHECKER)
 
     async def _run_loop(self) -> None:
         """Main loop that runs the check periodically."""
@@ -81,10 +83,7 @@ class StaleTaskChecker:
             try:
                 await self._run_one_iteration()
             except Exception as exc:
-                logger.error(
-                    "stale_task_checker_failed",
-                    extra={"error_type": type(exc).__name__},
-                )
+                logger.emit(E.JOB_ITERATION_FAILED, exc=exc, job=STALE_TASK_CHECKER)
 
             # Wait for next check
             await asyncio.sleep(self.check_interval_minutes * 60)
@@ -106,12 +105,12 @@ class StaleTaskChecker:
     async def check_stale_tasks(self) -> None:
         """Run one reconciliation pass; called periodically by the loop."""
         if self._hitl_deps is None:
-            logger.warning("Skipped HITL reconciliation: HITL deps are not bound")
+            logger.emit(E.HITL_RECONCILIATION_SKIPPED, reason="deps_unbound")
             return
         try:
             await self._hitl_deps.reconcile_lifecycle()
-        except Exception:
-            logger.exception("HITL lifecycle reconciliation failed")
+        except Exception as exc:
+            logger.emit(E.JOB_ITERATION_FAILED, exc=exc, job=STALE_TASK_CHECKER)
 
 
 # Singleton instance. Application startup binds runtime dependencies.

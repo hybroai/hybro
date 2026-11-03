@@ -3,8 +3,8 @@ Leader-elected orchestrator background workers.
 
 The recovery cycle drains A2A recovery work (cancellation, inbox, call
 delivery, artifacts, projection), the projection worker drains the durable
-projection outbox, and the canary job reads the durable stores and logs a
-warning when a §8.2 threshold is exceeded. Recovery and projection are
+projection outbox, and the canary job reads the durable stores and emits
+``orchestrator_canary_threshold_breached`` when a §8.2 threshold is exceeded. Recovery and projection are
 mandatory canonical lifecycle workers; the canary remains independently
 configurable observability.
 """
@@ -18,8 +18,8 @@ from datetime import UTC, datetime
 from typing import Any, Protocol
 
 from common.config import settings
-from common.observability import traced_create_task
-from common.utils.logger import get_logger
+from common.observability import events as E
+from common.observability import get_logger, traced_create_task
 from execution.adapters.canary_metrics import evaluate_canary_thresholds
 from jobs.constants import (
     ORCHESTRATOR_CANARY,
@@ -73,14 +73,15 @@ class OrchestratorRecoveryJob:
 
     async def start(self) -> None:
         if self._running:
-            logger.warning("Orchestrator recovery job already running")
+            logger.emit(E.JOB_ALREADY_STARTED, job=ORCHESTRATOR_RECOVERY)
             return
         self._require_deps()
         self._running = True
         self._task = traced_create_task(self._run_loop(), name="orchestrator-recovery")
-        logger.info(
-            "Orchestrator recovery job started (interval: %d s)",
-            self.interval_seconds,
+        logger.emit(
+            E.JOB_STARTED,
+            job=ORCHESTRATOR_RECOVERY,
+            interval_seconds=self.interval_seconds,
         )
 
     async def stop(self) -> None:
@@ -91,7 +92,7 @@ class OrchestratorRecoveryJob:
                 await self._task
             except asyncio.CancelledError:
                 pass
-        logger.info("Orchestrator recovery job stopped")
+        logger.emit(E.JOB_STOPPED, job=ORCHESTRATOR_RECOVERY)
 
     async def _run_loop(self) -> None:
         while self._running:
@@ -101,7 +102,7 @@ class OrchestratorRecoveryJob:
             except asyncio.CancelledError:
                 break
             except Exception as exc:
-                logger.error("Orchestrator recovery job error: %s", exc, exc_info=True)
+                logger.emit(E.JOB_ITERATION_FAILED, exc=exc, job=ORCHESTRATOR_RECOVERY)
                 await asyncio.sleep(60)
 
     async def _run_one_iteration(self) -> None:
@@ -141,16 +142,17 @@ class OrchestratorProjectionJob:
 
     async def start(self) -> None:
         if self._running:
-            logger.warning("Orchestrator projection job already running")
+            logger.emit(E.JOB_ALREADY_STARTED, job=ORCHESTRATOR_PROJECTION)
             return
         self._require_deps()
         self._running = True
         self._task = traced_create_task(
             self._run_loop(), name="orchestrator-projection"
         )
-        logger.info(
-            "Orchestrator projection job started (interval: %d s)",
-            self.interval_seconds,
+        logger.emit(
+            E.JOB_STARTED,
+            job=ORCHESTRATOR_PROJECTION,
+            interval_seconds=self.interval_seconds,
         )
 
     async def stop(self) -> None:
@@ -161,7 +163,7 @@ class OrchestratorProjectionJob:
                 await self._task
             except asyncio.CancelledError:
                 pass
-        logger.info("Orchestrator projection job stopped")
+        logger.emit(E.JOB_STOPPED, job=ORCHESTRATOR_PROJECTION)
 
     async def _run_loop(self) -> None:
         while self._running:
@@ -171,8 +173,8 @@ class OrchestratorProjectionJob:
             except asyncio.CancelledError:
                 break
             except Exception as exc:
-                logger.error(
-                    "Orchestrator projection job error: %s", exc, exc_info=True
+                logger.emit(
+                    E.JOB_ITERATION_FAILED, exc=exc, job=ORCHESTRATOR_PROJECTION
                 )
                 await asyncio.sleep(60)
 
@@ -214,16 +216,17 @@ class OrchestratorCanaryJob:
 
     async def start(self) -> None:
         if self._running:
-            logger.warning("Orchestrator canary job already running")
+            logger.emit(E.JOB_ALREADY_STARTED, job=ORCHESTRATOR_CANARY)
             return
         if not settings.orchestrator_canary_enabled:
-            logger.info("Orchestrator canary job skipped — flag is disabled")
+            logger.emit(E.JOB_START_SKIPPED, job=ORCHESTRATOR_CANARY, reason="disabled")
             return
         self._running = True
         self._task = traced_create_task(self._run_loop(), name="orchestrator-canary")
-        logger.info(
-            "Orchestrator canary job started (interval: %d s)",
-            self.interval_seconds,
+        logger.emit(
+            E.JOB_STARTED,
+            job=ORCHESTRATOR_CANARY,
+            interval_seconds=self.interval_seconds,
         )
 
     async def stop(self) -> None:
@@ -234,7 +237,7 @@ class OrchestratorCanaryJob:
                 await self._task
             except asyncio.CancelledError:
                 pass
-        logger.info("Orchestrator canary job stopped")
+        logger.emit(E.JOB_STOPPED, job=ORCHESTRATOR_CANARY)
 
     async def _run_loop(self) -> None:
         while self._running:
@@ -244,7 +247,7 @@ class OrchestratorCanaryJob:
             except asyncio.CancelledError:
                 break
             except Exception as exc:
-                logger.error("Orchestrator canary job error: %s", exc, exc_info=True)
+                logger.emit(E.JOB_ITERATION_FAILED, exc=exc, job=ORCHESTRATOR_CANARY)
                 await asyncio.sleep(60)
 
     async def _run_one_iteration(self) -> None:
@@ -263,8 +266,14 @@ class OrchestratorCanaryJob:
 
     async def _evaluate(self, deps: OrchestratorCanaryDeps) -> None:
         metrics = await deps.collect()
-        for message in evaluate_canary_thresholds(metrics, settings):
-            logger.warning(message)
+        for breach in evaluate_canary_thresholds(metrics, settings):
+            logger.emit(
+                E.ORCHESTRATOR_CANARY_THRESHOLD_BREACHED,
+                metric=breach.metric,
+                threshold=breach.threshold,
+                observed=breach.observed,
+                **breach.counts,
+            )
 
 
 orchestrator_recovery_job = OrchestratorRecoveryJob()

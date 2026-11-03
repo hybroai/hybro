@@ -104,4 +104,10 @@ async def test_cleanup_steps_detach_cancel_resistant_timeout_and_continue_order(
         await asyncio.sleep(0)
 
     assert _runtime_cleanup_tasks == {}
-    assert "detached runtime cleanup task failed: relay" in caplog.text
+    [failed] = [
+        record
+        for record in caplog.records
+        if record.getMessage() == "runtime_cleanup_task_failed"
+    ]
+    assert failed.cleanup_step == "relay"
+    assert failed.error_type == "RuntimeError"

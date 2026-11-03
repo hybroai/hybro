@@ -330,8 +330,12 @@ registered on `events.CATALOG`. Code logs through
   line, annotated with `catalog_violation`. The test suite sets
   `CATALOG.strict = True`, which raises instead.
 - `system=True` marks events a later phase copies into a system event store
-  (`http_request_completed`, `llm_call_completed`, `a2a_call_completed`);
-  nothing reads the flag yet.
+  (`http_request_completed`, `llm_call_completed`, `a2a_call_completed`,
+  `job_iteration_failed`); nothing reads the flag yet.
+- Background jobs share `job_started` (with `interval_seconds`),
+  `job_already_started`, `job_start_skipped` (with `reason`), `job_stopped`,
+  `job_iteration_failed` and `job_skipped_not_leader`, each
+  with a `job` field holding the job's constant from `jobs/constants.py`.
 - `tests/test_logging_event_catalog.py` scans production code and fails on a
   stdlib logger method call, an `emit` whose first argument is not a catalog
   constant, or a direct `logging.getLogger`/`logging.basicConfig` outside

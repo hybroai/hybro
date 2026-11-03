@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import logging
 from typing import Any
 
+from common.observability import events as E
 from common.protocols import MongoCollection
 from common.utils.logger import get_logger
 
@@ -26,20 +28,23 @@ async def create_index(
         return True
     except Exception as exc:
         if critical:
-            logger.error(
-                "Critical index creation failed for %s.%s",
-                collection_name,
-                name,
-                exc_info=True,
+            logger.emit(
+                E.INDEX_CREATION_FAILED,
+                level=logging.ERROR,
+                exc=exc,
+                collection_name=collection_name,
+                index_name=name,
+                critical=True,
             )
             raise RuntimeError(
                 f"Critical index creation failed for {collection_name}.{name}"
             ) from exc
-        logger.warning(
-            "Index creation failed for %s.%s",
-            collection_name,
-            name,
-            exc_info=True,
+        logger.emit(
+            E.INDEX_CREATION_FAILED,
+            exc=exc,
+            collection_name=collection_name,
+            index_name=name,
+            critical=False,
         )
         return False
 
@@ -79,8 +84,8 @@ async def ensure_text_index(
             weights=weights,
         )
         return True
-    except Exception:
-        logger.warning("Search index creation failed for %s", name, exc_info=True)
+    except Exception as exc:
+        logger.emit(E.SEARCH_INDEX_CREATION_FAILED, exc=exc, index_name=name)
         return False
 
 

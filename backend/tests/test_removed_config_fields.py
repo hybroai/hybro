@@ -184,8 +184,8 @@ def test_get_settings_warns_once_naming_retired_keys(store, monkeypatch, caplog)
         if record.name == "common.config.loader" and record.levelno == logging.WARNING
     ]
     assert len(warnings) == 1
-    assert "supervisor_max_steps" in warnings[0].getMessage()
-    assert "4" not in warnings[0].getMessage()
+    assert warnings[0].getMessage() == "removed_config_fields_ignored"
+    assert warnings[0].removed_fields == ["supervisor_max_steps"]
 
 
 def test_update_config_drops_retired_keys_when_rewriting(store):
@@ -316,7 +316,7 @@ def test_get_settings_warns_about_instances(store, monkeypatch, caplog):
     finally:
         loader.get_settings.cache_clear()
     messages = [record.getMessage() for record in caplog.records]
-    assert any("instances" in message and "--port" in message for message in messages)
+    assert "config_instances_ignored" in messages
 
 
 def test_provider_selection_is_not_a_config_path(store):
@@ -324,3 +324,39 @@ def test_provider_selection_is_not_a_config_path(store):
         store.update_config(["provider", "id"], "openai")
     with pytest.raises(RuntimeConfigurationError):
         store.update_config(["instances", "release"], {})
+
+
+def test_bootstrap_prints_the_removed_fields_through_the_formatter(tmp_path):
+    import os
+    import subprocess
+    import sys
+    from pathlib import Path
+
+    home = tmp_path / "home"
+    home.mkdir(mode=0o700)
+    (home / "config.json").write_text(
+        json.dumps({"version": 1, "backend": {"supervisor_max_steps": 5}}),
+        encoding="utf-8",
+    )
+    env = {
+        key: value for key, value in os.environ.items() if not key.startswith("HYBRO_")
+    }
+    env["HYBRO_HOME"] = str(home)
+
+    result = subprocess.run(
+        [sys.executable, "-c", "import common.observability.bootstrap"],
+        cwd=Path(__file__).resolve().parents[1],
+        env=env,
+        capture_output=True,
+        text=True,
+        timeout=60,
+        check=True,
+    )
+
+    line = next(
+        line
+        for line in result.stdout.splitlines()
+        if "removed_config_fields_ignored" in line
+    )
+    assert "event=removed_config_fields_ignored" in line
+    assert "supervisor_max_steps" in line

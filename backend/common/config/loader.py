@@ -1,7 +1,6 @@
 """Typed defaults and JSON startup snapshot. No dotenv or import-time file I/O."""
 
 import ipaddress
-import logging
 import math
 import os
 from functools import lru_cache
@@ -20,7 +19,10 @@ from pydantic import (
     field_validator,
 )
 
-logger = logging.getLogger(__name__)
+from common.observability import events as E
+from common.observability import get_logger
+
+logger = get_logger(__name__)
 
 
 class Settings(BaseModel):
@@ -631,16 +633,12 @@ def get_settings() -> Settings:
     store = RuntimeConfigStore(runtime_home(os.environ))
     document = store.load({}).config
     if document.removed_backend_fields:
-        logger.warning(
-            "Ignoring removed config.json backend settings: %s. "
-            "Delete them; they will be rejected in the next major release.",
-            ", ".join(document.removed_backend_fields),
+        logger.emit(
+            E.REMOVED_CONFIG_FIELDS_IGNORED,
+            removed_fields=list(document.removed_backend_fields),
         )
     if document.had_instances:
-        logger.warning(
-            "Ignoring instances in config.json: host ports are set with "
-            "`hybro start --port` since 0.4. It is dropped on the next save."
-        )
+        logger.emit(E.CONFIG_INSTANCES_IGNORED)
     values = dict(document.backend)
     services = store.read_service_credentials()
     if any(key in values and key in services for key in ("mongodb_url", "redis_url")):

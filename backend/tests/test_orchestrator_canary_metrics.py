@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
 
@@ -9,6 +10,7 @@ import pytest
 
 from common.config.loader import Settings
 from execution.adapters.canary_metrics import (
+    CanaryBreach,
     collect_metrics,
     evaluate_canary_thresholds,
 )
@@ -229,10 +231,34 @@ def test_evaluate_canary_thresholds_reports_breaches():
 
     breaches = evaluate_canary_thresholds(metrics, settings)
 
-    assert any("run failure rate" in message for message in breaches)
-    assert any("blocked projection intent" in message for message in breaches)
-    assert any("recovery cycle is stale" in message for message in breaches)
-    assert any("observation conflict" in message for message in breaches)
+    assert breaches == [
+        CanaryBreach(
+            metric="run_failure_rate",
+            threshold=0.01,
+            observed=0.03,
+            counts={"failed_runs": 3, "terminal_runs": 100},
+        ),
+        CanaryBreach(
+            metric="projection_outbox_blocked_age_seconds",
+            threshold=600,
+            observed=601.0,
+            counts={"blocked_intents": 1},
+        ),
+        CanaryBreach(metric="recovery_cycle_age_seconds", threshold=60, observed=61.0),
+        CanaryBreach(metric="observation_conflicts_open", threshold=0, observed=2),
+    ]
+
+
+def test_evaluate_canary_thresholds_reports_blocked_intents_without_age():
+    metrics = {
+        "projection_outbox_blocked": 3,
+        "projection_outbox_blocked_oldest_at": None,
+        "collected_at": BASE_TIME,
+    }
+
+    assert evaluate_canary_thresholds(metrics, Settings()) == [
+        CanaryBreach(metric="projection_outbox_blocked", threshold=0, observed=3)
+    ]
 
 
 def test_evaluate_canary_thresholds_is_quiet_when_healthy():
@@ -303,7 +329,17 @@ async def test_canary_job_logs_warning_on_breach(monkeypatch, caplog):
 
     assert leader.acquired == [(ORCHESTRATOR_CANARY, 60)]
     assert leader.released == [ORCHESTRATOR_CANARY]
-    assert any("run failure rate" in record.message for record in caplog.records)
+    [breach] = [
+        record
+        for record in caplog.records
+        if record.getMessage() == "orchestrator_canary_threshold_breached"
+    ]
+    assert breach.levelno == logging.WARNING
+    assert breach.metric == "run_failure_rate"
+    assert breach.threshold == 0.01
+    assert breach.observed == 0.5
+    assert breach.failed_runs == 1
+    assert breach.terminal_runs == 2
 
 
 @pytest.mark.asyncio

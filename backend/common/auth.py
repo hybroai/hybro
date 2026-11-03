@@ -9,6 +9,7 @@ from clerk_backend_api import Clerk, authenticate_request
 from clerk_backend_api.security.types import AuthenticateRequestOptions
 from fastapi import HTTPException, Request, status
 
+from common.observability import events as E
 from common.observability import get_logger
 
 logger = get_logger(__name__)
@@ -54,9 +55,10 @@ def _cached_clerk_user_name(user_id: str) -> str | None:
         full = " ".join(p for p in parts if p)
         return full or user.username or None
     except Exception as exc:
-        logger.warning(
-            "clerk_user_name_resolution_failed",
-            extra={"user_id": user_id, "error_type": type(exc).__name__},
+        logger.emit(
+            E.CLERK_USER_NAME_RESOLUTION_FAILED,
+            user_id=user_id,
+            error_type=type(exc).__name__,
         )
         return None
 
@@ -133,10 +135,7 @@ async def verify_clerk_token_from_request(request: Request) -> ClerkUser:
     except HTTPException:
         raise
     except Exception as exc:
-        logger.error(
-            "clerk_token_verification_failed",
-            extra={"error_type": type(exc).__name__},
-        )
+        logger.emit(E.CLERK_TOKEN_VERIFICATION_FAILED, error_type=type(exc).__name__)
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Authentication verification failed",

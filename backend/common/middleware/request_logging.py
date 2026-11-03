@@ -13,6 +13,7 @@ from common.observability import (
     get_logger,
     safe_exception_metadata,
 )
+from common.observability import events as E
 
 logger = get_logger(__name__)
 
@@ -110,7 +111,7 @@ class RequestLoggingMiddleware:
                     ),
                 }
                 fields.update(error_fields)
-                logger.info("http_request_completed", extra=fields)
+                logger.emit(E.HTTP_REQUEST_COMPLETED, **fields)
 
 
 __all__ = ["RequestLoggingMiddleware"]

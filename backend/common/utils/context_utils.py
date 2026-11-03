@@ -9,6 +9,7 @@ from __future__ import annotations
 import re
 from typing import Any, Protocol
 
+from common.observability import events as E
 from common.utils.logger import get_logger
 
 logger = get_logger(__name__)
@@ -56,11 +57,12 @@ def estimate_tokens(text: str | None, model: str = "gpt-4") -> int:
         encoding = tiktoken.encoding_for_model(model)
         return len(encoding.encode(text))
     except ImportError:
-        logger.debug("tiktoken not available, using char/4 heuristic")
+        logger.emit(E.TOKEN_ESTIMATION_FALLBACK_SELECTED, reason="tiktoken_unavailable")
     except Exception as exc:
-        logger.debug(
-            "token_estimation_fallback_selected",
-            extra={"error_type": type(exc).__name__},
+        logger.emit(
+            E.TOKEN_ESTIMATION_FALLBACK_SELECTED,
+            reason="encoding_failed",
+            error_type=type(exc).__name__,
         )
 
     # Fallback: ~4 chars per token for English
