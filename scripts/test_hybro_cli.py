@@ -882,6 +882,7 @@ def test_logs_level_reads_only_the_line_level(cli):
         'mcp | timestamp=t level=info event=library_message message="x level=error y"',
         "mcp | timestamp=t level=error event=mcp_tool_called",
         "mcp | level=error event=e",
+        "agent | INFO retry failed level=error",
     ]
 
     assert _logs_of(cli, sample, "--level", "error") == [
@@ -896,10 +897,11 @@ def test_logs_service_filter_works_with_timestamps(cli):
     assert all(" caddy | " in line for line in lines)
 
 
-def test_logs_filter_keeps_docker_errors_and_exit_status(cli):
+@pytest.mark.parametrize("args", [("--service", "backend"), ("--level", "error")])
+def test_logs_filter_keeps_docker_errors_and_exit_status(cli, args):
     cli.state["containers"] = {"hybro": {"status": "running", "image": IMAGE, "port": "127.0.0.1:3000"}}
     cli.state["logs_exit"] = 3
-    result = cli.run("logs", "--service", "backend")
+    result = cli.run("logs", *args)
     assert result.returncode == 3
     assert "Error response from daemon: boom" in cli.output
 

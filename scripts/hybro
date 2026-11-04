@@ -553,16 +553,16 @@ cmd_logs() {
             print
             fflush()
         }
-        # The first level field belongs to the line: JSON and logfmt lines
-        # both write it before any message text.
+        # JSON lines write level before any message text; logfmt lines start
+        # with it or with timestamp then level. Plain text has no level.
         function level_of(text,    value) {
             if (substr(text, 1, 1) == "{") {
                 if (!match(text, /"level":"[^"]*"/)) return ""
                 return substr(text, RSTART + 9, RLENGTH - 10)
             }
-            if (!match(text, /(^| )level=[^ ]*/)) return ""
+            if (!match(text, /^(timestamp=[^ ]* )?level=[^ ]*/)) return ""
             value = substr(text, RSTART, RLENGTH)
-            sub(/^ ?level=/, "", value)
+            sub(/^.*level=/, "", value)
             return value
         }
         function has_trace(text,    at, rest) {
