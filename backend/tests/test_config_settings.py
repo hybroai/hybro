@@ -131,3 +131,16 @@ def test_wait_semantics_settings_accept_int_and_float_hours(value) -> None:
 def test_wait_semantics_settings_reject_zero(field) -> None:
     with pytest.raises(ValidationError):
         Settings.model_validate({field: 0})
+
+
+def test_local_agent_discovery_scans_9000_to_9999_by_default():
+    from local_agents.config import LocalAgentDiscoveryConfig
+
+    settings = Settings()
+    config = LocalAgentDiscoveryConfig()
+
+    assert (
+        settings.local_agent_discovery_port_start,
+        settings.local_agent_discovery_port_end,
+    ) == (9000, 9999)
+    assert (config.port_start, config.port_end) == (9000, 9999)

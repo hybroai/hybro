@@ -60,6 +60,7 @@ def test_rejects_non_json_duplicate_and_nonfinite(payload):
     [
         ("backend", {"unknown-secret-marker": "private-value"}),
         ("backend", {"local_agent_discovery_port_start": 90000}),
+        ("backend", {"local_agent_discovery_port_end": 8080}),
         ("backend", {"openai_api_key": "private-value"}),
         ("frontend", {"max_message_length": -1}),
         ("frontend", {"api_base_url": "https://user:private-value@example.org"}),

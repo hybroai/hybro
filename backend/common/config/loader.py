@@ -157,8 +157,8 @@ class Settings(BaseModel):
     # Local Agent Discovery (Docker backend -> host gateway)
     local_agent_discovery_enabled: bool = False
     local_agent_discovery_host: str = "host.docker.internal"
-    local_agent_discovery_port_start: int = Field(default=1024, ge=1, le=65535)
-    local_agent_discovery_port_end: int = Field(default=65535, ge=1, le=65535)
+    local_agent_discovery_port_start: int = Field(default=9000, ge=1, le=65535)
+    local_agent_discovery_port_end: int = Field(default=9999, ge=1, le=65535)
     local_agent_discovery_interval_seconds: int = Field(default=120, gt=0)
     local_agent_discovery_connect_timeout_seconds: float = Field(default=0.05, gt=0)
     local_agent_discovery_probe_timeout_seconds: float = Field(default=3.0, gt=0)
@@ -371,6 +371,18 @@ class Settings(BaseModel):
         if any(not 1 <= port <= 65535 for port in ports):
             raise ValueError("Excluded discovery ports must be within 1..65535")
         return ports
+
+    @field_validator("local_agent_discovery_port_end")
+    @classmethod
+    def validate_local_agent_discovery_port_range(
+        cls, value: int, info: ValidationInfo
+    ) -> int:
+        start = info.data.get("local_agent_discovery_port_start")
+        if start is not None and value < start:
+            raise ValueError(
+                "Discovery port end must not be below local_agent_discovery_port_start"
+            )
+        return value
 
     @field_validator("compaction_concurrency", mode="before")
     @classmethod

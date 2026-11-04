@@ -101,6 +101,13 @@ Sessions:
 |---|---|---|
 | `backend.session_run_start_grace_seconds` | `10` | Seconds after a send without any lifecycle event for the request before the session reports `failed` with `run_not_started`, unless this process is still running the task that starts the run. Must be greater than 0. |
 
+Local agent discovery (the image scans the Docker host for A2A Agents):
+
+| Field | Default | Meaning |
+|---|---|---|
+| `backend.local_agent_discovery_port_start` | `9000` | First `host.docker.internal` port scanned for an Agent Card. From 1 to 65535. |
+| `backend.local_agent_discovery_port_end` | `9999` | Last port scanned. From 1 to 65535 and not below `local_agent_discovery_port_start`. An Agent on a port outside the range is not discovered, and one discovered earlier is marked inactive after three scans without it; widen the range or register the Agent manually. |
+
 Logging:
 
 | Field | Default | Meaning |

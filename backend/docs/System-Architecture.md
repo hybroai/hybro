@@ -641,7 +641,8 @@ browser setup routes.
 
 Owns Docker-host discovery without owning Agent persistence or execution. When
 `local_agent_discovery_enabled` is set, `LocalAgentService` scans the configured
-`host.docker.internal` port range at startup and every
+`host.docker.internal` port range (`local_agent_discovery_port_start` to
+`local_agent_discovery_port_end`, 9000 to 9999 by default) at startup and every
 `local_agent_discovery_interval_seconds` (120 by default), probes Agent Cards
 through the `a2a_adapter` resolver, and reconciles results through the Agent
 registry writer. Discovered records use `source=local` and remain public and
