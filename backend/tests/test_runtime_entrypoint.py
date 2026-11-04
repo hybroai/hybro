@@ -238,7 +238,7 @@ def test_caddyfile_logs_json_without_headers_or_query(listener):
             "\t\t\t}",
             "\t\t}",
             "\t}",
-            "\tlog_append trace_id {http.request.header.X-Request-ID}",
+            "\tlog_append trace_id {http.response.header.X-Request-ID}",
             "\tlog_append path {http.request.uri.path}",
             "\t@static path /_next/static/*",
             "\tlog_skip @static",

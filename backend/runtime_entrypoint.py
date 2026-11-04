@@ -373,6 +373,8 @@ def caddyfile(*, listener: Listener, api_prefix: str) -> str:
         # JSON access log on stdout, one format with the backend's lines.
         # Request and response headers and the URI (query strings can carry
         # tokens) are dropped; the request id and the bare path are appended.
+        # The id is the backend's response header, so it matches the backend's
+        # own id even when the client sent an invalid one or none.
         "\tlog {",
         "\t\toutput stdout",
         "\t\tformat filter {",
@@ -384,7 +386,7 @@ def caddyfile(*, listener: Listener, api_prefix: str) -> str:
         "\t\t\t}",
         "\t\t}",
         "\t}",
-        "\tlog_append trace_id {http.request.header.X-Request-ID}",
+        "\tlog_append trace_id {http.response.header.X-Request-ID}",
         "\tlog_append path {http.request.uri.path}",
         "\t@static path /_next/static/*",
         "\tlog_skip @static",

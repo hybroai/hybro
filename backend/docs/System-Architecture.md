@@ -1141,13 +1141,15 @@ with 421, which blocks DNS rebinding against the unauthenticated local API.
 Caddy writes a JSON access log to stdout (`caddy | ` in `hybro logs`), skipping
 `/_next/static/*`. It logs 1xx-4xx responses at `info` and 5xx at `error`.
 A filter drops `request.headers`, `request.uri` (query strings can carry
-tokens) and `resp_headers`, and each line gains `trace_id` (the request's
-`X-Request-ID`, empty without one) and `path` (no query string), so
-`hybro logs --trace <id>` matches Caddy lines like backend ones. Caddy's error
-lines for a failed handler (for example a 502 while an upstream restarts) go
-through the default logger on stderr, which drops `request.headers`,
-`request.uri` and `resp_headers` the same way. Requests without the header are correlated by time
-only.
+tokens) and `resp_headers`, and each line gains `trace_id` and `path` (no
+query string). `trace_id` is the `X-Request-ID` the backend returns: the
+client's id when it is valid, otherwise the id the backend minted, so
+`hybro logs --trace <id>` matches the Caddy line of every backend request.
+Routes the backend does not answer (the frontend, MCP, or a 502 while the
+backend restarts) log an empty `trace_id` and are correlated by time only.
+Caddy's error lines for a failed handler go through the default logger on
+stderr, which drops `request.headers`, `request.uri` and `resp_headers` the
+same way and carries no `trace_id`.
 
 On a fresh data volume the entrypoint starts `mongod`, initiates `rs0` with
 member `127.0.0.1:27017`, waits for primary, and stops it. Data whose stored
