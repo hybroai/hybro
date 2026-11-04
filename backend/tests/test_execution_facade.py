@@ -3,7 +3,7 @@ import inspect
 import logging
 from types import SimpleNamespace
 from typing import get_type_hints
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import ANY, AsyncMock, MagicMock
 
 import pytest
 
@@ -1083,7 +1083,7 @@ async def test_start_orchestration_tracks_and_awaits_background_task():
     await facade.start_orchestration(request, ack)
 
     orchestrator_router.process_room_user_message.assert_awaited_once_with(
-        request, message_id="msg-1"
+        request, message_id="msg-1", before_run_start=ANY
     )
     assert task_factory.calls == ["execution-orchestrate-msg-1"]
     assert facade._inflight == set()
@@ -1167,10 +1167,16 @@ async def test_cancel_inflight_tasks_interrupts_without_public_cancellation():
     marker = []
     cancellation_reasons = []
     facade, deps = _make_facade()
-    task = facade._spawn_orchestration(
-        wait_forever(),
-        message_id="msg-test",
+
+    async def route(_request, _message_id):
+        await wait_forever()
+
+    facade._route_orchestration = route
+    facade.schedule_orchestration(
+        ExecutionRequest(conversation_id="room-1", sender_id="user-1"),
+        ExecutionAck(success=True, message_id="msg-test"),
     )
+    (task,) = facade._inflight
     await asyncio.sleep(0)
 
     assert await facade.cancel_inflight_tasks() == 1

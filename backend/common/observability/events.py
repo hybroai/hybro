@@ -729,6 +729,17 @@ PREFLIGHT_CLEANUP_FAILED = define(
 ORCHESTRATION_TASK_FAILED = define(
     "orchestration_task_failed", ERROR, required={"message_id"}
 )
+ROOM_CLAIM_DROPPED = define(
+    "room_claim_dropped", WARNING, required={"conversation_id", "user_message_id"}
+)
+ORCHESTRATION_FAILURE_RUN_LOOKUP_FAILED = define(
+    "orchestration_failure_run_lookup_failed", WARNING, required={"message_id"}
+)
+ORCHESTRATION_STATUS_EMISSION_FAILED = define(
+    "orchestration_status_emission_failed",
+    WARNING,
+    required={"message_id", "status"},
+)
 CLIENT_REQUEST_ID_RESOLUTION_FAILED = define(
     "client_request_id_resolution_failed", WARNING, required={"message_id"}
 )

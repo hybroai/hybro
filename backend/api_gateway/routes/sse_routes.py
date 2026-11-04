@@ -14,6 +14,7 @@ from api_gateway.errors import require_chat_room
 from api_gateway.registry import mark_declared_owner as _mark_declared_owner
 from common.auth import ClerkUser, get_current_user, get_current_user_with_query_token
 from common.dto import CancellationAck
+from common.errors import NotFoundError
 from common.observability import events as E
 from common.protocols import ExecutionEngine, SSERouteTransport, SSEStateReader
 from common.utils.logger import get_logger
@@ -233,6 +234,34 @@ async def get_room_events(
     return {"room_seq": await store.latest_seq(conversation_id), "events": records}
 
 
+def _unapplied_cancellation_response(
+    message_id: str, ack: bool | CancellationAck
+) -> dict[str, Any] | None:
+    """Public response for a cancel that is pending or found nothing to stop."""
+    if not isinstance(ack, CancellationAck):
+        return None
+    if not ack.reconciled:
+        return {
+            "success": True,
+            "message_id": message_id,
+            "message": "Message cancellation accepted and pending reconciliation",
+            "status": ack.status,
+            "outcome": "pending_reconciliation",
+        }
+    if not ack.cancellation_applied:
+        return {
+            "success": True,
+            "message_id": message_id,
+            "message": "Message processing had already finished",
+            "status": _PUBLIC_TERMINAL_ORCHESTRATION_STATUS.get(
+                ack.status,
+                ack.status,
+            ),
+            "outcome": "already_terminal",
+        }
+    return None
+
+
 @router.post("/sse/message/{message_id}/cancel")
 async def cancel_message(
     message_id: str = Path(..., description="Message ID to cancel"),
@@ -295,25 +324,9 @@ async def cancel_message(
             raise HTTPException(
                 status_code=500, detail="Failed to persist cancellation to database"
             )
-        if isinstance(success, CancellationAck) and not success.reconciled:
-            return {
-                "success": True,
-                "message_id": message_id,
-                "message": "Message cancellation accepted and pending reconciliation",
-                "status": success.status,
-                "outcome": "pending_reconciliation",
-            }
-        if isinstance(success, CancellationAck) and not success.cancellation_applied:
-            return {
-                "success": True,
-                "message_id": message_id,
-                "message": "Message processing had already finished",
-                "status": _PUBLIC_TERMINAL_ORCHESTRATION_STATUS.get(
-                    success.status,
-                    success.status,
-                ),
-                "outcome": "already_terminal",
-            }
+        unapplied = _unapplied_cancellation_response(message_id, success)
+        if unapplied is not None:
+            return unapplied
 
         logger.emit(E.MESSAGE_CANCELLED, message_id=message_id, user_id=user.user_id)
 
@@ -327,11 +340,13 @@ async def cancel_message(
 
     except HTTPException:
         raise
+    except NotFoundError as e:
+        raise HTTPException(
+            status_code=404, detail="No processing found for this message"
+        ) from e
     except Exception as e:
         logger.emit(E.MESSAGE_CANCELLATION_FAILED, exc=e, message_id=message_id)
-        raise HTTPException(
-            status_code=500, detail=f"Failed to cancel message: {str(e)}"
-        ) from e
+        raise HTTPException(status_code=500, detail="Failed to cancel message") from e
 
 
 _mark_declared_owner(router, __name__)
