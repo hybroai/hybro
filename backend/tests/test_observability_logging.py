@@ -612,6 +612,22 @@ def test_passthrough_is_limited_to_exact_logger_names():
         "password='PRIVATE \\' VALUE'",
         "password=PRIVATE'VALUE}",
         "a" * 80 + "_token=PRIVATE_VALUE",
+        "aws_secret_access_key=PRIVATE_VALUE",
+        "private_key=PRIVATE_VALUE",
+        "secret_key=PRIVATE_VALUE",
+        "jwt=PRIVATE_VALUE",
+        "credentials=PRIVATE_VALUE",
+        "Authorization: Basic PRIVATE_VALUE",
+        "authorization: Digest username=PRIVATE_VALUE, nonce=PRIVATE_VALUE",
+        '{"Authorization": "Basic PRIVATE VALUE", "x": 1}',
+        "Cookie: session=PRIVATE_VALUE; theme=PRIVATE_VALUE",
+        "Set-Cookie: sid=PRIVATE_VALUE; Path=/",
+        "HTTP_AUTHORIZATION=Basic PRIVATE_VALUE",
+        "HTTP_COOKIE=sid=PRIVATE_VALUE",
+        "secrets=PRIVATE_VALUE",
+        "passwords=PRIVATE_VALUE",
+        "api_keys=PRIVATE_VALUE",
+        "tokens: PRIVATE_VALUE",
     ],
 )
 def test_passthrough_text_redacts_suffixed_and_quoted_credentials(text):
@@ -621,6 +637,114 @@ def test_passthrough_text_redacts_suffixed_and_quoted_credentials(text):
     assert "VALUE" not in output
 
 
+def test_header_redaction_keeps_the_rest_of_a_quoted_mapping():
+    from common.observability.logging import _sanitize_string
+
+    text = "{'Authorization': 'Basic PRIVATE', 'Accept': 'text/html'}"
+
+    assert _sanitize_string(text) == (
+        "{'Authorization': [REDACTED], 'Accept': 'text/html'}"
+    )
+
+
+@pytest.mark.parametrize(
+    "key",
+    [
+        "aws_secret_access_key",
+        "secret_access_key",
+        "secret_key",
+        "private_key",
+        "signing_key",
+        "jwt",
+        "id_token",
+        "credentials",
+        "user_prompt",
+        "system_prompt",
+        "raw_body",
+        "request_payload",
+        "message_content",
+        "response_headers",
+    ],
+)
+def test_formatter_redacts_sensitive_key_variants(key):
+    output = json.loads(_formatter().format(_record(**{key: "PRIVATE_VALUE"})))
+
+    assert output[key] == "[REDACTED]"
+
+
+def test_formatter_keeps_counts_and_metadata_under_sensitive_words():
+    output = json.loads(
+        _formatter().format(
+            _record(
+                tokens_saved=12,
+                prompt_tokens=30,
+                token_budget=1.5,
+                content_type="application/json",
+                password=1234,
+            )
+        )
+    )
+
+    assert output["tokens_saved"] == 12
+    assert output["prompt_tokens"] == 30
+    assert output["token_budget"] == 1.5
+    assert output["content_type"] == "application/json"
+    # An exact credential name is redacted whatever its type.
+    assert output["password"] == "[REDACTED]"
+
+
+def test_formatter_redacts_numeric_values_of_credential_keys():
+    output = json.loads(
+        _formatter().format(
+            _record(
+                db_password=123456,
+                otp_token=123456,
+                client_secret=42,
+                secret_key=123456,
+                api_keys="PRIVATE",
+                passwords=2,
+            )
+        )
+    )
+
+    for key in ("db_password", "otp_token", "client_secret", "secret_key"):
+        assert output[key] == "[REDACTED]", key
+    # A plural is redacted as text but, as a number, is a count.
+    assert output["api_keys"] == "[REDACTED]"
+    assert output["passwords"] == 2
+
+
+def test_field_key_rules_cover_each_path():
+    output = json.loads(
+        _formatter().format(
+            _record(
+                token_present=True,
+                tokenizer="cl100k",
+                db_passwd=1234,
+                session_cookie=99,
+                raw_body=3,
+                raw_body_text="PRIVATE",
+            )
+        )
+    )
+
+    # Embedded word: a flag stays, text goes.
+    assert output["token_present"] is True
+    assert output["tokenizer"] == "[REDACTED]"
+    # Ending with a credential word: redacted even as a number.
+    assert output["db_passwd"] == "[REDACTED]"
+    assert output["session_cookie"] == "[REDACTED]"
+    # Content suffix: a number stays; a leaf that does not end with it stays.
+    assert output["raw_body"] == 3
+    assert output["raw_body_text"] == "PRIVATE"
+
+
+def test_credential_words_are_matched_on_the_leaf_key_only():
+    output = json.loads(_formatter().format(_record(**{"token_usage.model": "gpt"})))
+
+    assert output["token_usage.model"] == "gpt"
+
+
 def test_credential_redaction_is_linear_on_long_identifiers():
     import time
 
@@ -628,6 +752,8 @@ def test_credential_redaction_is_linear_on_long_identifiers():
 
     started = time.perf_counter()
     _sanitize_string("a-" * 5000)
+    _sanitize_string("a_" * 5000 + "key")
+    _sanitize_string("authorization:" + "x" * 10000)
     assert time.perf_counter() - started < 0.2
 
 

@@ -81,6 +81,11 @@ _SENSITIVE_FIELD_PARTS = frozenset(
 _CANONICAL_SENSITIVE_FIELD_PARTS = frozenset(
     re.sub(r"[^a-z0-9]", "", part) for part in _SENSITIVE_FIELD_PARTS
 )
+# Key words that mark a credential, matched on the leaf key. A leaf ending
+# with one (`db_password`, `id_token`, `secret_key`) is redacted whatever its
+# value; a leaf holding one elsewhere, plurals included (`token_usage`,
+# `tokens_saved`, `api_keys`), is redacted unless its value is a number or
+# flag, which there is a count, not a secret.
 _CANONICAL_CREDENTIAL_FIELD_PARTS = frozenset(
     {
         "authorization",
@@ -88,18 +93,44 @@ _CANONICAL_CREDENTIAL_FIELD_PARTS = frozenset(
         "token",
         "secret",
         "password",
+        "passwd",
         "apikey",
+        "privatekey",
+        "accesskey",
+        "secretkey",
+        "signingkey",
+        "jwt",
+        "credential",
     }
+)
+# Leaf suffixes that mark content (`user_prompt`, `raw_body`); `content_type`
+# does not end with one, so it stays.
+_CANONICAL_CONTENT_FIELD_SUFFIXES = (
+    "prompt",
+    "body",
+    "payload",
+    "content",
+    "headers",
+    "base64",
 )
 _CONTEXT_VALUE_PATTERN = re.compile(r"^[A-Za-z0-9._:-]{1,128}$")
 _EVENT_PATTERN = re.compile(r"^[a-z][a-z0-9]*(?:_[a-z0-9]+)*$")
 _BEARER_PATTERN = re.compile(r"(?i)\bbearer\s+[a-z0-9._~+/=-]+")
+# Authorization and cookie headers: the whole value goes, whatever the scheme
+# (Basic, Digest) or the number of cookies; unquoted values end at the line end.
+# A `_` or `-` may precede the name (`HTTP_AUTHORIZATION` in a WSGI environ).
+_HEADER_CREDENTIAL_PATTERN = re.compile(
+    r"(?i)(?<![a-z0-9])((?:proxy-)?authorization|(?:set-)?cookie)([\"']?\s*[=:]\s*)"
+    r"(?:\"(?:[^\"\\]|\\.)*\"?|'(?:[^'\\]|\\.)*'?|[^\r\n]*)"
+)
 # Matches suffixed keys (`client_secret`, `refresh_token`) and JSON-quoted pairs.
 # Matches the key's sensitive suffix only, so any prefix (`client_secret`) is
 # covered and matching stays linear; quoted values end at their closing quote
 # (escapes included), unquoted ones at whitespace, `,` or `;`.
 _CREDENTIAL_PATTERN = re.compile(
-    r"(?i)(api[_-]?key|token|secret|password)[\"']?\s*[=:]\s*"
+    r"(?i)(api[_-]?keys?|private[_-]?keys?|access[_-]?keys?|secret[_-]?keys?"
+    r"|signing[_-]?keys?|tokens?|secrets?|passwords?|passwd|jwts?|credentials?)"
+    r"[\"']?\s*[=:]\s*"
     r"(?:\"(?:[^\"\\]|\\.)*\"?|'(?:[^'\\]|\\.)*'?|[^\s,;]+)"
 )
 _EMBEDDED_URL_PATTERN = re.compile(
@@ -131,15 +162,17 @@ def release_version(start: Path) -> str:
     return "unknown"
 
 
-def _is_sensitive_key(key: str) -> bool:
+def _is_sensitive_key(key: str, value: Any = None) -> bool:
     leaf = key.rsplit(".", 1)[-1].lower().replace("-", "_")
     canonical_leaf = re.sub(r"[^a-z0-9]", "", leaf)
-    canonical_key = re.sub(r"[^a-z0-9]", "", key.lower())
     if canonical_leaf in _CANONICAL_SENSITIVE_FIELD_PARTS:
         return True
-    return any(
-        canonical_key.endswith(sensitive)
-        for sensitive in _CANONICAL_CREDENTIAL_FIELD_PARTS
+    if canonical_leaf.endswith(tuple(_CANONICAL_CREDENTIAL_FIELD_PARTS)):
+        return True
+    if isinstance(value, (bool, int, float)):
+        return False
+    return canonical_leaf.endswith(_CANONICAL_CONTENT_FIELD_SUFFIXES) or any(
+        sensitive in canonical_leaf for sensitive in _CANONICAL_CREDENTIAL_FIELD_PARTS
     )
 
 
@@ -176,6 +209,7 @@ def _sanitize_string(value: str, *, limit: int = _MAX_FIELD_CHARS) -> str:
         return f"{_sanitize_url(url)}{trailing}"
 
     value = _EMBEDDED_URL_PATTERN.sub(sanitize_embedded_url, value)
+    value = _HEADER_CREDENTIAL_PATTERN.sub(r"\1\2[REDACTED]", value)
     value = _BEARER_PATTERN.sub("Bearer [REDACTED]", value)
     value = _CREDENTIAL_PATTERN.sub(r"\1=[REDACTED]", value)
     if len(value) > limit:
@@ -208,7 +242,7 @@ def _safe_value(  # noqa: C901
     key: str,
     seen: set[int],
 ) -> Any:
-    if _is_sensitive_key(key):
+    if _is_sensitive_key(key, value):
         return "[REDACTED]"
     if value is None or isinstance(value, (bool, int)):
         return value

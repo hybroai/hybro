@@ -416,12 +416,31 @@ registered on `events.CATALOG`. Code logs through
 
 Records not emitted through the catalog (third-party libraries) render as
 `event=library_message` with their logger name. The loggers named exactly `uvicorn`, `uvicorn.error` and `py.warnings`
-keep their rendered text, sanitised (URL credentials, bearer tokens, and
-`key=value` or JSON-quoted secrets such as `client_secret` or `refresh_token`
-redacted);
-other library text keeps the existing redaction (template arguments other than
+keep their rendered text, sanitised: URL credentials, bearer tokens, and
+`key=value` or JSON-quoted secrets are redacted (keys ending with `token`,
+`secret`, `password`, `passwd`, `jwt`, `credential(s)`, or an API, private,
+access, secret or signing key, so `client_secret`, `refresh_token` and
+`aws_secret_access_key` are covered), and the whole value of an
+`Authorization`, `Proxy-Authorization`, `Cookie` or `Set-Cookie` header,
+including `HTTP_`-prefixed environ keys, whatever its scheme or cookie count.
+Other library text keeps the existing redaction (template arguments other than
 URLs become `[REDACTED]`, and argument-less free text is blanked with
 `message_redacted=true`).
+
+Event fields are redacted by their leaf key, at any nesting depth; a
+redacted mapping hides everything under it:
+
+- a leaf in the fixed sensitive set (`authorization`, `token`, `password`,
+  `prompt`, `content`, `raw_failure_detail`, ...) or ending with a credential
+  word (`authorization`, `cookie`, `token`, `secret`, `password`, `passwd`,
+  `jwt`, `credential`, or an API, private, access, secret or signing key:
+  `db_password`, `id_token`, `secret_access_key`) is redacted whatever its
+  value;
+- a leaf ending with `prompt`, `body`, `payload`, `content`, `headers` or
+  `base64` (`user_prompt`, `raw_body`), or holding a credential word elsewhere,
+  plurals included (`token_usage`, `api_keys`, `tokenizer`), is redacted
+  unless the value is a number or flag, so counts such as `tokens_saved` and
+  `prompt_tokens` stay. `content_type` matches no rule and stays.
 
 Each line carries `version`, read from the nearest `VERSION` file above the
 module: the repository root in a checkout, `/app/VERSION` in the image.
