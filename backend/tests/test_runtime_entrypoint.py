@@ -251,7 +251,8 @@ def test_caddyfile_logs_json_without_headers_or_query(listener):
 @pytest.mark.parametrize("listener", [loopback, public])
 def test_caddyfile_filters_the_default_logger(listener):
     # Caddy's error logger (5xx lines) carries the request without the
-    # access log's filter; it writes to the default logger.
+    # access log's filter; it writes to the default logger. Response headers
+    # are dropped too, should an access line ever reach it.
     text = entry.caddyfile(listener=listener(), api_prefix="/api/v1")
     options = text[: text.index("\n}\n") + 3]
     expected = "\n".join(
@@ -263,6 +264,7 @@ def test_caddyfile_filters_the_default_logger(listener):
             "\t\t\tfields {",
             "\t\t\t\trequest>headers delete",
             "\t\t\t\trequest>uri delete",
+            "\t\t\t\tresp_headers delete",
             "\t\t\t}",
             "\t\t}",
             "\t}",

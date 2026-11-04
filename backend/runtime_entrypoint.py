@@ -354,7 +354,8 @@ def caddyfile(*, listener: Listener, api_prefix: str) -> str:
         "\tauto_https off",
         "\tpersist_config off",
         # Error lines (a 5xx from a handler) carry the request through the
-        # default logger, outside the site's access-log filter.
+        # default logger, outside the site's access-log filter. Response
+        # headers are dropped too, should an access line ever reach it.
         "\tlog default {",
         "\t\toutput stderr",
         "\t\tformat filter {",
@@ -362,6 +363,7 @@ def caddyfile(*, listener: Listener, api_prefix: str) -> str:
         "\t\t\tfields {",
         "\t\t\t\trequest>headers delete",
         "\t\t\t\trequest>uri delete",
+        "\t\t\t\tresp_headers delete",
         "\t\t\t}",
         "\t\t}",
         "\t}",
