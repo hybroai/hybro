@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from copy import deepcopy
 from datetime import UTC, datetime
 
@@ -1435,4 +1436,33 @@ async def test_obsolete_index_drop_failure_does_not_block_startup(caplog):
     await ContentStorageMongoRepository(mongo=_IndexedMongo(content)).ensure_indexes()
 
     assert "room_turn_unique" in content.created
-    assert "Obsolete index removal failed" in caplog.text
+    [record] = [
+        r for r in caplog.records if r.getMessage() == "obsolete_index_drop_failed"
+    ]
+    assert record.levelno == logging.WARNING
+    assert record.collection_name == "conversation_content"
+    assert record.index_name == "turn_notes_text"
+    assert record.error_type == "RuntimeError"
+
+
+async def test_compact_turns_bulk_write_failure_logs_turn_count(caplog):
+    class _FailingMemories:
+        async def update_one(self, *_args, **_kwargs):
+            raise RuntimeError("write failed")
+
+    class _Mongo:
+        def collection(self, _name):
+            return _FailingMemories()
+
+    repo = MemoryMongoRepository(mongo=_Mongo())
+    entries = [{"turn_id": "t1"}, {"turn_id": "t2"}]
+
+    with caplog.at_level(logging.ERROR, logger="context_memory.repository.mongo"):
+        assert await repo.compact_turns_bulk("r1", entries) is False
+
+    [record] = [
+        r for r in caplog.records if r.getMessage() == "turn_compaction_write_failed"
+    ]
+    assert record.conversation_id == "r1"
+    assert record.compacted_turn_count == 2
+    assert record.error_type == "RuntimeError"

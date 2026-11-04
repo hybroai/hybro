@@ -6,8 +6,8 @@ import asyncio
 from dataclasses import dataclass
 from typing import Protocol
 
-from common.observability import traced_create_task
-from common.utils.logger import get_logger
+from common.observability import events as E
+from common.observability import get_logger, traced_create_task
 from jobs.constants import ORPHANED_UPLOAD_CLEANER
 
 logger = get_logger(__name__)
@@ -49,16 +49,17 @@ class OrphanedUploadCleaner:
 
     async def start(self) -> None:
         if self._running:
-            logger.warning("Orphaned upload cleaner already running")
+            logger.emit(E.JOB_ALREADY_STARTED, job=ORPHANED_UPLOAD_CLEANER)
             return
         self._running = True
         self._task = traced_create_task(
             self._run_loop(),
             name="orphaned-upload-cleanup",
         )
-        logger.info(
-            "Orphaned upload cleaner started (interval: %d hours)",
-            self.interval_hours,
+        logger.emit(
+            E.JOB_STARTED,
+            job=ORPHANED_UPLOAD_CLEANER,
+            interval_seconds=self.interval_hours * 3600,
         )
 
     async def stop(self) -> None:
@@ -70,7 +71,7 @@ class OrphanedUploadCleaner:
             except asyncio.CancelledError:
                 pass
             self._task = None
-        logger.info("Orphaned upload cleaner stopped")
+        logger.emit(E.JOB_STOPPED, job=ORPHANED_UPLOAD_CLEANER)
 
     async def _run_loop(self) -> None:
         while self._running:
@@ -78,8 +79,10 @@ class OrphanedUploadCleaner:
                 await self._run_one_iteration()
             except asyncio.CancelledError:
                 break
-            except Exception:
-                logger.exception("Error in orphaned upload cleanup")
+            except Exception as exc:
+                logger.emit(
+                    E.JOB_ITERATION_FAILED, exc=exc, job=ORPHANED_UPLOAD_CLEANER
+                )
 
             try:
                 await asyncio.sleep(self.interval_hours * 3600)
@@ -92,17 +95,18 @@ class OrphanedUploadCleaner:
             ttl = int(self.interval_hours * 3600 * 2)
             acquired = await self._leader.try_acquire(ORPHANED_UPLOAD_CLEANER, ttl)
             if not acquired:
+                logger.emit(E.JOB_SKIPPED_NOT_LEADER, job=ORPHANED_UPLOAD_CLEANER)
                 return  # another instance is the leader
             try:
                 deleted = await self.cleanup_orphaned_uploads()
                 if deleted:
-                    logger.info("Cleaned up %d orphaned uploads", deleted)
+                    logger.emit(E.ORPHANED_UPLOADS_CLEANED, deleted_uploads=deleted)
             finally:
                 await self._leader.release(ORPHANED_UPLOAD_CLEANER)
         else:
             deleted = await self.cleanup_orphaned_uploads()
             if deleted:
-                logger.info("Cleaned up %d orphaned uploads", deleted)
+                logger.emit(E.ORPHANED_UPLOADS_CLEANED, deleted_uploads=deleted)
 
     async def cleanup_orphaned_uploads(self, max_age_hours: int = MAX_AGE_HOURS) -> int:
         """Recover stale writes and remove unreferenced uploads."""

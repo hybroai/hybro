@@ -4,11 +4,13 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
-import logging
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from hashlib import sha256
 from typing import Protocol
+
+from common.observability import events as E
+from common.observability import get_logger
 
 from .kernel import KernelRunResult, OrchestratorKernel, SystemClock, UUIDFactory
 from .lifecycle import LifecycleEmitter, SessionEvent, SessionEventListener
@@ -70,7 +72,7 @@ def interrupted_run_needs_settlement(status: str, owner_id: str | None) -> bool:
     )
 
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 
 class SessionConflict(RuntimeError):
@@ -458,13 +460,16 @@ class RoomAgentSession:
                         reason="interrupted",
                         lifecycle=self._emit_kernel_event,
                     )
-                except Exception:
+                except Exception as exc:
                     # Keep this driver's claim: once its lease expires, recovery
                     # sees an interrupted driver and retries the same settlement.
                     # Releasing it would make recovery resume the Run instead.
-                    logger.warning(
-                        "interrupted Run settlement failed; recovery will retry",
-                        exc_info=True,
+                    logger.emit(
+                        E.INTERRUPTED_RUN_SETTLEMENT_FAILED,
+                        exc=exc,
+                        run_id=self._run_id,
+                        conversation_id=run.conversation_id,
+                        client_request_id=run.client_request_id,
                     )
                     return
         await self._release_execution_lease()
@@ -476,6 +481,11 @@ class RoomAgentSession:
         await schedule_run_recovery(
             self.run_store, self._run_id, next_attempt_at=next_attempt_at
         )
+
+    @property
+    def run_id(self) -> str | None:
+        """The Run this session currently drives, if any."""
+        return self._run_id
 
     def subscribe(self, listener: SessionEventListener):
         return self.lifecycle.subscribe(listener)

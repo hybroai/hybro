@@ -1,4 +1,5 @@
 import asyncio
+import logging
 import time
 from collections.abc import AsyncIterator, Awaitable, Callable, Coroutine
 from contextlib import aclosing
@@ -8,7 +9,8 @@ from typing import Any, Literal, Protocol, TypeVar, runtime_checkable
 from common.config.loader import settings
 from common.config.runtime_config import RuntimeConfigurationError
 from common.dto import LLMResponse, LLMStructuredResponse
-from common.observability import get_logger, safe_exception_metadata
+from common.observability import events as E
+from common.observability import get_logger
 from llm_gateway.config import LLMGatewayConfig, load_provider_runtime
 from llm_gateway.errors import (
     LLMModelRoutingError,
@@ -893,10 +895,13 @@ def _log_stream_completed(
         "duration_ms": round((time.perf_counter() - started_at) * 1000, 3),
     }
     if error is not None:
-        fields.update(safe_exception_metadata(error))
         fields["error_code"] = _error_code(error)
-    log_method = logger.error if outcome == "error" else logger.info
-    log_method("llm_call_completed", extra=fields)
+    logger.emit(
+        E.LLM_CALL_COMPLETED,
+        level=logging.ERROR if outcome == "error" else logging.INFO,
+        exc=error,
+        **fields,
+    )
 
 
 def _log_call_completed(
@@ -918,10 +923,13 @@ def _log_call_completed(
         "duration_ms": round((time.perf_counter() - started_at) * 1000, 3),
     }
     if error is not None:
-        fields.update(safe_exception_metadata(error))
         fields["error_code"] = _error_code(error)
-    log_method = logger.error if outcome == "error" else logger.info
-    log_method("llm_call_completed", extra=fields)
+    logger.emit(
+        E.LLM_CALL_COMPLETED,
+        level=logging.ERROR if outcome == "error" else logging.INFO,
+        exc=error,
+        **fields,
+    )
 
 
 def _error_code(exc: BaseException) -> str | int | None:

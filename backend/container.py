@@ -35,6 +35,7 @@ from common.observability import (
     get_logger,
     traced_create_task,
 )
+from common.observability import events as E
 from common.protocols import (
     AgentCardResolver,
     AgentExclusionReader,
@@ -158,7 +159,7 @@ def check_multi_worker_safety(
             "Fix: set REDIS_URL to a running Redis instance and run MongoDB as a "
             "replica set, or use 'uvicorn main:app' for single-process mode."
         )
-    logger.info("Multi-worker safety check passed: gunicorn + Redis + transactions")
+    logger.emit(E.MULTI_WORKER_SAFETY_CHECK_PASSED)
 
 
 @dataclass
@@ -176,12 +177,8 @@ def _runtime_cleanup_done(task: asyncio.Task[Any]) -> None:
         return
     try:
         task.result()
-    except BaseException:
-        logger.warning(
-            "detached runtime cleanup task failed: %s",
-            name,
-            exc_info=True,
-        )
+    except BaseException as exc:
+        logger.emit(E.RUNTIME_CLEANUP_TASK_FAILED, exc=exc, cleanup_step=name)
 
 
 async def _run_cleanup_steps(
@@ -211,17 +208,14 @@ async def _run_cleanup_steps(
                 error = TimeoutError(f"runtime cleanup step timed out: {name}")
                 if first_error is None:
                     first_error = error
-                logger.warning(
-                    "runtime cleanup step timed out and remains owned: %s",
-                    name,
-                )
+                logger.emit(E.RUNTIME_CLEANUP_STEP_TIMED_OUT, cleanup_step=name)
                 continue
             _runtime_cleanup_tasks.pop(task, None)
             task.result()
         except BaseException as exc:
             if first_error is None:
                 first_error = exc
-            logger.warning("runtime cleanup step failed: %s", name, exc_info=True)
+            logger.emit(E.RUNTIME_CLEANUP_STEP_FAILED, exc=exc, cleanup_step=name)
     return first_error
 
 
@@ -305,7 +299,7 @@ def validate_runtime_bindings(
             + ". Cannot serve traffic."
         )
 
-    logger.info("All startup bindings verified")
+    logger.emit(E.STARTUP_BINDINGS_VERIFIED)
 
 
 def _latest_canonical_parent_id(records: list[dict[str, object]]) -> str | None:
@@ -556,11 +550,11 @@ async def _runtime_lifespan(app: Any, runtime: ApplicationRuntime):  # noqa: C90
             async def _snapshot_provider(conversation_id: str) -> dict[str, Any] | None:
                 try:
                     return await _room_snapshot_service.snapshot(conversation_id)
-                except Exception:
-                    logger.warning(
-                        "resync snapshot build failed",
-                        extra={"conversation_id": conversation_id},
-                        exc_info=True,
+                except Exception as exc:
+                    logger.emit(
+                        E.RESYNC_SNAPSHOT_BUILD_FAILED,
+                        exc=exc,
+                        conversation_id=conversation_id,
                     )
                     return None
 
@@ -1113,15 +1107,12 @@ async def _runtime_lifespan(app: Any, runtime: ApplicationRuntime):  # noqa: C90
                     ):
                         return False
                 except Exception as exc:
-                    logger.warning(
-                        "supervisor ask_user resume failed",
-                        extra={
-                            "run_id": run_id,
-                            "call_id": call_id,
-                            "conversation_id": run.conversation_id,
-                            "resume_error": f"{type(exc).__name__}: {exc}",
-                        },
-                        exc_info=True,
+                    logger.emit(
+                        E.SUPERVISOR_ASK_USER_RESUME_FAILED,
+                        exc=exc,
+                        run_id=run_id,
+                        call_id=call_id,
+                        conversation_id=run.conversation_id,
                     )
                     raise
                 return True
@@ -1276,20 +1267,20 @@ async def _runtime_lifespan(app: Any, runtime: ApplicationRuntime):  # noqa: C90
         if _redis_service:
             redis_kv_ready = await _redis_service.ping()
             if redis_kv_ready:
-                logger.info("DAL Redis KV connected (leader election enabled)")
+                logger.emit(E.REDIS_KV_CONNECTED)
             else:
-                logger.warning("DAL Redis KV unavailable; Redis KV features disabled")
+                logger.emit(E.REDIS_KV_CONNECTION_FAILED)
         else:
-            logger.info("DAL Redis disabled (REDIS_URL not set)")
+            logger.emit(E.REDIS_DISABLED)
         app.state.redis_runtime = _redis_runtime
 
         _redis_streams_service = _redis_runtime.streams_client
         if _redis_streams_service:
             redis_streams_ready = await _redis_streams_service.ping()
             if redis_streams_ready:
-                logger.info("DAL Redis Streams connected")
+                logger.emit(E.REDIS_STREAMS_CONNECTED)
             else:
-                logger.warning("DAL Redis Streams unavailable")
+                logger.emit(E.REDIS_STREAMS_CONNECTION_FAILED)
 
         # ── Guard: fail if gunicorn without fully connected Redis ──
         check_multi_worker_safety(
@@ -1316,7 +1307,7 @@ async def _runtime_lifespan(app: Any, runtime: ApplicationRuntime):  # noqa: C90
 
         if redis_kv_ready:
             _leader = _redis_runtime.leader
-            logger.info("Leader election enabled for background jobs")
+            logger.emit(E.LEADER_ELECTION_ENABLED)
 
         if agent_health_service is None:
             raise RuntimeError("Agent health service has not been initialized")
@@ -1607,10 +1598,8 @@ async def _runtime_lifespan(app: Any, runtime: ApplicationRuntime):  # noqa: C90
                 # the synthesis step before the terminal delivery.
                 try:
                     await runtime.projection_worker.run_once(due_at=datetime.now(UTC))
-                except Exception:
-                    logger.warning(
-                        "orchestrator projection nudge failed", exc_info=True
-                    )
+                except Exception as exc:
+                    logger.emit(E.ORCHESTRATOR_PROJECTION_NUDGE_FAILED, exc=exc)
 
         try:
 
@@ -1769,7 +1758,7 @@ async def _runtime_lifespan(app: Any, runtime: ApplicationRuntime):  # noqa: C90
             _room_facade.bind_agent_call_reader(
                 app.state.canonical_agent_call_detail_reader
             )
-            logger.info("Canonical orchestrator runtime composition ready")
+            logger.emit(E.ORCHESTRATOR_RUNTIME_COMPOSED)
         except OrchestratorCompositionError as exc:
             raise RuntimeError("Canonical orchestrator runtime is required") from exc
 
@@ -1916,7 +1905,7 @@ async def _runtime_lifespan(app: Any, runtime: ApplicationRuntime):  # noqa: C90
                     return latest
 
             execution_facade.bind_active_run_reader(_CanonicalActiveRunReader())
-            logger.info("Orchestrator ingress adapter ready")
+            logger.emit(E.ORCHESTRATOR_INGRESS_ADAPTER_BOUND)
 
         # ── Mandatory canonical orchestrator background workers ──
         if _orchestrator_runtime is not None:
@@ -2036,9 +2025,8 @@ async def _runtime_lifespan(app: Any, runtime: ApplicationRuntime):  # noqa: C90
             execution_deps = app.state.execution_deps
             cancelled = await execution_deps.execution_engine.cancel_inflight_tasks()
             if cancelled:
-                logger.info(
-                    "shutdown: cancelled %s in-flight execution task(s)",
-                    cancelled,
+                logger.emit(
+                    E.SHUTDOWN_EXECUTION_TASKS_CANCELLED, cancelled_tasks=cancelled
                 )
 
         async def drain_delivery() -> None:

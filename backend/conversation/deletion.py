@@ -3,6 +3,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any, Protocol, runtime_checkable
 
+from common.observability import events as E
 from common.utils.logger import get_logger
 from common.utils.time import utcnow
 from models.response import RoomCenterRoomSettingResponse
@@ -185,11 +186,13 @@ class RoomDeletionService:
             return True, None
         try:
             record = await self._epoch_store.read(conversation_id)
-        except Exception:
-            logger.warning(
-                "Room epoch read failed for room %s; recovery will retry",
-                conversation_id,
-                exc_info=True,
+        except Exception as exc:
+            logger.emit(
+                E.ROOM_DELETION_STEP_FAILED,
+                exc=exc,
+                conversation_id=conversation_id,
+                deletion_id=deletion_id,
+                deletion_step="epoch_read",
             )
             return False, None
         if record is None:
@@ -199,40 +202,51 @@ class RoomDeletionService:
             outcome, _ = await self._epoch_store.deactivate(
                 conversation_id, epoch, deletion_id, deactivated_at=utcnow()
             )
-        except Exception:
-            logger.warning(
-                "Room epoch deactivation failed for room %s; recovery will retry",
-                conversation_id,
-                exc_info=True,
+        except Exception as exc:
+            logger.emit(
+                E.ROOM_DELETION_STEP_FAILED,
+                exc=exc,
+                conversation_id=conversation_id,
+                deletion_id=deletion_id,
+                deletion_step="epoch_deactivation",
+                room_epoch=epoch,
             )
             return False, epoch
         if outcome == "conflict":
-            logger.warning(
-                "Room epoch deactivation conflict for room %s", conversation_id
+            logger.emit(
+                E.ROOM_EPOCH_DEACTIVATION_CONFLICT_DETECTED,
+                conversation_id=conversation_id,
+                deletion_id=deletion_id,
+                room_epoch=epoch,
             )
             return False, epoch
         return True, epoch
 
     async def _cleanup_context_memory_for_room(self, conversation_id: str) -> bool:
         if self._memory_cleanup is None:
-            logger.warning(
-                "Context & Memory cleanup skipped for room %s; manager not bound",
-                conversation_id,
+            logger.emit(
+                E.ROOM_DELETION_STEP_FAILED,
+                conversation_id=conversation_id,
+                deletion_step="context_memory_cleanup",
+                reason="cleanup_unbound",
             )
             return False
         try:
             ok = await self._memory_cleanup.delete_room_memory(conversation_id)
             if not ok:
-                logger.warning(
-                    "Context & Memory cleanup reported failure for room %s",
-                    conversation_id,
+                logger.emit(
+                    E.ROOM_DELETION_STEP_FAILED,
+                    conversation_id=conversation_id,
+                    deletion_step="context_memory_cleanup",
+                    reason="cleanup_reported_failure",
                 )
             return bool(ok)
-        except Exception:
-            logger.warning(
-                "Context & Memory cleanup failed for room %s",
-                conversation_id,
-                exc_info=True,
+        except Exception as exc:
+            logger.emit(
+                E.ROOM_DELETION_STEP_FAILED,
+                exc=exc,
+                conversation_id=conversation_id,
+                deletion_step="context_memory_cleanup",
             )
             return False
 
@@ -247,12 +261,14 @@ class RoomDeletionService:
             )
             if not await file_lifecycle.delete_room_state(conversation_id):
                 ok = False
-        except Exception:
+        except Exception as exc:
             ok = False
-            logger.warning(
-                "Room file cleanup failed for room %s; recovery will retry",
-                conversation_id,
-                exc_info=True,
+            logger.emit(
+                E.ROOM_DELETION_STEP_FAILED,
+                exc=exc,
+                conversation_id=conversation_id,
+                deletion_id=deletion_id,
+                deletion_step="file_cleanup",
             )
 
         try:
@@ -260,21 +276,26 @@ class RoomDeletionService:
                 await self._orchestrator_epoch_cleanup.delete_by_epoch(
                     conversation_id, epoch
                 )
-        except Exception:
+        except Exception as exc:
             ok = False
-            logger.warning(
-                "Orchestrator epoch cleanup failed for room %s; recovery will retry",
-                conversation_id,
-                exc_info=True,
+            logger.emit(
+                E.ROOM_DELETION_STEP_FAILED,
+                exc=exc,
+                conversation_id=conversation_id,
+                deletion_id=deletion_id,
+                deletion_step="orchestrator_epoch_cleanup",
+                room_epoch=epoch,
             )
 
         try:
             await self._room_lifecycle.cleanup_room_owned_data(conversation_id)
-        except Exception:
+        except Exception as exc:
             ok = False
-            logger.warning(
-                "Room quotes cleanup failed for room %s",
-                conversation_id,
-                exc_info=True,
+            logger.emit(
+                E.ROOM_DELETION_STEP_FAILED,
+                exc=exc,
+                conversation_id=conversation_id,
+                deletion_id=deletion_id,
+                deletion_step="owned_data_cleanup",
             )
         return ok

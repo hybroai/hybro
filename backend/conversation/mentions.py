@@ -5,6 +5,8 @@ from __future__ import annotations
 import re
 from typing import Any
 
+from common.observability import events as E
+from common.observability import log_ids
 from common.utils.logger import get_logger
 from models.response import RoomCenterUserMessageResponse, ScopeResolutionError
 
@@ -17,9 +19,11 @@ def parse_agent_mentions(message_text: str, room_agent_set: dict) -> list[dict]:
     """Parse ``<@agent_id|name>`` mentions of room members, in text order.
 
     The agent name comes from ``room_agent_set``; mentions of agents outside the
-    room are logged and dropped.
+    room are dropped and counted in one log event; ids from message text are
+    never logged.
     """
     mentions = []
+    dropped_mention_count = 0
     for match in _MENTION_PATTERN.finditer(message_text):
         agent_id = match.group(1).strip()
         position = match.start()
@@ -33,9 +37,13 @@ def parse_agent_mentions(message_text: str, room_agent_set: dict) -> list[dict]:
                 }
             )
         else:
-            logger.warning(
-                "Inline mention %s not in room agent set — ignored", agent_id
-            )
+            dropped_mention_count += 1
+    if dropped_mention_count:
+        logger.emit(
+            E.MENTIONS_DROPPED,
+            reason="not_room_member",
+            dropped_mention_count=dropped_mention_count,
+        )
     mentions.sort(key=lambda x: x["position"])
     return mentions
 
@@ -54,9 +62,12 @@ def canonical_mentions_or_error(
     ]
     if invalid_ids:
         error_msg = f"Invalid or unauthorized mention targets: {', '.join(invalid_ids)}"
-        logger.warning(
-            "Canonical mention targets rejected (invalid/unauthorized): %s",
-            invalid_ids,
+        logger.emit(
+            E.TARGET_SCOPE_REJECTED,
+            scope_source="mention",
+            reason="unauthorized_targets",
+            rejected_agent_count=len(invalid_ids),
+            rejected_agent_ids=log_ids(invalid_ids),
         )
         return RoomCenterUserMessageResponse(
             message_id=None,

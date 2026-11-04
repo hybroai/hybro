@@ -8,6 +8,7 @@ from weakref import WeakValueDictionary
 
 from cachetools import TTLCache
 
+from common.observability import events as E
 from common.observability import traced_create_task
 from common.protocols import RedisKV
 from common.utils.logger import get_logger
@@ -110,9 +111,10 @@ class TerminalStatusDeduplicator:
             raise
         if not done:
             task.cancel()
-            logger.warning(
-                "terminal delivery Redis operation timed out and remains owned: %s",
-                operation,
+            logger.emit(
+                E.TERMINAL_DEDUP_REDIS_OPERATION_TIMED_OUT,
+                operation=operation,
+                timeout_seconds=self.config.terminal_redis_io_timeout_seconds,
             )
             raise TimeoutError(
                 f"terminal delivery Redis operation timed out: {operation}"

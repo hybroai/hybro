@@ -6,6 +6,7 @@ from typing import Any
 
 from common.dto import CompactionResult
 from common.observability import NoopTracingProvider
+from common.observability import events as E
 from common.protocols import RoomHistoryReader
 from common.utils.logger import get_logger
 from context_memory import compaction, projection
@@ -46,10 +47,11 @@ class ContextMemoryFacade:
         cleanup_ok = True
         try:
             await self.content_repository.delete_content_by_room_id(conversation_id)
-        except Exception:
-            logger.exception(
-                "Failed to clean up context memory content",
-                extra={"conversation_id": conversation_id},
+        except Exception as exc:
+            logger.emit(
+                E.CONTEXT_MEMORY_CONTENT_CLEANUP_FAILED,
+                exc=exc,
+                conversation_id=conversation_id,
             )
             cleanup_ok = False
         return cleanup_ok

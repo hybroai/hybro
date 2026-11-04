@@ -4,6 +4,7 @@ import asyncio
 import contextlib
 import time
 
+from common.observability import events as E
 from common.observability import get_logger, traced_create_task
 from local_agents.card_probe import LocalAgentCardProbe
 from local_agents.config import LocalAgentDiscoveryConfig
@@ -107,8 +108,10 @@ class LocalAgentService:
                 await self.request_discovery(trigger)
             except asyncio.CancelledError:
                 raise
-            except Exception:
-                logger.exception("local_agent_discovery_cycle_failed")
+            except Exception as exc:
+                logger.emit(
+                    E.LOCAL_AGENT_DISCOVERY_CYCLE_FAILED, exc=exc, trigger=trigger
+                )
             trigger = DiscoveryTrigger.SCHEDULED
             await asyncio.sleep(self.config.interval_seconds)
 
@@ -149,7 +152,7 @@ class LocalAgentService:
         deactivated = await self._writer.mark_local_agents_inactive(inactive_ids)
         pruned = await self._writer.prune_inactive_local_agents()
         if pruned:
-            logger.info("local_agent_records_pruned count=%s", pruned)
+            logger.emit(E.LOCAL_AGENT_RECORDS_PRUNED, pruned_record_count=pruned)
         return LocalAgentDiscoveryResult(
             trigger=effective_trigger,
             open_ports=len(open_ports),

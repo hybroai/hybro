@@ -7,7 +7,8 @@ import httpx
 
 from a2a_adapter import inspection as a2a_inspection
 from agent.card_validation import validate_agent_card_data
-from common.utils.logger import get_logger
+from common.observability import events as E
+from common.observability import get_logger
 from models.error import AgentNotFoundError
 from models.request import InspectionCenterRequest
 from models.response import InspectionCenterResponse
@@ -34,7 +35,7 @@ class AgentInspectionService:
                     error_message="Agent URL is required.",
                 )
         except Exception:
-            logger.warning("Failed to parse JSON from /agent-card request.")
+            logger.emit(E.AGENT_INSPECTION_REQUEST_REJECTED, inspection="agent_card")
             raise AgentNotFoundError(
                 status_code=400,
                 error_code="Agent Fetch Error",
@@ -53,14 +54,14 @@ class AgentInspectionService:
                 status_code=200,
             )
         except httpx.RequestError as e:
-            logger.error("Failed to connect to agent at %s", agent_url, exc_info=True)
+            logger.emit(E.AGENT_INSPECTION_FAILED, exc=e, inspection="agent_card")
             return InspectionCenterResponse(
                 agent_url=agent_url,
                 result=[f"Http RequestError: Failed to connect to agent: {e}"],
                 status_code=502,
             )
         except Exception as e:
-            logger.error("An internal server error occurred", exc_info=True)
+            logger.emit(E.AGENT_INSPECTION_FAILED, exc=e, inspection="agent_card")
             return InspectionCenterResponse(
                 agent_url=agent_url,
                 result=[
@@ -82,7 +83,9 @@ class AgentInspectionService:
                     error_message="Agent URL is required.",
                 )
         except Exception:
-            logger.warning("Failed to parse JSON from /agent-card request.")
+            logger.emit(
+                E.AGENT_INSPECTION_REQUEST_REJECTED, inspection="a2a_connection"
+            )
             raise AgentNotFoundError(
                 status_code=400,
                 error_code="Agent Fetch Error",
@@ -98,7 +101,7 @@ class AgentInspectionService:
                 status_code=response.get("status_code", 500),
             )
         except Exception as e:
-            logger.error("Failed to initialize a2a client: %s", e, exc_info=True)
+            logger.emit(E.AGENT_INSPECTION_FAILED, exc=e, inspection="a2a_connection")
             return InspectionCenterResponse(
                 agent_url=agent_url,
                 agent_card=None,

@@ -2,6 +2,7 @@ import { create } from 'zustand'
 import type { ArtifactData } from '@/stores/message-store/types'
 import { extractStreamTextFromArtifacts } from '@/stores/message-store/upsert'
 import { mergeStreamArtifacts } from './merge-stream-artifacts'
+import { log } from '@/lib/log'
 
 // Buffers not updated within this window are considered orphaned (backend crash
 // before task_update was sent). They are evicted on the next append() call.
@@ -112,14 +113,11 @@ export const useStreamingStore = create<StreamingState>()((set) => ({
     for (const [bufferId, buf] of Object.entries(state.buffers)) {
       if (bufferId !== id && now - buf.lastUpdatedAt > STALE_BUFFER_TTL_MS) {
         evicted = true
-        if (process.env.NODE_ENV !== 'production') {
-          console.warn(
-            '[streamingStore] evicted stale buffer for message %s (room %s, idle %ds)',
-            bufferId,
-            buf.conversationId,
-            Math.round((now - buf.lastUpdatedAt) / 1000),
-          )
-        }
+        log.debug('stream_buffer_evicted', {
+          message_id: bufferId,
+          conversation_id: buf.conversationId,
+          idle_s: Math.round((now - buf.lastUpdatedAt) / 1000),
+        })
       } else {
         afterEviction[bufferId] = buf
       }

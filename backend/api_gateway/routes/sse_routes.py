@@ -15,6 +15,7 @@ from api_gateway.registry import mark_declared_owner as _mark_declared_owner
 from common.auth import ClerkUser, get_current_user, get_current_user_with_query_token
 from common.dto import CancellationAck
 from common.errors import NotFoundError
+from common.observability import events as E
 from common.protocols import ExecutionEngine, SSERouteTransport, SSEStateReader
 from common.utils.logger import get_logger
 from common.utils.time import utcnow
@@ -39,11 +40,9 @@ async def _fetch_connect_snapshot(
         return None
     try:
         return await snapshot_service.snapshot(conversation_id, force=force)
-    except Exception:
-        logger.warning(
-            "room snapshot build failed; stream continues delta-only",
-            extra={"conversation_id": conversation_id},
-            exc_info=True,
+    except Exception as exc:
+        logger.emit(
+            E.SSE_SNAPSHOT_BUILD_FAILED, exc=exc, conversation_id=conversation_id
         )
         return None
 
@@ -92,7 +91,11 @@ async def stream_room_messages(  # noqa: C901
         try:
             # create SSE connection
             connection = await transport.add_connection(conversation_id)
-            logger.info(f"SSE stream started for room {conversation_id}")
+            logger.emit(
+                E.SSE_STREAM_STARTED,
+                conversation_id=conversation_id,
+                connection_id=connection.connection_id,
+            )
 
             # Build the snapshot before the handshake so the connected frame
             # can carry the same watermark the snapshot folds to.
@@ -132,22 +135,17 @@ async def stream_room_messages(  # noqa: C901
                         yield f"data: {message}\n\n"
 
                 except Exception as exc:
-                    logger.error(
-                        "sse_stream_failed",
-                        extra={
-                            "conversation_id": conversation_id,
-                            "error_type": type(exc).__name__,
-                        },
+                    logger.emit(
+                        E.SSE_STREAM_FAILED,
+                        exc=exc,
+                        conversation_id=conversation_id,
+                        connection_id=connection.connection_id,
                     )
                     break
 
         except Exception as exc:
-            logger.error(
-                "sse_connection_failed",
-                extra={
-                    "conversation_id": conversation_id,
-                    "error_type": type(exc).__name__,
-                },
+            logger.emit(
+                E.SSE_CONNECTION_FAILED, exc=exc, conversation_id=conversation_id
             )
 
         finally:
@@ -156,7 +154,11 @@ async def stream_room_messages(  # noqa: C901
                 await transport.remove_connection(
                     conversation_id, connection.connection_id
                 )
-                logger.info(f"SSE stream closed for room {conversation_id}")
+                logger.emit(
+                    E.SSE_STREAM_CLOSED,
+                    conversation_id=conversation_id,
+                    connection_id=connection.connection_id,
+                )
 
     return StreamingResponse(
         event_generator(),
@@ -326,7 +328,7 @@ async def cancel_message(
         if unapplied is not None:
             return unapplied
 
-        logger.info(f"Message {message_id} cancelled by user {user.user_id}")
+        logger.emit(E.MESSAGE_CANCELLED, message_id=message_id, user_id=user.user_id)
 
         return {
             "success": True,
@@ -343,11 +345,7 @@ async def cancel_message(
             status_code=404, detail="No processing found for this message"
         ) from e
     except Exception as e:
-        logger.error(
-            "message_cancellation_failed",
-            extra={"message_id": message_id, "error_type": type(e).__name__},
-            exc_info=True,
-        )
+        logger.emit(E.MESSAGE_CANCELLATION_FAILED, exc=e, message_id=message_id)
         raise HTTPException(status_code=500, detail="Failed to cancel message") from e
 
 

@@ -1,16 +1,17 @@
-import logging
 import time
 
 import httpx
 
 from common.dto import AgentCardSnapshot
+from common.observability import events as E
+from common.observability import get_logger
 
 from .card_data import build_agent_card
 from .constants import AGENT_CARD_WELL_KNOWN_PATH, PREV_AGENT_CARD_WELL_KNOWN_PATH
 from .docker_host_fallback import docker_host_fallback_url_for_error
 from .translators import a2a_card_to_snapshot
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 
 class AgentCardResolverImpl:
@@ -47,11 +48,16 @@ class AgentCardResolverImpl:
                 snapshot, last_error = await self._resolve_card_from_url(fallback_url)
 
         if snapshot is None and self._log_failures:
-            logger.warning(
-                "Failed to resolve A2A agent card for %s: %s",
-                normalized_url,
-                last_error,
-                exc_info=False,
+            status_fields = (
+                {"status": last_error.response.status_code}
+                if isinstance(last_error, httpx.HTTPStatusError)
+                else {}
+            )
+            logger.emit(
+                E.AGENT_CARD_RESOLUTION_FAILED,
+                exc=last_error,
+                agent_url=normalized_url,
+                **status_fields,
             )
             return None
 

@@ -21,6 +21,7 @@ import {
 import type { MessageDispatchInput, RoomMembershipWriteInput } from '@/lib/types/agent-group'
 import { resolveTemplateAgents } from '@/lib/use-case-templates'
 import type { UseCaseTemplate } from '@/lib/use-case-templates'
+import { log } from '@/lib/log'
 
 interface UseChatRoomCreationProps {
   userId?: string
@@ -60,7 +61,7 @@ export function useChatRoomCreation({ userId, userName, getToken, onRequireAuth 
         throw new Error(response.error || 'No agents available')
       }
     } catch (error) {
-      console.error('Failed to load agents:', error)
+      log.error('agents_load_failed', { source: 'chat_room_creation', error })
       toast.error('Failed to load agents')
       return []
     } finally {
@@ -75,7 +76,7 @@ export function useChatRoomCreation({ userId, userName, getToken, onRequireAuth 
       const response = await suggestAgents(messageText, 3, getToken)
       return response
     } catch (error) {
-      console.error('Failed to get agent suggestions:', error)
+      log.error('agent_suggestions_failed', { error })
       return null
     } finally {
       setSuggestingAgents(false)
@@ -197,7 +198,7 @@ export function useChatRoomCreation({ userId, userName, getToken, onRequireAuth 
         throw new Error(response.error || 'Failed to create room')
       }
     } catch (error) {
-      console.error('Failed to create room:', error)
+      log.error('room_create_failed', { error })
       toast.error(error instanceof Error ? error.message : 'Failed to create room')
       return null
     } finally {
@@ -300,7 +301,7 @@ export function useChatRoomCreation({ userId, userName, getToken, onRequireAuth 
       router.push(`/room/${conversationId}`)
       return true
     } catch (error) {
-      console.error('Failed to create room from template:', error)
+      log.error('room_template_create_failed', { error })
       toast.error('Failed to create room')
       return false
     } finally {

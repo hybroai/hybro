@@ -23,7 +23,6 @@ from __future__ import annotations
 
 import base64
 import json
-import logging
 import re
 from collections.abc import AsyncIterator, Callable, Mapping, Sequence
 from dataclasses import dataclass
@@ -42,6 +41,8 @@ from common.a2a_constants import (
     normalize_task_state_value,
 )
 from common.dto.hitl import A2AInteractionSpec
+from common.observability import events as E
+from common.observability import get_logger
 from common.types import Message, Task
 from common.utils.a2a_artifacts import (
     canonical_data_part_bytes,
@@ -60,7 +61,7 @@ from .webhook_payloads import (
     parse_stream_response_payload,
 )
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 _MAX_INLINE_DATA_ARTIFACTS = 20
 _MAX_FREE_TEXT_PROMPT_CHARS = 10_000
 # Identity of the interaction Hybro derives from a plain A2A input-required.
@@ -814,7 +815,13 @@ class DirectA2AStream:
         except Exception as exc:
             if _is_recoverable_materialization_error(exc):
                 raise
-            logger.error("failed to materialize stream frame artifacts: %s", exc)
+            logger.emit(
+                E.TASK_ARTIFACTS_MATERIALIZATION_FAILED,
+                exc=exc,
+                operation="stream_frame",
+                call_record_id=self._command.call_record_id,
+                task_id=internal_task.id or self._last_task_id,
+            )
             self._frame_counter += 1
             kwargs = _failed_materialization_observation_kwargs(
                 source_kind="direct",
@@ -1168,7 +1175,13 @@ class OrchestratorDirectA2AClient:
         except Exception as exc:
             if _is_recoverable_materialization_error(exc):
                 raise
-            logger.error("failed to materialize task artifacts for send: %s", exc)
+            logger.emit(
+                E.TASK_ARTIFACTS_MATERIALIZATION_FAILED,
+                exc=exc,
+                operation="send",
+                call_record_id=command.call_record_id,
+                task_id=task.id,
+            )
             kwargs = _failed_materialization_observation_kwargs(
                 source_kind="direct",
                 call_record_id=command.call_record_id,
@@ -1292,7 +1305,13 @@ class OrchestratorDirectA2AClient:
         except Exception as exc:
             if _is_recoverable_materialization_error(exc):
                 raise
-            logger.error("failed to materialize task artifacts for inspect: %s", exc)
+            logger.emit(
+                E.TASK_ARTIFACTS_MATERIALIZATION_FAILED,
+                exc=exc,
+                operation="inspect",
+                call_record_id=command.call_record_id,
+                task_id=task.id,
+            )
             kwargs = _failed_materialization_observation_kwargs(
                 source_kind="inspection",
                 call_record_id=command.call_record_id,
@@ -1394,7 +1413,13 @@ class OrchestratorDirectA2AClient:
             except Exception as exc:
                 if _is_recoverable_materialization_error(exc):
                     raise
-                logger.error("failed to materialize task artifacts for push: %s", exc)
+                logger.emit(
+                    E.TASK_ARTIFACTS_MATERIALIZATION_FAILED,
+                    exc=exc,
+                    operation="push",
+                    call_record_id=call_record_id,
+                    task_id=task.id,
+                )
                 kwargs = _failed_materialization_observation_kwargs(
                     source_kind="webhook",
                     call_record_id=call_record_id,
@@ -1503,8 +1528,12 @@ class OrchestratorDirectA2AClient:
         except Exception as exc:
             if _is_recoverable_materialization_error(exc):
                 raise
-            logger.error(
-                "failed to materialize task artifacts for continue_task: %s", exc
+            logger.emit(
+                E.TASK_ARTIFACTS_MATERIALIZATION_FAILED,
+                exc=exc,
+                operation="continue_task",
+                call_record_id=command.call_record_id,
+                task_id=task.id,
             )
             kwargs = _failed_materialization_observation_kwargs(
                 source_kind="direct",
@@ -1560,8 +1589,12 @@ class OrchestratorDirectA2AClient:
         except Exception as exc:
             if _is_recoverable_materialization_error(exc):
                 raise
-            logger.error(
-                "failed to materialize task artifacts for model_reply: %s", exc
+            logger.emit(
+                E.TASK_ARTIFACTS_MATERIALIZATION_FAILED,
+                exc=exc,
+                operation="model_reply",
+                call_record_id=command.call_record_id,
+                task_id=task.id,
             )
             kwargs = _failed_materialization_observation_kwargs(
                 source_kind="direct",
@@ -1612,8 +1645,12 @@ class OrchestratorDirectA2AClient:
         except Exception as exc:
             if _is_recoverable_materialization_error(exc):
                 raise
-            logger.error(
-                "failed to materialize task artifacts for inspect_continuation: %s", exc
+            logger.emit(
+                E.TASK_ARTIFACTS_MATERIALIZATION_FAILED,
+                exc=exc,
+                operation="inspect_continuation",
+                call_record_id=command.call_record_id,
+                task_id=task.id,
             )
             kwargs = _failed_materialization_observation_kwargs(
                 source_kind="inspection",

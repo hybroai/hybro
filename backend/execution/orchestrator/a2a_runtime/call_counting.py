@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import Any, Protocol, runtime_checkable
 
+from common.observability import events as E
 from common.utils.logger import get_logger
 
 from .models import TERMINAL_AGENT_CALL_STATES, AgentCallLedgerRecord
@@ -62,10 +63,12 @@ class CountingAgentCallLedgerStore:
                 await self._counter.increment_agent_call_count(
                     record.agent_id, success=record.state == "completed"
                 )
-            except Exception:
-                logger.warning(
-                    "agent_call_count_failed",
-                    extra={"agent_id": record.agent_id, "state": record.state},
+            except Exception as exc:
+                logger.emit(
+                    E.AGENT_CALL_COUNT_FAILED,
+                    exc=exc,
+                    agent_id=record.agent_id,
+                    state=record.state,
                 )
         return outcome
 

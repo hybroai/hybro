@@ -300,8 +300,9 @@ Cross-cutting primitives with no domain imports:
 - `common.config`: the configuration loader, runtime credential store, and
   setup model (see [Runtime configuration](#runtime-configuration)).
 - `common.errors`: typed domain and platform errors.
-- `common.observability`: process logging, correlation context, tracing, and
-  metrics helpers.
+- `common.observability`: process logging, the log event catalog,
+  correlation context, tracing, and metrics helpers (see
+  [Logging events](#logging-events)).
 - `common.middleware`: request logging, request-size, and request-concurrency
   middleware.
 - `common.a2a_task_projection`: the persistence-safe public projection of A2A
@@ -310,6 +311,143 @@ Cross-cutting primitives with no domain imports:
   helpers (`create_index`, `ensure_text_index`), and the logger.
 
 `common` writes no collections and consumes no other package's protocols.
+
+### Logging events
+
+Every backend log line is a named event. `common.observability.events` is the
+catalog: one `EventSpec(name, level, required, system)` constant per event,
+registered on `events.CATALOG`. Code logs through
+`get_logger(__name__).emit(events.X, **fields)`; `get_logger` returns an
+`EventLogger` (`common.observability.catalog`) that wraps the stdlib logger.
+
+- `emit` uses the spec's level unless `level=` overrides it, turns `exc=` into
+  `error_type`, `error_chain`, `error_fingerprint` and `error_stack` fields
+  without exception messages, and reports the caller as the line's source.
+- A field required by the spec may come from the call or from the bound log
+  context; a field passed as `None` counts as present. A field named like a
+  `LogRecord` attribute or a fixed output key is renamed `field_<key>`.
+- An unknown event, a missing required field, or a renamed key still emits the
+  line, annotated with `catalog_violation`. The test suite sets
+  `CATALOG.strict = True`, which raises instead.
+- `system=True` marks events a later phase copies into a system event store
+  (`http_request_completed`, `llm_call_completed`, `a2a_call_completed`,
+  `job_iteration_failed`, `eventing_dead_letter`,
+  `eventing_dead_letter_publish_failed`, `redis_lock_operation_failed`);
+  nothing reads the flag yet.
+- The event bus emits `eventing_dead_letter` for every dead letter (ERROR for
+  the `handler` and `worker` stages, WARNING otherwise) with `failure_stage`,
+  `event_type`, `exception_class`, `origin` and the dead letter's bounded
+  metadata, and `eventing_dead_letter_publish_failed` when the transport
+  cannot store one. Neither is rate-limited: under overload one dropped
+  event can log up to three lines (the dead letter, an
+  `auxiliary_task_capacity` dead letter for its publish, and the publish
+  failure). The Redis leader election and locks emit
+  `redis_lock_operation_failed` (`operation`, `lock_kind`, the unprefixed
+  `lock_name`, `error_type`) where they return `False` or `None` on a Redis
+  error; a flapping Redis logs once per job per interval.
+- `common.middleware.request_logging` emits one `http_request_completed` per
+  HTTP request with `method`, `route` (the template), `status`, `outcome`
+  and `duration_ms`, and binds `request_id` and `trace_id` (the inbound
+  `X-Request-ID` when valid, else a new UUID, echoed in the response). A JSON
+  200 response whose single body chunk (at most 64 KiB) is a
+  `{"success": false}` envelope reports `outcome=error` when its integer
+  `status_code` is 500 or above and `client_error` otherwise, with
+  `envelope_status` when the status is an integer. Streaming and
+  multi-chunk bodies are never buffered.
+- `llm_gateway` emits one `llm_call_completed` per model call and
+  `a2a_adapter.client_facade` one `a2a_call_completed` per agent call, at
+  ERROR when `outcome=error` and INFO otherwise. A call that failed with an
+  exception carries the exception fields and `error_code`; an A2A error response
+  without an exception (a JSON-RPC error) carries only `error_type` and
+  `error_code`.
+- `execution` failure events carry the ids in hand (`run_id`,
+  `conversation_id`, `client_request_id`, `call_record_id`, `observation_id`)
+  and the exception fields, never the exception message. A `_deferred` event
+  (`run_cancellation_reconciliation_deferred`, `hitl_answer_reconcile_deferred`,
+  `hitl_continuation_recovery_deferred`, `a2a_push_processing_deferred`) marks a
+  failure that durable recovery retries; `a2a_recovery_phase_failed` (with
+  `phase`) reports one recovery-cycle phase that failed while the cycle went on.
+- `agent` logs a stored status change once, after the write succeeds:
+  `agent_deactivated` (WARNING) and `agent_reactivated` (INFO), each with
+  `agent_id` and `trigger` (`health_check` or `liveness`). The agent health
+  loop uses the shared job events below with `job=agent_health_checker`.
+- `approval` names a HITL request `hitl_request_id`, never `request_id`
+  (the bound HTTP request id), and carries `interaction_id`,
+  `conversation_id` and `run_id` where in hand. The lifecycle reconciler
+  reports a failed pass as `hitl_reconciliation_pass_failed` (with
+  `reconciliation_pass`). A failed item in a pass emits that pass's
+  `_deferred` event (for example `hitl_interaction_expiry_deferred`), which
+  means the next reconciler pass retries it. Store reads and writes that
+  swallow an error emit `hitl_store_operation_failed` with `operation`.
+- `conversation` binds `conversation_id` and `client_request_id` to the log
+  context while it persists a user message and while it runs preflight (which
+  also binds `message_id`), so send-path events carry the request correlation
+  (`user_message_persist_started`, `user_message_persisted`,
+  `message_preflight_scope_resolved`, `orchestration_envelope_prepared`,
+  `message_preflight_completed` or `message_preflight_failed`). It logs counts
+  (`message_char_count`, `candidate_count`), never message text, mention text,
+  room or group names. Client-supplied values logged as fields
+  (`client_request_id`, `target_group`, a requested `group_id`, rejected agent
+  ids, and a quote source's `run_id`) pass through
+  `common.observability.log_id`, which keeps only strings shaped like a context
+  id and renders anything else as `invalid`. `target_scope_rejected` caps
+  `rejected_agent_ids` at ten next to `rejected_agent_count`. Inline mentions of
+  agents outside the room log one `mentions_dropped` per message with only
+  `dropped_mention_count`, since their ids come from the message text. Store
+  reads and writes that swallow an error emit
+  `conversation_store_operation_failed` with `operation`; an unreadable stored
+  document emits `conversation_document_parse_failed` with `document_kind` and
+  ids; room deletion reports each failed cleanup as `room_deletion_step_failed`
+  with `deletion_step`. Index readiness failures emit
+  `index_readiness_check_failed` with `readiness_check` and `issue_count`; the
+  sample ids stay in the startup error.
+- Background jobs share `job_started` (with `interval_seconds`),
+  `job_already_started`, `job_start_skipped` (with `reason`), `job_stopped`,
+  `job_iteration_failed` and `job_skipped_not_leader`, each
+  with a `job` field holding the job's constant from `jobs/constants.py`.
+- Every backend log call goes through `emit` with a catalog event;
+  `EventLogger` has no stdlib-style `debug`/`info`/`warning`/`error` methods.
+  `tests/test_logging_event_catalog.py` scans backend production code (every
+  module except `tests/` and `scripts/`) and fails on a stdlib logger method
+  call, an `emit` whose first argument is not a catalog constant, or a direct
+  `logging.getLogger`/`logging.basicConfig`. Three files are excepted:
+  `common/observability/logging.py`, `common/observability/catalog.py` and
+  `runtime_entrypoint.py`.
+
+Records not emitted through the catalog (third-party libraries) render as
+`event=library_message` with their logger name. The loggers named exactly `uvicorn`, `uvicorn.error` and `py.warnings`
+keep their rendered text, sanitised: URL credentials, bearer tokens, and
+`key=value` or JSON-quoted secrets are redacted (keys ending with `token`,
+`secret`, `password`, `passwd`, `jwt`, `credential(s)`, or an API, private,
+access, secret or signing key, so `client_secret`, `refresh_token` and
+`aws_secret_access_key` are covered), and the whole value of an
+`Authorization`, `Proxy-Authorization`, `Cookie` or `Set-Cookie` header,
+including `HTTP_`-prefixed environ keys, whatever its scheme or cookie count.
+Other library text keeps the existing redaction (template arguments other than
+URLs become `[REDACTED]`, and argument-less free text is blanked with
+`message_redacted=true`).
+
+Event fields are redacted by their leaf key, at any nesting depth; a
+redacted mapping hides everything under it:
+
+- a leaf in the fixed sensitive set (`authorization`, `token`, `password`,
+  `prompt`, `content`, `raw_failure_detail`, ...) or ending with a credential
+  word (`authorization`, `cookie`, `token`, `secret`, `password`, `passwd`,
+  `jwt`, `credential`, or an API, private, access, secret or signing key:
+  `db_password`, `id_token`, `secret_access_key`) is redacted whatever its
+  value;
+- a leaf ending with `prompt`, `body`, `payload`, `content`, `headers` or
+  `base64` (`user_prompt`, `raw_body`), or holding a credential word elsewhere,
+  plurals included (`token_usage`, `api_keys`, `tokenizer`), is redacted
+  unless the value is a number or flag, so counts such as `tokens_saved` and
+  `prompt_tokens` stay. `content_type` matches no rule and stays.
+
+Each line carries `version`, read from the nearest `VERSION` file above the
+module: the repository root in a checkout, `/app/VERSION` in the image.
+
+The image defaults `log_format` to `json`; a checkout keeps `auto` (logfmt
+when `app_env` is `development`, JSON otherwise). A `log_format` in
+`config.json` wins.
 
 ### `context_memory`
 
@@ -503,7 +641,8 @@ browser setup routes.
 
 Owns Docker-host discovery without owning Agent persistence or execution. When
 `local_agent_discovery_enabled` is set, `LocalAgentService` scans the configured
-`host.docker.internal` port range at startup and every
+`host.docker.internal` port range (`local_agent_discovery_port_start` to
+`local_agent_discovery_port_end`, 9000 to 9999 by default) at startup and every
 `local_agent_discovery_interval_seconds` (120 by default), probes Agent Cards
 through the `a2a_adapter` resolver, and reconciles results through the Agent
 registry writer. Discovered records use `source=local` and remain public and
@@ -989,8 +1128,8 @@ The image sets `HYBRO_CONTAINER=image`. `loader.py` then defaults `mongodb_url`
 to `mongodb://127.0.0.1:27017/hybro?replicaSet=rs0`, `redis_url` to empty,
 `hybro_file_dir` to `/data/files`, enables discovery with the manifest ports
 excluded (bundled agents on container loopback and host agents on the same port
-share a URL key), sets `bundled_agents_manifest` to `/app/bundled_agents.yaml`
-and `oauth_callback_host` to `0.0.0.0`, and takes `frontend_origins` from the
+share a URL key), sets `bundled_agents_manifest` to `/app/bundled_agents.yaml`,
+`oauth_callback_host` to `0.0.0.0` and `log_format` to `json`, and takes `frontend_origins` from the
 entrypoint. Service hosts stay off, so bundled agent URLs are
 `http://127.0.0.1:<port>`. A `mongodb_url` in `config.json` or `auth.json` wins
 and skips the embedded `mongod`.
@@ -1000,6 +1139,18 @@ Caddy routes one port by path: `{api_prefix}` and `{api_prefix}/*` and
 listener), and everything else to the frontend. On a loopback listener it
 answers any `Host` other than `localhost`, `127.0.0.1`, or `::1` (any port)
 with 421, which blocks DNS rebinding against the unauthenticated local API.
+Caddy writes a JSON access log to stdout (`caddy | ` in `hybro logs`), skipping
+`/_next/static/*`. It logs 1xx-4xx responses at `info` and 5xx at `error`.
+A filter drops `request.headers`, `request.uri` (query strings can carry
+tokens) and `resp_headers`, and each line gains `trace_id` and `path` (no
+query string). `trace_id` is the `X-Request-ID` the backend returns: the
+client's id when it is valid, otherwise the id the backend minted, so
+`hybro logs --trace <id>` matches the Caddy line of every backend request.
+Routes the backend does not answer (the frontend, MCP, or a 502 while the
+backend restarts) log an empty `trace_id` and are correlated by time only.
+Caddy's error lines for a failed handler go through the default logger on
+stderr, which drops `request.headers`, `request.uri` and `resp_headers` the
+same way and carries no `trace_id`.
 
 On a fresh data volume the entrypoint starts `mongod`, initiates `rs0` with
 member `127.0.0.1:27017`, waits for primary, and stops it. Data whose stored
@@ -1432,7 +1583,28 @@ loopback for the backend and its own listener. Caddy omits the `/mcp` route on a
 public listener, and the frontend then reports MCP as disabled. Native
 startup keeps fixed loopback endpoints and `/api/v1`. Host/Origin DNS-rebinding checks stay enabled.
 The adapter keeps one async HTTP client, uses stateless MCP transport with JSON
-responses, and does not import the backend runtime or access persistence.
+responses, and imports only the backend's `common.observability` logging
+modules, not the runtime; it does not access persistence. The image projection
+sets `PYTHONPATH=/app/backend` for it, `MCP/pytest.ini` adds `../backend`, and
+the host launch passes `PYTHONPATH=backend`.
+
+MCP logging: `main()` configures the backend's structured formatter with
+`service=hybro-mcp` at level `INFO` (JSON in the image, logfmt on a host) before
+building the server, and runs uvicorn itself with `log_config=None` and
+`access_log=False`, so the stream stays single-format. The inline catalog
+`server.EVENTS` has `mcp_server_starting` (`host`, `port`; emitted before uvicorn
+binds, whose own startup line confirms the bind), `mcp_tool_called` (`tool`,
+`outcome`, `duration_ms`, `http_request_id`, and the `session_id` and
+`client_request_id` arguments when given, through `log_id`, so a value that is
+not id-shaped logs as `invalid`; `outcome` is `success`, `error`, or
+`cancelled`, and the level is `ERROR` only for `error`), and
+`mcp_backend_call_failed` (`code`, `http_request_id`, optional `status`). Each
+tool call mints an `http_request_id`, binds it as the log context's
+`request_id` and `trace_id` for the whole call including its
+`mcp_tool_called` line, and sends it to the backend as `X-Request-ID`, so
+`hybro logs --trace <id>` joins the MCP and backend lines. A `client_request_id`
+that `send_message` mints is not on the log line; join through the trace id.
+`/health` sends a request id without logging.
 
 `send_message` takes plain `text` (at most 10,000 characters), `agent_id`, and
 optionally `session_id`, `subnet_id`, `client_request_id` (minted when absent),
@@ -2065,7 +2237,7 @@ generic prompt.
   ledger, so `reconcile_answer` can rebuild and dispatch the continuation after a
   crash or a lost claim. Recovery logs `hitl_answer_reconcile_deferred`,
   `hitl_continuation_recovery_deferred`, and
-  `hitl_continuation_claim_unavailable` when it waits. An answer whose
+  `hitl_continuation_claim_rejected` when it waits. An answer whose
   interaction was since closed (abandoned, for example
   `superseded_by_new_interaction`) can never be projected, so reconciliation
   leaves the call in its parked state instead of retrying.

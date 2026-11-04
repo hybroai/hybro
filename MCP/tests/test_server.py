@@ -2,13 +2,22 @@
 
 import asyncio
 import json
+import logging
 
 import httpx
 import pytest
+import uvicorn
 from mcp import Client
 
 import server
+from common.observability.logging import StructuredFormatter, get_log_context
 from server import create_server
+
+server.EVENTS.strict = True
+
+
+def events(caplog, name):
+    return [record for record in caplog.records if record.msg == name]
 
 
 async def call_with_transport(handler, tool, arguments):
@@ -682,3 +691,294 @@ async def test_any_published_host_port_passes_the_host_guard(host, allowed):
             ) as client:
                 response = await client.get("/health", headers={"host": host})
     assert (response.status_code != 421) is allowed
+
+
+# ---- Logging ----
+
+
+@pytest.fixture
+def mcp_logs(caplog):
+    caplog.set_level(logging.INFO, logger="hybro.mcp")
+    return caplog
+
+
+@pytest.fixture
+def restore_root_logging():
+    root = logging.getLogger()
+    level = root.level
+    handlers = tuple(root.handlers)
+    state = {handler: (handler.level, handler.formatter) for handler in handlers}
+    yield root
+    root.setLevel(level)
+    for handler in tuple(root.handlers):
+        if handler not in handlers:
+            root.removeHandler(handler)
+    for handler in handlers:
+        if handler not in root.handlers:
+            root.addHandler(handler)
+        handler.setLevel(state[handler][0])
+        handler.setFormatter(state[handler][1])
+
+
+class ContextCapture(logging.Handler):
+    """Record the bound log context when an mcp_tool_called record is handled."""
+
+    def __init__(self, contexts):
+        super().__init__()
+        self.contexts = contexts
+
+    def emit(self, record):
+        if record.msg == "mcp_tool_called":
+            self.contexts.append(get_log_context())
+
+
+@pytest.fixture
+def contexts():
+    captured = []
+    handler = ContextCapture(captured)
+    logger = logging.getLogger("hybro.mcp")
+    logger.addHandler(handler)
+    yield captured
+    logger.removeHandler(handler)
+
+
+async def test_tool_call_logs_its_outcome_and_sends_its_request_id(mcp_logs, contexts):
+    sent = []
+
+    def backend(request):
+        sent.append(request)
+        return httpx.Response(200, json=session_reply())
+
+    result = await call_with_transport(
+        backend,
+        "send_message",
+        {
+            "agent_id": "story",
+            "text": "Go",
+            "session_id": "sess-1",
+            "client_request_id": "turn-1",
+        },
+    )
+
+    assert not result.is_error
+    [record] = events(mcp_logs, "mcp_tool_called")
+    assert contexts == [
+        {"request_id": record.http_request_id, "trace_id": record.http_request_id}
+    ]
+    assert record.levelno == logging.INFO
+    assert record.tool == "send_message"
+    assert record.outcome == "success"
+    assert record.duration_ms >= 0
+    assert len(record.http_request_id) == 32
+    assert record.session_id == "sess-1"
+    assert record.client_request_id == "turn-1"
+    assert sent[0].headers["x-request-id"] == record.http_request_id
+    assert json.loads(sent[0].content)["client_request_id"] == "turn-1"
+    assert events(mcp_logs, "mcp_backend_call_failed") == []
+
+
+async def test_tool_call_logs_only_id_shaped_caller_ids(mcp_logs):
+    def backend(request):
+        return httpx.Response(200, json=session_reply())
+
+    await call_with_transport(
+        backend,
+        "send_message",
+        {
+            "agent_id": "story",
+            "text": "Go",
+            "session_id": "sess-1",
+            "client_request_id": "my email is someone@example.com",
+        },
+    )
+
+    [record] = events(mcp_logs, "mcp_tool_called")
+    assert record.session_id == "sess-1"
+    assert record.client_request_id == "invalid"
+
+
+def _raise(error):
+    def handler(request):
+        raise error("backend detail", request=request)
+
+    return handler
+
+
+@pytest.mark.parametrize(
+    ("handler", "code", "status"),
+    [
+        (lambda _: httpx.Response(502, json={"detail": "x"}), "HTTP_ERROR", 502),
+        (_raise(httpx.ConnectError), "BACKEND_UNAVAILABLE", None),
+        (_raise(httpx.ReadTimeout), "BACKEND_TIMEOUT", None),
+        (
+            lambda _: httpx.Response(200, text="not json"),
+            "INVALID_BACKEND_RESPONSE",
+            200,
+        ),
+        (lambda _: httpx.Response(200, json=[]), "INVALID_BACKEND_RESPONSE", 200),
+    ],
+)
+async def test_backend_failures_are_logged_with_the_tool_request_id(
+    mcp_logs, handler, code, status
+):
+    result = await call_with_transport(handler, "discover_agents", {})
+
+    assert result.is_error
+    [failed] = events(mcp_logs, "mcp_backend_call_failed")
+    [called] = events(mcp_logs, "mcp_tool_called")
+    assert failed.levelno == logging.WARNING
+    assert failed.code == code
+    assert getattr(failed, "status", None) == status
+    assert failed.http_request_id == called.http_request_id
+    assert called.levelno == logging.ERROR
+    assert called.outcome == "error"
+    assert called.tool == "discover_agents"
+
+
+async def test_raising_tool_logs_an_error_and_still_fails_the_call(
+    mcp_logs, monkeypatch
+):
+    def broken(_body):
+        raise RuntimeError("PRIVATE detail")
+
+    monkeypatch.setattr(server, "tool_result", broken)
+
+    result = await call_with_transport(
+        lambda _: httpx.Response(200, json={"agents": []}), "discover_agents", {}
+    )
+
+    assert result.is_error
+    [called] = events(mcp_logs, "mcp_tool_called")
+    assert called.levelno == logging.ERROR
+    assert called.outcome == "error"
+    assert called.error_type == "RuntimeError"
+    assert called.exc_info is None
+    assert "PRIVATE" not in str(vars(called))
+
+
+async def test_cancelled_tool_call_is_not_logged_as_an_error(mcp_logs):
+    @server.logged_tool
+    async def slow() -> None:
+        raise asyncio.CancelledError
+
+    with pytest.raises(asyncio.CancelledError):
+        await slow()
+
+    [called] = events(mcp_logs, "mcp_tool_called")
+    assert called.levelno == logging.INFO
+    assert called.outcome == "cancelled"
+    assert not hasattr(called, "error_type")
+
+
+async def test_health_sends_a_request_id_without_logging(mcp_logs):
+    calls = []
+
+    def handler(request):
+        calls.append(request)
+        return httpx.Response(200, json={"agents": []})
+
+    async with httpx.AsyncClient(
+        base_url=server.BACKEND_API_URL, transport=httpx.MockTransport(handler)
+    ) as backend:
+        app = create_server(backend).streamable_http_app()
+        async with httpx.AsyncClient(
+            transport=httpx.ASGITransport(app), base_url="http://127.0.0.1:8001"
+        ) as client:
+            await client.get("/health")
+    assert len(calls[0].headers["x-request-id"]) == 32
+    assert events(mcp_logs, "mcp_tool_called") == []
+    assert events(mcp_logs, "mcp_backend_call_failed") == []
+
+
+@pytest.mark.parametrize(
+    ("image", "output_format"), [(True, "json"), (False, "logfmt")]
+)
+def test_configure_for_installs_the_backend_formatter(
+    restore_root_logging, image, output_format
+):
+    server.configure_for(image=image)
+
+    [formatter] = [
+        handler.formatter
+        for handler in restore_root_logging.handlers
+        if isinstance(handler.formatter, StructuredFormatter)
+    ]
+    assert formatter.service == "hybro-mcp"
+    assert formatter.output_format == output_format
+    assert restore_root_logging.level == logging.INFO
+
+
+async def test_serve_leaves_logging_to_the_structured_formatter(monkeypatch, mcp_logs):
+    captured = {}
+
+    class FakeServer:
+        def __init__(self, config):
+            captured["config"] = config
+
+        async def serve(self):
+            captured["served"] = True
+
+    def fake_config(app, **kwargs):
+        captured.update(app=app, kwargs=kwargs)
+        return "config"
+
+    monkeypatch.setattr(uvicorn, "Config", fake_config)
+    monkeypatch.setattr(uvicorn, "Server", FakeServer)
+    app = object()
+
+    await server.serve(app)
+
+    assert captured == {
+        "app": app,
+        "kwargs": {
+            "host": server.MCP_HOST,
+            "port": server.MCP_PORT,
+            "log_config": None,
+            "access_log": False,
+        },
+        "config": "config",
+        "served": True,
+    }
+    [starting] = events(mcp_logs, "mcp_server_starting")
+    assert (starting.host, starting.port) == (server.MCP_HOST, server.MCP_PORT)
+
+
+async def test_main_configures_logging_before_building_the_server(monkeypatch):
+    calls = []
+    app = object()
+
+    class FakeServer:
+        def streamable_http_app(self, **kwargs):
+            calls.append(("app", kwargs))
+            return app
+
+    def fake_create_server(client):
+        calls.append(("create_server",))
+        return FakeServer()
+
+    async def fake_serve(served):
+        calls.append(("serve", served))
+
+    monkeypatch.setattr(
+        server, "configure_for", lambda image: calls.append(("log", image))
+    )
+    monkeypatch.setattr(server, "create_server", fake_create_server)
+    monkeypatch.setattr(server, "serve", fake_serve)
+
+    await server.main()
+
+    assert calls == [
+        ("log", False),
+        ("create_server",),
+        (
+            "app",
+            {
+                "streamable_http_path": "/mcp",
+                "stateless_http": True,
+                "json_response": True,
+                "transport_security": server.TRANSPORT_SECURITY,
+                "host": server.MCP_HOST,
+            },
+        ),
+        ("serve", app),
+    ]

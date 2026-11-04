@@ -17,7 +17,8 @@ from common.dto import (
     UserMessageInput,
 )
 from common.dto.base import to_stored_conversation_keys
-from common.observability import NoopTracingProvider
+from common.observability import NoopTracingProvider, log_id
+from common.observability import events as E
 from common.protocols import AgentRegistry, RoomRepository
 from common.utils.a2a_helpers import sanitize_task_dict
 from common.utils.logger import get_logger
@@ -214,10 +215,10 @@ class ConversationFacade:
             )
         except Exception as exc:
             await self._compensate_room_creation(conversation_id)
-            logger.error(
-                "Room epoch activation failed for conversation_id=%s",
-                conversation_id,
-                exc_info=True,
+            logger.emit(
+                E.ROOM_EPOCH_ACTIVATION_FAILED,
+                exc=exc,
+                conversation_id=conversation_id,
             )
             raise ValueError("Room epoch activation failed") from exc
         if outcome == "conflict":
@@ -228,11 +229,11 @@ class ConversationFacade:
     async def _compensate_room_creation(self, conversation_id: str) -> None:
         try:
             await self._repository.delete(conversation_id)
-        except Exception:
-            logger.warning(
-                "Failed to compensate room creation for conversation_id=%s",
-                conversation_id,
-                exc_info=True,
+        except Exception as exc:
+            logger.emit(
+                E.ROOM_CREATION_COMPENSATION_FAILED,
+                exc=exc,
+                conversation_id=conversation_id,
             )
 
     async def delete_room(self, conversation_id: str, owner_id: str) -> bool:
@@ -370,7 +371,14 @@ class ConversationFacade:
         except UserMessagePersistenceError:
             raise
         except Exception as exc:
-            logger.error("Failed to persist room user message", exc_info=True)
+            logger.emit(
+                E.CONVERSATION_STORE_OPERATION_FAILED,
+                exc=exc,
+                operation="persist_user_message",
+                conversation_id=user_message.conversation_id,
+                message_id=user_message.message_id,
+                client_request_id=log_id(user_message.client_request_id),
+            )
             raise UserMessagePersistenceError(
                 "Failed to persist room user message"
             ) from exc
@@ -403,11 +411,11 @@ class ConversationFacade:
                 )
             if isawaitable(result):
                 await result
-        except Exception:
-            logger.warning(
-                "Failed to update room activity timestamp for conversation_id=%s",
-                conversation_id,
-                exc_info=True,
+        except Exception as exc:
+            logger.emit(
+                E.ROOM_ACTIVITY_UPDATE_FAILED,
+                exc=exc,
+                conversation_id=conversation_id,
             )
 
     async def update_agent_message(
@@ -425,8 +433,13 @@ class ConversationFacade:
                     update_data,
                 )
             )
-        except Exception:
-            logger.error("Failed to update room agent message", exc_info=True)
+        except Exception as exc:
+            logger.emit(
+                E.CONVERSATION_STORE_OPERATION_FAILED,
+                exc=exc,
+                operation="update_agent_message",
+                message_id=message_id,
+            )
             return False
 
     async def update_agent_message_status(
@@ -472,8 +485,13 @@ class ConversationFacade:
                 for doc in docs
                 if (message := _safe_parse_user_message(doc)) is not None
             ]
-        except Exception:
-            logger.error("Failed to get room user messages", exc_info=True)
+        except Exception as exc:
+            logger.emit(
+                E.CONVERSATION_STORE_OPERATION_FAILED,
+                exc=exc,
+                operation="get_user_messages_for_room",
+                conversation_id=conversation_id,
+            )
             return []
 
     async def get_agent_messages_for_room(
@@ -489,8 +507,13 @@ class ConversationFacade:
                 if (message := _safe_parse_agent_message(doc)) is not None
             ]
             return messages
-        except Exception:
-            logger.error("Failed to get room agent messages", exc_info=True)
+        except Exception as exc:
+            logger.emit(
+                E.CONVERSATION_STORE_OPERATION_FAILED,
+                exc=exc,
+                operation="get_agent_messages_for_room",
+                conversation_id=conversation_id,
+            )
             return []
 
     async def get_timeline_page(
@@ -512,16 +535,18 @@ class ConversationFacade:
                     message = _parse_timeline_user_message(entry.message)
                 else:
                     message = _parse_timeline_agent_message(entry.message)
-            except Exception:
+            except Exception as exc:
                 message_id = (
                     entry.message.get("message_id")
                     if isinstance(entry.message, dict)
                     else None
                 )
-                logger.error(
-                    "Invalid selected timeline message conversation_id=%s message_id=%s",
-                    conversation_id,
-                    message_id,
+                logger.emit(
+                    E.TIMELINE_MESSAGE_PARSE_FAILED,
+                    exc=exc,
+                    conversation_id=conversation_id,
+                    message_id=message_id,
+                    message_source=entry.source,
                 )
                 raise ValueError("Invalid stored room timeline message") from None
             entries.append(RoomTimelineEntry(source=entry.source, message=message))
@@ -545,8 +570,13 @@ class ConversationFacade:
                 for doc in docs
                 if (message := _safe_parse_agent_message(doc)) is not None
             ]
-        except Exception:
-            logger.error("Failed to get related room agent messages", exc_info=True)
+        except Exception as exc:
+            logger.emit(
+                E.CONVERSATION_STORE_OPERATION_FAILED,
+                exc=exc,
+                operation="get_agent_messages_by_related_message_id",
+                related_message_id=related_message_id,
+            )
             return []
 
     async def get_messages_for_room(
@@ -630,7 +660,13 @@ class ConversationFacade:
             )
             qid = await self._quote_repository.insert(snippet)
         except Exception as exc:
-            logger.exception("Quote snippet creation failed: %s", exc)
+            logger.emit(
+                E.QUOTE_SNIPPET_CREATION_FAILED,
+                exc=exc,
+                conversation_id=room.conversation_id,
+                user_id=request.user_id or user_message.user_id,
+                client_request_id=log_id(user_message.client_request_id),
+            )
             return RoomCenterUserMessageResponse(
                 message_id=None,
                 message=None,
@@ -709,11 +745,12 @@ class ConversationFacade:
                 run_id=run_id,
                 public_call_id=public_call_id,
             )
-        except Exception:
-            logger.warning(
-                "Canonical quote source lookup failed for room %s",
-                conversation_id,
-                exc_info=True,
+        except Exception as exc:
+            logger.emit(
+                E.QUOTE_SOURCE_LOOKUP_FAILED,
+                exc=exc,
+                conversation_id=conversation_id,
+                run_id=log_id(run_id),
             )
             return False
 
@@ -800,13 +837,25 @@ def _parse_timeline_agent_message(doc: Any) -> RoomAgentMessage:
     return RoomAgentMessage.model_validate(doc)
 
 
+def _log_message_parse_failure(
+    document_kind: str, doc: dict, exc: BaseException
+) -> None:
+    logger.emit(
+        E.CONVERSATION_DOCUMENT_PARSE_FAILED,
+        exc=exc,
+        document_kind=document_kind,
+        conversation_id=doc.get("room_id", doc.get("conversation_id")),
+        message_id=doc.get("message_id"),
+    )
+
+
 def _safe_parse_user_message(doc: dict | None) -> RoomUserMessage | None:
     if doc is None:
         return None
     try:
         return RoomUserMessage.model_validate(doc)
-    except Exception:
-        logger.warning("Invalid room user message document", exc_info=True)
+    except Exception as exc:
+        _log_message_parse_failure("room_user_message", doc, exc)
         return None
 
 
@@ -820,8 +869,8 @@ def _safe_parse_agent_message(doc: dict | None) -> RoomAgentMessage | None:
             if task and isinstance(task, dict):
                 sanitize_task_dict(task)
         return RoomAgentMessage.model_validate(doc)
-    except Exception:
-        logger.warning("Invalid room agent message document", exc_info=True)
+    except Exception as exc:
+        _log_message_parse_failure("room_agent_message", doc, exc)
         return None
 
 

@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 import os
 import subprocess
 import sys
@@ -354,14 +355,23 @@ async def test_missing_auth_boots_credential_invalid_and_a_save_repairs_it(
     assert runtime.current.state == "configured"
 
 
-async def test_invalid_edit_keeps_the_last_pair_until_it_is_fixed(store, adapters):
+async def test_invalid_edit_keeps_the_last_pair_until_it_is_fixed(
+    store, adapters, caplog
+):
     save(store, "openai", "key-a")
     runtime = ProviderRuntime(store)
     gateway = gateway_for(runtime)
     valid = (store.home / "config.json").read_bytes()
     (store.home / "config.json").write_text("{not json")
+    caplog.set_level(logging.WARNING, logger="llm_gateway.provider_runtime")
     assert (await text(gateway)).content == "openai:key-a"
     assert runtime.last_error == "config_invalid"
+    [record] = [
+        r for r in caplog.records if r.getMessage() == "provider_config_reload_failed"
+    ]
+    assert record.levelno == logging.WARNING
+    assert isinstance(record.reason, str) and record.reason
+    assert record.error_type == "RuntimeConfigurationError"
 
     (store.home / "config.json").write_bytes(valid)
     assert (await text(gateway)).content == "openai:key-a"

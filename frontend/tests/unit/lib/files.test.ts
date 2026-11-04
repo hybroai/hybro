@@ -1,7 +1,10 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
-import { fetchRoomFileBlob } from '@/lib/api/files'
+import { fetchRoomFileBlob, uploadFile } from '@/lib/api/files'
+import { getApiUrl } from '@/lib/utils'
 import publicConfig from '../../fixtures/public-config.json'
+
+const REQUEST_ID = expect.stringMatching(/^[0-9a-f]{32}$/)
 
 describe('fetchRoomFileBlob', () => {
   afterEach(() => {
@@ -28,7 +31,7 @@ describe('fetchRoomFileBlob', () => {
     expect(fetchMock).toHaveBeenCalledWith(
       '/api/v1/files/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/content',
       {
-        headers: { Authorization: 'Bearer token-1' },
+        headers: { Authorization: 'Bearer token-1', 'X-Request-ID': REQUEST_ID },
         signal,
       },
     )
@@ -60,9 +63,36 @@ describe('fetchRoomFileBlob', () => {
     expect(fetchMock).toHaveBeenCalledWith(
       '/v1/files/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/content',
       {
-        headers: { Authorization: 'Bearer token-1' },
+        headers: { Authorization: 'Bearer token-1', 'X-Request-ID': REQUEST_ID },
         signal: undefined,
       },
+    )
+  })
+})
+
+describe('uploadFile', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals()
+  })
+
+  it('sends X-Request-ID with bearer auth', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(Response.json({
+      file_id: 'f1',
+      file_url: '/api/v1/files/f1/content',
+      mime_type: 'text/plain',
+      file_name: 'a.txt',
+      size_bytes: 5,
+    }))
+    vi.stubGlobal('fetch', fetchMock)
+
+    await uploadFile(new File(['hello'], 'a.txt', { type: 'text/plain' }), 'room-1', async () => 'token-1')
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      `${getApiUrl('files')}/upload`,
+      expect.objectContaining({
+        method: 'POST',
+        headers: { Authorization: 'Bearer token-1', 'X-Request-ID': REQUEST_ID },
+      }),
     )
   })
 })

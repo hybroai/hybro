@@ -1,6 +1,7 @@
 import asyncio
 import gc
 import inspect
+import logging
 from datetime import UTC, datetime
 from typing import Literal
 
@@ -131,6 +132,14 @@ def make_bus(
     )
 
 
+def _bus_events(caplog, event: str) -> list[logging.LogRecord]:
+    return [
+        record
+        for record in caplog.records
+        if record.name == "common.eventing.bus" and record.getMessage() == event
+    ]
+
+
 @pytest.mark.asyncio
 async def test_handler_fifo_order_and_wait_for_handlers():
     bus = make_bus()
@@ -247,7 +256,10 @@ async def test_trace_context_propagates_to_local_and_remote_handlers():
 
 
 @pytest.mark.asyncio
-async def test_queue_full_handler_failure_fanout_and_deserialization_are_dead_lettered():
+async def test_queue_full_handler_failure_fanout_and_deserialization_are_dead_lettered(
+    caplog,
+):
+    caplog.set_level(logging.DEBUG, logger="common.eventing.bus")
     transport = RecordingTransport()
     bus = make_bus(transport=transport, queue_size=1, enqueue_timeout=0.01)
     release = asyncio.Event()
@@ -278,6 +290,54 @@ async def test_queue_full_handler_failure_fanout_and_deserialization_are_dead_le
     stages = {item.failure_stage for item in bus.dead_letters}
     assert {"queue_full", "handler", "deserialization", "fanout"} <= stages
     assert transport.dead_letters
+
+    records = _bus_events(caplog, "eventing_dead_letter")
+    assert len(records) == len(bus.dead_letters)
+    logged = {record.failure_stage: record for record in records}
+    assert set(logged) == {"queue_full", "handler", "deserialization", "fanout"}
+    for record in records:
+        stage = record.failure_stage
+        assert record.origin == "instance-a"
+        assert record.exception_class
+        if stage != "deserialization":
+            assert record.event_type == "example"
+        assert hasattr(record, "handler") == (stage in {"queue_full", "handler"})
+        expected_level = logging.ERROR if stage == "handler" else logging.WARNING
+        assert record.levelno == expected_level
+    assert logged["queue_full"].exception_class == "TimeoutError"
+    assert logged["handler"].exception_class == "ValueError"
+    assert logged["handler"].handler.endswith("blocked")
+    assert logged["fanout"].exception_class == "RuntimeError"
+    assert "redis unavailable" not in caplog.text
+    assert "handler failed" not in caplog.text
+    await bus.stop()
+
+
+@pytest.mark.asyncio
+async def test_dead_letter_publish_failure_is_logged(caplog):
+    caplog.set_level(logging.DEBUG, logger="common.eventing.bus")
+    transport = RecordingTransport()
+    bus = make_bus(transport=transport)
+
+    async def failing(_event):
+        raise ValueError("handler failed")
+
+    async def fail_dead_letter(_message):
+        raise RuntimeError("dead letter stream unavailable")
+
+    transport.publish_dead_letter = fail_dead_letter
+    bus.register_handler("example", failing)
+    await bus.start()
+    await bus.publish(ExampleEvent(value=1), wait_for_handlers=True, fanout=False)
+
+    [record] = _bus_events(caplog, "eventing_dead_letter_publish_failed")
+    assert record.levelno == logging.WARNING
+    assert record.failure_stage == "handler"
+    assert record.event_type == "example"
+    assert record.error_type == "RuntimeError"
+    assert [item.failure_stage for item in bus.dead_letters] == ["handler"]
+    assert len(bus.worker_tasks) == 1
+    assert not bus.worker_tasks[0].done()
     await bus.stop()
 
 
@@ -805,7 +865,9 @@ async def test_malicious_transport_publish_remains_tracked_and_stop_is_bounded(
 @pytest.mark.asyncio
 async def test_shutdown_is_bounded_when_handler_swallows_cancelled_error(
     release_on_teardown,
+    caplog,
 ):
+    caplog.set_level(logging.DEBUG, logger="common.eventing.bus")
     bus = make_bus()
     entered = asyncio.Event()
     release = release_on_teardown(asyncio.Event())
@@ -837,6 +899,15 @@ async def test_shutdown_is_bounded_when_handler_swallows_cancelled_error(
     )
     assert timeout_dlt.metadata["handler"].endswith("malicious")
     assert timeout_dlt.payload["payload_size_bytes"] > 0
+    [logged] = [
+        record
+        for record in _bus_events(caplog, "eventing_dead_letter")
+        if record.failure_stage == "shutdown_handler_timeout"
+    ]
+    assert logged.levelno == logging.WARNING
+    assert logged.exception_class == "TimeoutError"
+    assert logged.handler.endswith("malicious")
+    assert logged.queue_size == 0
 
     release.set()
     await asyncio.wait_for(worker, timeout=0.1)
@@ -1014,3 +1085,68 @@ async def test_stop_has_bounded_cancel_and_freezes_registry_and_handlers():
         for task in asyncio.all_tasks()
         if not task.done() and task.get_name().startswith("eventing-handler-")
     ]
+
+
+def test_worker_stage_dead_letter_logs_at_error(caplog):
+    caplog.set_level(logging.DEBUG, logger="common.eventing.bus")
+    bus = make_bus(transport=RecordingTransport())
+
+    bus._record_memory_dead_letter(
+        "worker", ExampleEvent(value=1), RuntimeError("x"), event_type="example"
+    )
+
+    [record] = _bus_events(caplog, "eventing_dead_letter")
+    assert record.levelno == logging.ERROR
+    assert record.failure_stage == "worker"
+
+
+@pytest.mark.asyncio
+async def test_worker_cancellation_during_dead_letter_publish_propagates(caplog):
+    caplog.set_level(logging.DEBUG, logger="common.eventing.bus")
+    transport = RecordingTransport()
+    bus = make_bus(transport=transport)
+    publishing = asyncio.Event()
+
+    async def blocked_publish(_message):
+        publishing.set()
+        await asyncio.Event().wait()
+
+    transport.publish_dead_letter = blocked_publish
+    task = asyncio.create_task(
+        bus._dead_letter(
+            "handler", ExampleEvent(value=1), RuntimeError("x"), event_type="example"
+        )
+    )
+    await publishing.wait()
+    task.cancel()
+
+    with pytest.raises(asyncio.CancelledError):
+        await task
+    assert _bus_events(caplog, "eventing_dead_letter_publish_failed") == []
+
+
+@pytest.mark.asyncio
+async def test_safe_dead_letter_reraises_a_strict_catalog_violation(monkeypatch):
+    from common.observability.catalog import CatalogViolation
+
+    bus = make_bus(transport=RecordingTransport())
+
+    async def bad_emit(*_args, **_kwargs):
+        raise CatalogViolation("missing required field")
+
+    monkeypatch.setattr(bus, "_dead_letter", bad_emit)
+
+    with pytest.raises(CatalogViolation):
+        await bus._safe_dead_letter("handler", ExampleEvent(value=1), RuntimeError("x"))
+
+
+@pytest.mark.asyncio
+async def test_safe_dead_letter_still_absorbs_other_failures(monkeypatch):
+    bus = make_bus(transport=RecordingTransport())
+
+    async def failing(*_args, **_kwargs):
+        raise RuntimeError("dead-letter store down")
+
+    monkeypatch.setattr(bus, "_dead_letter", failing)
+
+    await bus._safe_dead_letter("handler", ExampleEvent(value=1), RuntimeError("x"))

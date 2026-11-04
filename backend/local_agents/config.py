@@ -7,8 +7,8 @@ from dataclasses import dataclass
 class LocalAgentDiscoveryConfig:
     enabled: bool = False
     host: str = "host.docker.internal"
-    port_start: int = 1024
-    port_end: int = 65535
+    port_start: int = 9000
+    port_end: int = 9999
     interval_seconds: int = 120
     connect_timeout_seconds: float = 0.05
     probe_timeout_seconds: float = 3.0

@@ -25,6 +25,7 @@ import { DEFAULT_CHAT_MODE } from '@/lib/types/chat-mode'
 import { AttachmentPreview } from './attachment-preview'
 import { getAgentAvatarUri } from '@/lib/agent-avatar'
 import { mentionColor } from '@/lib/mention-color'
+import { log } from '@/lib/log'
 
 export const MAX_MESSAGE_LENGTH = publicConfig().max_message_length
 const COUNTER_VISIBLE_THRESHOLD = Math.floor(MAX_MESSAGE_LENGTH * 0.95)
@@ -180,7 +181,7 @@ export function RoomChatInput({
           selection?.removeAllRanges()
           selection?.addRange(range)
         } catch (err) {
-          console.error('Error setting caret position:', err)
+          log.error('chat_input_caret_failed', { error: err })
         }
       }
     }, 50)

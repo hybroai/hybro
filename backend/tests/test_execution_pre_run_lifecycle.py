@@ -7,6 +7,7 @@ message, and a cancel stops the Run from starting.
 """
 
 import asyncio
+import logging
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
@@ -558,3 +559,68 @@ async def test_room_stays_claimed_until_a_canceled_task_reaches_its_gate():
     router.release.set()
     await _drain()
     assert (await facade.execute(_request("cr-3"))).should_start_orchestration
+
+
+# -- Logging ------------------------------------------------------------------
+
+
+def _records(caplog, event: str) -> list:
+    return [r for r in caplog.records if r.getMessage() == event]
+
+
+async def test_dropping_an_abandoned_room_claim_logs_its_ids(caplog):
+    facade, deps = _make_facade()
+    deps["room_center"].persist_user_message.return_value = _accepted("msg-1")
+    await facade.execute(_request("cr-1"))
+    facade.UNSCHEDULED_CLAIM_SECONDS = 0.0
+    deps["room_center"].persist_user_message.return_value = _accepted("msg-2")
+
+    with caplog.at_level(logging.WARNING, logger="execution.facade"):
+        await facade.execute(_request("cr-2"))
+
+    [record] = _records(caplog, "room_claim_dropped")
+    assert record.levelno == logging.WARNING
+    assert (record.conversation_id, record.user_message_id) == ("room-1", "msg-1")
+
+
+async def test_run_lookup_failure_after_orchestration_failure_logs_safely(caplog):
+    router = _GatedRouter()
+    facade, deps = _make_facade(orchestrator_router=router)
+
+    async def fail_after_start(request, *, message_id, before_run_start):
+        before_run_start()
+        raise RuntimeError("kernel crashed")
+
+    async def lookup_fails(message_id: str) -> bool:
+        raise RuntimeError("lookup secret")
+
+    router.process_room_user_message = fail_after_start
+    router.has_run_for_user_message = lookup_fails
+
+    with caplog.at_level(logging.WARNING, logger="execution.facade"):
+        facade.schedule_orchestration(_request("cr-1"), _ack("msg-1"))
+        await _drain()
+
+    [record] = _records(caplog, "orchestration_failure_run_lookup_failed")
+    assert record.levelno == logging.WARNING
+    assert (record.message_id, record.error_type) == ("msg-1", "RuntimeError")
+    assert "lookup secret" not in caplog.text
+    assert ("failed", "msg-1", "cr-1") in _statuses(deps)
+
+
+async def test_status_emission_failure_logs_safely(caplog):
+    router = _GatedRouter()
+    router.error = SessionConflict("a Run is already active for this Room")
+    router.release.set()
+    facade, deps = _make_facade(orchestrator_router=router)
+    deps["event_publisher"].emit.side_effect = RuntimeError("publish secret")
+
+    with caplog.at_level(logging.WARNING, logger="execution.facade"):
+        facade.schedule_orchestration(_request("cr-1"), _ack("msg-1"))
+        await _drain()
+
+    [record] = _records(caplog, "orchestration_status_emission_failed")
+    assert record.levelno == logging.WARNING
+    assert (record.message_id, record.status) == ("msg-1", "failed")
+    assert record.error_type == "RuntimeError"
+    assert "publish secret" not in caplog.text

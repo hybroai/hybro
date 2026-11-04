@@ -945,7 +945,34 @@ async def test_card_resolver_logs_warning_when_resolution_fails(caplog):
     with caplog.at_level(logging.WARNING, logger="a2a_adapter.card_resolver"):
         assert await resolver.resolve_card("https://agent.example") is None
 
-    assert "Failed to resolve A2A agent card for https://agent.example" in caplog.text
+    [record] = [
+        r for r in caplog.records if r.getMessage() == "agent_card_resolution_failed"
+    ]
+    assert record.levelno == logging.WARNING
+    assert record.agent_url == "https://agent.example"
+    assert record.error_type
+    assert not hasattr(record, "status")
+
+
+@pytest.mark.asyncio
+async def test_card_resolver_failure_log_carries_http_status(caplog):
+    from a2a_adapter.card_resolver import AgentCardResolverImpl
+
+    class _ServerErrorClient:
+        async def get(self, url):
+            return httpx.Response(503, request=httpx.Request("GET", url))
+
+    resolver = AgentCardResolverImpl(client=_ServerErrorClient())
+
+    with caplog.at_level(logging.WARNING, logger="a2a_adapter.card_resolver"):
+        assert await resolver.resolve_card("https://agent.example") is None
+
+    [record] = [
+        r for r in caplog.records if r.getMessage() == "agent_card_resolution_failed"
+    ]
+    assert record.agent_url == "https://agent.example"
+    assert record.status == 503
+    assert record.error_type == "HTTPStatusError"
 
 
 def test_card_resolver_owned_client_uses_default_timeout(monkeypatch):

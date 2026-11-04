@@ -26,6 +26,7 @@ from approval.validation import (
     validate_route_classifications,
 )
 from common.dto.hitl import HITLApplicationRoute
+from common.observability import events as E
 from common.utils.logger import get_logger
 from common.utils.time import ensure_utc, utcnow
 from models.hitl import (
@@ -672,12 +673,14 @@ class HITLApplicationCoordinator:
             )
             if isinstance(exc, HITLError):
                 raise
-            logger.exception(
-                "Failed to apply HITL answers",
-                extra={
-                    "interaction_id": interaction_id,
-                    "claim_id": claim_id,
-                },
+            logger.emit(
+                E.HITL_ANSWER_APPLICATION_FAILED,
+                exc=exc,
+                interaction_id=interaction_id,
+                claim_id=claim_id,
+                conversation_id=request.conversation_id,
+                run_id=claimed.get("orchestration_run_id"),
+                client_request_id=request.client_request_id,
             )
             raise HITLRoutingFailedError("Failed to apply HITL answers") from exc
 
@@ -879,12 +882,14 @@ class HITLApplicationCoordinator:
                     event_type=HITLEventType.INPUT_RECEIVED,
                     request=request,
                 )
-            except Exception:
+            except Exception as exc:
                 projection_ok = False
-                logger.warning(
-                    "Failed to emit durable HITL resolved event",
-                    extra={"hitl_request_id": request.request_id},
-                    exc_info=True,
+                logger.emit(
+                    E.HITL_INPUT_RECEIVED_EMISSION_FAILED,
+                    exc=exc,
+                    hitl_request_id=request.request_id,
+                    interaction_id=interaction.get("interaction_id"),
+                    conversation_id=request.conversation_id,
                 )
             if projection_ok:
                 projection_ok = await service.persistence.update_hitl_request(

@@ -42,6 +42,7 @@ from common.dto import (
     HITLResolvedEvent,
     HITLRouteSnapshot,
 )
+from common.observability import events as E
 from common.public_prompt import (
     GENERIC_AGENT_INPUT_PROMPT,
     concrete_agent_input_prompt,
@@ -396,17 +397,18 @@ class HITLService:
                 and _is_authoritative_a2a_id(a2a_context_id)
             )
             if concrete_prompt is None or not has_authoritative_remote_ids:
-                logger.error(
-                    "Rejecting invalid agent HITL request",
-                    extra={
-                        "conversation_id": conversation_id,
-                        "agent_id": agent_id,
-                        "error_code": (
-                            "invalid_interactive_prompt"
-                            if concrete_prompt is None
-                            else "invalid_a2a_continuation"
-                        ),
-                    },
+                logger.emit(
+                    E.HITL_REQUEST_REJECTED,
+                    conversation_id=conversation_id,
+                    interaction_id=interaction_id,
+                    run_id=orchestration_run_id,
+                    public_source=source,
+                    reason=(
+                        "invalid_interactive_prompt"
+                        if concrete_prompt is None
+                        else "invalid_a2a_continuation"
+                    ),
+                    agent_id=agent_id,
                 )
                 return None
             prompt = concrete_prompt
@@ -416,13 +418,15 @@ class HITLService:
             resolved_display_message_id = continuation_message_id
 
         if source == "agent" and not resolved_display_message_id:
-            logger.error(
-                "Agent HITL request has no display or continuation message id",
-                extra={
-                    "conversation_id": conversation_id,
-                    "user_message_id": user_message_id,
-                    "agent_id": agent_id,
-                },
+            logger.emit(
+                E.HITL_REQUEST_REJECTED,
+                conversation_id=conversation_id,
+                interaction_id=interaction_id,
+                run_id=orchestration_run_id,
+                public_source=source,
+                reason="display_message_id_missing",
+                user_message_id=user_message_id,
+                agent_id=agent_id,
             )
             return None
 
@@ -449,9 +453,14 @@ class HITLService:
                 existing_request_doc.get(field) != value
                 for field, value in expected_identity.items()
             ):
-                logger.error(
-                    "Refusing to reuse mismatched HITL request %s",
-                    request_id,
+                logger.emit(
+                    E.HITL_REQUEST_REJECTED,
+                    conversation_id=conversation_id,
+                    interaction_id=interaction_id,
+                    run_id=orchestration_run_id,
+                    public_source=source,
+                    reason="request_identity_mismatched",
+                    hitl_request_id=request_id,
                 )
                 return None
 
@@ -462,10 +471,14 @@ class HITLService:
                     continuation_message_id
                 )
                 if existing >= MAX_HITL_ROUNDS:
-                    logger.warning(
-                        "Max HITL rounds (%d) exceeded for message %s",
-                        MAX_HITL_ROUNDS,
-                        continuation_message_id,
+                    logger.emit(
+                        E.HITL_ROUND_LIMIT_REACHED,
+                        conversation_id=conversation_id,
+                        interaction_id=interaction_id,
+                        run_id=orchestration_run_id,
+                        continuation_message_id=continuation_message_id,
+                        round_count=existing,
+                        max_round_count=MAX_HITL_ROUNDS,
                     )
                     return None
 
@@ -507,9 +520,14 @@ class HITLService:
         if source == "agent":
             persisted = await self.persistence.create_or_reuse_pending_hitl_request(doc)
             if not persisted:
-                logger.error(
-                    "Failed to create or reuse HITL request for agent message %s",
-                    request.display_message_id,
+                logger.emit(
+                    E.HITL_REQUEST_PERSIST_FAILED,
+                    conversation_id=conversation_id,
+                    interaction_id=interaction_id,
+                    run_id=orchestration_run_id,
+                    hitl_request_id=request.request_id,
+                    public_source=source,
+                    display_message_id=request.display_message_id,
                 )
                 return None
             persisted_doc, hitl_request_created = persisted
@@ -539,9 +557,14 @@ class HITLService:
                     # is malformed. Never cancel another active interaction from this
                     # creation path; terminalization must go through the lifecycle
                     # reconciler so its owning run and projections converge.
-                    logger.error(
-                        "Rejecting mismatched reused agent HITL request",
-                        extra={"hitl_request_id": request_id_to_repair},
+                    logger.emit(
+                        E.HITL_REQUEST_REJECTED,
+                        conversation_id=conversation_id,
+                        interaction_id=interaction_id,
+                        run_id=orchestration_run_id,
+                        public_source=source,
+                        reason="reused_request_mismatched",
+                        hitl_request_id=request_id_to_repair,
                     )
                     return None
 
@@ -569,9 +592,12 @@ class HITLService:
                         **repair_update,
                     )
                     if not repaired:
-                        logger.error(
-                            "Failed to atomically repair reused agent HITL request",
-                            extra={"hitl_request_id": request_id_to_repair},
+                        logger.emit(
+                            E.REUSED_HITL_REQUEST_REPAIR_FAILED,
+                            conversation_id=conversation_id,
+                            interaction_id=interaction_id,
+                            run_id=orchestration_run_id,
+                            hitl_request_id=request_id_to_repair,
                         )
                         return None
                     persisted_doc.update(repair_update)
@@ -581,9 +607,14 @@ class HITLService:
                 # terminalizing it here. Pending hydration filters it. Any
                 # cancellation/failure must use
                 # the lifecycle reconciler rather than bypassing owning-run cleanup.
-                logger.error(
-                    "Rejecting malformed persisted agent HITL request",
-                    extra={"hitl_request_id": persisted_doc.get("request_id")},
+                logger.emit(
+                    E.HITL_REQUEST_REJECTED,
+                    conversation_id=conversation_id,
+                    interaction_id=interaction_id,
+                    run_id=orchestration_run_id,
+                    public_source=source,
+                    reason="persisted_request_malformed",
+                    hitl_request_id=persisted_doc.get("request_id"),
                 )
                 return None
             request = HITLRequest(
@@ -599,8 +630,13 @@ class HITLService:
                         request.request_id
                     )
                 if existing_doc is None:
-                    logger.error(
-                        "Failed to persist HITL request %s", request.request_id
+                    logger.emit(
+                        E.HITL_REQUEST_PERSIST_FAILED,
+                        conversation_id=conversation_id,
+                        interaction_id=interaction_id,
+                        run_id=orchestration_run_id,
+                        hitl_request_id=request.request_id,
+                        public_source=source,
                     )
                     return None
                 request = HITLRequest(
@@ -834,27 +870,23 @@ class HITLService:
                 display_message_id,
                 "completed",
             )
-        except Exception:
-            logger.warning(
-                "Failed to project completed HITL response onto display message",
-                extra={
-                    "hitl_request_id": request_id,
-                    "conversation_id": conversation_id,
-                    "display_message_id": display_message_id,
-                },
-                exc_info=True,
+        except Exception as exc:
+            logger.emit(
+                E.HITL_DISPLAY_PROJECTION_FAILED,
+                exc=exc,
+                conversation_id=conversation_id,
+                hitl_request_id=request_id,
+                display_message_id=display_message_id,
             )
             return False
         if not answer_projected or not state_projected:
-            logger.warning(
-                "Incomplete completed HITL display projection",
-                extra={
-                    "hitl_request_id": request_id,
-                    "conversation_id": conversation_id,
-                    "display_message_id": display_message_id,
-                    "answer_projected": bool(answer_projected),
-                    "state_projected": bool(state_projected),
-                },
+            logger.emit(
+                E.HITL_DISPLAY_PROJECTION_FAILED,
+                conversation_id=conversation_id,
+                hitl_request_id=request_id,
+                display_message_id=display_message_id,
+                answer_projected=bool(answer_projected),
+                state_projected=bool(state_projected),
             )
             return False
         return True
@@ -1392,11 +1424,12 @@ class HITLService:
                     if inspect.isawaitable(maybe_user_message)
                     else maybe_user_message
                 )
-            except Exception:
-                logger.warning(
-                    "Failed to resolve HITL client_request_id from user message",
-                    extra={"user_message_id": user_message_id},
-                    exc_info=True,
+            except Exception as exc:
+                logger.emit(
+                    E.CLIENT_REQUEST_ID_RESOLUTION_FAILED,
+                    exc=exc,
+                    message_id=user_message_id,
+                    lookup="user_message",
                 )
         client_request_id = (
             user_message.client_request_id
@@ -1422,11 +1455,12 @@ class HITLService:
                     )
                     if isinstance(resolved, str) and resolved.strip():
                         return resolved.strip()
-                except Exception:
-                    logger.warning(
-                        "Failed to resolve HITL client_request_id from message id",
-                        extra={"message_id": message_id},
-                        exc_info=True,
+                except Exception as exc:
+                    logger.emit(
+                        E.CLIENT_REQUEST_ID_RESOLUTION_FAILED,
+                        exc=exc,
+                        message_id=message_id,
+                        lookup="fallback",
                     )
         return None
 
@@ -1449,12 +1483,8 @@ class HITLService:
             state = self._canonical_run_state_reader(run_id)
             if inspect.isawaitable(state):
                 state = await state
-        except Exception:
-            logger.warning(
-                "Failed to resolve durable HITL run state",
-                extra={"run_id": run_id},
-                exc_info=True,
-            )
+        except Exception as exc:
+            logger.emit(E.HITL_RUN_STATE_READ_FAILED, exc=exc, run_id=run_id)
             return None
         return None if state == "missing" else state
 

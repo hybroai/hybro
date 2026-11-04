@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import Any
 
 from common.idempotency import MAX_CLIENT_REQUEST_ID_LENGTH
+from common.observability import events as E
 from common.protocols import MongoCollection, MongoDAL
 from common.utils.logger import get_logger
 from common.utils.mongo_indexes import create_index
@@ -87,7 +88,12 @@ async def ensure_room_timeline_indexes(mongo: MongoDAL) -> None:
 
     if identity_failures:
         details = "; ".join(identity_failures)
-        logger.error("Room timeline identity readiness failed: %s", details)
+        # Sample ids stay in the startup error, out of the log stream.
+        logger.emit(
+            E.INDEX_READINESS_CHECK_FAILED,
+            readiness_check="timeline_identity",
+            issue_count=len(identity_failures),
+        )
         raise RuntimeError(
             "Room timeline indexes require non-empty string room_id and message_id. "
             "The timeline migration cannot repair identity fields; manually repair "
@@ -98,7 +104,11 @@ async def ensure_room_timeline_indexes(mongo: MongoDAL) -> None:
     )
     if timeline_failures:
         details = "; ".join(timeline_failures)
-        logger.error("Room timeline key readiness failed: %s", details)
+        logger.emit(
+            E.INDEX_READINESS_CHECK_FAILED,
+            readiness_check="timeline_key",
+            issue_count=len(timeline_failures),
+        )
         raise RuntimeError(
             "Room timeline indexes require integer timeline_sort_us on every "
             f"message. Run `{migration_command}`. Key-only samples: {details}"
@@ -171,9 +181,11 @@ async def ensure_user_message_indexes(mongo: MongoDAL) -> None:
     issues = await user_message_index_readiness_issues(collection)
     if issues:
         details = "; ".join(issues)
-        logger.error(
-            "room_user_messages unique-index readiness failed: %s",
-            details,
+        logger.emit(
+            E.INDEX_READINESS_CHECK_FAILED,
+            collection_name="room_user_messages",
+            readiness_check="user_message_unique_indexes",
+            issue_count=len(issues),
         )
         raise RuntimeError(
             "room_user_messages cannot enable correctness-critical unique indexes: "

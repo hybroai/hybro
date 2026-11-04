@@ -269,7 +269,11 @@ def projections(
         "mcp": Program(
             [str(BACKEND_PYTHON), "server.py", "--image"],
             str(APP_DIR / "MCP"),
-            {"HYBRO_MCP_CONFIG": json.dumps({"api_prefix": api_prefix})},
+            {
+                "HYBRO_MCP_CONFIG": json.dumps({"api_prefix": api_prefix}),
+                # The server imports only the backend's logging modules.
+                "PYTHONPATH": str(APP_DIR / "backend"),
+            },
         ),
         "frontend": Program(
             ["node", "server.js"],
@@ -349,9 +353,43 @@ def caddyfile(*, listener: Listener, api_prefix: str) -> str:
         "\tadmin off",
         "\tauto_https off",
         "\tpersist_config off",
+        # Error lines (a 5xx from a handler) carry the request through the
+        # default logger, outside the site's access-log filter. Response
+        # headers are dropped too, should an access line ever reach it.
+        "\tlog default {",
+        "\t\toutput stderr",
+        "\t\tformat filter {",
+        "\t\t\twrap json",
+        "\t\t\tfields {",
+        "\t\t\t\trequest>headers delete",
+        "\t\t\t\trequest>uri delete",
+        "\t\t\t\tresp_headers delete",
+        "\t\t\t}",
+        "\t\t}",
+        "\t}",
         "}",
         "",
         f":{CADDY_PORT} {{",
+        # JSON access log on stdout, one format with the backend's lines.
+        # Request and response headers and the URI (query strings can carry
+        # tokens) are dropped; the request id and the bare path are appended.
+        # The id is the backend's response header, so it matches the backend's
+        # own id even when the client sent an invalid one or none.
+        "\tlog {",
+        "\t\toutput stdout",
+        "\t\tformat filter {",
+        "\t\t\twrap json",
+        "\t\t\tfields {",
+        "\t\t\t\trequest>headers delete",
+        "\t\t\t\trequest>uri delete",
+        "\t\t\t\tresp_headers delete",
+        "\t\t\t}",
+        "\t\t}",
+        "\t}",
+        "\tlog_append trace_id {http.response.header.X-Request-ID}",
+        "\tlog_append path {http.request.uri.path}",
+        "\t@static path /_next/static/*",
+        "\tlog_skip @static",
     ]
     if listener.mode == "loopback":
         # A DNS-rebound request carries the attacker's host name. Any port is

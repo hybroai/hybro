@@ -16,6 +16,7 @@ import type { RoomQuoteWire } from '@/lib/types/quote'
 
 import { getApiUrl } from '../utils'
 import { apiClient, apiGet, apiPost } from '../api-client'
+import { log } from '@/lib/log'
 
 const ROOMS_URL = getApiUrl('rooms')
 
@@ -217,7 +218,7 @@ export async function SendMessage(params: SendMessageParams): Promise<RoomCenter
     )
     return result
   } catch (error) {
-    console.error('SendMessage API Error:', error)
+    log.error('send_request_failed', { conversation_id: conversationId, client_request_id: clientRequestId, error })
     throw error
   }
 }

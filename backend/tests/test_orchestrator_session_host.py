@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
@@ -213,7 +214,9 @@ async def test_run_addressed_observation_sink_attaches_lifecycle_listener():
     listener = AsyncMock()
     sink = RunAddressedToolObservationSink(
         run_store=SimpleNamespace(
-            load=AsyncMock(return_value=SimpleNamespace(status="running"))
+            load=AsyncMock(
+                return_value=SimpleNamespace(status="running", conversation_id="room-1")
+            )
         ),
         kernel_factory=lambda _run: kernel,
         signal_factory=lambda: SimpleNamespace(),
@@ -693,3 +696,41 @@ async def test_host_only_schedules_typed_recoverable_failures(catalog, failure):
         )
     else:
         assert current.recovery_claim.next_attempt_at == current.budget.deadline_at
+
+
+async def test_failed_recovery_scheduling_is_logged_with_run_ids(catalog, caplog):
+    from execution.orchestrator.a2a_runtime.errors import RecoverableCheckpointError
+
+    class FailingModel:
+        async def stream_turn(self, request, *, signal):
+            raise RecoverableCheckpointError("publication uncertain")
+            yield  # pragma: no cover - iterator contract
+
+    store = InMemoryOrchestratorRunStore()
+    epochs = InMemoryRoomEpochStore()
+    await epochs.activate("room-1", "create-1", activated_at=NOW)
+    host = _host(run_store=store, epoch_store=epochs, runtime=FailingModel())
+    await host.create_session(
+        conversation_id="room-1",
+        profile=profile(),
+        candidate_scope=make_run().candidate_scope,
+        requesting_subject_id="user-1",
+        frozen_catalog=catalog,
+    )
+    session = host._require_session("room-1")
+    session.schedule_recovery = AsyncMock(side_effect=RuntimeError("secret-detail"))
+
+    with caplog.at_level(
+        logging.ERROR, logger="execution.orchestrator.a2a_runtime.observations"
+    ):
+        with pytest.raises(RecoverableCheckpointError):
+            await host.prompt("room-1", user_message(), client_request_id="request-1")
+
+    run = next(iter(store.runs.values()))
+    [record] = [
+        r for r in caplog.records if r.getMessage() == "run_recovery_schedule_failed"
+    ]
+    assert record.run_id == run.run_id
+    assert record.conversation_id == "room-1"
+    assert record.error_type == "RuntimeError"
+    assert "secret-detail" not in caplog.text

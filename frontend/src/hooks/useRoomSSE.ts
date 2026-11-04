@@ -2,6 +2,7 @@ import { useEffect, useRef, useCallback, useState } from 'react'
 import { SSEConnection } from '@/lib/api/sse'
 import type { SSECloseReason } from '@/lib/api/sse'
 import type { AnySSEFrame } from '@/lib/types/sse'
+import { log } from '@/lib/log'
 
 interface UseRoomSSEOptions {
   conversationId: string
@@ -102,7 +103,9 @@ export function useRoomSSE({ conversationId, enabled = true, getToken, onMessage
 
       await connectionRef.current.connect()
     } catch (error) {
-      console.error('❌ Failed to connect SSE:', error)
+      // Any rejected connect (token, network, HTTP); SSEConnection logs the
+      // HTTP status itself as sse_connect_failed.
+      log.error('room_sse_connect_failed', { conversation_id: conversationId, error })
       setError(error instanceof Error ? error.message : 'Connection failed')
       setConnecting(false)
       handleConnectionChange(false)

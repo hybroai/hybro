@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from common.observability import events as E
 from common.utils.a2a_helpers import sanitize_task_dict
 from common.utils.logger import get_logger
 from models.room import Room, RoomAgentMessage, RoomUserMessage
@@ -11,13 +12,35 @@ from models.room import Room, RoomAgentMessage, RoomUserMessage
 logger = get_logger(__name__)
 
 
+def _stored_conversation_id(doc: dict) -> Any:
+    return doc.get("room_id", doc.get("conversation_id"))
+
+
+def _log_message_parse_failure(
+    document_kind: str, doc: dict, exc: BaseException
+) -> None:
+    """Log an unreadable stored message by kind and ids, never its content."""
+    logger.emit(
+        E.CONVERSATION_DOCUMENT_PARSE_FAILED,
+        exc=exc,
+        document_kind=document_kind,
+        conversation_id=_stored_conversation_id(doc),
+        message_id=doc.get("message_id"),
+    )
+
+
 def _safe_parse_room(doc: dict | None) -> Room | None:
     if doc is None:
         return None
     try:
         return Room.model_validate(doc)
-    except Exception:
-        logger.warning("Invalid room document", exc_info=True)
+    except Exception as exc:
+        logger.emit(
+            E.CONVERSATION_DOCUMENT_PARSE_FAILED,
+            exc=exc,
+            document_kind="room",
+            conversation_id=_stored_conversation_id(doc),
+        )
         return None
 
 
@@ -31,8 +54,8 @@ def _safe_parse_agent_message(doc: dict | None) -> RoomAgentMessage | None:
             if task and isinstance(task, dict):
                 sanitize_task_dict(task)
         return RoomAgentMessage.model_validate(doc)
-    except Exception:
-        logger.warning("Invalid room agent message document", exc_info=True)
+    except Exception as exc:
+        _log_message_parse_failure("room_agent_message", doc, exc)
         return None
 
 
@@ -87,8 +110,8 @@ def _safe_parse_user_message(doc: dict | None) -> RoomUserMessage | None:
         return None
     try:
         return RoomUserMessage.model_validate(doc)
-    except Exception:
-        logger.warning("Invalid room user message document", exc_info=True)
+    except Exception as exc:
+        _log_message_parse_failure("room_user_message", doc, exc)
         return None
 
 

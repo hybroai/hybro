@@ -38,6 +38,7 @@ from common.config.runtime_config import (
     StoredCredential,
 )
 from common.dto.base import FrozenDTO
+from common.observability import events as E
 from common.observability import get_logger
 from llm_gateway import openai_oauth
 from llm_gateway.openai_oauth import (
@@ -232,8 +233,8 @@ class OAuthLogins:
         try:
             await listener.start(self._host)
             login.listener = listener
-        except OSError:
-            logger.info("oauth_callback_listener_unavailable")
+        except OSError as exc:
+            logger.emit(E.OAUTH_CALLBACK_LISTENER_START_FAILED, exc=exc)
         login.watchdog = asyncio.create_task(
             self._expire(login), name="oauth-login-expiry"
         )
@@ -322,9 +323,7 @@ class OAuthLogins:
         except RuntimeConfigurationError as exc:
             login.status, login.error = "failed", str(exc)
         except Exception as exc:
-            logger.warning(
-                "oauth_code_exchange_failed", extra={"error_type": type(exc).__name__}
-            )
+            logger.emit(E.OAUTH_CODE_EXCHANGE_FAILED, exc=exc)
             login.status, login.error = "failed", "OAuth token exchange failed."
         else:
             if login.status == "pending":

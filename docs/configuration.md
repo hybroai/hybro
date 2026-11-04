@@ -100,3 +100,22 @@ Sessions:
 | Field | Default | Meaning |
 |---|---|---|
 | `backend.session_run_start_grace_seconds` | `10` | Seconds after a send without any lifecycle event for the request before the session reports `failed` with `run_not_started`, unless this process is still running the task that starts the run. Must be greater than 0. |
+
+Local agent discovery (the image scans the Docker host for A2A Agents):
+
+| Field | Default | Meaning |
+|---|---|---|
+| `backend.local_agent_discovery_port_start` | `9000` | First `host.docker.internal` port scanned for an Agent Card. From 1 to 65535. |
+| `backend.local_agent_discovery_port_end` | `9999` | Last port scanned. From 1 to 65535 and not below `local_agent_discovery_port_start`. An Agent on a port outside the range is not discovered, and one discovered earlier is marked inactive after three scans without it; widen the range or register the Agent manually. |
+
+Logging:
+
+| Field | Default | Meaning |
+|---|---|---|
+| `backend.log_level` | `INFO` | Lowest level the backend writes: `DEBUG`, `INFO`, `WARNING`, `ERROR`, or `CRITICAL`. |
+| `backend.log_format` | `auto` in a checkout, `json` in the image | `json`, `logfmt`, or `auto` (logfmt when `backend.app_env` is `development`, JSON otherwise). The image defaults to `json` so backend lines in `hybro logs` are machine-readable; a value in `config.json` wins. |
+| MCP server (not configurable) | `INFO`; JSON in the image | The MCP server logs JSON at level `info` in the image (logfmt from a checkout) and does not read `backend.log_level` or `backend.log_format`. |
+
+`hybro logs --service <name> --level <level> --trace <id>` filters the
+container's log stream on the host; these are command options, not
+configuration fields.

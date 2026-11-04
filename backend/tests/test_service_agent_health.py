@@ -176,6 +176,40 @@ async def test_probe_agent_card_for_health_retries_host_gateway_for_loopback_url
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("error", "event"),
+    [
+        (httpx.ReadTimeout("slow"), "agent_card_health_probe_timed_out"),
+        (httpx.ConnectError("refused"), "agent_card_health_probe_failed"),
+        (RuntimeError("unexpected"), "agent_card_health_probe_failed"),
+    ],
+)
+async def test_probe_agent_card_for_health_logs_failure_event(
+    monkeypatch, caplog, error, event
+):
+    class _FailingClient:
+        async def get(self, url: str):
+            raise error
+
+    monkeypatch.setattr(
+        agent_card_health.httpx,
+        "AsyncClient",
+        lambda *, timeout: _AsyncClientContext(_FailingClient()),
+    )
+
+    with caplog.at_level(logging.WARNING, logger="a2a_adapter.agent_card_health"):
+        result = await probe_agent_card_for_health("https://agent.example", timeout=2.5)
+
+    assert result.is_healthy is False
+    [record] = [r for r in caplog.records if r.getMessage() == event]
+    assert record.levelno == logging.WARNING
+    assert record.agent_url == "https://agent.example"
+    assert record.error_type == type(error).__name__
+    if event == "agent_card_health_probe_timed_out":
+        assert record.timeout_seconds == 2.5
+
+
+@pytest.mark.asyncio
 async def test_check_agent_health_delegates_to_adapter_probe(monkeypatch):
     captured = {}
     live_card = AgentCard(**_card_payload(name="Live Health Agent"))

@@ -1,5 +1,7 @@
 from dataclasses import dataclass
 
+from common.observability import bind_log_context, log_id
+from common.observability import events as E
 from common.utils.logger import get_logger
 from conversation.candidate_scope import normalize_candidate_scope
 from conversation.mentions import parse_agent_mentions
@@ -127,19 +129,34 @@ class MessagePreflight:
             user_message,
         )
         if not persisted:
-            logger.warning(
-                "ConversationRuntime: failed to persist orchestration envelope for message %s",
-                user_message.message_id,
+            logger.emit(
+                E.ORCHESTRATION_ENVELOPE_PERSIST_FAILED,
+                conversation_id=request.conversation_id,
+                message_id=user_message.message_id,
+                client_request_id=log_id(client_request_id),
             )
             return ParseResult(success=False)
-        logger.info(
-            "ConversationRuntime: orchestration envelope prepared for message %s (%d candidates)",
-            user_message.message_id,
-            len(selected_agent_set),
+        logger.emit(
+            E.ORCHESTRATION_ENVELOPE_PREPARED,
+            conversation_id=request.conversation_id,
+            message_id=user_message.message_id,
+            client_request_id=log_id(client_request_id),
+            candidate_count=len(selected_agent_set),
         )
         return ParseResult(success=True)
 
     async def run(
+        self,
+        context: RoomMessagePreflightContext,
+    ) -> RoomCenterUserMessageResponse:
+        with bind_log_context(
+            conversation_id=context.request.conversation_id,
+            client_request_id=context.client_request_id,
+            message_id=context.user_message.message_id,
+        ):
+            return await self._run(context)
+
+    async def _run(
         self,
         context: RoomMessagePreflightContext,
     ) -> RoomCenterUserMessageResponse:
@@ -256,15 +273,14 @@ class MessagePreflight:
             auto_assign = True
             agents = []
 
-        logger.info(
-            "room_send_message_preflight_ready conversation_id=%s message_id=%s "
-            "client_request_id=%s target_group=%s candidate_count=%d auto_assign=%s",
-            request.conversation_id,
-            user_message.message_id,
-            client_request_id,
-            target_group,
-            len(selected_agent_set),
-            auto_assign,
+        logger.emit(
+            E.MESSAGE_PREFLIGHT_SCOPE_RESOLVED,
+            conversation_id=request.conversation_id,
+            message_id=user_message.message_id,
+            client_request_id=log_id(client_request_id),
+            target_group=log_id(target_group),
+            candidate_count=len(selected_agent_set),
+            auto_assign=auto_assign,
         )
 
         # Orchestration assembles its own context from the durable run state.
@@ -277,13 +293,12 @@ class MessagePreflight:
         )
 
         if not parse_result.success:
-            logger.warning(
-                "room_send_message_preflight_failed conversation_id=%s message_id=%s "
-                "client_request_id=%s canceled=%s",
-                request.conversation_id,
-                user_message.message_id,
-                client_request_id,
-                parse_result.canceled,
+            logger.emit(
+                E.MESSAGE_PREFLIGHT_FAILED,
+                conversation_id=request.conversation_id,
+                message_id=user_message.message_id,
+                client_request_id=log_id(client_request_id),
+                canceled=parse_result.canceled,
             )
             return RoomCenterUserMessageResponse(
                 message_id=user_message.message_id,
@@ -299,12 +314,12 @@ class MessagePreflight:
                 else "Failed to parse user message",
             )
 
-        logger.info(
-            "room_send_message_preflight_completed conversation_id=%s message_id=%s "
-            "client_request_id=%s preflight_outcome=ready",
-            request.conversation_id,
-            user_message.message_id,
-            client_request_id,
+        logger.emit(
+            E.MESSAGE_PREFLIGHT_COMPLETED,
+            conversation_id=request.conversation_id,
+            message_id=user_message.message_id,
+            client_request_id=log_id(client_request_id),
+            preflight_outcome="ready",
         )
         return RoomCenterUserMessageResponse(
             message_id=user_message.message_id,

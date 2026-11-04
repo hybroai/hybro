@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import logging
 from datetime import UTC, datetime, timedelta
 from hashlib import sha256
 from types import SimpleNamespace
@@ -931,7 +932,7 @@ async def test_recovery_cycle_keeps_watchdog_last():
     ]
 
 
-async def test_recovery_cycle_isolates_phase_failures_without_reordering():
+async def test_recovery_cycle_isolates_phase_failures_without_reordering(caplog):
     order = []
 
     def phase(name, *, fail=False):
@@ -952,7 +953,19 @@ async def test_recovery_cycle_isolates_phase_failures_without_reordering():
         projection=phase("projection"),
         watchdog=phase("watchdog"),
     )
-    await cycle.run_once()
+    with caplog.at_level(
+        logging.ERROR, logger="execution.orchestrator.a2a_runtime.recovery"
+    ):
+        await cycle.run_once()
+    records = [
+        r for r in caplog.records if r.getMessage() == "a2a_recovery_phase_failed"
+    ]
+    assert [r.phase for r in records] == [
+        "cancellation",
+        "observations",
+        "generic_runs",
+    ]
+    assert {r.error_type for r in records} == {"RuntimeError"}
     assert order == [
         "cancel",
         "hitl",

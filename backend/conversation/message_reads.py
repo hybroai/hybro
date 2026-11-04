@@ -1,3 +1,4 @@
+from common.observability import events as E
 from common.utils.logger import get_logger
 from conversation.timeline import (
     TimelineCursorError,
@@ -107,11 +108,11 @@ class RoomMessageReader:
                 status_code=200,
             )
 
-        except Exception:
-            logger.error(
-                "Failed to retrieve room timeline conversation_id=%s",
-                request.conversation_id,
-                exc_info=True,
+        except Exception as exc:
+            logger.emit(
+                E.ROOM_TIMELINE_READ_FAILED,
+                exc=exc,
+                conversation_id=request.conversation_id,
             )
             return RoomCenterRoomMessageResponse(
                 conversation_id=request.conversation_id,

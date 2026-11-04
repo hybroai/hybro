@@ -8,6 +8,7 @@ from collections import deque
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime
+from logging import ERROR, WARNING
 from typing import Any
 
 from pydantic import BaseModel
@@ -16,7 +17,14 @@ from common.eventing.eventing_config import EventingConfig
 from common.eventing.models import EventDeadLetter, EventEnvelope
 from common.eventing.protocols import EventHandler, InternalEventTransport
 from common.eventing.registry import EventModelRegistry
-from common.observability import get_current_trace_id, trace_id_context
+from common.observability import events as E
+from common.observability import get_current_trace_id, get_logger, trace_id_context
+from common.observability.catalog import CatalogViolation
+
+log = get_logger(__name__)
+
+# Stages where the dead letter means a handler did not run to completion.
+_ERROR_STAGES = frozenset({"handler", "worker"})
 
 
 @dataclass(slots=True)
@@ -442,6 +450,9 @@ class BoundedInternalEventBus:
                 timeout=timeout,
                 publish=publish,
             )
+        except CatalogViolation:
+            # Raised only in strict mode (tests): a bad emit must fail loudly.
+            raise
         except BaseException as dead_letter_exc:
             if self._is_worker_cancellation(dead_letter_exc):
                 raise
@@ -479,6 +490,12 @@ class BoundedInternalEventBus:
         except BaseException as publish_exc:
             if self._is_worker_cancellation(publish_exc):
                 raise
+            log.emit(
+                E.EVENTING_DEAD_LETTER_PUBLISH_FAILED,
+                exc=publish_exc,
+                failure_stage=dead_letter.failure_stage,
+                event_type=dead_letter.event_type,
+            )
 
     def _record_memory_dead_letter(
         self,
@@ -521,6 +538,23 @@ class BoundedInternalEventBus:
                 }
             )
         self.dead_letters.append(dead_letter)
+        # Metadata keys never shadow emit's own parameters or the fixed fields.
+        fields = {
+            key: value
+            for key, value in dead_letter.metadata.items()
+            if key not in {"level", "exc"}
+        }
+        fields.update(
+            failure_stage=dead_letter.failure_stage,
+            event_type=dead_letter.event_type,
+            exception_class=dead_letter.exception_class,
+            origin=dead_letter.origin,
+        )
+        log.emit(
+            E.EVENTING_DEAD_LETTER,
+            level=ERROR if stage in _ERROR_STAGES else WARNING,
+            **fields,
+        )
         return dead_letter
 
     async def _set_accepting(self, accepting: bool) -> None:

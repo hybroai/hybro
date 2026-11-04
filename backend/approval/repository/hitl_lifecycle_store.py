@@ -7,6 +7,7 @@ from typing import Any
 from pymongo import ReturnDocument
 from pymongo.errors import DuplicateKeyError
 
+from common.observability import events as E
 from common.utils.logger import get_logger
 from common.utils.room_state import delete_room_rows
 from common.utils.time import ensure_utc, utcnow
@@ -159,8 +160,13 @@ class HITLLifecycleStore:
     async def get_interaction(self, interaction_id: str) -> dict[str, Any] | None:
         try:
             return await self.get_interaction_strict(interaction_id)
-        except Exception:
-            logger.error("Failed to read HITL interaction", exc_info=True)
+        except Exception as exc:
+            logger.emit(
+                E.HITL_STORE_OPERATION_FAILED,
+                exc=exc,
+                operation="get_interaction",
+                interaction_id=interaction_id,
+            )
             return None
 
     async def get_interaction_strict(

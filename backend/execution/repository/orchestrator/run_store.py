@@ -10,6 +10,7 @@ from typing import Any, Literal
 from pydantic import ValidationError
 from pymongo.errors import DuplicateKeyError
 
+from common.observability import events as E
 from common.utils.logger import get_logger
 from execution.orchestrator.a2a_runtime.errors import RecoverableAdapterError
 from execution.orchestrator.models import (
@@ -953,7 +954,7 @@ class MongoOrchestratorRunStore:
                     _without_mongo_id(intent_value)
                 )
             except ValidationError as exc:
-                _log_skipped_invalid_document("projection intent", run_id, exc)
+                _log_skipped_invalid_document("projection_intent", run_id, exc)
                 continue
             results.append((run_id, intent))
         return results
@@ -1063,7 +1064,7 @@ def _listed_run_or_none(
     try:
         return _run_from_document(value, recovery_claim)
     except ValidationError as exc:
-        _log_skipped_invalid_document("Run", value.get("run_id"), exc)
+        _log_skipped_invalid_document("run", value.get("run_id"), exc)
         return None
 
 
@@ -1076,13 +1077,12 @@ def _log_skipped_invalid_document(
         for error in exc.errors()
     )
     fingerprint = sha256("|".join(signature).encode()).hexdigest()[:16]
-    logger.error(
-        "Skipping invalid stored orchestrator %s %s during recovery listing "
-        "(error_fingerprint=%s, errors=%s)",
-        kind,
-        run_id,
-        fingerprint,
-        signature,
+    logger.emit(
+        E.INVALID_RUN_DOCUMENT_SKIPPED,
+        document_kind=kind,
+        run_id=run_id,
+        validation_fingerprint=fingerprint,
+        validation_errors=signature,
     )
 
 

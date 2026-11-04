@@ -345,9 +345,9 @@ on owner reject and on client close.
 ## Local MCP access
 
 The repository-root [`MCP/`](../MCP/) directory contains a separate Python
-Streamable HTTP adapter for the agent-network and session APIs. It does not
-import the backend runtime, access the database, or change Agent visibility
-rules.
+Streamable HTTP adapter for the agent-network and session APIs. It imports
+only the backend's `common.observability` logging modules, not the runtime, and
+does not access the database or change Agent visibility rules.
 
 The single image runs MCP as one of its programs and serves it at `/mcp` on the
 app's port, only on a loopback listener: `http://localhost:3000/mcp` for a
@@ -373,7 +373,7 @@ Native manual startup remains supported from the repository root, with a backend
 already running at `http://127.0.0.1:8000/api/v1/`:
 
 ```sh
-uv run --project backend --frozen --extra mcp --no-env-file python MCP/server.py
+PYTHONPATH=backend uv run --project backend --frozen --extra mcp --no-env-file python MCP/server.py
 ```
 
 The adapter runs from the backend environment with its `mcp` extra (one lock,

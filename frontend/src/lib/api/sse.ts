@@ -2,6 +2,7 @@ import type { AnySSEFrame, SSEConnectionStatus } from '@/lib/types/sse'
 import { hasSSEFrameEnvelope } from '@/lib/types/sse'
 import { getApiUrl } from '../utils'
 import { getClientAuthHeaders } from '../auth'
+import { log, requestHeaders } from '../log'
 
 const API_BASE_URL = getApiUrl('sse')
 
@@ -80,11 +81,12 @@ export class SSEConnection {
         // (Room Stream Snapshot plan §4 rule 3 gap recovery).
         const url = `${API_BASE_URL}/room/${this.conversationId}/stream${this.options.snapshot ? '?snapshot=1' : ''}`
 
-        // Send JWT via Authorization header instead of URL query parameter
-        const headers: Record<string, string> = {
+        // Send JWT via Authorization header instead of URL query parameter.
+        // Each connect attempt carries its own X-Request-ID.
+        const { headers, requestId } = requestHeaders({
           'Accept': 'text/event-stream',
           'Cache-Control': 'no-cache',
-        }
+        })
         if (token) {
           headers['Authorization'] = `Bearer ${token}`
         }
@@ -98,6 +100,12 @@ export class SSEConnection {
         })
 
         if (!response.ok) {
+          log.warn('sse_connect_failed', {
+            conversation_id: this.conversationId,
+            request_id: requestId,
+            status: response.status,
+            attempt: this.reconnectAttempts,
+          })
           throw new Error(`SSE connection failed: HTTP ${response.status}`)
         }
 
@@ -106,6 +114,11 @@ export class SSEConnection {
         }
 
         // Connection established
+        log.info('sse_connected', {
+          conversation_id: this.conversationId,
+          attempt: this.reconnectAttempts,
+          request_id: requestId,
+        })
         this.connectionState = OPEN
         this.reconnectAttempts = 0
         this.options.onOpen?.(new Event('open'))
@@ -164,7 +177,10 @@ export class SSEConnection {
             const parsed: unknown = JSON.parse(data)
 
             if (!hasSSEFrameEnvelope(parsed)) {
-              console.debug('Ignoring SSE payload without final frame envelope:', parsed)
+              log.debug('sse_frame_ignored', {
+                conversation_id: this.conversationId,
+                reason: 'missing_envelope',
+              })
               continue
             }
 
@@ -172,7 +188,10 @@ export class SSEConnection {
             // must never overtake an earlier start/update handler.
             await this.options.onMessage?.(parsed)
           } catch (frameError) {
-            console.error('Failed to process SSE message:', frameError, data)
+            log.error('sse_frame_failed', {
+              conversation_id: this.conversationId,
+              error_name: frameError instanceof Error ? frameError.name : typeof frameError,
+            })
           }
         }
       }
@@ -243,13 +262,23 @@ export class SSEConnection {
       if (this.reconnectTimer) {
         clearTimeout(this.reconnectTimer)
       }
+      log.info('sse_reconnect_scheduled', {
+        conversation_id: this.conversationId,
+        attempt: this.reconnectAttempts,
+        delay_ms: delay,
+      })
       this.reconnectTimer = setTimeout(() => {
         if (!this.isManualClose && !this.connectCancelled) {
-          this.connect().catch(console.error)
+          this.connect().catch((error: unknown) => {
+            log.error('sse_reconnect_failed', { conversation_id: this.conversationId, error })
+          })
         }
       }, delay)
     } else {
-      console.error(`❌ SSE reconnection failed after ${this.maxReconnectAttempts} attempts`)
+      log.error('sse_reconnect_exhausted', {
+        conversation_id: this.conversationId,
+        attempts: this.maxReconnectAttempts,
+      })
       this.options.onError?.(new Event('error'))
       this.options.onClose?.('permanent-failure')
       reject?.(new Error('Max reconnection attempts reached'))
@@ -293,7 +322,7 @@ export async function getSSEStatus(
 ): Promise<SSEConnectionStatus> {
   const url = `${API_BASE_URL}/room/${conversationId}/status`
   
-  const headers = await getClientAuthHeaders(getToken)
+  const { headers } = requestHeaders(await getClientAuthHeaders(getToken))
   const response = await fetch(url, { headers })
   if (!response.ok) {
     throw new Error(`HTTP error! status: ${response.status}`)
@@ -320,7 +349,7 @@ export async function cancelMessage(
 }> {
   const url = `${API_BASE_URL}/message/${messageId}/cancel`
   
-  const headers = await getClientAuthHeaders(getToken)
+  const { headers } = requestHeaders(await getClientAuthHeaders(getToken))
   const response = await fetch(url, {
     method: 'POST',
     headers

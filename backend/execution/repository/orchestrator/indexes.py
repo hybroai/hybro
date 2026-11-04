@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import logging
 from typing import Any
 
+from common.observability import events as E
 from common.protocols import MongoDAL
 from common.utils.logger import get_logger
 from common.utils.mongo_indexes import create_index
@@ -30,11 +32,12 @@ async def ensure_orchestrator_indexes(mongo: MongoDAL) -> None:
         try:
             await runs.drop_index(obsolete_name)
         except Exception as exc:
-            logger.error(
-                "Critical obsolete index removal failed for %s.%s",
-                ORCHESTRATOR_RUNS_COLLECTION,
-                obsolete_name,
-                exc_info=True,
+            logger.emit(
+                E.OBSOLETE_INDEX_DROP_FAILED,
+                level=logging.ERROR,
+                exc=exc,
+                collection_name=ORCHESTRATOR_RUNS_COLLECTION,
+                index_name=obsolete_name,
             )
             raise RuntimeError(
                 "Critical obsolete orchestrator Run index removal failed"

@@ -21,6 +21,7 @@ import {
 } from '@/lib/turn-lifecycle/contract'
 import { useMessageStore } from '@/stores/message-store'
 import { isCanonicalRoot, useTurnStore } from '@/stores/turn-store'
+import { log, logToken } from '@/lib/log'
 
 export const HANDLED_ROOM_SSE_TYPES = {
   connected: true,
@@ -54,7 +55,7 @@ type DeltaMessage = Exclude<
  * reducer-owned; here only the client_request_id extraction happens.
  */
 function requestProtocolRecovery(deps: SSEHandlerDeps, reason: string): void {
-  console.warn('[SSE] canonical Turn protocol violation:', reason)
+  log.warn('sse_protocol_violation', { reason })
   deps.requestSnapshotRef?.current?.()
 }
 
@@ -160,10 +161,11 @@ async function foldDelta(deps: SSEHandlerDeps, roomMessage: DeltaMessage): Promi
   const clientReqId = clientRequestIdOf(roomMessage)
 
   if (TURN_CORRELATED_EVENT_TYPES.has(roomMessage.type) && !clientReqId) {
-    console.debug(
-      'Dropping turn-correlated SSE event without client_request_id:',
-      roomMessage.type,
-    )
+    log.debug('sse_frame_ignored', {
+      conversation_id: roomMessage.conversation_id,
+      type: roomMessage.type,
+      reason: 'missing_client_request_id',
+    })
     return
   }
 
@@ -221,14 +223,18 @@ export function createSSEDispatcher(deps: SSEHandlerDeps) {
       if (request) {
         request()
       } else {
-        console.warn('[SSE] snapshot recovery requested but no reconnect surface is bound')
+        log.warn('sse_snapshot_unbound')
       }
     },
   })
 
   return async (sseMessage: AnySSEFrame) => {
     if (!isRoomSSEType(sseMessage.type)) {
-      console.debug('Ignoring unknown room SSE frame type:', sseMessage.type, sseMessage)
+      log.debug('sse_frame_ignored', {
+        conversation_id: sseMessage.conversation_id,
+        type: logToken(sseMessage.type),
+        reason: 'unknown_type',
+      })
       return
     }
     await reducer.handle(sseMessage)

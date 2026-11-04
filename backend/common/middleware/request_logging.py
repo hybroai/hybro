@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import re
 import time
 import uuid
@@ -13,10 +14,12 @@ from common.observability import (
     get_logger,
     safe_exception_metadata,
 )
+from common.observability import events as E
 
 logger = get_logger(__name__)
 
 _REQUEST_ID_PATTERN = re.compile(r"^[A-Za-z0-9._:-]{1,128}$")
+_MAX_ENVELOPE_BYTES = 64 * 1024
 
 
 def _request_id(headers: list[tuple[bytes, bytes]]) -> str:
@@ -31,6 +34,49 @@ def _request_id(headers: list[tuple[bytes, bytes]]) -> str:
             return candidate
         break
     return str(uuid.uuid4())
+
+
+def _is_json(headers: list[tuple[bytes, bytes]]) -> bool:
+    return any(
+        key.lower() == b"content-type" and value.lower().startswith(b"application/json")
+        for key, value in headers
+    )
+
+
+def _failure_envelope(body: bytes) -> tuple[str, int | None] | None:
+    """Return the outcome and status of a ``{"success": false}`` body."""
+
+    # Cheap pre-filter: most successful responses are never decoded.
+    if not body.lstrip().startswith(b"{") or b'"success"' not in body:
+        return None
+    try:
+        document = json.loads(body)
+    except (ValueError, RecursionError):
+        return None
+    if not isinstance(document, dict) or document.get("success") is not False:
+        return None
+    status = document.get("status_code")
+    if not isinstance(status, int) or isinstance(status, bool):
+        return "client_error", None
+    return ("error" if status >= 500 else "client_error"), status
+
+
+def _outcome(
+    failure_outcome: str | None,
+    envelope: tuple[str, int | None] | None,
+    status_code: int,
+) -> tuple[str, int | None]:
+    """Return the request outcome and the envelope status, if any."""
+
+    if failure_outcome is not None:
+        return failure_outcome, None
+    if envelope is not None:
+        return envelope
+    if status_code >= 500:
+        return "error", None
+    if status_code >= 400:
+        return "client_error", None
+    return "success", None
 
 
 def _set_response_request_id(
@@ -58,11 +104,16 @@ class RequestLoggingMiddleware:
         status_code = 500
         error_fields: dict[str, str] = {}
         failure_outcome: str | None = None
+        inspect_body = False
+        envelope: tuple[str, int | None] | None = None
 
         async def send_with_request_id(message: dict) -> None:
-            nonlocal status_code
+            nonlocal status_code, inspect_body, envelope
             if message["type"] == "http.response.start":
                 status_code = int(message["status"])
+                inspect_body = status_code == 200 and _is_json(
+                    list(message.get("headers", []))
+                )
                 message = {
                     **message,
                     "headers": _set_response_request_id(
@@ -71,6 +122,15 @@ class RequestLoggingMiddleware:
                     ),
                 }
             await send(message)
+            if message["type"] == "http.response.body" and inspect_body:
+                # Only a single-chunk JSON 200 body is inspected, after it was
+                # forwarded; streams and multi-chunk bodies are never buffered.
+                inspect_body = False
+                body = message.get("body", b"")
+                if not message.get("more_body", False) and (
+                    len(body) <= _MAX_ENVELOPE_BYTES
+                ):
+                    envelope = _failure_envelope(body)
 
         with bind_log_context(request_id=request_id, trace_id=request_id):
             try:
@@ -89,14 +149,9 @@ class RequestLoggingMiddleware:
                     "path",
                     "<unknown>",
                 )
-                if failure_outcome is not None:
-                    outcome = failure_outcome
-                elif status_code >= 500:
-                    outcome = "error"
-                elif status_code >= 400:
-                    outcome = "client_error"
-                else:
-                    outcome = "success"
+                outcome, envelope_status = _outcome(
+                    failure_outcome, envelope, status_code
+                )
                 fields = {
                     "request_id": request_id,
                     "trace_id": request_id,
@@ -109,8 +164,10 @@ class RequestLoggingMiddleware:
                         3,
                     ),
                 }
+                if envelope_status is not None:
+                    fields["envelope_status"] = envelope_status
                 fields.update(error_fields)
-                logger.info("http_request_completed", extra=fields)
+                logger.emit(E.HTTP_REQUEST_COMPLETED, **fields)
 
 
 __all__ = ["RequestLoggingMiddleware"]

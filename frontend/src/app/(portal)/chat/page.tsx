@@ -33,6 +33,7 @@ import { isMentionDispatchInput, type MessageDispatchInput } from "@/lib/types/a
 import {
   BUILTIN_GROUP_ROOM_TEAM,
 } from "@/lib/types/agent-group"
+import { log } from '@/lib/log'
 
 export default function ChatPage() {
     return <ChatPageContent />
@@ -154,7 +155,7 @@ function ChatPageContent() {
             }
             setSeedAgents([])
         } catch (error) {
-            console.error('Error creating room:', error)
+            log.error('room_create_failed', { error })
             setHasError(true)
             toast.error('Failed to start chat')
 
@@ -195,7 +196,7 @@ function ChatPageContent() {
         setSeedAgents([])
         setPromptPrefill(template.prefillMessage)
       } catch (error) {
-        console.error('Failed to prepare use case:', error)
+        log.error('use_case_prepare_failed', { error })
         toast.error(error instanceof Error ? error.message : 'Failed to prepare use case')
       } finally {
         setSettingUpTemplate(null)

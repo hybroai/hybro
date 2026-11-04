@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from common.observability import events as E
 from common.utils.logger import get_logger
 from conversation.repository.message_documents import _safe_parse_room
 from models.room import Room
@@ -18,8 +19,13 @@ class ConversationRoomStore:
             return _safe_parse_room(
                 await self._room_repository.get_by_id(conversation_id)
             )
-        except Exception:
-            logger.error("Failed to get room", exc_info=True)
+        except Exception as exc:
+            logger.emit(
+                E.CONVERSATION_STORE_OPERATION_FAILED,
+                exc=exc,
+                operation="get_room_by_room_id",
+                conversation_id=conversation_id,
+            )
             return None
 
     async def get_rooms_by_room_owner_id(self, room_owner_id: str) -> list[Room]:
@@ -27,6 +33,11 @@ class ConversationRoomStore:
             docs = await self._room_repository.get_by_owner(room_owner_id)
             rooms = [_safe_parse_room(doc) for doc in docs if doc is not None]
             return [room for room in rooms if room is not None]
-        except Exception:
-            logger.error("Failed to get rooms by owner", exc_info=True)
+        except Exception as exc:
+            logger.emit(
+                E.CONVERSATION_STORE_OPERATION_FAILED,
+                exc=exc,
+                operation="get_rooms_by_room_owner_id",
+                user_id=room_owner_id,
+            )
             return []

@@ -5,13 +5,15 @@ Wraps AgentMatcher with optional LLM reranking and returns ranked agents as
 AgentSelectionResult, plus the route-facing AgentSuggestionResult.
 """
 
+import logging
 from dataclasses import dataclass
 from enum import StrEnum
 
 from agent.matcher import AgentMatcher
 from agent.protocols import AgentSuggestion, AgentSuggestionResult
 from common.dto import AgentInfo, AgentRoutingCandidate
-from common.utils.logger import get_logger
+from common.observability import events as E
+from common.observability import get_logger
 
 logger = get_logger(__name__)
 
@@ -79,9 +81,10 @@ class AgentSelectionService:
         Returns:
             AgentSelectionResult with strategy, selected agents, and reasoning
         """
-        logger.info(
-            "AgentSelectionService: Selecting agents for message (length: %d chars)",
-            len(message_text),
+        logger.emit(
+            E.AGENT_SELECTION_STARTED,
+            user_id=user_id,
+            message_char_count=len(message_text),
         )
 
         # Delegate to AgentMatcher — let exceptions propagate so callers
@@ -94,7 +97,14 @@ class AgentSelectionService:
 
         # Convert MatchResult to AgentSelectionResult.
         if not match_result.agents:
-            logger.warning("AgentSelectionService: No agents matched")
+            logger.emit(
+                E.AGENT_SELECTION_COMPLETED,
+                level=logging.WARNING,
+                user_id=user_id,
+                strategy=RoutingStrategy.SINGLE.value,
+                selected_agent_count=0,
+                candidate_count=match_result.total_candidates,
+            )
             return AgentSelectionResult(
                 strategy=RoutingStrategy.SINGLE,
                 agents=[],
@@ -130,10 +140,12 @@ class AgentSelectionService:
 
         reasoning = f"Matched {len(agent_selections)} agent(s) from {match_result.total_candidates} candidates"
 
-        logger.info(
-            "AgentSelectionService: Selected %d agents with strategy=%s",
-            len(agent_selections),
-            strategy.value,
+        logger.emit(
+            E.AGENT_SELECTION_COMPLETED,
+            user_id=user_id,
+            strategy=strategy.value,
+            selected_agent_count=len(agent_selections),
+            candidate_count=match_result.total_candidates,
         )
 
         return AgentSelectionResult(
@@ -202,9 +214,12 @@ class AgentSelectionService:
                     routing_candidates,
                 )
                 ranked_ids = [best_id]
-        except Exception:
-            logger.warning(
-                "Agent LLM rerank failed; using lexical order", exc_info=True
+        except Exception as exc:
+            # The lexical order stands.
+            logger.emit(
+                E.AGENT_SELECTION_RERANK_FAILED,
+                exc=exc,
+                candidate_count=len(candidates),
             )
             return candidates
         by_id = {item.agent.agent_id: item for item in candidates}

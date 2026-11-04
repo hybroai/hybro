@@ -157,7 +157,7 @@ async def test_commit_reference_failure_still_publishes_winner_event(caplog):
         "wait_for_handlers": True,
         "fanout": False,
     }
-    assert "remain pending for recovery" in caplog.text
+    assert "file_reference_commit_failed" in caplog.text
 
 
 @pytest.mark.asyncio
@@ -206,7 +206,7 @@ async def test_claim_and_partial_release_failure_preserve_claim_error(caplog):
         file_ids=["file-1"],
     )
     writer.persist_user_message.assert_not_awaited()
-    assert "Could not release partial room file claims" in caplog.text
+    assert "file_reference_release_failed" in caplog.text
 
 
 @pytest.mark.asyncio

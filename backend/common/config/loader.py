@@ -1,7 +1,6 @@
 """Typed defaults and JSON startup snapshot. No dotenv or import-time file I/O."""
 
 import ipaddress
-import logging
 import math
 import os
 from functools import lru_cache
@@ -20,7 +19,10 @@ from pydantic import (
     field_validator,
 )
 
-logger = logging.getLogger(__name__)
+from common.observability import events as E
+from common.observability import get_logger
+
+logger = get_logger(__name__)
 
 
 class Settings(BaseModel):
@@ -155,8 +157,8 @@ class Settings(BaseModel):
     # Local Agent Discovery (Docker backend -> host gateway)
     local_agent_discovery_enabled: bool = False
     local_agent_discovery_host: str = "host.docker.internal"
-    local_agent_discovery_port_start: int = Field(default=1024, ge=1, le=65535)
-    local_agent_discovery_port_end: int = Field(default=65535, ge=1, le=65535)
+    local_agent_discovery_port_start: int = Field(default=9000, ge=1, le=65535)
+    local_agent_discovery_port_end: int = Field(default=9999, ge=1, le=65535)
     local_agent_discovery_interval_seconds: int = Field(default=120, gt=0)
     local_agent_discovery_connect_timeout_seconds: float = Field(default=0.05, gt=0)
     local_agent_discovery_probe_timeout_seconds: float = Field(default=3.0, gt=0)
@@ -369,6 +371,18 @@ class Settings(BaseModel):
         if any(not 1 <= port <= 65535 for port in ports):
             raise ValueError("Excluded discovery ports must be within 1..65535")
         return ports
+
+    @field_validator("local_agent_discovery_port_end")
+    @classmethod
+    def validate_local_agent_discovery_port_range(
+        cls, value: int, info: ValidationInfo
+    ) -> int:
+        start = info.data.get("local_agent_discovery_port_start")
+        if start is not None and value < start:
+            raise ValueError(
+                "Discovery port end must not be below local_agent_discovery_port_start"
+            )
+        return value
 
     @field_validator("compaction_concurrency", mode="before")
     @classmethod
@@ -610,6 +624,8 @@ def _apply_image_defaults(values: dict) -> None:
         "local_agent_discovery_enabled": True,
         "bundled_agents_manifest": "/app/bundled_agents.yaml",
         "oauth_callback_host": "0.0.0.0",
+        # Machine-readable backend lines in the shared `hybro logs` stream.
+        "log_format": "json",
         # Bundled agents on container loopback and host agents on the same port
         # share a URL key, so discovery must not probe the manifest ports.
         "local_agent_discovery_excluded_ports": os.environ.get(
@@ -629,16 +645,12 @@ def get_settings() -> Settings:
     store = RuntimeConfigStore(runtime_home(os.environ))
     document = store.load({}).config
     if document.removed_backend_fields:
-        logger.warning(
-            "Ignoring removed config.json backend settings: %s. "
-            "Delete them; they will be rejected in the next major release.",
-            ", ".join(document.removed_backend_fields),
+        logger.emit(
+            E.REMOVED_CONFIG_FIELDS_IGNORED,
+            removed_fields=list(document.removed_backend_fields),
         )
     if document.had_instances:
-        logger.warning(
-            "Ignoring instances in config.json: host ports are set with "
-            "`hybro start --port` since 0.4. It is dropped on the next save."
-        )
+        logger.emit(E.CONFIG_INSTANCES_IGNORED)
     values = dict(document.backend)
     services = store.read_service_credentials()
     if any(key in values and key in services for key in ("mongodb_url", "redis_url")):

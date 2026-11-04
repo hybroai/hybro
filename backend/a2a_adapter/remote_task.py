@@ -2,12 +2,13 @@
 
 from __future__ import annotations
 
-import logging
 from typing import Any
 
 from a2a.client import ClientConfig, ClientFactory
 from a2a.types import GetTaskRequest
 
+from common.observability import events as E
+from common.observability import get_logger
 from common.types import Task
 
 from .bounded_http import bounded_client
@@ -16,7 +17,7 @@ from .constants import SUPPORTED_BINDINGS
 from .docker_host_fallback import with_docker_host_fallback
 from .message_factory import to_internal_task
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 
 async def fetch_remote_task(
@@ -49,7 +50,7 @@ async def fetch_remote_task(
             )
         return to_internal_task(task)
     except Exception as exc:
-        logger.error("Failed to get task from agent: %s", exc, exc_info=True)
+        logger.emit(E.REMOTE_TASK_FETCH_FAILED, exc=exc, task_id=task_id)
         return None
 
 

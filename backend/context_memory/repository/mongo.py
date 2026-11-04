@@ -3,6 +3,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any
 
+from common.observability import events as E
 from common.protocols import MongoCollection, MongoDAL
 from common.utils.logger import get_logger
 from common.utils.mongo_indexes import create_index
@@ -151,13 +152,11 @@ class MemoryMongoRepository:
         except Exception as exc:
             if isinstance(exc, TypeError | AttributeError | ValueError):
                 raise
-            logger.exception(
-                "Failed to compact turns atomically",
-                extra={
-                    "conversation_id": conversation_id,
-                    "turn_count": len(compacted_turns),
-                    "error_type": exc.__class__.__name__,
-                },
+            logger.emit(
+                E.TURN_COMPACTION_WRITE_FAILED,
+                exc=exc,
+                conversation_id=conversation_id,
+                compacted_turn_count=len(compacted_turns),
             )
             return False
 
@@ -260,10 +259,11 @@ class ContentStorageMongoRepository:
             try:
                 await self._content.drop_index(name)
             except Exception as exc:
-                logger.warning(
-                    "Obsolete index removal failed for conversation_content.%s",
-                    name,
-                    extra={"error_type": type(exc).__name__},
+                logger.emit(
+                    E.OBSOLETE_INDEX_DROP_FAILED,
+                    exc=exc,
+                    collection_name="conversation_content",
+                    index_name=name,
                 )
 
     async def upsert_full_content(

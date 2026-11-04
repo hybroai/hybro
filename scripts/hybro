@@ -96,6 +96,13 @@ Start options:
   --build               Rebuild the image (checkout only)
   --recreate            Recreate a running container (checkout only)
 
+Logs options:
+  --service <name>      Only lines from one program (backend, mcp, caddy,
+                        frontend, mongod, or an agent)
+  --level <level>       Only lines at this level or above: debug, info,
+                        warning, error, critical; hides lines without a level
+  --trace <id>          Only lines for one request or trace id
+
 Upgrade options:
   --check               Only report whether a newer release exists
 
@@ -476,10 +483,98 @@ cmd_status() {
     esac
 }
 
+# Prints the level alternation at or above a threshold; warn is Caddy's warning
+# and dpanic, panic and fatal count as critical.
+# Accepts lower and upper case, as backend.log_level is written upper case.
+log_levels() {
+    severe="critical|dpanic|panic|fatal"
+    case "$1" in
+    debug | DEBUG) echo "debug|info|warning|warn|error|$severe" ;;
+    info | INFO) echo "info|warning|warn|error|$severe" ;;
+    warning | warn | WARNING | WARN) echo "warning|warn|error|$severe" ;;
+    error | ERROR) echo "error|$severe" ;;
+    critical | CRITICAL) echo "$severe" ;;
+    *) return 1 ;;
+    esac
+}
+
 cmd_logs() {
+    service="" levels="" trace="" filtered=""
+    for arg in "$@"; do
+        shift
+        case "$arg" in
+        --service=* | --level=* | --trace=*)
+            set -- "$@" "${arg%%=*}" "${arg#*=}"
+            continue
+            ;;
+        esac
+        set -- "$@" "$arg"
+    done
+    for arg in "$@"; do
+        shift
+        if [ -n "$filtered" ]; then
+            [ -n "$arg" ] || die "$filtered needs a value"
+            case "$filtered" in
+            --service) service=$arg ;;
+            --level)
+                levels=$(log_levels "$arg") || die "--level must be debug, info, warning, error, or critical"
+                ;;
+            --trace) trace=$arg ;;
+            esac
+            filtered=""
+            continue
+        fi
+        case "$arg" in
+        --service | --level | --trace) filtered=$arg ;;
+        *) set -- "$@" "$arg" ;;
+        esac
+    done
+    [ -z "$filtered" ] || die "$filtered needs a value"
     require_docker
     [ -n "$(container_state)" ] || die "there is no $CONTAINER container. Start Hybro with: $CLI"
-    exec docker logs "$@" "$CONTAINER"
+    if [ -z "$service$levels$trace" ]; then
+        exec docker logs "$@" "$CONTAINER"
+    fi
+    # docker's own errors carry no program prefix and are always shown; its exit
+    # status reaches awk as a sentinel line so a failure is not masked by the pipe.
+    { docker logs "$@" "$CONTAINER" 2>&1 || echo "hybro_docker_exit=$?"; } |
+        awk -v service="$service" -v levels="$levels" -v trace="$trace" '
+        /^hybro_docker_exit=[0-9]+$/ { code = substr($0, 19) + 0; next }
+        {
+            split_at = index($0, " | ")
+            if (split_at == 0) { print; fflush(); next }
+            name = substr($0, 1, split_at - 1)
+            body = substr($0, split_at + 3)
+            # docker logs -t puts a timestamp before the program name.
+            sub(/^.* /, "", name)
+            if (service != "" && name != service) next
+            if (levels != "" && level_of(body) !~ ("^(" levels ")$")) next
+            if (trace != "" && !has_trace(body)) next
+            print
+            fflush()
+        }
+        # JSON lines write level before any message text; logfmt lines start
+        # with it or with timestamp then level. Plain text has no level.
+        function level_of(text,    value) {
+            if (substr(text, 1, 1) == "{") {
+                if (!match(text, /"level":"[^"]*"/)) return ""
+                return substr(text, RSTART + 9, RLENGTH - 10)
+            }
+            if (!match(text, /^(timestamp=[^ ]* )?level=[^ ]*/)) return ""
+            value = substr(text, RSTART, RLENGTH)
+            sub(/^.*level=/, "", value)
+            return value
+        }
+        function has_trace(text,    at, rest) {
+            if (index(text, "\"trace_id\":\"" trace "\"")) return 1
+            rest = text
+            while ((at = index(rest, "trace_id=" trace)) > 0) {
+                if ((at == 1 || substr(rest, at - 1, 1) == " ") && (at + 9 + length(trace) > length(rest) || substr(rest, at + 9 + length(trace), 1) == " ")) return 1
+                rest = substr(rest, at + 1)
+            }
+            return 0
+        }
+        END { exit code }'
 }
 
 sha256_of() {

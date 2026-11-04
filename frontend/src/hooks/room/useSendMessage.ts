@@ -13,6 +13,7 @@ import { useMessageStore } from '@/stores/message-store'
 import type { PendingAttachment } from '@/lib/types/attachments'
 import type { ProcessingLifecycle } from './processing-lifecycle'
 import { useRoomUiStore } from '@/stores/room-ui-store'
+import { log } from '@/lib/log'
 
 export type SendUserMessageInput = {
   userInput: string
@@ -45,13 +46,14 @@ export function useSendMessage(
     clientRequestId: existingClientRequestId,
   }: SendUserMessageInput) => {
     if (!userId || !userName || !room || sending || lifecycle.isSendGuardActive()) {
-      console.warn('🚫 sendUserMessage blocked:', {
-        userId: !userId,
-        userName: !userName,
-        room: !room,
+      log.warn('send_blocked', {
+        conversation_id: conversationId,
+        missing_user_id: !userId,
+        missing_user_name: !userName,
+        missing_room: !room,
         sending,
-        sendGuardActive: lifecycle.isSendGuardActive(),
-        messageId: lifecycle.getMessageId(),
+        send_guard_active: lifecycle.isSendGuardActive(),
+        message_id: lifecycle.getMessageId(),
       })
       return false
     }
@@ -175,7 +177,7 @@ export function useSendMessage(
       const messageId = createResponse.message_id || createResponse.message?.message_id || ""
 
       if (!messageId) {
-        console.error('SendMessage returned no message_id; treating as failure')
+        log.error('send_missing_message_id', { conversation_id: conversationId, client_request_id: clientRequestId })
 
         // Rollback optimistic entities.
         const msgStoreNoId = useMessageStore.getState()
@@ -272,7 +274,7 @@ export function useSendMessage(
       return true
 
     } catch (error) {
-      console.error('Error in message workflow:', error)
+      log.error('send_failed', { conversation_id: conversationId, client_request_id: clientRequestId, error })
 
       // Targeted rollback: remove only the specific optimistic messages (Gap 5)
       const msgStoreErr = useMessageStore.getState()
@@ -296,7 +298,7 @@ export function useSendMessage(
       try {
         await reconcileWithDb(conversationId)
       } catch (reloadError) {
-        console.error('Failed to reconcile messages after error:', reloadError)
+        log.error('send_reconcile_failed', { conversation_id: conversationId, client_request_id: clientRequestId, error: reloadError })
       }
 
       lifecycle.stopProcessing()

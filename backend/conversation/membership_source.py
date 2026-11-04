@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import Any
 
 from common.dto import AgentInfo
+from common.observability import events as E
 from common.utils.logger import get_logger
 from conversation.dto import SavedAgentGroupSnapshot
 from conversation.unbound import UNBOUND_RUNTIME_STORE
@@ -42,9 +43,8 @@ class RepositoryRoomMembershipSeedSource:
                     user_id=user_id, active_only=True
                 )
             except Exception as exc:
-                logger.debug(
-                    "Room membership source falling back to database active agents: %s",
-                    exc,
+                logger.emit(
+                    E.MEMBERSHIP_AGENTS_FALLBACK_SELECTED, exc=exc, user_id=user_id
                 )
 
         agents = await self._store.get_all_active_agents(user_id=user_id)
@@ -62,12 +62,20 @@ def _agent_info_from_record(agent: Any) -> AgentInfo:
     agent_id = getattr(agent, "agent_id", None)
     name = getattr(card, "name", None)
     resolved_status = status or str(raw_status or "active")
-    if not agent_id or name is None or raw_status is None or not resolved_status:
-        logger.warning(
-            "Room membership agent missing critical fields: agent_id=%r name=%r status=%r",
-            agent_id,
-            name,
-            resolved_status,
+    missing_fields = [
+        field
+        for field, missing in (
+            ("agent_id", not agent_id),
+            ("name", name is None),
+            ("status", raw_status is None or not resolved_status),
+        )
+        if missing
+    ]
+    if missing_fields:
+        logger.emit(
+            E.MEMBERSHIP_AGENT_FIELDS_NOT_FOUND,
+            agent_id=agent_id,
+            missing_agent_fields=missing_fields,
         )
     return AgentInfo(
         agent_id=agent_id,

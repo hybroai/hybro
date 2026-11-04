@@ -1,13 +1,14 @@
 from __future__ import annotations
 
-import logging
 from typing import Any
 
 from common.dto import ProcessingStatusEvent
+from common.observability import events as E
+from common.observability import get_logger
 from common.protocols import EventPublisher
 from execution.ports import ClientRequestIdResolver, ProcessingStatusLike
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 SUPPORTED_TYPED_PROCESSING_STATUSES = {
     "queued",
@@ -57,11 +58,12 @@ async def _resolve_processing_status_client_request_id(
 ) -> str | None:
     try:
         return await resolver.resolve_client_request_id(message_id, client_request_id)
-    except Exception:
-        logger.warning(
-            "processing status client_request_id resolution failed for message_id=%s",
-            message_id,
-            exc_info=True,
+    except Exception as exc:
+        logger.emit(
+            E.CLIENT_REQUEST_ID_RESOLUTION_FAILED,
+            exc=exc,
+            message_id=message_id,
+            client_request_id=client_request_id,
         )
         return client_request_id
 

@@ -7,6 +7,7 @@ from unittest.mock import AsyncMock, patch
 import pytest
 
 from common.dto import AgentInfo, MembershipSeed, UserMessageInput
+from common.observability import events as E
 from conversation.dto import SavedAgentGroupSnapshot
 from conversation.membership import normalize_room_agent_set, resolve_membership_seed
 from conversation.membership_source import RepositoryRoomMembershipSeedSource
@@ -180,7 +181,8 @@ async def test_membership_source_logs_agent_registry_fallback():
         agents = await source.list_current_agents("owner")
 
     assert [agent.agent_id for agent in agents] == ["a1"]
-    logger.debug.assert_called_once()
+    logger.emit.assert_called_once()
+    assert logger.emit.call_args.args == (E.MEMBERSHIP_AGENTS_FALLBACK_SELECTED,)
 
 
 def test_membership_source_warns_for_missing_critical_agent_fields():
@@ -190,7 +192,8 @@ def test_membership_source_warns_for_missing_critical_agent_fields():
         info = RepositoryRoomMembershipSeedSource.agent_info_from_record(agent)
 
     assert info.agent_id == "a1"
-    logger.warning.assert_called_once()
+    logger.emit.assert_called_once()
+    assert logger.emit.call_args.args == (E.MEMBERSHIP_AGENT_FIELDS_NOT_FOUND,)
 
 
 def test_membership_source_default_constructor_does_not_import_database_service():

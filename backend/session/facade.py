@@ -26,6 +26,7 @@ from common.idempotency import (
     MAX_CLIENT_REQUEST_ID_LENGTH,
     normalize_client_request_id,
 )
+from common.observability import events as E
 from common.protocols import (
     AgentNetworkTargetResolver,
     ExecutionEngine,
@@ -351,14 +352,12 @@ class SessionFacade:
             # A concurrent request created the container first.
             try:
                 await self._rooms.delete_room(room.conversation_id, owner.user_id)
-            except Exception:
-                logger.warning(
-                    "session_orphan_container_delete_failed",
-                    extra={
-                        "session_id": record.session_id,
-                        "conversation_id": room.conversation_id,
-                    },
-                    exc_info=True,
+            except Exception as exc:
+                logger.emit(
+                    E.SESSION_ORPHAN_CONTAINER_DELETE_FAILED,
+                    exc=exc,
+                    session_id=record.session_id,
+                    conversation_id=room.conversation_id,
                 )
         return current
 
@@ -374,12 +373,13 @@ class SessionFacade:
                     conversation_id,
                     MembershipUpdateRequest(add_agent_ids=[agent_id]),
                 )
-        except Exception:
+        except Exception as exc:
             # The run is already scheduled; membership is presentation only.
-            logger.warning(
-                "session_member_add_failed",
-                extra={"session_id": record.session_id, "agent_id": agent_id},
-                exc_info=True,
+            logger.emit(
+                E.SESSION_MEMBER_ADD_FAILED,
+                exc=exc,
+                session_id=record.session_id,
+                agent_id=agent_id,
             )
         return (
             await self._store.record_accepted_agent(record.session_id, agent_id)
@@ -692,11 +692,11 @@ class SessionFacade:
         """
         try:
             pending = await self._approvals.get_pending_hitl(conversation_id)
-        except Exception:
-            logger.warning(
-                "session_close_pending_lookup_failed",
-                extra={"conversation_id": conversation_id},
-                exc_info=True,
+        except Exception as exc:
+            logger.emit(
+                E.SESSION_CLOSE_PENDING_LOOKUP_FAILED,
+                exc=exc,
+                conversation_id=conversation_id,
             )
             pending = []
         interactions = {
@@ -712,14 +712,12 @@ class SessionFacade:
                         conversation_id, interaction_id, version
                     )
                     canceled_any = True
-                except Exception:
-                    logger.warning(
-                        "session_close_interaction_cancel_failed",
-                        extra={
-                            "conversation_id": conversation_id,
-                            "interaction_id": interaction_id,
-                        },
-                        exc_info=True,
+                except Exception as exc:
+                    logger.emit(
+                        E.SESSION_CLOSE_INTERACTION_CANCEL_FAILED,
+                        exc=exc,
+                        conversation_id=conversation_id,
+                        interaction_id=interaction_id,
                     )
             if canceled_any:
                 return
@@ -732,13 +730,14 @@ class SessionFacade:
                     run.trigger_message_id,
                     requested_by_user_id=owner.user_id,
                 )
-            except Exception:
+            except Exception as exc:
                 # Pending local agent-call cancellation and reconciliation are
                 # tolerated; the session is closed regardless.
-                logger.warning(
-                    "session_close_run_cancel_failed",
-                    extra={"conversation_id": conversation_id, "run_id": run.run_id},
-                    exc_info=True,
+                logger.emit(
+                    E.SESSION_CLOSE_RUN_CANCEL_FAILED,
+                    exc=exc,
+                    conversation_id=conversation_id,
+                    run_id=run.run_id,
                 )
 
 

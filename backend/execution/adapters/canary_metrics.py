@@ -4,8 +4,8 @@ Metrics are derived exclusively from the existing orchestrator durable stores
 (``orchestrator_runs``, ``orchestrator_agent_calls``,
 ``orchestrator_a2a_observation_conflicts``). No new fact source, telemetry
 backend, or side-effect is introduced here: the collector only reads, and the
-threshold evaluator is a pure function that returns breach messages for the
-leader-elected canary job to log.
+threshold evaluator is a pure function that returns structured breaches for
+the leader-elected canary job to log.
 
 The one metric that has no durable backing is the recovery-cycle last-run time.
 ``A2ARecoveryCycle.run_once`` does not persist a completion marker today, so the
@@ -16,6 +16,8 @@ corresponding threshold is simply not evaluated.
 
 from __future__ import annotations
 
+from collections.abc import Mapping
+from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
@@ -155,22 +157,41 @@ def _count_open_conflicts(documents: list[dict[str, Any]]) -> int:
     return sum(1 for document in documents if document.get("status") == "open")
 
 
-def evaluate_canary_thresholds(metrics: dict[str, Any], settings_obj: Any) -> list[str]:
-    """Return human-readable breach messages for the §8.2 thresholds."""
+@dataclass(frozen=True)
+class CanaryBreach:
+    """One exceeded §8.2 threshold: the metric, its limit, and the reading."""
+
+    metric: str
+    threshold: float
+    observed: float
+    # Counts behind the reading, e.g. failed and terminal runs for a rate.
+    counts: Mapping[str, int] = field(default_factory=dict)
+
+
+def evaluate_canary_thresholds(
+    metrics: dict[str, Any], settings_obj: Any
+) -> list[CanaryBreach]:
+    """Return one breach per exceeded §8.2 threshold."""
     collected_at = metrics.get("collected_at") or datetime.now(UTC)
-    breaches: list[str] = []
+    breaches: list[CanaryBreach] = []
 
     window = metrics.get("runs_by_status_window", {})
     terminal_in_window = sum(window.get(status, 0) for status in TERMINAL_RUN_STATUSES)
     failures_in_window = window.get("failed", 0) + window.get("budget_exhausted", 0)
     if terminal_in_window > 0:
         failure_rate = failures_in_window / terminal_in_window
-        if failure_rate > settings_obj.orchestrator_canary_run_failure_rate_max:
+        failure_rate_max = settings_obj.orchestrator_canary_run_failure_rate_max
+        if failure_rate > failure_rate_max:
             breaches.append(
-                "orchestrator canary: run failure rate "
-                f"{failure_rate:.4f} exceeds "
-                f"{settings_obj.orchestrator_canary_run_failure_rate_max:.4f} "
-                f"({failures_in_window}/{terminal_in_window} terminal runs in window)"
+                CanaryBreach(
+                    "run_failure_rate",
+                    failure_rate_max,
+                    failure_rate,
+                    {
+                        "failed_runs": failures_in_window,
+                        "terminal_runs": terminal_in_window,
+                    },
+                )
             )
 
     blocked = int(metrics.get("projection_outbox_blocked", 0) or 0)
@@ -178,37 +199,33 @@ def evaluate_canary_thresholds(metrics: dict[str, Any], settings_obj: Any) -> li
         oldest_at = metrics.get("projection_outbox_blocked_oldest_at")
         if oldest_at is not None:
             age_seconds = (collected_at - oldest_at).total_seconds()
-            if (
-                age_seconds
-                > settings_obj.orchestrator_canary_blocked_intent_max_age_seconds
-            ):
+            max_age = settings_obj.orchestrator_canary_blocked_intent_max_age_seconds
+            if age_seconds > max_age:
                 breaches.append(
-                    "orchestrator canary: "
-                    f"{blocked} blocked projection intent(s) require requeue "
-                    f"(oldest age {age_seconds:.0f}s)"
+                    CanaryBreach(
+                        "projection_outbox_blocked_age_seconds",
+                        max_age,
+                        age_seconds,
+                        {"blocked_intents": blocked},
+                    )
                 )
         else:
-            breaches.append(
-                f"orchestrator canary: {blocked} blocked projection intent(s) "
-                "require requeue"
-            )
+            breaches.append(CanaryBreach("projection_outbox_blocked", 0, blocked))
 
     last_run = metrics.get("recovery_cycle_last_run_at")
     if last_run is not None:
         age_seconds = (collected_at - last_run).total_seconds()
-        if (
-            age_seconds
-            > settings_obj.orchestrator_canary_recovery_cycle_max_age_seconds
-        ):
+        max_age = settings_obj.orchestrator_canary_recovery_cycle_max_age_seconds
+        if age_seconds > max_age:
             breaches.append(
-                "orchestrator canary: recovery cycle is stale "
-                f"({age_seconds:.0f}s since last completed cycle)"
+                CanaryBreach("recovery_cycle_age_seconds", max_age, age_seconds)
             )
 
     conflicts = int(metrics.get("observation_conflicts_open", 0) or 0)
-    if conflicts > settings_obj.orchestrator_canary_observation_conflicts_max:
+    conflicts_max = settings_obj.orchestrator_canary_observation_conflicts_max
+    if conflicts > conflicts_max:
         breaches.append(
-            f"orchestrator canary: {conflicts} open observation conflict(s)"
+            CanaryBreach("observation_conflicts_open", conflicts_max, conflicts)
         )
 
     return breaches
@@ -229,6 +246,7 @@ def _as_utc(value: Any) -> datetime | None:
 
 __all__ = [
     "TERMINAL_AGENT_CALL_STATES",
+    "CanaryBreach",
     "TERMINAL_RUN_STATUSES",
     "collect_metrics",
     "evaluate_canary_thresholds",

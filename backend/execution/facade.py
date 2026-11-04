@@ -20,6 +20,7 @@ from common.dto import (
 )
 from common.errors import NotFoundError
 from common.observability import bind_log_context, traced_create_task
+from common.observability import events as E
 from common.protocols import EventPublisher
 from common.utils.logger import get_logger
 from execution.events import emit_room_processing_status
@@ -234,8 +235,13 @@ class ExecutionFacade:
             pending_requests = await self._hitl_manager.get_pending_requests(
                 request.conversation_id
             )
-        except Exception:
-            logger.warning("pending HITL lookup failed before execute", exc_info=True)
+        except Exception as exc:
+            logger.emit(
+                E.PENDING_HITL_LOOKUP_FAILED,
+                exc=exc,
+                conversation_id=request.conversation_id,
+                client_request_id=request.client_request_id,
+            )
             return None
         if not pending_requests:
             return None
@@ -255,9 +261,12 @@ class ExecutionFacade:
             active_runs = await self._require_active_run_reader().get_runs_for_room(
                 request.conversation_id
             )
-        except Exception:
-            logger.warning(
-                "active room run lookup failed before execute", exc_info=True
+        except Exception as exc:
+            logger.emit(
+                E.ACTIVE_RUN_LOOKUP_FAILED,
+                exc=exc,
+                conversation_id=request.conversation_id,
+                client_request_id=request.client_request_id,
             )
             return None
         if not active_runs:
@@ -281,12 +290,11 @@ class ExecutionFacade:
         """
         claim = self._room_claims.get(request.conversation_id)
         if claim is not None and self._claim_is_abandoned(claim):
-            logger.warning(
-                "dropping room claim whose orchestration was never scheduled",
-                extra={
-                    "conversation_id": request.conversation_id,
-                    "user_message_id": claim.message_id,
-                },
+            # The send was admitted but its orchestration was never scheduled.
+            logger.emit(
+                E.ROOM_CLAIM_DROPPED,
+                conversation_id=request.conversation_id,
+                user_message_id=claim.message_id,
             )
             claim = None
         if claim is None:
@@ -402,10 +410,14 @@ class ExecutionFacade:
         try:
             await self._emit_room_preflight_processing_status(request, ack)
             await self._emit_room_preflight_terminal_status(request, ack)
-        except Exception:
-            logger.warning(
-                "room preflight status emission failed after persistence",
-                exc_info=True,
+        except Exception as exc:
+            logger.emit(
+                E.PREFLIGHT_STATUS_EMISSION_FAILED,
+                exc=exc,
+                conversation_id=request.conversation_id,
+                client_request_id=request.client_request_id,
+                message_id=ack.message_id,
+                status_stage="processing_and_terminal",
             )
 
     @staticmethod
@@ -505,10 +517,14 @@ class ExecutionFacade:
                 await self._emit_room_preflight_processing_status(
                     request, persisted_ack
                 )
-            except Exception:
-                logger.warning(
-                    "room preflight processing status emission failed after persistence",
-                    exc_info=True,
+            except Exception as exc:
+                logger.emit(
+                    E.PREFLIGHT_STATUS_EMISSION_FAILED,
+                    exc=exc,
+                    conversation_id=request.conversation_id,
+                    client_request_id=request.client_request_id,
+                    message_id=persisted_ack.message_id,
+                    status_stage="processing",
                 )
             response = await self._room_center.run_message_preflight_to_room(
                 preflight_context
@@ -516,19 +532,25 @@ class ExecutionFacade:
             ack = room_response_to_execution_ack(response)
             try:
                 await self._emit_room_preflight_terminal_status(request, ack)
-            except Exception:
-                logger.warning(
-                    "room preflight terminal status emission failed after preflight",
-                    exc_info=True,
+            except Exception as exc:
+                logger.emit(
+                    E.PREFLIGHT_STATUS_EMISSION_FAILED,
+                    exc=exc,
+                    conversation_id=request.conversation_id,
+                    client_request_id=request.client_request_id,
+                    message_id=ack.message_id,
+                    status_stage="terminal",
                 )
             return ack
         except BaseException:
             try:
                 self._room_center.discard_message_preflight(preflight_context)
-            except BaseException:
-                logger.warning(
-                    "room preflight cleanup failed while preserving original error",
-                    exc_info=True,
+            except BaseException as exc:
+                logger.emit(
+                    E.PREFLIGHT_CLEANUP_FAILED,
+                    exc=exc,
+                    conversation_id=request.conversation_id,
+                    client_request_id=request.client_request_id,
                 )
             raise
 
@@ -590,9 +612,11 @@ class ExecutionFacade:
             return not await self._orchestrator_router.has_run_for_user_message(
                 pending.ack.message_id
             )
-        except Exception:
-            logger.warning(
-                "run lookup failed after orchestration failure", exc_info=True
+        except Exception as exc:
+            logger.emit(
+                E.ORCHESTRATION_FAILURE_RUN_LOOKUP_FAILED,
+                exc=exc,
+                message_id=pending.ack.message_id,
             )
             return True
 
@@ -615,8 +639,13 @@ class ExecutionFacade:
                 client_request_id=request.client_request_id,
                 details=details,
             )
-        except Exception:
-            logger.warning("orchestration status emission failed", exc_info=True)
+        except Exception as exc:
+            logger.emit(
+                E.ORCHESTRATION_STATUS_EMISSION_FAILED,
+                exc=exc,
+                message_id=ack.message_id,
+                status=status,
+            )
 
     async def start_orchestration(
         self,
@@ -673,10 +702,7 @@ class ExecutionFacade:
                 return
             exc = done.exception()
             if exc is not None:
-                logger.error(
-                    "execution orchestration task failed",
-                    exc_info=(type(exc), exc, exc.__traceback__),
-                )
+                logger.emit(E.ORCHESTRATION_TASK_FAILED, exc=exc, message_id=message_id)
 
         task.add_done_callback(_on_done)
         return task

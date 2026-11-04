@@ -20,6 +20,7 @@ vi.mock('@/lib/api/sse', () => {
 })
 
 import { useRoomSSE } from '@/hooks/useRoomSSE'
+import { recentLogs } from '@/lib/log'
 
 describe('useRoomSSE', () => {
   beforeEach(() => {
@@ -240,5 +241,23 @@ describe('useRoomSSE', () => {
     })
     expect(result.current.connected).toBe(false)
     expect(result.current.connecting).toBe(false)
+  })
+
+  it('logs its own event when connect() rejects, apart from the connection event', async () => {
+    mockConnectFn.mockRejectedValueOnce(new Error('Network down'))
+
+    const { result } = renderHook(() =>
+      useRoomSSE({ conversationId: 'hook-log-room', enabled: true })
+    )
+
+    await vi.waitFor(() => {
+      expect(result.current.error).toBe('Network down')
+    })
+    const events = recentLogs().filter((entry) => entry.fields.conversation_id === 'hook-log-room')
+    expect(events.map((entry) => [entry.event, entry.level])).toEqual([
+      ['room_sse_connect_failed', 'error'],
+    ])
+    expect(events[0].fields.error).toMatchObject({ name: 'Error' })
+    expect(JSON.stringify(events[0])).not.toContain('Network down')
   })
 })

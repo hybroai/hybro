@@ -5,6 +5,7 @@ from typing import Protocol
 
 from a2a_adapter.agent_card_health import probe_agent_card_for_health
 from common.config.loader import settings
+from common.observability import events as E
 from common.observability import get_logger, traced_create_task
 from common.protocols import LeaderElector
 from common.types import AgentCard as CommonAgentCard
@@ -15,6 +16,9 @@ from models.agent import (
 )
 
 logger = get_logger(__name__)
+
+# The ``trigger`` of status transitions made by this service.
+_TRIGGER = "health_check"
 
 
 def _reactivatable(agent: Agent) -> bool:
@@ -137,7 +141,7 @@ class AgentHealthService:
         Args:
             agent_id: The agent to check
             agent_url: The registered agent URL to probe
-            agent_name: Display name used in log messages
+            agent_name: Display name (unused; kept for the probe protocol)
             timeout: Optional override for HTTP timeout (defaults to self.timeout)
 
         Returns:
@@ -151,34 +155,24 @@ class AgentHealthService:
                 timeout=effective_timeout,
             )
             if result.is_healthy:
-                logger.debug(f"Agent {agent_id} ({agent_name}) is healthy")
-                if result.card is None:
-                    logger.debug(f"Could not parse agent card for {agent_id}")
-            elif result.status_code is not None:
-                logger.warning(
-                    f"Agent {agent_id} ({agent_name}) "
-                    f"returned status {result.status_code}"
+                logger.emit(
+                    E.AGENT_HEALTH_PROBE_SUCCEEDED,
+                    agent_id=agent_id,
+                    card_parsed=result.card is not None,
                 )
             else:
-                logger.warning(
-                    "agent_health_probe_unreachable",
-                    extra={
-                        "agent_id": agent_id,
-                        "agent_name": agent_name,
-                        "error_type": "adapter_error",
-                    },
+                # status_code is None when the adapter already logged a
+                # transport failure.
+                logger.emit(
+                    E.AGENT_HEALTH_PROBE_FAILED,
+                    agent_id=agent_id,
+                    status_code=result.status_code,
                 )
 
             return result.is_healthy, result.card
 
         except Exception as exc:
-            logger.error(
-                "agent_health_check_failed",
-                extra={
-                    "agent_id": agent_id,
-                    "error_type": type(exc).__name__,
-                },
-            )
+            logger.emit(E.AGENT_HEALTH_CHECK_FAILED, exc=exc, agent_id=agent_id)
             return False, None
 
     async def sync_agent_card(
@@ -211,21 +205,16 @@ class AgentHealthService:
             }
 
             if not partial_set:
-                logger.debug(
-                    f"Agent card unchanged for {agent_id} ({fetched_card.name}), skipping update"
-                )
                 return
 
             await self._require_repository().update(agent_id, partial_set)
-            logger.debug(f"Agent card updated for {agent_id} ({fetched_card.name})")
-        except Exception as exc:
-            logger.warning(
-                "agent_card_update_failed",
-                extra={
-                    "agent_id": agent_id,
-                    "error_type": type(exc).__name__,
-                },
+            logger.emit(
+                E.AGENT_CARD_SYNCED,
+                agent_id=agent_id,
+                changed_field_count=len(partial_set),
             )
+        except Exception as exc:
+            logger.emit(E.AGENT_CARD_SYNC_FAILED, exc=exc, agent_id=agent_id)
 
     async def update_agent_status(self, agent_id: str, new_status: AgentStatus) -> bool:
         """
@@ -241,12 +230,13 @@ class AgentHealthService:
         repo = self._require_repository()
         try:
             await repo.update(agent_id, {"agent_status": new_status.value})
-            logger.info(f"Agent {agent_id} status updated to {new_status.value}")
             return True
         except Exception as exc:
-            logger.error(
-                "agent_status_update_failed",
-                extra={"agent_id": agent_id, "error_type": type(exc).__name__},
+            logger.emit(
+                E.AGENT_STATUS_UPDATE_FAILED,
+                exc=exc,
+                agent_id=agent_id,
+                agent_status=new_status.value,
             )
             return False
 
@@ -262,13 +252,13 @@ class AgentHealthService:
                 {"agent_status": AgentStatus.active.value},
             )
         except Exception as exc:
-            logger.error(
-                "agent_status_update_failed",
-                extra={"agent_id": agent_id, "error_type": type(exc).__name__},
+            logger.emit(
+                E.AGENT_STATUS_UPDATE_FAILED,
+                exc=exc,
+                agent_id=agent_id,
+                agent_status=AgentStatus.active.value,
             )
             return False
-        if changed:
-            logger.info(f"Agent {agent_id} status updated to active")
         return bool(changed)
 
     async def _check_stored_agent(
@@ -316,9 +306,7 @@ class AgentHealthService:
         if fetched_card:
             await self._sync_stored_card(agent, fetched_card)
         if _reactivatable(agent) and await self.reactivate_agent(agent_id):
-            logger.info(
-                f"Agent {agent_id} ({agent.agent_card.name}) recovered - marked active"
-            )
+            logger.emit(E.AGENT_REACTIVATED, agent_id=agent_id, trigger=_TRIGGER)
 
     async def _handle_retry_failure(
         self,
@@ -333,12 +321,17 @@ class AgentHealthService:
             return False
 
         if agent.agent_status == AgentStatus.active:
-            await self.update_agent_status(agent_id, AgentStatus.inactive)
-            logger.warning(
-                f"Agent {agent_id} ({agent.agent_card.name}) "
-                f"marked inactive after {failures} consecutive failures"
-            )
+            await self._deactivate(agent_id, failures)
         return True
+
+    async def _deactivate(self, agent_id: str, failures: int) -> None:
+        if await self.update_agent_status(agent_id, AgentStatus.inactive):
+            logger.emit(
+                E.AGENT_DEACTIVATED,
+                agent_id=agent_id,
+                trigger=_TRIGGER,
+                consecutive_failure_count=failures,
+            )
 
     async def _retry_agent_check(self, agent_id: str):
         """
@@ -354,9 +347,11 @@ class AgentHealthService:
                     break
 
                 delay = self._get_retry_delay(failure_count)
-                logger.debug(
-                    f"Scheduling retry for agent {agent_id} in {delay}s "
-                    f"(failure {failure_count}/{self.max_consecutive_failures})"
+                logger.emit(
+                    E.AGENT_HEALTH_RETRY_SCHEDULED,
+                    agent_id=agent_id,
+                    delay_seconds=delay,
+                    consecutive_failure_count=failure_count,
                 )
                 await asyncio.sleep(delay)
 
@@ -377,12 +372,9 @@ class AgentHealthService:
                     break
 
         except asyncio.CancelledError:
-            logger.debug(f"Retry task for agent {agent_id} cancelled")
+            logger.emit(E.AGENT_HEALTH_RETRY_CANCELLED, agent_id=agent_id)
         except Exception as exc:
-            logger.error(
-                "agent_health_retry_failed",
-                extra={"agent_id": agent_id, "error_type": type(exc).__name__},
-            )
+            logger.emit(E.AGENT_HEALTH_RETRY_FAILED, exc=exc, agent_id=agent_id)
         finally:
             # Clean up retry task reference
             self._retry_tasks.pop(agent_id, None)
@@ -408,7 +400,7 @@ class AgentHealthService:
             )
             agents = [self._coerce_agent(agent) for agent in raw_agents]
 
-            logger.info(f"Running health check for {len(agents)} agents")
+            logger.emit(E.AGENT_HEALTH_CYCLE_STARTED, agent_count=len(agents))
 
             for agent in agents:
                 agent_id = agent.agent_id
@@ -418,7 +410,11 @@ class AgentHealthService:
                     agent_id in self._retry_tasks
                     and not self._retry_tasks[agent_id].done()
                 ):
-                    logger.debug(f"Skipping agent {agent_id} - retry task in progress")
+                    logger.emit(
+                        E.AGENT_HEALTH_CHECK_SKIPPED,
+                        agent_id=agent_id,
+                        reason="retry_in_progress",
+                    )
                     continue
 
                 is_healthy, fetched_card = await self._check_stored_agent(agent)
@@ -429,9 +425,8 @@ class AgentHealthService:
                     if fetched_card:
                         await self._sync_stored_card(agent, fetched_card)
                     if _reactivatable(agent) and await self.reactivate_agent(agent_id):
-                        logger.info(
-                            f"Agent {agent_id} ({agent.agent_card.name}) "
-                            f"recovered - marked active"
+                        logger.emit(
+                            E.AGENT_REACTIVATED, agent_id=agent_id, trigger=_TRIGGER
                         )
                 else:
                     # Increment failure count
@@ -443,41 +438,22 @@ class AgentHealthService:
                     # Only mark inactive after consecutive failures
                     if failures >= self.max_consecutive_failures:
                         if agent.agent_status == AgentStatus.active:
-                            await self.update_agent_status(
-                                agent_id, AgentStatus.inactive
-                            )
-                            logger.warning(
-                                f"Agent {agent_id} ({agent.agent_card.name}) "
-                                f"marked inactive after {failures} consecutive failures"
-                            )
+                            await self._deactivate(agent_id, failures)
                     else:
                         # Schedule exponential backoff retry
                         self._schedule_retry(agent_id)
 
         except Exception as exc:
-            logger.error(
-                "agent_health_cycle_failed",
-                extra={"error_type": type(exc).__name__},
-            )
+            logger.emit(E.AGENT_HEALTH_CYCLE_FAILED, exc=exc)
 
     async def _health_check_loop(self):
         """Background loop that periodically runs health checks."""
-        logger.info(
-            f"Agent health check service started "
-            f"(interval: {self.check_interval}s, timeout: {self.timeout}s, "
-            f"max_failures: {self.max_consecutive_failures}, "
-            f"initial_retry: {self.initial_retry_delay}s)"
-        )
-
         while self._running:
             try:
                 await self._run_one_iteration()
                 await asyncio.sleep(self.check_interval)
             except Exception as exc:
-                logger.error(
-                    "agent_health_loop_failed",
-                    extra={"error_type": type(exc).__name__},
-                )
+                logger.emit(E.JOB_ITERATION_FAILED, exc=exc, job=self._leader_lock_name)
                 await asyncio.sleep(60)
 
     async def _run_one_iteration(self) -> None:
@@ -486,6 +462,7 @@ class AgentHealthService:
             ttl = self.check_interval * 2
             acquired = await self._leader.try_acquire(self._leader_lock_name, ttl)
             if not acquired:
+                logger.emit(E.JOB_SKIPPED_NOT_LEADER, job=self._leader_lock_name)
                 return  # another instance is the leader
             try:
                 await self.run_health_check_cycle()
@@ -497,11 +474,13 @@ class AgentHealthService:
     async def start(self):
         """Start the health check background task."""
         if not settings.agent_health_check_enabled:
-            logger.info("Agent health check service is disabled")
+            logger.emit(
+                E.JOB_START_SKIPPED, job=self._leader_lock_name, reason="disabled"
+            )
             return
 
         if self._running:
-            logger.warning("Health check service is already running")
+            logger.emit(E.JOB_ALREADY_STARTED, job=self._leader_lock_name)
             return
 
         self._running = True
@@ -509,7 +488,14 @@ class AgentHealthService:
             self._health_check_loop(),
             name="agent-health-check",
         )
-        logger.info("Agent health check service started")
+        logger.emit(
+            E.JOB_STARTED,
+            job=self._leader_lock_name,
+            interval_seconds=self.check_interval,
+            timeout_seconds=self.timeout,
+            max_consecutive_failure_count=self.max_consecutive_failures,
+            initial_retry_seconds=self.initial_retry_delay,
+        )
 
     async def stop(self):
         """Stop the health check background task."""
@@ -529,4 +515,4 @@ class AgentHealthService:
                 await self._task
             except asyncio.CancelledError:
                 pass
-        logger.info("Agent health check service stopped")
+        logger.emit(E.JOB_STOPPED, job=self._leader_lock_name)

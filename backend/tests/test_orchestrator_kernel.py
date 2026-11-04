@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 
 import pytest
 
@@ -1625,3 +1626,38 @@ async def test_recovery_keeps_multi_batch_turn_open_when_entry_still_parked():
     assert closed_turn_id is None
     assert "turn_completed" not in events
     assert recovered.active_internal_turn_id == "turn-open"
+
+
+@pytest.mark.asyncio
+async def test_failed_supervisor_ask_user_creation_is_logged(caplog):
+    from execution.orchestrator.kernel import REQUEST_USER_INPUT_TOOL_NAME
+
+    async def failing_hitl(**_kwargs) -> None:
+        raise RuntimeError("ask store secret-detail")
+
+    kernel, store, _runtime, _ = await make_kernel(
+        [
+            tool_events(
+                ("ask-1", REQUEST_USER_INPUT_TOOL_NAME, '{"question": "Which city?"}')
+            ),
+        ],
+        supervisor_hitl=failing_hitl,
+    )
+    run = next(iter(store.runs.values()))
+
+    with caplog.at_level(logging.ERROR, logger="execution.orchestrator.kernel"):
+        with pytest.raises(RuntimeError, match="secret-detail"):
+            await kernel.run(run.run_id, signal=NeverCancelled())
+
+    [record] = [
+        r
+        for r in caplog.records
+        if r.getMessage() == "supervisor_ask_user_creation_failed"
+    ]
+    assert record.run_id == run.run_id
+    assert record.conversation_id == run.conversation_id
+    assert record.client_request_id == run.client_request_id
+    assert record.client_request_id is not None
+    assert record.call_id == "ask-1"
+    assert record.error_type == "RuntimeError"
+    assert "secret-detail" not in caplog.text

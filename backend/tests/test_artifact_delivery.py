@@ -1,3 +1,5 @@
+import logging
+
 import pytest
 
 from common.errors import (
@@ -64,7 +66,7 @@ async def test_materialization_reports_storage_failure_without_logging_payload(c
 
 
 @pytest.mark.asyncio
-async def test_materialization_retries_transient_platform_storage_failure():
+async def test_materialization_retries_transient_platform_storage_failure(caplog):
     from a2a_adapter.artifact_storage import bind_artifact_files, materialize_artifacts
 
     class TransientStorage:
@@ -102,11 +104,19 @@ async def test_materialization_retries_transient_platform_storage_failure():
     )
     report = new_materialization_report()
 
+    caplog.set_level(logging.WARNING, logger="a2a_adapter.artifact_storage")
     converted = await materialize_artifacts(
         [artifact], "room-1", "message-1", report=report
     )
 
     assert storage.calls == 2
+    [record] = [
+        r
+        for r in caplog.records
+        if r.getMessage() == "artifact_materialization_store_retried"
+    ]
+    assert record.attempt == 1
+    assert record.platform_status == 409
     assert converted == 1
     assert report["stored"] == 1
     assert report["unavailable"] == 0

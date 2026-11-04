@@ -20,8 +20,8 @@ from typing import Protocol, runtime_checkable
 
 from common.config import settings
 from common.dto import CompactionResult
-from common.observability import traced_create_task
-from common.utils.logger import get_logger
+from common.observability import events as E
+from common.observability import get_logger, traced_create_task
 from jobs.constants import COMPACTION_SWEEP
 
 logger = get_logger(__name__)
@@ -74,15 +74,17 @@ class CompactionSweep:
 
     async def start(self) -> None:
         if self._running:
-            logger.warning("Compaction sweep already running")
+            logger.emit(E.JOB_ALREADY_STARTED, job=COMPACTION_SWEEP)
             return
         if not settings.compaction_enabled:
-            logger.info("Compaction sweep skipped — compaction is disabled")
+            logger.emit(E.JOB_START_SKIPPED, job=COMPACTION_SWEEP, reason="disabled")
             return
         self._running = True
         self._task = traced_create_task(self._run_loop(), name="compaction-sweep")
-        logger.info(
-            "Compaction sweep started (interval: %d min)", self.interval_minutes
+        logger.emit(
+            E.JOB_STARTED,
+            job=COMPACTION_SWEEP,
+            interval_seconds=self.interval_minutes * 60,
         )
 
     async def stop(self) -> None:
@@ -93,7 +95,7 @@ class CompactionSweep:
                 await self._task
             except asyncio.CancelledError:
                 pass
-        logger.info("Compaction sweep stopped")
+        logger.emit(E.JOB_STOPPED, job=COMPACTION_SWEEP)
 
     async def _run_loop(self) -> None:
         while self._running:
@@ -102,8 +104,8 @@ class CompactionSweep:
                 await self._run_one_iteration()
             except asyncio.CancelledError:
                 break
-            except Exception as e:
-                logger.error("Compaction sweep error: %s", e, exc_info=True)
+            except Exception as exc:
+                logger.emit(E.JOB_ITERATION_FAILED, exc=exc, job=COMPACTION_SWEEP)
                 await asyncio.sleep(60)
 
     async def _run_one_iteration(self) -> None:
@@ -112,6 +114,7 @@ class CompactionSweep:
             ttl = int(self.interval_minutes * 60 * 2)
             acquired = await self._leader.try_acquire(COMPACTION_SWEEP, ttl)
             if not acquired:
+                logger.emit(E.JOB_SKIPPED_NOT_LEADER, job=COMPACTION_SWEEP)
                 return  # another instance is the leader
             try:
                 await self.sweep()
@@ -164,20 +167,15 @@ class CompactionSweep:
                     result = await deps.context_compaction.compact_if_needed(rid)
                     if result and result.compacted_count > 0:
                         stats["compacted"] += 1
-                        logger.info(
-                            "compaction_sweep: compacted room %s "
-                            "(%d turns, saved ~%d tokens)",
-                            rid,
-                            result.compacted_count,
-                            result.tokens_saved,
+                        logger.emit(
+                            E.ROOM_COMPACTED,
+                            conversation_id=rid,
+                            compacted_turns=result.compacted_count,
+                            tokens_saved=result.tokens_saved,
                         )
                 except Exception as exc:
                     stats["errors"] += 1
-                    logger.warning(
-                        "compaction_sweep: error compacting room %s: %s",
-                        rid,
-                        exc,
-                    )
+                    logger.emit(E.ROOM_COMPACTION_FAILED, exc=exc, conversation_id=rid)
                 finally:
                     queue.task_done()
 
@@ -201,12 +199,12 @@ class CompactionSweep:
                     worker.cancel()
             await asyncio.gather(*workers, return_exceptions=True)
 
-        logger.info(
-            "compaction_sweep: done — scanned=%d compacted=%d skipped=%d errors=%d",
-            stats["scanned"],
-            stats["compacted"],
-            stats["skipped"],
-            stats["errors"],
+        logger.emit(
+            E.COMPACTION_SWEEP_COMPLETED,
+            scanned_rooms=stats["scanned"],
+            compacted_rooms=stats["compacted"],
+            skipped_rooms=stats["skipped"],
+            failed_rooms=stats["errors"],
         )
         return stats
 

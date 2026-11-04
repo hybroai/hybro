@@ -26,6 +26,7 @@ from common.dto.delivery import (
     TaskUpdateEvent,
 )
 from common.dto.turn_lifecycle import CANONICAL_RUN_EVENT_KINDS
+from common.observability import events as E
 from common.utils.logger import get_logger
 from delivery.room_events import RoomEventStore
 
@@ -218,9 +219,10 @@ class RoomEventFold:
                     # First exact final commit is absorbing. Contradictory
                     # duplicates are protocol violations and never mutate it.
                     if final.get("text") != durable_text:
-                        logger.warning(
-                            "ignoring contradictory duplicate canonical final",
-                            extra={"run_id": turn.get("run_id")},
+                        logger.emit(
+                            E.CANONICAL_FINAL_CONFLICT_IGNORED,
+                            message_id=message_id,
+                            run_id=turn.get("run_id"),
                         )
                     continue
                 final["text"] = durable_text

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 from datetime import timedelta
 
 import pytest
@@ -442,14 +443,25 @@ async def test_shutdown_settlement_is_not_raced_by_the_cancelled_waiter():
     assert saved.recovery_claim.next_attempt_at is None
 
 
-async def test_failed_shutdown_settlement_leaves_the_run_to_interrupted_recovery():
+async def test_failed_shutdown_settlement_leaves_the_run_to_interrupted_recovery(
+    caplog,
+):
     """Keeping the driver claim makes recovery fail the Run instead of resuming it."""
     from execution.orchestrator.session import interrupted_run_needs_settlement
 
     store = InMemoryOrchestratorRunStore()
     kernel = _YieldingTerminalizeKernel(store, fail_settlement=True)
 
-    session, config, saved = await _shutdown_mid_run(kernel, store)
+    with caplog.at_level(logging.WARNING, logger="execution.orchestrator.session"):
+        session, config, saved = await _shutdown_mid_run(kernel, store)
+
+    [record] = [
+        r
+        for r in caplog.records
+        if r.getMessage() == "interrupted_run_settlement_failed"
+    ]
+    assert record.run_id == saved.run_id
+    assert record.error_type == "KernelConflict"
 
     assert saved.status == "running"
     assert saved.recovery_claim.owner_id == execution_owner_id(config.session_id)

@@ -12,7 +12,6 @@ interface instead of a single field.
 
 from __future__ import annotations
 
-import logging
 from collections.abc import AsyncGenerator, Awaitable, Callable
 from contextlib import aclosing
 from typing import Any
@@ -22,9 +21,11 @@ import httpx
 from a2a.client.errors import A2AClientError
 from a2a.utils.errors import A2AError
 
+from common.observability import events as E
+from common.observability import get_logger
 from common.url_utils import LOCAL_HOST_ALIASES
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 _DOCKER_HOST = "host.docker.internal"
 _NETWORK_ERROR_MARKERS = (
@@ -58,9 +59,10 @@ async def with_docker_host_url_fallback[T](
         fallback_url = docker_host_fallback_url_for_error(url, exc)
         if fallback_url is None:
             raise
-        logger.debug(
-            "a2a_docker_host_fallback_selected",
-            extra={"original_url": url, "fallback_url": fallback_url},
+        logger.emit(
+            E.A2A_DOCKER_HOST_FALLBACK_SELECTED,
+            original_url=url,
+            fallback_url=fallback_url,
         )
         return await operation(fallback_url)
 
@@ -81,9 +83,10 @@ async def stream_with_docker_host_url_fallback[T](
         )
         if fallback_url is None:
             raise
-        logger.debug(
-            "a2a_docker_host_fallback_selected",
-            extra={"original_url": url, "fallback_url": fallback_url},
+        logger.emit(
+            E.A2A_DOCKER_HOST_FALLBACK_SELECTED,
+            original_url=url,
+            fallback_url=fallback_url,
         )
         async with aclosing(operation(fallback_url)) as stream:
             async for item in stream:
@@ -116,9 +119,10 @@ def _fallback_card(card: Any, exc: Exception) -> Any | None:
     fallback_url = docker_host_fallback_url_for_error(original_url, exc)
     if fallback_url is None:
         return None
-    logger.debug(
-        "a2a_docker_host_fallback_selected",
-        extra={"original_url": original_url, "fallback_url": fallback_url},
+    logger.emit(
+        E.A2A_DOCKER_HOST_FALLBACK_SELECTED,
+        original_url=original_url,
+        fallback_url=fallback_url,
     )
     return _copy_card_with_url(card, fallback_url)
 

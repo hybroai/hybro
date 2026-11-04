@@ -75,6 +75,8 @@ COPY default_agents/travel_planner_agent/ /app/default_agents/travel_planner_age
 COPY default_agents/weather_agent/ /app/default_agents/weather_agent/
 # The bundled agent manifest the backend registers at boot.
 COPY default_agents/agents.yaml /app/bundled_agents.yaml
+# The release version the structured logs stamp on every line.
+COPY VERSION /app/VERSION
 COPY --from=frontend /src/.next/standalone/ /app/frontend/
 
 # Copied binaries are fragile across base image updates; fail the build here.

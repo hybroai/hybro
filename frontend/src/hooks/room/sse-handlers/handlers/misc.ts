@@ -2,6 +2,7 @@ import { toast } from 'sonner'
 import type { ErrorData, RoomSSEFrameMap } from '@/lib/types/sse'
 import type { ProcessingLifecycle } from '../../processing-lifecycle'
 import type { SSEHandlerDeps } from '../types'
+import { log, logToken } from '@/lib/log'
 
 function isErrorDataObject(data: unknown): data is ErrorData {
   return Boolean(data && typeof data === 'object' && !Array.isArray(data))
@@ -12,16 +13,28 @@ function isTurnScopedError(data: ErrorData): boolean {
 }
 
 export function handleError(_ctx: SSEHandlerDeps, sseMessage: RoomSSEFrameMap['error']): void {
-  console.error('❌ SSE error message:', sseMessage.data)
   const errorData = isErrorDataObject(sseMessage.data) ? sseMessage.data : undefined
+  log.error('sse_error_frame', {
+    conversation_id: sseMessage.conversation_id,
+    error_type: logToken(errorData?.error_type),
+    client_request_id: errorData?.client_request_id,
+  })
   if (!errorData) {
-    console.debug('Ignoring malformed error SSE data:', sseMessage.data)
+    log.debug('sse_frame_ignored', {
+      conversation_id: sseMessage.conversation_id,
+      type: sseMessage.type,
+      reason: 'malformed_data',
+    })
     toast.error('Unknown error')
     return
   }
 
   if (isTurnScopedError(errorData) && !errorData.client_request_id) {
-    console.debug('Ignoring turn-scoped error without client_request_id:', errorData)
+    log.debug('sse_frame_ignored', {
+      conversation_id: sseMessage.conversation_id,
+      type: sseMessage.type,
+      reason: 'missing_client_request_id',
+    })
     return
   }
 
@@ -47,7 +60,7 @@ export function handleError(_ctx: SSEHandlerDeps, sseMessage: RoomSSEFrameMap['e
 }
 
 export function handleConnected(sseMessage: RoomSSEFrameMap['connected']): void {
-  console.debug('Room SSE connected:', sseMessage.data.connection_id)
+  log.debug('sse_room_connected', { conversation_id: sseMessage.conversation_id, connection_id: sseMessage.data.connection_id })
 }
 
 export function handleHeartbeat(): void {
@@ -57,7 +70,7 @@ export function handleCancellation(
   _ctx: SSEHandlerDeps,
   sseMessage: RoomSSEFrameMap['cancellation'],
 ): void {
-  console.debug('Room SSE cancellation event:', sseMessage.data)
+  log.debug('sse_cancellation_received', { conversation_id: sseMessage.conversation_id })
 }
 
 export function handleRunEvent(

@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
-import logging
 from collections.abc import Awaitable, Callable
 from datetime import UTC, datetime, timedelta
+
+from common.observability import events as E
+from common.observability import get_logger
 
 from ..budget import resumed_deadline_at
 from ..kernel import KernelLifecycle, KernelRunResult, OrchestratorKernel, SystemClock
@@ -15,7 +17,7 @@ from ..ports import CancellationSignal, OrchestratorRunStore
 from ..session import schedule_run_recovery
 from .errors import RecoverableAdapterError
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 
 async def await_recoverable(
@@ -23,6 +25,8 @@ async def await_recoverable(
     *,
     schedule_recovery: Callable[[datetime], Awaitable[None]],
     now: Callable[[], datetime],
+    conversation_id: str,
+    run_id: Callable[[], str | None],
 ) -> KernelRunResult:
     """Request the same early wake at every accepted Kernel re-entry boundary."""
     try:
@@ -30,8 +34,14 @@ async def await_recoverable(
     except RecoverableAdapterError:
         try:
             await schedule_recovery(now() + timedelta(seconds=5))
-        except Exception:
-            logger.exception("failed to schedule recoverable Run")
+        except Exception as exc:
+            # Read the Run id late: a prompt creates its Run inside ``work``.
+            logger.emit(
+                E.RUN_RECOVERY_SCHEDULE_FAILED,
+                exc=exc,
+                run_id=run_id(),
+                conversation_id=conversation_id,
+            )
         raise
 
 
@@ -117,4 +127,6 @@ class RunAddressedToolObservationSink:
                 self.run_store, run_id, next_attempt_at=due
             ),
             now=self.clock.now,
+            conversation_id=run.conversation_id,
+            run_id=lambda: run_id,
         )

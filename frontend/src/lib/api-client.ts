@@ -4,6 +4,7 @@
  */
 
 import { getClientAuthHeaders } from './auth'
+import { log, requestHeaders } from './log'
 
 /**
  * Custom error class for API responses that carries the HTTP status code.
@@ -56,10 +57,12 @@ export async function apiClient<T = unknown>(
   // Get auth headers (will use default getToken if not provided)
   const authHeaders = await getClientAuthHeaders(getToken)
 
-  // Merge auth headers with custom headers
+  // Merge auth headers with custom headers; every call gets its own X-Request-ID.
+  const { headers: requestIdHeader, requestId } = requestHeaders()
   const headers = {
     ...authHeaders,
     ...customHeaders,
+    ...requestIdHeader,
   }
 
   // Support cancellation and timeout
@@ -115,20 +118,29 @@ export async function apiClient<T = unknown>(
     // Preserve AbortError so callers can treat it as cancellation.
     if (error instanceof Error && error.name === 'AbortError') {
       if (timedOut) {
-        console.error('[apiClient] Timeout', { url, timeoutMs: timeout, method })
+        log.error('api_request_timed_out', { request_id: requestId, method, url, timeout_ms: timeout })
       } else {
-        console.debug('[apiClient] Aborted', { url, method })
+        log.debug('api_request_aborted', { request_id: requestId, method, url })
       }
       // Re-throw the original AbortError (do not wrap) so upstream can detect it.
       throw error
     }
 
     // Use warn for client errors (4xx) since they are expected validation issues,
-    // and error for server errors (5xx) or unexpected failures.
+    // and error for server errors (5xx) or unexpected failures. The error
+    // message embeds the response body, so only the status and name are logged.
     if (error instanceof ApiError && error.isClientError) {
-      console.warn('[apiClient] Client error', { url, method, status: error.status, message: error.message })
+      log.warn('api_request_client_error', { request_id: requestId, method, url, status: error.status })
     } else {
-      console.error('[apiClient] Request failed', { url, method, message: error instanceof Error ? error.message : error })
+      log.error('api_request_failed', {
+        request_id: requestId,
+        method,
+        url,
+        // Only the name: a SyntaxError from response.json() quotes the body.
+        ...(error instanceof ApiError
+          ? { status: error.status }
+          : { error_name: error instanceof Error ? error.name : typeof error }),
+      })
     }
     throw error
   }

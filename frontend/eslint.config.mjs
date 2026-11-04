@@ -16,6 +16,7 @@ export default [
       "@next/next/no-img-element": "off",
       "jsx-a11y/alt-text": "warn",
       "testing-library/no-unnecessary-act": "off",
+      "no-console": "error",
     },
   },
   // Tests commonly use `any` for mocks/fixtures; keep the rule on for app code.
@@ -30,6 +31,14 @@ export default [
     ],
     rules: {
       "@typescript-eslint/no-explicit-any": "off",
+      "no-console": "off",
+    },
+  },
+  // src/lib/log.ts is the console sink; everything else logs through it.
+  {
+    files: ["src/lib/log.ts"],
+    rules: {
+      "no-console": "off",
     },
   },
 ];

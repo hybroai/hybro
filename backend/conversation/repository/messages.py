@@ -10,6 +10,8 @@ from pymongo.errors import DuplicateKeyError
 
 from common.a2a_constants import FAILURE_STATES, TERMINAL_STATES, CommonTaskState
 from common.dto.base import to_stored_conversation_keys
+from common.observability import events as E
+from common.observability import log_id
 from common.utils.a2a_helpers import sanitize_artifact_parts
 from common.utils.logger import get_logger
 from common.utils.time import utcnow
@@ -47,8 +49,13 @@ class ConversationMessageStore:
             return _safe_parse_user_message(
                 await self._message_repository.get_user_message_by_id(message_id)
             )
-        except Exception:
-            logger.error("Failed to get room user message", exc_info=True)
+        except Exception as exc:
+            logger.emit(
+                E.CONVERSATION_STORE_OPERATION_FAILED,
+                exc=exc,
+                operation="get_room_user_message_by_message_id",
+                message_id=message_id,
+            )
             return None
 
     async def get_room_user_messages_by_room_id(
@@ -63,8 +70,13 @@ class ConversationMessageStore:
                 _safe_parse_user_message(doc) for doc in docs if doc is not None
             ]
             return [message for message in messages if message is not None]
-        except Exception:
-            logger.error("Failed to get room user messages", exc_info=True)
+        except Exception as exc:
+            logger.emit(
+                E.CONVERSATION_STORE_OPERATION_FAILED,
+                exc=exc,
+                operation="get_room_user_messages_by_room_id",
+                conversation_id=conversation_id,
+            )
             return []
 
     async def get_room_agent_message_by_message_id(
@@ -74,8 +86,13 @@ class ConversationMessageStore:
             return _safe_parse_agent_message(
                 await self._message_repository.get_agent_message_by_id(message_id)
             )
-        except Exception:
-            logger.error("Failed to get room agent message", exc_info=True)
+        except Exception as exc:
+            logger.emit(
+                E.CONVERSATION_STORE_OPERATION_FAILED,
+                exc=exc,
+                operation="get_room_agent_message_by_message_id",
+                message_id=message_id,
+            )
             return None
 
     async def get_room_agent_messages_by_room_id(
@@ -90,8 +107,13 @@ class ConversationMessageStore:
                 _safe_parse_agent_message(doc) for doc in docs if doc is not None
             ]
             return [message for message in messages if message is not None]
-        except Exception:
-            logger.error("Failed to get room agent messages", exc_info=True)
+        except Exception as exc:
+            logger.emit(
+                E.CONVERSATION_STORE_OPERATION_FAILED,
+                exc=exc,
+                operation="get_room_agent_messages_by_room_id",
+                conversation_id=conversation_id,
+            )
             return []
 
     async def get_room_agent_messages_by_related_message_id(
@@ -107,8 +129,13 @@ class ConversationMessageStore:
                 _safe_parse_agent_message(doc) for doc in docs if doc is not None
             ]
             return [message for message in messages if message is not None]
-        except Exception:
-            logger.error("Failed to get related agent messages", exc_info=True)
+        except Exception as exc:
+            logger.emit(
+                E.CONVERSATION_STORE_OPERATION_FAILED,
+                exc=exc,
+                operation="get_room_agent_messages_by_related_message_id",
+                related_message_id=related_message_id,
+            )
             return []
 
     async def add_room_agent_message(
@@ -121,8 +148,15 @@ class ConversationMessageStore:
                 to_stored_conversation_keys(room_agent_message.model_dump(mode="json"))
             )
             return True
-        except Exception:
-            logger.error("Failed to add room agent message", exc_info=True)
+        except Exception as exc:
+            logger.emit(
+                E.CONVERSATION_STORE_OPERATION_FAILED,
+                exc=exc,
+                operation="add_room_agent_message",
+                conversation_id=room_agent_message.conversation_id,
+                message_id=room_agent_message.message_id,
+                agent_id=room_agent_message.agent_id,
+            )
             return False
 
     async def add_room_user_message(self, room_user_message: RoomUserMessage) -> bool:
@@ -134,8 +168,15 @@ class ConversationMessageStore:
             )
             _strip_file_urls(doc)
             return bool(await self._message_repository.save_user_message(doc))
-        except Exception:
-            logger.error("Failed to add room user message", exc_info=True)
+        except Exception as exc:
+            logger.emit(
+                E.CONVERSATION_STORE_OPERATION_FAILED,
+                exc=exc,
+                operation="add_room_user_message",
+                conversation_id=room_user_message.conversation_id,
+                message_id=room_user_message.message_id,
+                client_request_id=log_id(room_user_message.client_request_id),
+            )
             return False
 
     async def set_system_task_terminal_state(
@@ -216,8 +257,14 @@ class ConversationMessageStore:
                 message_id,
                 update_data,
             )
-        except Exception:
-            logger.error("Failed to update room user message", exc_info=True)
+        except Exception as exc:
+            logger.emit(
+                E.CONVERSATION_STORE_OPERATION_FAILED,
+                exc=exc,
+                operation="update_room_user_message_by_message_id",
+                conversation_id=room_user_message.conversation_id,
+                message_id=message_id,
+            )
             return False
 
     async def upsert_room_agent_message(  # noqa: C901
@@ -310,12 +357,13 @@ class ConversationMessageStore:
                 if durable_state in set(terminal_states) or durable_winner is not None:
                     return
                 raise RuntimeError("Agent-message upsert lost replacement CAS")
-        except Exception:
-            logger.error(
-                "Failed to upsert room agent message conversation_id=%s message_id=%s",
-                room_agent_message.conversation_id,
-                room_agent_message.message_id,
-                exc_info=True,
+        except Exception as exc:
+            logger.emit(
+                E.CONVERSATION_STORE_OPERATION_FAILED,
+                exc=exc,
+                operation="upsert_room_agent_message",
+                conversation_id=room_agent_message.conversation_id,
+                message_id=room_agent_message.message_id,
             )
             raise
 
@@ -324,8 +372,13 @@ class ConversationMessageStore:
             return await self._room_agent_messages.delete_one(
                 {"message_id": message_id}
             )
-        except Exception:
-            logger.error("Failed to delete room agent message", exc_info=True)
+        except Exception as exc:
+            logger.emit(
+                E.CONVERSATION_STORE_OPERATION_FAILED,
+                exc=exc,
+                operation="delete_room_agent_message_by_message_id",
+                message_id=message_id,
+            )
             return False
 
     async def update_room_agent_message_by_message_id(
@@ -341,8 +394,13 @@ class ConversationMessageStore:
                 message_id,
                 update_data,
             )
-        except Exception:
-            logger.error("Failed to update room agent message", exc_info=True)
+        except Exception as exc:
+            logger.emit(
+                E.CONVERSATION_STORE_OPERATION_FAILED,
+                exc=exc,
+                operation="update_room_agent_message_by_message_id",
+                message_id=message_id,
+            )
             return False
 
     async def refresh_processing_claim(self, message_id: str) -> bool:
@@ -351,8 +409,13 @@ class ConversationMessageStore:
                 {"message_id": message_id, "processing_claimed_at": {"$ne": None}},
                 {"$set": {"processing_claimed_at": utcnow()}},
             )
-        except Exception:
-            logger.error("Failed to refresh processing claim", exc_info=True)
+        except Exception as exc:
+            logger.emit(
+                E.CONVERSATION_STORE_OPERATION_FAILED,
+                exc=exc,
+                operation="refresh_processing_claim",
+                message_id=message_id,
+            )
             return False
 
     async def update_orchestration_projection_if_status(
@@ -376,10 +439,12 @@ class ConversationMessageStore:
                 },
                 {"$set": updates},
             )
-        except Exception:
-            logger.error(
-                "Failed to conditionally update orchestration projection",
-                exc_info=True,
+        except Exception as exc:
+            logger.emit(
+                E.CONVERSATION_STORE_OPERATION_FAILED,
+                exc=exc,
+                operation="update_orchestration_projection_if_status",
+                message_id=message_id,
             )
             return False
 
@@ -394,8 +459,14 @@ class ConversationMessageStore:
                 {"room_id": conversation_id, "turn_id": turn_id}
             )
             return agent is not None
-        except Exception:
-            logger.error("Failed to check turn existence", exc_info=True)
+        except Exception as exc:
+            logger.emit(
+                E.CONVERSATION_STORE_OPERATION_FAILED,
+                exc=exc,
+                operation="turn_exists",
+                conversation_id=conversation_id,
+                turn_id=turn_id,
+            )
             return False
 
     async def cancel_descendants(self, message_id: str) -> int:
@@ -533,8 +604,13 @@ class ConversationMessageStore:
                 message_id,
                 {"message_content": message_content.model_dump(mode="json")},
             )
-        except Exception:
-            logger.error("Failed to update room agent message content", exc_info=True)
+        except Exception as exc:
+            logger.emit(
+                E.CONVERSATION_STORE_OPERATION_FAILED,
+                exc=exc,
+                operation="update_room_agent_message_with_new_message_content_by_message_id",
+                message_id=message_id,
+            )
             return False
 
     async def reset_last_notified_state(self, message_id: str) -> bool:
@@ -543,8 +619,13 @@ class ConversationMessageStore:
                 {"message_id": message_id},
                 {"$unset": {"last_notified_state": ""}},
             )
-        except Exception:
-            logger.error("Failed to reset last notified state", exc_info=True)
+        except Exception as exc:
+            logger.emit(
+                E.CONVERSATION_STORE_OPERATION_FAILED,
+                exc=exc,
+                operation="reset_last_notified_state",
+                message_id=message_id,
+            )
             return False
 
     async def claim_terminal_finalization(
@@ -913,10 +994,10 @@ class ConversationMessageStore:
             artifact = {**artifact, "parts": clean_parts}
 
             if append and not clean_parts:
-                logger.warning(
-                    "All artifact parts dropped by sanitizer; skipping append "
-                    "(message_id=%s)",
-                    message_id,
+                logger.emit(
+                    E.ARTIFACT_APPEND_SKIPPED,
+                    message_id=message_id,
+                    reason="parts_dropped",
                 )
                 return False
 
@@ -967,8 +1048,13 @@ class ConversationMessageStore:
                 base_filter,
                 update_key,
             )
-        except Exception:
-            logger.error("Failed to accumulate artifact on message", exc_info=True)
+        except Exception as exc:
+            logger.emit(
+                E.CONVERSATION_STORE_OPERATION_FAILED,
+                exc=exc,
+                operation="accumulate_artifact_on_message",
+                message_id=message_id,
+            )
             return False
 
     async def is_artifact_update_recorded(
@@ -1104,10 +1190,10 @@ class ConversationMessageStore:
         if _mongo_update_succeeded(result):
             return True
 
-        logger.warning(
-            "append=True for nonexistent artifact %s on message %s, inserting new",
-            artifact_id,
-            message_id,
+        logger.emit(
+            E.TASK_ARTIFACT_APPEND_TARGET_NOT_FOUND,
+            artifact_id=artifact_id,
+            message_id=message_id,
         )
         insert_update: dict[str, Any] = {
             "$push": {"message_content.message_task.artifacts": artifact},
@@ -1195,8 +1281,13 @@ class ConversationMessageStore:
                 },
                 terminal_values,
             )
-        except Exception:
-            logger.error("Failed to update task state on message", exc_info=True)
+        except Exception as exc:
+            logger.emit(
+                E.CONVERSATION_STORE_OPERATION_FAILED,
+                exc=exc,
+                operation="update_task_state_on_message_if_not_terminal",
+                message_id=message_id,
+            )
             return False
 
     async def update_agent_message_task_state(
@@ -1231,8 +1322,13 @@ class ConversationMessageStore:
                 return False
             message_task = projected.get("message_content", {}).get("message_task", {})
             return (message_task.get("status") or {}).get("state") == state
-        except Exception:
-            logger.error("Failed to update agent message task state", exc_info=True)
+        except Exception as exc:
+            logger.emit(
+                E.CONVERSATION_STORE_OPERATION_FAILED,
+                exc=exc,
+                operation="update_agent_message_task_state",
+                message_id=message_id,
+            )
             return False
 
     async def persist_hitl_request_id_on_message(
@@ -1262,10 +1358,13 @@ class ConversationMessageStore:
                 or {}
             )
             return metadata.get("hitl_request_id") == request_id
-        except Exception:
-            logger.error(
-                "Failed to persist HITL request id on agent message",
-                exc_info=True,
+        except Exception as exc:
+            logger.emit(
+                E.CONVERSATION_STORE_OPERATION_FAILED,
+                exc=exc,
+                operation="persist_hitl_request_id_on_message",
+                message_id=message_id,
+                hitl_request_id=request_id,
             )
             return False
 
@@ -1407,9 +1506,14 @@ class ConversationMessageStore:
                 state == "input-required"
                 and metadata.get("hitl_request_id") == request_id
             )
-        except Exception:
-            logger.error(
-                "Failed to persist pending HITL on agent message", exc_info=True
+        except Exception as exc:
+            logger.emit(
+                E.CONVERSATION_STORE_OPERATION_FAILED,
+                exc=exc,
+                operation="persist_pending_hitl_on_agent_message",
+                message_id=message_id,
+                hitl_request_id=request_id,
+                interaction_id=interaction_id,
             )
             return False
 
@@ -1437,8 +1541,13 @@ class ConversationMessageStore:
                     }
                 },
             )
-        except Exception:
-            logger.error("Failed to persist HITL user answer", exc_info=True)
+        except Exception as exc:
+            logger.emit(
+                E.CONVERSATION_STORE_OPERATION_FAILED,
+                exc=exc,
+                operation="persist_hitl_user_answer",
+                message_id=message_id,
+            )
             return False
 
     async def persist_hitl_interaction_metadata(
@@ -1464,8 +1573,14 @@ class ConversationMessageStore:
                 {"message_id": message_id},
                 {"$set": updates},
             )
-        except Exception:
-            logger.error("Failed to persist HITL interaction metadata", exc_info=True)
+        except Exception as exc:
+            logger.emit(
+                E.CONVERSATION_STORE_OPERATION_FAILED,
+                exc=exc,
+                operation="persist_hitl_interaction_metadata",
+                message_id=message_id,
+                interaction_id=interaction_id,
+            )
             return False
 
     async def persist_final_agent_message(

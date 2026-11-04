@@ -176,6 +176,9 @@ def test_mcp_runs_in_image_mode_with_the_api_prefix():
     mcp = build(loopback())["mcp"]
     assert mcp.command[1:] == ["server.py", "--image"]
     assert json.loads(mcp.env["HYBRO_MCP_CONFIG"]) == {"api_prefix": "/api/v1"}
+    # The server imports only the backend's logging modules from this path.
+    assert mcp.env["PYTHONPATH"] == "/app/backend"
+    assert set(mcp.env) == {"HYBRO_MCP_CONFIG", "PYTHONPATH"}
 
 
 def test_configured_mongodb_skips_the_embedded_server():
@@ -215,6 +218,59 @@ def test_public_caddyfile_omits_mcp_and_the_host_check():
     assert "/mcp" not in text
     assert "@foreign" not in text
     assert "reverse_proxy 127.0.0.1:3000" in text
+
+
+@pytest.mark.parametrize("listener", [loopback, public])
+def test_caddyfile_logs_json_without_headers_or_query(listener):
+    text = entry.caddyfile(listener=listener(), api_prefix="/api/v1")
+    site = text[text.index(":8080 {") :]
+    expected = "\n".join(
+        [
+            ":8080 {",
+            "\tlog {",
+            "\t\toutput stdout",
+            "\t\tformat filter {",
+            "\t\t\twrap json",
+            "\t\t\tfields {",
+            "\t\t\t\trequest>headers delete",
+            "\t\t\t\trequest>uri delete",
+            "\t\t\t\tresp_headers delete",
+            "\t\t\t}",
+            "\t\t}",
+            "\t}",
+            "\tlog_append trace_id {http.response.header.X-Request-ID}",
+            "\tlog_append path {http.request.uri.path}",
+            "\t@static path /_next/static/*",
+            "\tlog_skip @static",
+        ]
+    )
+    assert site.startswith(expected)
+    assert "log_credentials" not in text
+
+
+@pytest.mark.parametrize("listener", [loopback, public])
+def test_caddyfile_filters_the_default_logger(listener):
+    # Caddy's error logger (5xx lines) carries the request without the
+    # access log's filter; it writes to the default logger. Response headers
+    # are dropped too, should an access line ever reach it.
+    text = entry.caddyfile(listener=listener(), api_prefix="/api/v1")
+    options = text[: text.index("\n}\n") + 3]
+    expected = "\n".join(
+        [
+            "\tlog default {",
+            "\t\toutput stderr",
+            "\t\tformat filter {",
+            "\t\t\twrap json",
+            "\t\t\tfields {",
+            "\t\t\t\trequest>headers delete",
+            "\t\t\t\trequest>uri delete",
+            "\t\t\t\tresp_headers delete",
+            "\t\t\t}",
+            "\t\t}",
+            "\t}",
+        ]
+    )
+    assert expected in options
 
 
 def test_supervisor_starts_mongod_first_and_stops_services_together():

@@ -109,7 +109,9 @@ describe('useGroupManagement', () => {
       await result.current.handleGroupsChange()
     })
 
-    expect(consoleSpy).toHaveBeenCalledWith('Failed to refresh groups:', expect.any(Error))
+    expect(consoleSpy).toHaveBeenCalledWith('agent_groups_refresh_failed', {
+      error: expect.objectContaining({ name: 'Error' }),
+    })
     consoleSpy.mockRestore()
   })
 

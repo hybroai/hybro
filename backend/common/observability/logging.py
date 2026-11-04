@@ -10,15 +10,23 @@ import re
 import sys
 import traceback
 import uuid
-from collections.abc import Iterator, Mapping
+from collections.abc import Iterable, Iterator, Mapping
 from contextlib import contextmanager
 from contextvars import ContextVar
 from datetime import UTC, date, datetime
 from enum import Enum
-from importlib.metadata import PackageNotFoundError, version
-from pathlib import PurePath
+from itertools import islice
+from pathlib import Path, PurePath
 from typing import Any
 from urllib.parse import urlsplit, urlunsplit
+
+from common.observability import events
+from common.observability.catalog import (
+    EVENT_MARKER,
+    FIXED_FIELDS,
+    RESERVED_RECORD_FIELDS,
+    EventLogger,
+)
 
 _INSTANCE_ID = uuid.uuid4().hex[:8]
 _LOG_CONTEXT: ContextVar[dict[str, str] | None] = ContextVar(
@@ -40,22 +48,8 @@ _CONTEXT_FIELDS = frozenset(
         "dispatch_intent_id",
     }
 )
-_STANDARD_RECORD_FIELDS = frozenset(logging.makeLogRecord({}).__dict__) | {
-    "asctime",
-    "message",
-}
-_FIXED_FIELDS = frozenset(
-    {
-        "timestamp",
-        "level",
-        "service",
-        "environment",
-        "version",
-        "instance_id",
-        "event",
-        "logger",
-    }
-)
+# Library loggers (exact names) whose text is kept, sanitised, not blanked.
+PASSTHROUGH_LOGGERS = ("uvicorn", "uvicorn.error", "py.warnings")
 _SENSITIVE_FIELD_PARTS = frozenset(
     {
         "authorization",
@@ -87,6 +81,11 @@ _SENSITIVE_FIELD_PARTS = frozenset(
 _CANONICAL_SENSITIVE_FIELD_PARTS = frozenset(
     re.sub(r"[^a-z0-9]", "", part) for part in _SENSITIVE_FIELD_PARTS
 )
+# Key words that mark a credential, matched on the leaf key. A leaf ending
+# with one (`db_password`, `id_token`, `secret_key`) is redacted whatever its
+# value; a leaf holding one elsewhere, plurals included (`token_usage`,
+# `tokens_saved`, `api_keys`), is redacted unless its value is a number or
+# flag, which there is a count, not a secret.
 _CANONICAL_CREDENTIAL_FIELD_PARTS = frozenset(
     {
         "authorization",
@@ -94,14 +93,45 @@ _CANONICAL_CREDENTIAL_FIELD_PARTS = frozenset(
         "token",
         "secret",
         "password",
+        "passwd",
         "apikey",
+        "privatekey",
+        "accesskey",
+        "secretkey",
+        "signingkey",
+        "jwt",
+        "credential",
     }
+)
+# Leaf suffixes that mark content (`user_prompt`, `raw_body`); `content_type`
+# does not end with one, so it stays.
+_CANONICAL_CONTENT_FIELD_SUFFIXES = (
+    "prompt",
+    "body",
+    "payload",
+    "content",
+    "headers",
+    "base64",
 )
 _CONTEXT_VALUE_PATTERN = re.compile(r"^[A-Za-z0-9._:-]{1,128}$")
 _EVENT_PATTERN = re.compile(r"^[a-z][a-z0-9]*(?:_[a-z0-9]+)*$")
 _BEARER_PATTERN = re.compile(r"(?i)\bbearer\s+[a-z0-9._~+/=-]+")
+# Authorization and cookie headers: the whole value goes, whatever the scheme
+# (Basic, Digest) or the number of cookies; unquoted values end at the line end.
+# A `_` or `-` may precede the name (`HTTP_AUTHORIZATION` in a WSGI environ).
+_HEADER_CREDENTIAL_PATTERN = re.compile(
+    r"(?i)(?<![a-z0-9])((?:proxy-)?authorization|(?:set-)?cookie)([\"']?\s*[=:]\s*)"
+    r"(?:\"(?:[^\"\\]|\\.)*\"?|'(?:[^'\\]|\\.)*'?|[^\r\n]*)"
+)
+# Matches suffixed keys (`client_secret`, `refresh_token`) and JSON-quoted pairs.
+# Matches the key's sensitive suffix only, so any prefix (`client_secret`) is
+# covered and matching stays linear; quoted values end at their closing quote
+# (escapes included), unquoted ones at whitespace, `,` or `;`.
 _CREDENTIAL_PATTERN = re.compile(
-    r"(?i)\b(api[_-]?key|token|secret|password)\s*[=:]\s*[^\s,;]+"
+    r"(?i)(api[_-]?keys?|private[_-]?keys?|access[_-]?keys?|secret[_-]?keys?"
+    r"|signing[_-]?keys?|tokens?|secrets?|passwords?|passwd|jwts?|credentials?)"
+    r"[\"']?\s*[=:]\s*"
+    r"(?:\"(?:[^\"\\]|\\.)*\"?|'(?:[^'\\]|\\.)*'?|[^\s,;]+)"
 )
 _EMBEDDED_URL_PATTERN = re.compile(
     r"(?i)\b(?:https?|redis|mongodb(?:\+srv)?):[^\s\"'<>]+"
@@ -111,27 +141,38 @@ _MAX_FIELD_CHARS = 2 * 1024
 _MAX_EXCEPTION_CHARS = 16 * 1024
 _MAX_EXCEPTION_CHAIN = 8
 _MAX_STACK_FRAMES = 24
+_MAX_LOGGED_IDS = 10
 _configured_handler: logging.Handler | None = None
 
 
-def _package_version() -> str:
-    for package in ("hybro-backend", "hybro"):
-        try:
-            return version(package)
-        except PackageNotFoundError:
-            continue
+def release_version(start: Path) -> str:
+    """Return the release version from the nearest ``VERSION`` file above ``start``.
+
+    The repository root (checkout) and ``/app`` (image) hold the release
+    ``VERSION``; an unreadable file must not block startup.
+    """
+
+    for directory in start.parents:
+        candidate = directory / "VERSION"
+        if candidate.is_file():
+            try:
+                return candidate.read_text(encoding="utf-8").strip() or "unknown"
+            except (OSError, UnicodeDecodeError):
+                return "unknown"
     return "unknown"
 
 
-def _is_sensitive_key(key: str) -> bool:
+def _is_sensitive_key(key: str, value: Any = None) -> bool:
     leaf = key.rsplit(".", 1)[-1].lower().replace("-", "_")
     canonical_leaf = re.sub(r"[^a-z0-9]", "", leaf)
-    canonical_key = re.sub(r"[^a-z0-9]", "", key.lower())
     if canonical_leaf in _CANONICAL_SENSITIVE_FIELD_PARTS:
         return True
-    return any(
-        canonical_key.endswith(sensitive)
-        for sensitive in _CANONICAL_CREDENTIAL_FIELD_PARTS
+    if canonical_leaf.endswith(tuple(_CANONICAL_CREDENTIAL_FIELD_PARTS)):
+        return True
+    if isinstance(value, (bool, int, float)):
+        return False
+    return canonical_leaf.endswith(_CANONICAL_CONTENT_FIELD_SUFFIXES) or any(
+        sensitive in canonical_leaf for sensitive in _CANONICAL_CREDENTIAL_FIELD_PARTS
     )
 
 
@@ -168,6 +209,7 @@ def _sanitize_string(value: str, *, limit: int = _MAX_FIELD_CHARS) -> str:
         return f"{_sanitize_url(url)}{trailing}"
 
     value = _EMBEDDED_URL_PATTERN.sub(sanitize_embedded_url, value)
+    value = _HEADER_CREDENTIAL_PATTERN.sub(r"\1\2[REDACTED]", value)
     value = _BEARER_PATTERN.sub("Bearer [REDACTED]", value)
     value = _CREDENTIAL_PATTERN.sub(r"\1=[REDACTED]", value)
     if len(value) > limit:
@@ -200,7 +242,7 @@ def _safe_value(  # noqa: C901
     key: str,
     seen: set[int],
 ) -> Any:
-    if _is_sensitive_key(key):
+    if _is_sensitive_key(key, value):
         return "[REDACTED]"
     if value is None or isinstance(value, (bool, int)):
         return value
@@ -300,6 +342,13 @@ def _safe_record_message(record: logging.LogRecord) -> str:
         return template
 
 
+def _passthrough_message(record: logging.LogRecord) -> str:
+    try:
+        return _sanitize_string(record.getMessage())
+    except Exception:
+        return _safe_record_message(record)
+
+
 def _compact_frame(filename: str, lineno: int, function: str) -> str:
     parts = PurePath(filename).parts
     safe_path = "/".join(parts[-3:]) if parts else "<unknown>"
@@ -362,15 +411,12 @@ class StructuredFormatter(logging.Formatter):
         self.output_format = output_format
         self.environment = environment
         self.service = service
-        self.service_version = service_version or _package_version()
+        self.service_version = service_version or release_version(Path(__file__))
 
     def _event(self, record: logging.LogRecord, message: str) -> str:
-        explicit = getattr(record, "event", None)
-        if isinstance(explicit, str) and _EVENT_PATTERN.fullmatch(explicit):
-            return explicit
-        if _EVENT_PATTERN.fullmatch(message):
-            return message
-        return "log_message"
+        # A catalog event's message is its validated name; anything else is a
+        # library record.
+        return message if getattr(record, EVENT_MARKER, False) else "library_message"
 
     def _exception_fields(self, record: logging.LogRecord) -> dict[str, str]:
         if not record.exc_info:
@@ -381,7 +427,11 @@ class StructuredFormatter(logging.Formatter):
         return safe_exception_metadata(error)
 
     def event_dict(self, record: logging.LogRecord) -> dict[str, Any]:
-        message = _safe_record_message(record)
+        is_library = not getattr(record, EVENT_MARKER, False)
+        if is_library and record.name in PASSTHROUGH_LOGGERS:
+            message = _passthrough_message(record)
+        else:
+            message = _safe_record_message(record)
         event = self._event(record, message)
         values: dict[str, Any] = {
             "timestamp": datetime.fromtimestamp(
@@ -411,8 +461,8 @@ class StructuredFormatter(logging.Formatter):
         combined: dict[str, Any] = {
             key: value
             for key, value in record.__dict__.items()
-            if key not in _STANDARD_RECORD_FIELDS
-            and key not in _FIXED_FIELDS
+            if key not in RESERVED_RECORD_FIELDS
+            and key not in FIXED_FIELDS
             and key not in {"event", "exc_info", "exc_text", "stack_info"}
             and not key.startswith("_")
         }
@@ -467,7 +517,7 @@ def _resolve_output_format(settings: Any) -> str:
     return configured
 
 
-def configure_logging(settings: Any = None) -> None:
+def configure_logging(settings: Any = None, *, service: str = "hybro-backend") -> None:
     """Configure the process-wide stdout logging pipeline idempotently."""
 
     global _configured_handler
@@ -478,6 +528,7 @@ def configure_logging(settings: Any = None) -> None:
     formatter = StructuredFormatter(
         output_format=_resolve_output_format(settings),
         environment=environment,
+        service=service,
     )
     root = logging.getLogger()
 
@@ -510,10 +561,18 @@ def configure_logging(settings: Any = None) -> None:
         logger.setLevel(logging.WARNING)
 
 
-def get_logger(name: str) -> logging.Logger:
-    """Return a standard-library logger; configuration belongs to the app shell."""
+def get_logger(name: str) -> EventLogger:
+    """Return an event logger bound to the backend catalog.
 
-    return logging.getLogger(name)
+    Configuration belongs to the app shell.
+    """
+
+    return EventLogger(
+        logging.getLogger(name),
+        events.CATALOG,
+        exception_fields=safe_exception_metadata,
+        context=get_log_context,
+    )
 
 
 @contextmanager
@@ -536,6 +595,24 @@ def bind_log_context(**fields: Any) -> Iterator[None]:
         _LOG_CONTEXT.reset(token)
 
 
+def log_id(value: object) -> str:
+    """Return a client-supplied id for a log field, or ``"invalid"``.
+
+    Only id-shaped strings (the bound-context value format) pass, so free text
+    sent where an id belongs never reaches the log.
+    """
+
+    if isinstance(value, str) and _CONTEXT_VALUE_PATTERN.fullmatch(value):
+        return value
+    return "invalid"
+
+
+def log_ids(values: Iterable[object], *, limit: int = _MAX_LOGGED_IDS) -> list[str]:
+    """Return the first ``limit`` client-supplied ids, each passed through ``log_id``."""
+
+    return [log_id(value) for value in islice(values, limit)]
+
+
 def get_log_context() -> Mapping[str, str]:
     """Return a copy of the current correlation context."""
 
@@ -555,5 +632,8 @@ __all__ = [
     "get_log_context",
     "get_instance_id",
     "get_logger",
+    "log_id",
+    "log_ids",
+    "release_version",
     "safe_exception_metadata",
 ]
