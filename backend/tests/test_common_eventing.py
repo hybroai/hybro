@@ -1123,3 +1123,30 @@ async def test_worker_cancellation_during_dead_letter_publish_propagates(caplog)
     with pytest.raises(asyncio.CancelledError):
         await task
     assert _bus_events(caplog, "eventing_dead_letter_publish_failed") == []
+
+
+@pytest.mark.asyncio
+async def test_safe_dead_letter_reraises_a_strict_catalog_violation(monkeypatch):
+    from common.observability.catalog import CatalogViolation
+
+    bus = make_bus(transport=RecordingTransport())
+
+    async def bad_emit(*_args, **_kwargs):
+        raise CatalogViolation("missing required field")
+
+    monkeypatch.setattr(bus, "_dead_letter", bad_emit)
+
+    with pytest.raises(CatalogViolation):
+        await bus._safe_dead_letter("handler", ExampleEvent(value=1), RuntimeError("x"))
+
+
+@pytest.mark.asyncio
+async def test_safe_dead_letter_still_absorbs_other_failures(monkeypatch):
+    bus = make_bus(transport=RecordingTransport())
+
+    async def failing(*_args, **_kwargs):
+        raise RuntimeError("dead-letter store down")
+
+    monkeypatch.setattr(bus, "_dead_letter", failing)
+
+    await bus._safe_dead_letter("handler", ExampleEvent(value=1), RuntimeError("x"))

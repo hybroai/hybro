@@ -19,6 +19,7 @@ from common.eventing.protocols import EventHandler, InternalEventTransport
 from common.eventing.registry import EventModelRegistry
 from common.observability import events as E
 from common.observability import get_current_trace_id, get_logger, trace_id_context
+from common.observability.catalog import CatalogViolation
 
 log = get_logger(__name__)
 
@@ -449,6 +450,9 @@ class BoundedInternalEventBus:
                 timeout=timeout,
                 publish=publish,
             )
+        except CatalogViolation:
+            # Raised only in strict mode (tests): a bad emit must fail loudly.
+            raise
         except BaseException as dead_letter_exc:
             if self._is_worker_cancellation(dead_letter_exc):
                 raise
