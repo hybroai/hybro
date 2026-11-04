@@ -1125,8 +1125,8 @@ tokens) and `resp_headers`, and each line gains `trace_id` (the request's
 `X-Request-ID`, empty without one) and `path` (no query string), so
 `hybro logs --trace <id>` matches Caddy lines like backend ones. Caddy's error
 lines for a failed handler (for example a 502 while an upstream restarts) go
-through the default logger on stderr, which drops `request.headers` and
-`request.uri` the same way. Requests without the header are correlated by time
+through the default logger on stderr, which drops `request.headers`,
+`request.uri` and `resp_headers` the same way. Requests without the header are correlated by time
 only.
 
 On a fresh data volume the entrypoint starts `mongod`, initiates `rs0` with
