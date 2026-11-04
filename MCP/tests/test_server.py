@@ -777,6 +777,26 @@ async def test_tool_call_logs_its_outcome_and_sends_its_request_id(mcp_logs, con
     assert events(mcp_logs, "mcp_backend_call_failed") == []
 
 
+async def test_tool_call_logs_only_id_shaped_caller_ids(mcp_logs):
+    def backend(request):
+        return httpx.Response(200, json=session_reply())
+
+    await call_with_transport(
+        backend,
+        "send_message",
+        {
+            "agent_id": "story",
+            "text": "Go",
+            "session_id": "sess-1",
+            "client_request_id": "my email is someone@example.com",
+        },
+    )
+
+    [record] = events(mcp_logs, "mcp_tool_called")
+    assert record.session_id == "sess-1"
+    assert record.client_request_id == "invalid"
+
+
 def _raise(error):
     def handler(request):
         raise error("backend detail", request=request)

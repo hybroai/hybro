@@ -1594,7 +1594,8 @@ building the server, and runs uvicorn itself with `log_config=None` and
 `server.EVENTS` has `mcp_server_starting` (`host`, `port`; emitted before uvicorn
 binds, whose own startup line confirms the bind), `mcp_tool_called` (`tool`,
 `outcome`, `duration_ms`, `http_request_id`, and the `session_id` and
-`client_request_id` arguments when given; `outcome` is `success`, `error`, or
+`client_request_id` arguments when given, through `log_id`, so a value that is
+not id-shaped logs as `invalid`; `outcome` is `success`, `error`, or
 `cancelled`, and the level is `ERROR` only for `error`), and
 `mcp_backend_call_failed` (`code`, `http_request_id`, optional `status`). Each
 tool call mints an `http_request_id`, binds it as the log context's

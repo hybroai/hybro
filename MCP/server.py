@@ -39,6 +39,7 @@ from common.observability import (
     bind_log_context,
     configure_logging,
     get_log_context,
+    log_id,
     safe_exception_metadata,
 )
 from common.observability.catalog import Catalog, EventLogger
@@ -367,8 +368,9 @@ def logged_tool(
                 error = exc
                 raise
             finally:
+                # Caller-supplied, so only id-shaped values are logged.
                 correlation = {
-                    key: arguments[key]
+                    key: log_id(arguments[key])
                     for key in ("session_id", "client_request_id")
                     if arguments.get(key) is not None
                 }
