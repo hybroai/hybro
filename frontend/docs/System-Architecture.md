@@ -861,7 +861,9 @@ Every backend HTTP call sends its own `X-Request-ID`: `apiClient`, the room
 stream (`SSEConnection.connect`, a new id per connect attempt, logged in
 `sse_connected` with `attempt`; a non-OK stream response logs
 `sse_connect_failed` (warn) with `request_id`, `status`, and `attempt` before
-reconnecting; `sse_reconnect_scheduled` records the backoff), `getSSEStatus` and `cancelMessage` in `api/sse.ts`, and file
+reconnecting; `sse_reconnect_scheduled` records the backoff; `useRoomSSE` logs
+any rejected connect, whatever its cause, as `room_sse_connect_failed` (error)
+with `conversation_id` and the reduced `error`), `getSSEStatus` and `cancelMessage` in `api/sse.ts`, and file
 download and upload in `api/files.ts`. The `/hybro-mcp` probe and the image
 lightbox's `blob:` fetch are not backend calls and send none.
 

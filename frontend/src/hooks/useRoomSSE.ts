@@ -103,7 +103,9 @@ export function useRoomSSE({ conversationId, enabled = true, getToken, onMessage
 
       await connectionRef.current.connect()
     } catch (error) {
-      log.error('sse_connect_failed', { conversation_id: conversationId, error })
+      // Any rejected connect (token, network, HTTP); SSEConnection logs the
+      // HTTP status itself as sse_connect_failed.
+      log.error('room_sse_connect_failed', { conversation_id: conversationId, error })
       setError(error instanceof Error ? error.message : 'Connection failed')
       setConnecting(false)
       handleConnectionChange(false)
