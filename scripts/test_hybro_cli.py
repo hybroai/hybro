@@ -856,6 +856,40 @@ def test_logs_level_accepts_uppercase_and_warn(cli):
     assert _logs(cli, "--level", "warn") == _logs(cli, "--level", "warning")
 
 
+def _logs_of(cli: Cli, sample: list[str], *args: str) -> list[str]:
+    cli.state["containers"] = {"hybro": {"status": "running", "image": IMAGE, "port": "127.0.0.1:3000"}}
+    cli.state["logs_sample"] = "\n".join(sample)
+    result = cli.run("logs", *args)
+    assert result.returncode == 0, cli.output
+    return result.stdout.splitlines()
+
+
+def test_logs_level_counts_caddy_fatal_levels_as_critical(cli):
+    severe = [
+        'caddy | {"level":"dpanic","msg":"d"}',
+        'caddy | {"level":"panic","msg":"p"}',
+        'caddy | {"level":"fatal","msg":"f"}',
+    ]
+
+    assert _logs_of(cli, severe, "--level", "critical") == severe
+    assert _logs_of(cli, severe, "--level", "debug") == severe
+
+
+def test_logs_level_reads_only_the_line_level(cli):
+    sample = [
+        'backend | {"timestamp":"t","level":"info","event":"library_message","message":"x level=error y"}',
+        'backend | {"timestamp":"t","level":"info","event":"e","detail":{"level":"error"}}',
+        'mcp | timestamp=t level=info event=library_message message="x level=error y"',
+        "mcp | timestamp=t level=error event=mcp_tool_called",
+        "mcp | level=error event=e",
+    ]
+
+    assert _logs_of(cli, sample, "--level", "error") == [
+        "mcp | timestamp=t level=error event=mcp_tool_called",
+        "mcp | level=error event=e",
+    ]
+
+
 def test_logs_service_filter_works_with_timestamps(cli):
     lines = _logs(cli, "-t", "--service", "caddy")
     assert len(lines) == 4

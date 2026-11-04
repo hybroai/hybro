@@ -483,15 +483,17 @@ cmd_status() {
     esac
 }
 
-# Prints the level alternation at or above a threshold; warn is Caddy's warning.
+# Prints the level alternation at or above a threshold; warn is Caddy's warning
+# and dpanic, panic and fatal count as critical.
 # Accepts lower and upper case, as backend.log_level is written upper case.
 log_levels() {
+    severe="critical|dpanic|panic|fatal"
     case "$1" in
-    debug | DEBUG) echo "debug|info|warning|warn|error|critical" ;;
-    info | INFO) echo "info|warning|warn|error|critical" ;;
-    warning | warn | WARNING | WARN) echo "warning|warn|error|critical" ;;
-    error | ERROR) echo "error|critical" ;;
-    critical | CRITICAL) echo "critical" ;;
+    debug | DEBUG) echo "debug|info|warning|warn|error|$severe" ;;
+    info | INFO) echo "info|warning|warn|error|$severe" ;;
+    warning | warn | WARNING | WARN) echo "warning|warn|error|$severe" ;;
+    error | ERROR) echo "error|$severe" ;;
+    critical | CRITICAL) echo "$severe" ;;
     *) return 1 ;;
     esac
 }
@@ -546,10 +548,22 @@ cmd_logs() {
             # docker logs -t puts a timestamp before the program name.
             sub(/^.* /, "", name)
             if (service != "" && name != service) next
-            if (levels != "" && body !~ ("(\"level\":\"|(^| )level=)(" levels ")(\"|( |$))")) next
+            if (levels != "" && level_of(body) !~ ("^(" levels ")$")) next
             if (trace != "" && !has_trace(body)) next
             print
             fflush()
+        }
+        # The first level field belongs to the line: JSON and logfmt lines
+        # both write it before any message text.
+        function level_of(text,    value) {
+            if (substr(text, 1, 1) == "{") {
+                if (!match(text, /"level":"[^"]*"/)) return ""
+                return substr(text, RSTART + 9, RLENGTH - 10)
+            }
+            if (!match(text, /(^| )level=[^ ]*/)) return ""
+            value = substr(text, RSTART, RLENGTH)
+            sub(/^ ?level=/, "", value)
+            return value
         }
         function has_trace(text,    at, rest) {
             if (index(text, "\"trace_id\":\"" trace "\"")) return 1

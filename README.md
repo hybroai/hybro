@@ -251,7 +251,7 @@ provider, which applies at once.
 Each log line starts with its program's name (`backend | `, `caddy | `, ...).
 `--level` keeps lines at that level or above and hides lines without a
 recognised level, such as MongoDB's and the bundled agents' plain-text output.
-Filters apply after `docker logs`, so `--tail 50 --level error` shows the errors
+Caddy's `fatal` and `panic` lines count as `critical`. Filters apply after `docker logs`, so `--tail 50 --level error` shows the errors
 among the last 50 lines.
 
 ## Configuration
