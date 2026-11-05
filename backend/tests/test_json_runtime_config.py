@@ -8,6 +8,7 @@ from pathlib import Path
 import pytest
 from pydantic import SecretStr
 
+import runtime_entrypoint
 from common.config.loader import Settings, get_settings
 from common.config.runtime_config import (
     ApiKeyCredential,
@@ -62,6 +63,7 @@ def test_rejects_non_json_duplicate_and_nonfinite(payload):
         ("backend", {"local_agent_discovery_port_start": 90000}),
         ("backend", {"local_agent_discovery_port_end": 8080}),
         ("backend", {"openai_api_key": "private-value"}),
+        ("backend", {"diagnostics_handoff_file": "private-value"}),
         ("frontend", {"max_message_length": -1}),
         ("frontend", {"api_base_url": "https://user:private-value@example.org"}),
         ("frontend", {"server_url": ""}),
@@ -140,6 +142,7 @@ def test_settings_load_without_config_json(monkeypatch, tmp_path):
         assert get_settings() == Settings(
             bundled_agents_manifest=str(REPO_ROOT / "default_agents" / "agents.yaml")
         )
+        assert get_settings().diagnostics_handoff_file == ""
     finally:
         get_settings.cache_clear()
 
@@ -163,6 +166,9 @@ def test_image_container_defaults(monkeypatch, tmp_path):
     assert settings.local_agent_discovery_excluded_ports == frozenset({7004, 7001})
     assert settings.bundled_agents_manifest == "/app/bundled_agents.yaml"
     assert settings.oauth_callback_host == "0.0.0.0"
+    assert settings.diagnostics_handoff_file == str(
+        runtime_entrypoint.RUN_DIR / "diagnostics.json"
+    )
     assert settings.frontend_origins == [
         "http://localhost:3100",
         "http://127.0.0.1:3100",

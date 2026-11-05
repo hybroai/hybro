@@ -26,6 +26,7 @@ import time
 from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
+from secrets import token_hex
 from typing import Any, Literal
 
 RUNTIME_DIR = Path("/var/lib/hybro/runtime")
@@ -485,6 +486,27 @@ def write_private(path: Path, text: str) -> None:
         handle.write(text)
 
 
+def write_diagnostics_handoff(api_prefix: str) -> None:
+    """Hand ``hybro doctor`` and the backend a token made for this start.
+
+    A fresh 0600 file replaces the old one, so a reader never sees a partial
+    file and a loosened mode from an earlier start does not survive.
+    """
+    path = RUN_DIR / "diagnostics.json"
+    staging = path.with_name(".diagnostics.json.new")
+    staging.unlink(missing_ok=True)
+    write_private(
+        staging,
+        json.dumps(
+            {
+                "base_url": f"{BACKEND_ORIGIN}{api_prefix}/diagnostics",
+                "token": token_hex(32),
+            }
+        ),
+    )
+    os.replace(staging, path)
+
+
 def mark_volume_complete(
     details: Mapping[str, Any], marker: Path | None = None
 ) -> None:
@@ -688,6 +710,7 @@ def user_phase() -> None:
         caddyfile(listener=listener, api_prefix=settings.api_prefix),
     )
     write_private(RUN_DIR / "supervisord.conf", supervisord_conf(programs))
+    write_diagnostics_handoff(settings.api_prefix)
     if embedded_mongo:
         # A stop during preparation shuts the temporary mongod down cleanly.
         signal.signal(signal.SIGTERM, _stop_preparation)

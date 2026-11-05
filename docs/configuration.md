@@ -33,6 +33,12 @@ CLI's transport variables (`HYBRO_LISTEN`, `HYBRO_PUBLIC_PORT`,
 `HYBRO_INSECURE_NO_AUTH`) do not become another user configuration source. Secrets
 must never enter the browser bundle or be forwarded wholesale to Agents.
 
+On every start the container also creates a diagnostics token in
+`/tmp/hybro/diagnostics.json` (mode 0600, inside the container, outside
+`auth.json`), readable only by the container's service user; `hybro doctor`
+reads it through `docker exec`. It is replaced on the next start and is not a
+configuration field.
+
 ## Edit configuration
 
 Edit `~/.hybro/config.json`, then restart:
