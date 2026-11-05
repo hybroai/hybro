@@ -17,10 +17,13 @@ from datetime import UTC, date, datetime
 from enum import Enum
 from itertools import islice
 from pathlib import Path, PurePath
-from typing import Any
+from typing import TYPE_CHECKING, Any
 from urllib.parse import urlsplit, urlunsplit
 
 from common.observability import events
+
+if TYPE_CHECKING:
+    from common.observability.sinks import RingBufferSink, SinkHandler
 from common.observability.catalog import (
     EVENT_MARKER,
     FIXED_FIELDS,
@@ -143,6 +146,8 @@ _MAX_EXCEPTION_CHAIN = 8
 _MAX_STACK_FRAMES = 24
 _MAX_LOGGED_IDS = 10
 _configured_handler: logging.Handler | None = None
+# The root-logger handler that feeds log sinks; installed by ``capture=True``.
+_sink_handler: SinkHandler | None = None
 
 
 def release_version(start: Path) -> str:
@@ -517,8 +522,17 @@ def _resolve_output_format(settings: Any) -> str:
     return configured
 
 
-def configure_logging(settings: Any = None, *, service: str = "hybro-backend") -> None:
-    """Configure the process-wide stdout logging pipeline idempotently."""
+def configure_logging(
+    settings: Any = None,
+    *,
+    service: str = "hybro-backend",
+    capture: bool = False,
+) -> None:
+    """Configure the process-wide stdout logging pipeline idempotently.
+
+    ``capture=True`` also installs the sink handler with the ring buffer;
+    once installed it stays installed, and later calls refresh its renderer.
+    """
 
     global _configured_handler
 
@@ -533,7 +547,7 @@ def configure_logging(settings: Any = None, *, service: str = "hybro-backend") -
     root = logging.getLogger()
 
     for handler in list(root.handlers):
-        if handler is not _configured_handler:
+        if handler is not _configured_handler and handler is not _sink_handler:
             root.removeHandler(handler)
     if _configured_handler is None:
         _configured_handler = logging.StreamHandler(sys.stdout)
@@ -543,6 +557,8 @@ def configure_logging(settings: Any = None, *, service: str = "hybro-backend") -
     _configured_handler.setLevel(level)
     _configured_handler.setFormatter(formatter)
     root.setLevel(level)
+    if capture or _sink_handler is not None:
+        _install_capture(root, formatter, level)
     logging.captureWarnings(True)
 
     for logger_name in ("uvicorn", "uvicorn.error"):
@@ -559,6 +575,47 @@ def configure_logging(settings: Any = None, *, service: str = "hybro-backend") -
         logger.handlers.clear()
         logger.propagate = True
         logger.setLevel(logging.WARNING)
+
+
+def _install_capture(
+    root: logging.Logger, renderer: StructuredFormatter, level: int
+) -> None:
+    global _sink_handler
+
+    from common.observability.sinks import RingBufferSink, SinkHandler
+
+    if _sink_handler is None:
+        ring = RingBufferSink()
+        _sink_handler = SinkHandler(renderer, ring)
+        _sink_handler.add_sink(ring.accept)
+    _sink_handler.set_renderer(renderer)
+    _sink_handler.setLevel(level)
+    if _sink_handler not in root.handlers:
+        root.addHandler(_sink_handler)
+
+
+def log_sinks() -> SinkHandler | None:
+    """Return the sink handler, or ``None`` when capture is not installed."""
+
+    return _sink_handler
+
+
+def ring_buffer() -> RingBufferSink | None:
+    """Return this process's ring buffer, or ``None`` without capture."""
+
+    if _sink_handler is None:
+        return None
+    return _sink_handler.ring
+
+
+def sanitize_text(value: str, *, limit: int) -> str:
+    """Redact credentials and URLs in free text.
+
+    Text longer than ``limit`` keeps its first ``limit`` characters followed
+    by a ``...[TRUNCATED n chars]`` marker, so the result can exceed ``limit``.
+    """
+
+    return _sanitize_string(value, limit=limit)
 
 
 def get_logger(name: str) -> EventLogger:
