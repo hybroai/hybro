@@ -339,8 +339,8 @@ registered on `events.CATALOG`. Code logs through
   `eventing_dead_letter_publish_failed`, `sse_subscription_refused`,
   `orchestrator_canary_threshold_breached` and `redis_lock_operation_failed`.
   `startup_completed`, `shutdown_started`, `agent_registered`,
-  `local_agents_deactivated`, `job_run_completed`, `recovery_cycle_completed`
-  and `sse_subscription_refused` are defined but not emitted yet. The
+  `local_agents_deactivated` and `sse_subscription_refused` are defined but not
+  emitted yet. The
   per-call transport events (`http_request_completed`,
   `llm_call_completed`, `a2a_call_completed`) are not system events.
 - The event bus emits `eventing_dead_letter` for every dead letter (ERROR for
@@ -376,6 +376,11 @@ registered on `events.CATALOG`. Code logs through
   `hitl_continuation_recovery_deferred`, `a2a_push_processing_deferred`) marks a
   failure that durable recovery retries; `a2a_recovery_phase_failed` (with
   `phase`) reports one recovery-cycle phase that failed while the cycle went on.
+  After each cycle `recovery_cycle_completed` reports `failed_phases`,
+  `phase_count` and `duration_ms`: INFO when the set of failed phases changed
+  to empty, WARNING when it changed and is not empty, DEBUG when it repeats.
+  The comparison is per process, so after leadership moves between workers
+  the first cycle on the new leader compares with its own last cycle.
 - `agent` logs a stored status change once, after the write succeeds:
   `agent_deactivated` (WARNING) and `agent_reactivated` (INFO), each with
   `agent_id` and `trigger` (`health_check` or `liveness`). The agent health
