@@ -338,9 +338,7 @@ registered on `events.CATALOG`. Code logs through
   `job_iteration_failed`, `recovery_cycle_completed`, `eventing_dead_letter`,
   `eventing_dead_letter_publish_failed`, `sse_subscription_refused`,
   `orchestrator_canary_threshold_breached` and `redis_lock_operation_failed`.
-  `startup_completed` and `shutdown_started` are defined but not emitted yet.
-  The
-  per-call transport events (`http_request_completed`,
+  The per-call transport events (`http_request_completed`,
   `llm_call_completed`, `a2a_call_completed`) are not system events.
 - The event bus emits `eventing_dead_letter` for every dead letter (ERROR for
   the `handler` and `worker` stages, WARNING otherwise) with `failure_stage`,
@@ -380,6 +378,12 @@ registered on `events.CATALOG`. Code logs through
   to empty, WARNING when it changed and is not empty, DEBUG when it repeats.
   The comparison is per process, so after leadership moves between workers
   the first cycle on the new leader compares with its own last cycle.
+- `main.lifespan` emits `startup_completed` once startup bindings are verified,
+  with `startup_duration_ms`, `provider_state`, `auth_mode` and `config`
+  (`container.startup_summary`: an allowlist of flags, numbers and enumerated
+  names such as `redis_configured` and `orchestrator_canary_enabled`, never a
+  URL, path, key or id). `container.shutdown_runtime` emits `shutdown_started`
+  (`uptime_seconds`) before cleanup begins.
 - `delivery.sse.manager` emits `sse_subscription_refused` (`conversation_id`,
   `reason`) when it refuses a stream: `draining` (INFO, during shutdown),
   `subscription_limit` (the instance's room subscription limit) or

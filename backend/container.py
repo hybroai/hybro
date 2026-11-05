@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import sys
+import time
 from collections.abc import Awaitable, Callable
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
@@ -166,6 +167,53 @@ def check_multi_worker_safety(
 class ApplicationRuntime:
     settings: Any
     _lifespan_context: Any | None = None
+    # time.monotonic() when startup began; None until started.
+    started_monotonic: float | None = None
+
+
+_KNOWN_APP_ENVS = frozenset({"development", "staging", "production", "test"})
+
+
+def startup_summary(app_settings: Any) -> dict[str, Any]:
+    """The configuration facts ``startup_completed`` reports.
+
+    An allowlist of flags, numbers and enumerated names: no URL, path, key,
+    id or free text can enter it.
+    """
+    return {
+        # app_env is an unvalidated string; report only the names in use.
+        "app_env": (
+            app_settings.app_env if app_settings.app_env in _KNOWN_APP_ENVS else "other"
+        ),
+        "auth_mode": app_settings.auth_mode,
+        "log_level": app_settings.log_level,
+        "log_format": app_settings.log_format,
+        "redis_configured": bool(app_settings.redis_url),
+        "local_agent_discovery_enabled": bool(
+            app_settings.local_agent_discovery_enabled
+        ),
+        "agent_health_check_enabled": bool(app_settings.agent_health_check_enabled),
+        "compaction_enabled": bool(app_settings.compaction_enabled),
+        "orchestrator_canary_enabled": bool(app_settings.orchestrator_canary_enabled),
+        "orchestrator_worker_interval_seconds": (
+            app_settings.orchestrator_worker_interval_seconds
+        ),
+        "bundled_agents_configured": bool(app_settings.bundled_agents_manifest),
+    }
+
+
+def log_startup_completed(app: Any, runtime: ApplicationRuntime) -> None:
+    started = runtime.started_monotonic
+    duration_ms = (
+        round((time.monotonic() - started) * 1000, 1) if started is not None else None
+    )
+    logger.emit(
+        E.STARTUP_COMPLETED,
+        startup_duration_ms=duration_ms,
+        provider_state=app.state.provider_runtime.current.state,
+        auth_mode=runtime.settings.auth_mode,
+        config=startup_summary(runtime.settings),
+    )
 
 
 _runtime_cleanup_tasks: dict[asyncio.Task[Any], str] = {}
@@ -237,6 +285,7 @@ def create_health_check_service(
 async def startup_runtime(app: Any, runtime: ApplicationRuntime) -> None:
     if runtime._lifespan_context is not None:
         raise RuntimeError("Application runtime has already been started")
+    runtime.started_monotonic = time.monotonic()
     context = _runtime_lifespan(app, runtime)
     runtime._lifespan_context = context
     try:
@@ -251,6 +300,13 @@ async def shutdown_runtime(app: Any, runtime: ApplicationRuntime) -> None:
     context = runtime._lifespan_context
     if context is None:
         return
+    started = runtime.started_monotonic
+    logger.emit(
+        E.SHUTDOWN_STARTED,
+        uptime_seconds=(
+            round(time.monotonic() - started, 1) if started is not None else None
+        ),
+    )
     try:
         await context.__aexit__(None, None, None)
     finally:

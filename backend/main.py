@@ -24,6 +24,7 @@ from llm_gateway.setup_api import SetupRequestError
 from container import (
     create_application_runtime,
     create_health_check_service,
+    log_startup_completed,
     shutdown_runtime,
     startup_runtime,
     validate_runtime_bindings,
@@ -58,6 +59,7 @@ async def lifespan(app: FastAPI):
     try:
         await startup_runtime(app, runtime)
         validate_runtime_bindings(app, runtime)
+        log_startup_completed(app, runtime)
         yield
     finally:
         await shutdown_runtime(app, runtime)
