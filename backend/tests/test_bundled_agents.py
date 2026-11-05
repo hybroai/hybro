@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import asyncio
 import itertools
+import logging
 from datetime import UTC, datetime
 from pathlib import Path
 from types import SimpleNamespace
@@ -317,6 +318,94 @@ async def test_gating_follows_provider_changes():
         "weather_agent": ("inactive", "provider_not_configured"),
         "image_generator_agent": ("inactive", "provider_not_configured"),
     }
+
+
+def _status_events(caplog) -> list[tuple[str, str, str, str | None]]:
+    names = {"agent-1": "echo", "agent-2": "weather", "agent-3": "image"}
+    return [
+        (
+            r.getMessage(),
+            names.get(r.agent_id, r.agent_id),
+            r.trigger,
+            getattr(r, "inactive_reason", None),
+        )
+        for r in caplog.records
+        if r.getMessage() in {"agent_deactivated", "agent_reactivated"}
+    ]
+
+
+async def test_gating_emits_status_changes_only(caplog):
+    bundled, _, availability = service()
+    await reconcile_all(bundled)
+    caplog.set_level(logging.DEBUG)
+
+    availability.value = TEXT_ONLY
+    await bundled.apply_gating()
+    # The image agent stays inactive with a new reason: no event.
+    assert _status_events(caplog) == [
+        ("agent_reactivated", "weather", "provider_gating", None)
+    ]
+
+    caplog.clear()
+    await bundled.apply_gating()
+    assert _status_events(caplog) == []
+
+    availability.value = UNCONFIGURED
+    await bundled.apply_gating()
+    assert _status_events(caplog) == [
+        (
+            "agent_deactivated",
+            "weather",
+            "provider_gating",
+            "provider_not_configured",
+        )
+    ]
+
+
+async def test_gating_emits_nothing_when_the_record_is_gone(caplog):
+    bundled, _, availability = service()
+    await reconcile_all(bundled)
+    caplog.set_level(logging.DEBUG)
+
+    async def deleted(agent_id, updates):
+        del agent_id, updates
+        return None
+
+    bundled._repository.update = deleted
+    availability.value = TEXT_ONLY
+    await bundled.apply_gating()
+    await reconcile_all(bundled)
+
+    assert _status_events(caplog) == []
+
+
+async def test_reconcile_emits_status_changes_of_existing_records(caplog):
+    bundled, _, availability = service()
+    caplog.set_level(logging.DEBUG)
+    await reconcile_all(bundled)
+    # Creating records emits bundled_agent_registered, not status changes.
+    assert _status_events(caplog) == []
+
+    availability.value = TEXT_ONLY
+    await reconcile_all(bundled)
+    assert _status_events(caplog) == [
+        ("agent_reactivated", "weather", "bundled_registration", None)
+    ]
+
+    caplog.clear()
+    await reconcile_all(bundled)
+    assert _status_events(caplog) == []
+
+    availability.value = UNCONFIGURED
+    await reconcile_all(bundled)
+    assert _status_events(caplog) == [
+        (
+            "agent_deactivated",
+            "weather",
+            "bundled_registration",
+            "provider_not_configured",
+        )
+    ]
 
 
 async def test_gating_leaves_a_health_check_status_alone():

@@ -334,6 +334,7 @@ class AgentFacade:
                     "The local discovery record at this URL changed; try again",
                 )
             )
+        logger.emit(E.AGENT_REGISTERED, agent_id=agent_id, source="manual")
         return agent_info_from_doc(doc)
 
     async def upsert_local_agent(
@@ -385,6 +386,12 @@ class AgentFacade:
                     agent_id=existing["agent_id"],
                     managed=False,
                 )
+            if was_inactive:
+                logger.emit(
+                    E.AGENT_REACTIVATED,
+                    agent_id=existing["agent_id"],
+                    trigger="local_discovery",
+                )
             return LocalAgentUpsertResult(
                 agent_id=existing["agent_id"],
                 managed=True,
@@ -414,6 +421,7 @@ class AgentFacade:
                 "updated_at": now,
             },
         )
+        logger.emit(E.AGENT_REGISTERED, agent_id=agent_id, source="local")
         return LocalAgentUpsertResult(
             agent_id=agent_id,
             managed=True,

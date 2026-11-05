@@ -1,3 +1,4 @@
+import logging
 from datetime import UTC, datetime
 
 import pytest
@@ -40,6 +41,10 @@ class GoldenRepository(Repository):
         return [
             doc for doc in self.docs.values() if doc.get("provider_id") == provider_id
         ]
+
+
+def _registered(caplog) -> list[logging.LogRecord]:
+    return [r for r in caplog.records if r.getMessage() == "agent_registered"]
 
 
 def _golden_facade(repo, card):
@@ -180,7 +185,8 @@ async def test_register_takes_over_inactive_ownerless_discovery_record():
         ({"source": "cloud"}, "owned_by_another_provider"),
     ],
 )
-async def test_register_refuses_records_it_cannot_take_over(overrides, code):
+async def test_register_refuses_records_it_cannot_take_over(caplog, overrides, code):
+    caplog.set_level(logging.DEBUG)
     repo = GoldenRepository([])
     repo.docs["local-1"] = _existing(**overrides)
     before = dict(repo.docs["local-1"])
@@ -191,10 +197,12 @@ async def test_register_refuses_records_it_cannot_take_over(overrides, code):
 
     assert exc_info.value.code == code
     assert repo.docs["local-1"] == before
+    assert _registered(caplog) == []
 
 
 @pytest.mark.asyncio
-async def test_register_refuses_takeover_when_discovery_changed_the_record():
+async def test_register_refuses_takeover_when_discovery_changed_the_record(caplog):
+    caplog.set_level(logging.DEBUG)
     repo = GoldenRepository([])
     repo.docs["local-1"] = _existing(agent_status="active")
     before = dict(repo.docs["local-1"])
@@ -213,3 +221,22 @@ async def test_register_refuses_takeover_when_discovery_changed_the_record():
 
     assert exc_info.value.code == "active_local_discovery"
     assert repo.docs["local-1"] == before
+    assert _registered(caplog) == []
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("takeover", [False, True])
+async def test_register_emits_agent_registered(caplog, takeover):
+    caplog.set_level(logging.DEBUG)
+    repo = GoldenRepository([])
+    if takeover:
+        repo.docs["local-1"] = _existing()
+    facade = _golden_facade(repo, _writer_card())
+
+    registered = await facade.register_agent("https://writer.example", "u1")
+
+    [record] = _registered(caplog)
+    assert record.levelno == logging.INFO
+    assert record.agent_id == registered.agent_id
+    assert record.source == "manual"
+    assert record._hybro_system is True

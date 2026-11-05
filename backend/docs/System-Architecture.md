@@ -338,9 +338,8 @@ registered on `events.CATALOG`. Code logs through
   `job_iteration_failed`, `recovery_cycle_completed`, `eventing_dead_letter`,
   `eventing_dead_letter_publish_failed`, `sse_subscription_refused`,
   `orchestrator_canary_threshold_breached` and `redis_lock_operation_failed`.
-  `startup_completed`, `shutdown_started`, `agent_registered`,
-  `local_agents_deactivated` and `sse_subscription_refused` are defined but not
-  emitted yet. The
+  `startup_completed`, `shutdown_started` and `sse_subscription_refused` are
+  defined but not emitted yet. The
   per-call transport events (`http_request_completed`,
   `llm_call_completed`, `a2a_call_completed`) are not system events.
 - The event bus emits `eventing_dead_letter` for every dead letter (ERROR for
@@ -383,7 +382,15 @@ registered on `events.CATALOG`. Code logs through
   the first cycle on the new leader compares with its own last cycle.
 - `agent` logs a stored status change once, after the write succeeds:
   `agent_deactivated` (WARNING) and `agent_reactivated` (INFO), each with
-  `agent_id` and `trigger` (`health_check` or `liveness`). The agent health
+  `agent_id` and `trigger`: `health_check`, `liveness`, `provider_gating`
+  (bundled agents re-gated after a provider swap), `bundled_registration`
+  (a bundled record rewritten at boot with a different status) or
+  `local_discovery` (a host agent found again). The bundled triggers log only a
+  change between active and inactive, with `inactive_reason` on
+  deactivation. `agent_registered` (`agent_id`, `source` `manual` or `local`)
+  reports a new registration; bundled agents keep `bundled_agent_registered`.
+  Local discovery reports how many records a cycle deactivated as
+  `local_agents_deactivated` (`deactivated_count`). The agent health
   loop uses the shared job events below with `job=agent_health_checker`.
 - `approval` names a HITL request `hitl_request_id`, never `request_id`
   (the bound HTTP request id), and carries `interaction_id`,
