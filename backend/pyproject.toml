@@ -153,7 +153,13 @@ ignore = ["E501"]
 docstring-code-format = true
 
 [tool.setuptools]
-py-modules = ["main", "container", "runtime_entrypoint", "volume_migration"]
+py-modules = [
+    "main",
+    "container",
+    "runtime_entrypoint",
+    "volume_migration",
+    "diagnostics_cli",
+]
 packages = [
     "agent",
     "approval",

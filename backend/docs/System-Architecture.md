@@ -1280,6 +1280,42 @@ updates and the release workflow compares with the tag.
   migrates 0.3 data when found, and re-runs a running container on the new
   image with the port, `HYBRO_LISTEN`, and `HYBRO_INSECURE_NO_AUTH` read from
   `docker inspect`. In a checkout, `upgrade` only migrates.
+- **Doctor.** `hybro doctor` runs `/app/backend/diagnostics_cli.py` with the
+  image's Python inside the running container (`docker exec`), after checking
+  that the file exists (an older image prints a stop-and-start hint). The
+  helper reads `base_url` and the per-start token from
+  `/tmp/hybro/diagnostics.json`, never `config.json` or `auth.json`, and GETs
+  `/diagnostics/snapshot` over loopback with `X-Hybro-Diagnostics-Token`, a
+  10 s timeout and no proxy. It prints one line per section and then the
+  problems: provider not configured, MongoDB not connected, an expected Redis
+  connection down, a failed job, failed recovery phases, dead letters, blocked
+  projections, canary breaches, the diagnostics store not ready or failing to
+  write, and every snapshot `errors` entry. `--json` prints the snapshot
+  unchanged. Exit status 0 no problems, 1 problems, 2 the check could not run
+  (usage, Docker, no or stopped container, no handoff file, API unreachable).
+- **Bundle.** `hybro doctor --bundle [--output <file>]` pipes `docker logs
+  --tail 2000` into the helper's `bundle` command, which writes a gzipped tar
+  through `<file>.partial` (default `hybro-diagnostics-<UTC time>.tar.gz`; an
+  existing file is refused): `manifest.json`, `snapshot.json`,
+  `system-events.jsonl`, `logs.jsonl` and `memory-logs.jsonl` (up to 2,000
+  records each, paged with `before`), and `container.log`. A fetch that fails
+  is left out and named in the manifest; an empty page ends the paging. The
+  output is refused when it or `<file>.partial` exists; the partial file is
+  created exclusively (`set -C`) under `umask 077` and removed on failure or
+  interrupt, and a bundle fails when the container was removed while its logs
+  were read. A stopped
+  container, or a running one of an older image without the helper, gets
+  `bundle --offline` in `docker run --rm` of the script's image without a
+  volume: the manifest (its version marked as the helper image's) and the
+  container log only. Plain `doctor` on an older image suggests `doctor
+  --bundle` before stop and start, since a start removes the container and its
+  logs; a helper exit status other than 0 or 1 becomes 2, and so does 1 when
+  the container is no longer running. Only `bundle` imports backend code, inside
+  the helper's error handling, so an import failure also exits 2. The container
+  log keeps `backend`, `mcp` and `caddy` lines and unprefixed lines (the
+  entrypoint, supervisord), drops `frontend`, `mongod` and `agent-*` lines and
+  counts both per program in the manifest; a kept line that is not a JSON
+  object goes through `sanitize_text`. The token is in no file of the bundle.
 - **Tests.** `scripts/test_hybro_cli.py` runs the script and `install.sh` under
   sh, dash, and busybox sh against stub `docker`, `curl`, and `npm` (the
   `Shell CLI CI` job, with shellcheck).

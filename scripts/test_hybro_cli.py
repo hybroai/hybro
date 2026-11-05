@@ -38,7 +38,7 @@ SHELLS = [
 ]
 
 TOOLS = (
-    "awk", "basename", "cat", "chmod", "dirname", "find", "grep", "head",
+    "awk", "basename", "cat", "chmod", "date", "dirname", "find", "grep", "head",
     "mkdir", "mv", "readlink", "rm", "sed", "sha256sum", "shasum", "sleep",
     "uname",
 )
@@ -63,6 +63,25 @@ DOCKER = """
 containers = state.setdefault("containers", {})
 volumes = state.setdefault("volumes", [])
 command = args[0]
+def helper():
+    if "-i" in args:
+        state["exec_stdin"] = sys.stdin.read()
+    if state.get("exec_stops") in containers:
+        containers[state["exec_stops"]]["status"] = "exited"
+    if state.get("exec_removes") in containers:
+        containers.pop(state["exec_removes"])
+    save()
+    sys.stdout.write(state.get("exec_out", ""))
+    sys.stdout.flush()
+    if state.get("exec_block"):
+        import signal, time
+        signal.signal(signal.SIGINT, lambda *a: sys.exit(130))
+        time.sleep(30)
+    sys.exit(state.get("exec_exit", 0))
+if state.get("info_creates"):
+    # Something else creates this file after the script checked for it.
+    with open(state["info_creates"], "w") as handle:
+        handle.write("other")
 if command == "info":
     sys.exit(state.get("info_exit", 0))
 if command == "volume":
@@ -115,9 +134,20 @@ if command == "build":
     state.setdefault("images", []).append(args[2])
     save()
     sys.exit(0)
+if command == "exec":
+    if args[-3:-1] == ["test", "-f"]:
+        if state.get("stop_on_probe"):
+            containers[args[-4]]["status"] = "exited"
+            save()
+            sys.exit(1)
+        sys.exit(1 if state.get("helper_missing") else 0)
+    helper()
 if command == "run":
     if "--entrypoint" in args:
-        if args[args.index("--entrypoint") + 1] == "test":
+        entrypoint = args[args.index("--entrypoint") + 1]
+        if entrypoint.endswith("/python") and any(a.endswith("diagnostics_cli.py") for a in args):
+            helper()
+        if entrypoint == "test":
             sys.exit(state.get("marker_exit", 1))
         print("Copying the 0.3 MongoDB data and room files...", file=sys.stderr)
         if state.get("migrate_out"):
@@ -258,6 +288,8 @@ class Cli:
             capture_output=True,
             text=True,
             timeout=30,
+            # A private directory, so the default bundle names cannot collide.
+            cwd=self.tmp,
             # No controlling terminal, so cleanup-old cannot read /dev/tty.
             start_new_session=True,
         )
@@ -927,6 +959,266 @@ def test_logs_rejects_an_unknown_level_before_docker(cli):
     assert cli.calls() == []
 
 
+# ---- doctor ----
+
+HELPER = "/app/backend/diagnostics_cli.py"
+PYTHON = "/app/backend/.venv/bin/python"
+BUNDLE_NAME = re.compile(r"hybro-diagnostics-[0-9]{8}-[0-9]{6}\.tar\.gz")
+
+
+def container(cli: Cli, status: str = "running") -> None:
+    cli.state["containers"] = {"hybro": {"status": status, "image": IMAGE, "port": "127.0.0.1:3000"}}
+
+
+def helper_runs(cli: Cli) -> list[list[str]]:
+    return [call for call in cli.calls() if HELPER in call and call[-2:] != ["-f", HELPER]]
+
+
+def bundles(cli: Cli) -> list[str]:
+    return sorted(path.name for path in cli.tmp.iterdir() if path.name.startswith(("hybro-diagnostics-", "out.tgz")))
+
+
+@pytest.mark.parametrize(("code", "expected"), [(0, 0), (1, 1), (2, 2), (126, 2), (137, 2)])
+def test_doctor_runs_the_helper_in_the_container(cli, code, expected):
+    container(cli)
+    cli.state["exec_out"] = "Hybro 0.4.4, instance x\nProblems: none\n"
+    cli.state["exec_exit"] = code
+    result = cli.run("doctor")
+    assert result.returncode == expected, cli.output
+    assert result.stdout == cli.state["exec_out"]
+    calls = cli.calls()
+    probe = ["exec", "hybro", "test", "-f", HELPER]
+    assert calls.index(probe) < calls.index(["exec", "hybro", PYTHON, HELPER, "doctor"])
+
+
+def test_doctor_json_passes_the_flag(cli):
+    container(cli)
+    cli.state["exec_out"] = "{}"
+    assert cli.run("doctor", "--json").returncode == 0
+    assert helper_runs(cli) == [["exec", "hybro", PYTHON, HELPER, "doctor", "--json"]]
+
+
+@pytest.mark.parametrize("case", ["no_container", "stopped", "docker_stopped"])
+def test_doctor_that_cannot_run_exits_2_before_exec(cli, case):
+    if case == "stopped":
+        container(cli, "exited")
+    if case == "docker_stopped":
+        container(cli)
+        cli.state["info_exit"] = 1
+    result = cli.run("doctor")
+    assert result.returncode == 2, cli.output
+    assert not [call for call in cli.calls() if call[0] == "exec"]
+    expected = {
+        "no_container": "Start Hybro with: hybro",
+        "stopped": "doctor --bundle",
+        "docker_stopped": "Docker is not running",
+    }[case]
+    assert expected in result.stderr
+    if case == "stopped":
+        assert "exited" in result.stderr
+
+
+def test_doctor_bundle_pipes_the_logs_into_the_helper(cli):
+    container(cli)
+    cli.state["logs_sample"] = "backend | ready\ncaddy | {}"
+    cli.state["exec_out"] = "ARCHIVE"
+    result = cli.run("doctor", "--bundle")
+    assert result.returncode == 0, cli.output
+    calls = cli.calls()
+    assert ["logs", "--tail", "2000", "hybro"] in calls
+    assert ["exec", "-i", "hybro", PYTHON, HELPER, "bundle"] in calls
+    assert cli.state["exec_stdin"] == "backend | ready\ncaddy | {}\n"
+    (name,) = bundles(cli)
+    assert BUNDLE_NAME.fullmatch(name)
+    assert (cli.tmp / name).read_text() == "ARCHIVE"
+    assert not list(cli.tmp.glob("*.partial"))
+    assert name in result.stdout
+    assert "runtime snapshot" in result.stdout
+    assert "review it before sharing" in result.stdout
+    assert (cli.tmp / name).stat().st_mode & 0o777 == 0o600
+
+
+@pytest.mark.parametrize("flag", [["--output", "out.tgz"], ["--output=out.tgz"]])
+def test_doctor_bundle_output_option(cli, flag):
+    container(cli)
+    cli.state["exec_out"] = "ARCHIVE"
+    assert cli.run("doctor", "--bundle", *flag).returncode == 0, cli.output
+    assert bundles(cli) == ["out.tgz"]
+    assert (cli.tmp / "out.tgz").read_text() == "ARCHIVE"
+
+
+def test_doctor_bundle_refuses_an_existing_partial_file(cli):
+    container(cli)
+    (cli.tmp / "out.tgz.partial").write_text("other")
+    result = cli.run("doctor", "--bundle", "--output", "out.tgz")
+    assert result.returncode == 2
+    assert "out.tgz.partial" in result.stderr
+    assert (cli.tmp / "out.tgz.partial").read_text() == "other"
+    assert not (cli.tmp / "out.tgz").exists()
+    assert not [call for call in cli.calls() if call[0] in ("logs", "exec", "run")]
+
+
+def test_doctor_bundle_refuses_an_existing_file(cli):
+    container(cli)
+    (cli.tmp / "out.tgz").write_text("old")
+    result = cli.run("doctor", "--bundle", "--output", "out.tgz")
+    assert result.returncode == 2
+    assert "already exists" in result.stderr
+    assert (cli.tmp / "out.tgz").read_text() == "old"
+    assert not [call for call in cli.calls() if call[0] in ("logs", "exec", "run")]
+
+
+def test_doctor_bundle_of_a_stopped_container_runs_the_image_offline(cli):
+    container(cli, "exited")
+    cli.state["logs_sample"] = "backend | stopped"
+    cli.state["exec_out"] = "OFFLINE"
+    result = cli.run("doctor", "--bundle", "--output", "out.tgz")
+    assert result.returncode == 0, cli.output
+    (run,) = cli.runs()
+    assert run == ["run", "--rm", "-i", "--entrypoint", PYTHON, IMAGE, HELPER, "bundle", "--offline"]
+    calls = cli.calls()
+    assert calls.index(["pull", IMAGE]) < calls.index(run)
+    assert ["logs", "--tail", "2000", "hybro"] in calls
+    assert not [call for call in calls if call[0] == "exec"]
+    assert cli.state["exec_stdin"] == "backend | stopped\n"
+    assert (cli.tmp / "out.tgz").read_text() == "OFFLINE"
+    assert "container logs only" in result.stdout
+    assert "runtime snapshot" not in result.stdout
+
+
+def test_doctor_on_an_older_image_suggests_the_bundle_first(cli):
+    container(cli)
+    cli.state["helper_missing"] = True
+    result = cli.run("doctor")
+    assert result.returncode == 2
+    assert "older image" in result.stderr
+    message = result.stderr
+    assert message.index("hybro doctor --bundle") < message.index("hybro stop") < message.index("hybro start")
+    assert helper_runs(cli) == []
+    assert not [call for call in cli.calls() if call[0] == "logs"]
+
+
+def test_doctor_bundle_on_an_older_image_runs_the_script_image_offline(cli):
+    container(cli)
+    cli.state["helper_missing"] = True
+    cli.state["exec_out"] = "OFFLINE"
+    result = cli.run("doctor", "--bundle", "--output", "out.tgz")
+    assert result.returncode == 0, cli.output
+    (run,) = cli.runs()
+    assert run == ["run", "--rm", "-i", "--entrypoint", PYTHON, IMAGE, HELPER, "bundle", "--offline"]
+    assert not [call for call in cli.calls() if call[:2] == ["exec", "-i"]]
+    assert ["logs", "--tail", "2000", "hybro"] in cli.calls()
+    assert (cli.tmp / "out.tgz").read_text() == "OFFLINE"
+    assert "container logs only" in result.stdout
+
+
+def test_doctor_reports_a_container_that_stopped_during_the_check(cli):
+    container(cli)
+    cli.state["stop_on_probe"] = True
+    result = cli.run("doctor")
+    assert result.returncode == 2
+    assert "not running" in result.stderr and "exited" in result.stderr
+    assert "older image" not in result.stderr
+    assert helper_runs(cli) == []
+
+
+def test_doctor_bundle_without_a_container(cli):
+    result = cli.run("doctor", "--bundle")
+    assert result.returncode == 2
+    assert "Start Hybro with: hybro" in result.stderr
+    assert not [call for call in cli.calls() if call[0] in ("logs", "run", "pull", "exec")]
+    assert bundles(cli) == []
+
+
+def test_doctor_bundle_when_the_image_cannot_be_pulled(cli):
+    container(cli, "exited")
+    cli.state["pull_exit"] = 1
+    result = cli.run("doctor", "--bundle", "--output", "out.tgz")
+    assert result.returncode == 2
+    assert "cannot pull" in result.stderr
+    assert cli.runs() == []
+    assert sorted(path.name for path in cli.tmp.glob("out.tgz*")) == []
+
+
+def test_doctor_bundle_removes_the_partial_file_when_the_helper_fails(cli):
+    container(cli)
+    cli.state["exec_out"] = "half"
+    cli.state["exec_exit"] = 1
+    result = cli.run("doctor", "--bundle", "--output", "out.tgz")
+    assert result.returncode == 2
+    assert sorted(path.name for path in cli.tmp.glob("out.tgz*")) == []
+
+
+@pytest.mark.parametrize(
+    "args",
+    [["--frobnicate"], ["--json", "--bundle"], ["--output", "x.tgz"], ["--bundle", "--output"], ["--bundle", "--output="]],
+)
+def test_doctor_usage_errors_exit_2_before_docker(cli, args):
+    container(cli)
+    result = cli.run("doctor", *args)
+    assert result.returncode == 2
+    assert cli.calls() == []
+
+
+def test_doctor_status_1_from_a_container_that_stopped_is_exit_2(cli):
+    container(cli)
+    cli.state["exec_stops"] = "hybro"
+    cli.state["exec_exit"] = 1
+    result = cli.run("doctor")
+    assert result.returncode == 2
+    assert "not running" in result.stderr and "exited" in result.stderr
+
+
+def test_doctor_bundle_refuses_a_partial_file_created_after_the_check(cli):
+    container(cli)
+    cli.state["info_creates"] = str(cli.tmp / "out.tgz.partial")
+    result = cli.run("doctor", "--bundle", "--output", "out.tgz")
+    assert result.returncode == 2
+    assert (cli.tmp / "out.tgz.partial").read_text() == "other"
+    assert not (cli.tmp / "out.tgz").exists()
+    assert not [call for call in cli.calls() if call[0] in ("logs", "run") or call[:2] == ["exec", "-i"]]
+
+
+def test_doctor_bundle_of_a_container_removed_meanwhile_is_refused(cli):
+    container(cli)
+    cli.state["exec_removes"] = "hybro"
+    cli.state["exec_out"] = "ARCHIVE"
+    result = cli.run("doctor", "--bundle", "--output", "out.tgz")
+    assert result.returncode == 2
+    assert "removed" in result.stderr
+    assert sorted(path.name for path in cli.tmp.glob("out.tgz*")) == []
+
+
+@pytest.mark.parametrize(("sig", "code"), [(signal.SIGTERM, 143), (signal.SIGINT, 130)], ids=["TERM", "INT"])
+def test_doctor_bundle_interrupted_leaves_no_file(cli, sig, code):
+    container(cli)
+    cli.state["exec_out"] = "PARTIAL"
+    cli.state["exec_block"] = True
+    cli.state_path.write_text(json.dumps(cli.state))
+    cli.calls_path.write_text("")
+    partial = cli.tmp / "out.tgz.partial"
+    process = subprocess.Popen(
+        [*cli.shell, str(cli.script), "doctor", "--bundle", "--output", "out.tgz"],
+        env=cli.env(),
+        cwd=cli.tmp,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True,
+        start_new_session=True,
+    )
+    deadline = time.monotonic() + 15
+    while not (partial.exists() and partial.read_text() == "PARTIAL"):
+        assert process.poll() is None, process.communicate()[0]
+        assert time.monotonic() < deadline, "the helper never wrote"
+        time.sleep(0.05)
+    # The whole group, as a terminal would: POSIX shells run a trap only once
+    # the foreground child has ended, so the stub must receive it too.
+    os.killpg(process.pid, sig)
+    output, _ = process.communicate(timeout=15)
+    assert process.returncode == code, output
+    assert sorted(path.name for path in cli.tmp.glob("out.tgz*")) == []
+
+
 # ---- cleanup-old ----
 
 
@@ -981,9 +1273,9 @@ def test_install_script_is_valid_posix_sh():
 
 def test_help_lists_every_command():
     text = subprocess.run(["sh", str(SCRIPT), "help"], capture_output=True, text=True).stdout
-    for command in ("start", "stop", "status", "logs", "upgrade", "cleanup-old", "version"):
+    for command in ("start", "stop", "status", "logs", "doctor", "upgrade", "cleanup-old", "version"):
         assert f"\n  {command} " in text
-    for option in ("--service", "--level", "--trace"):
+    for option in ("--service", "--level", "--trace", "--bundle", "--json", "--output"):
         assert f"\n  {option} " in text
 
 
