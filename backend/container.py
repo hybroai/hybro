@@ -34,6 +34,8 @@ from common.observability import (
     MetricsCollector,
     get_instance_id,
     get_logger,
+    log_sinks,
+    ring_buffer,
     traced_create_task,
 )
 from common.observability import events as E
@@ -75,6 +77,8 @@ from delivery.facade import DeliveryFacade
 from delivery.sse.deduplication import TerminalStatusDeduplicator
 from delivery.sse.manager import SSETransportImpl
 from delivery.types import SSETransport, TaskRunner
+from diagnostics.repository import DiagnosticsMongoRepository
+from diagnostics.store_sink import StoreSink
 from execution.adapters.canary_metrics import collect_metrics
 from execution.orchestrator.a2a_runtime.call_counting import AgentCallCounter
 from execution.orchestrator.persistence import TERMINAL_RUN_STATUSES
@@ -492,6 +496,7 @@ async def _runtime_lifespan(app: Any, runtime: ApplicationRuntime):  # noqa: C90
     _bundled_card_resolver = None
     _provider_runtime = None
     _browser_setup = None
+    _diagnostics_sink = None
     _bg_started = False
     agent_health_service = None
     redis_kv_ready = False
@@ -582,6 +587,10 @@ async def _runtime_lifespan(app: Any, runtime: ApplicationRuntime):  # noqa: C90
             app.state.agent_search_index_ready = index_readiness[
                 "agent_search_index_ready"
             ]
+            _diagnostics_sink = start_diagnostics_store(
+                DiagnosticsMongoRepository(mongo_dal),
+                ready=index_readiness["diagnostics_store_ready"],
+            )
 
             _delivery_config = create_delivery_config(runtime.settings)
             runtime_instance_id = get_instance_id()
@@ -2053,6 +2062,8 @@ async def _runtime_lifespan(app: Any, runtime: ApplicationRuntime):  # noqa: C90
             )
         if _delivery_facade is not None:
             startup_steps.append(("delivery", _delivery_facade.stop))
+        if _diagnostics_sink is not None:
+            startup_steps.append(("diagnostics-store", _diagnostics_sink.stop))
         if _mongo_dal is not None:
             startup_steps.append(("mongo", _mongo_dal.close))
         await _run_cleanup_steps(
@@ -2137,6 +2148,8 @@ async def _runtime_lifespan(app: Any, runtime: ApplicationRuntime):  # noqa: C90
         shutdown_steps.append(
             ("redis-runtime", lambda: close_redis_runtime_deps(_redis_runtime))
         )
+        if _diagnostics_sink is not None:
+            shutdown_steps.append(("diagnostics-store", _diagnostics_sink.stop))
         if _mongo_dal is not None:
             shutdown_steps.append(("mongo", _mongo_dal.close))
 
@@ -2274,9 +2287,28 @@ async def ensure_runtime_indexes(*, mongo: MongoDAL) -> dict[str, bool]:
     await RoomMongoRepository(mongo).ensure_indexes()
     await MessageMongoRepository(mongo).ensure_indexes()
     await ensure_room_file_indexes(mongo)
+    diagnostics_store_ready = await DiagnosticsMongoRepository(mongo).ensure_indexes()
     return {
         "agent_search_index_ready": agent_search_index_ready,
+        "diagnostics_store_ready": diagnostics_store_ready,
     }
+
+
+def start_diagnostics_store(
+    repository: DiagnosticsMongoRepository, *, ready: bool
+) -> StoreSink | None:
+    """Start the store sink on the log sink handler; call inside the loop.
+
+    Returns None when the collections are not ready or capture is not
+    installed (the store then reports ``ready: false``).
+    """
+    handler = log_sinks()
+    ring = ring_buffer()
+    if not ready or handler is None or ring is None:
+        return None
+    sink = StoreSink(repository)
+    sink.start(handler, ring)
+    return sink
 
 
 def create_agent_capability_issue_repository(mongo: MongoDAL) -> Any:

@@ -174,6 +174,8 @@ packages = [
     "delivery",
     "delivery.sse",
     "delivery.event_bus",
+    "diagnostics",
+    "diagnostics.repository",
     "execution",
     "execution.adapters",
     "execution.orchestrator",

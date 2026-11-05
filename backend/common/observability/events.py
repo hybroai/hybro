@@ -712,6 +712,13 @@ ARTIFACT_APPEND_SKIPPED = define(
     "artifact_append_skipped", WARNING, required={"message_id", "reason"}
 )
 
+# diagnostics
+
+# reason is the exception class name; the store is then not started.
+DIAGNOSTICS_STORE_UNAVAILABLE = define(
+    "diagnostics_store_unavailable", WARNING, required={"reason"}
+)
+
 # delivery
 
 DELIVERY_COMPLETED = define(

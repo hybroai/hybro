@@ -64,6 +64,7 @@ flowchart TD
 | Core | `execution` | The engine: the orchestrator kernel, the A2A tool runtime, HITL continuation, cancellation, Run lifecycle, and recovery. |
 | Core | `approval` | Human-in-the-loop requests, interactions, answers, cancellation, and reconciliation. |
 | Support | `agent`, `local_agents`, `delivery`, `context_memory`, `room_files`, `llm_gateway` | Agent directory, local discovery, SSE delivery, room memory, files, and model access. |
+| Support | `diagnostics` | The local store of system events and warnings (two capped collections). |
 | Infrastructure | `api_gateway`, `jobs`, `dal`, `a2a_adapter`, `common`, `models` | Routes, workers, Mongo/Redis connections and generic clients, the A2A SDK boundary, and shared contracts. |
 
 Dependency rules:
@@ -330,7 +331,7 @@ registered on `events.CATALOG`. Code logs through
   line, annotated with `catalog_violation`. The test suite sets
   `CATALOG.strict = True`, which raises instead.
 - `system=True` marks lifecycle events, and `emit` sets `_hybro_system` on
-  their records (nothing reads the attribute yet): `startup_completed`,
+  their records; the diagnostics store keeps them at INFO and above (subject to `backend.log_level`): `startup_completed`,
   `shutdown_started`, `provider_config_reloaded`,
   `provider_config_reload_failed`, `agent_registered`,
   `bundled_agent_registered`, `agent_deactivated`, `agent_reactivated`,
@@ -585,6 +586,45 @@ cross-instance fan-out (see [Room stream and delivery](#room-stream-and-delivery
 - Consumes: `RedisKV`, `RedisPubSub`, and `MetricsCollector`.
 
 Delivery never calls back into Execution.
+
+### `diagnostics`
+
+The local store of what the backend logged about itself. It imports only
+`common`; `container.start_diagnostics_store` registers it on the log sink
+handler (`common.observability.sinks`) once its collections exist.
+
+- Writes: `diagnostic_system_events` (system events at INFO and above, capped
+  at 16 MiB) and `diagnostic_log_records` (every record at WARNING and above,
+  capped at 32 MiB), owned by
+  `diagnostics.repository.mongo.DiagnosticsMongoRepository`. A WARNING system
+  event goes to both. A document holds `ts`, `level`, `level_no`, `service`,
+  `event`, `logger`, `system`, `instance_id`, `version`, `trace_id`,
+  `request_id`, and the remaining redacted fields as one JSON string
+  `fields_json` of at most 16 KiB (a larger one becomes
+  `{"truncated": true, "size": n}`). Capped collections evict their oldest
+  documents by size, so there is no TTL and no secondary index; history
+  survives a restart on the data volume. The store only sees records that
+  pass `backend.log_level`: at `WARNING`, INFO system events such as
+  `startup_completed` are not stored.
+- `ensure_indexes` creates both collections capped (converting one that exists
+  uncapped) and never raises: a failure emits `diagnostics_store_unavailable`
+  and the store is not started.
+- `diagnostics.store_sink.StoreSink` queues documents on the emitting thread
+  (at most 5,000 per collection, oldest dropped and counted) and a flush task
+  writes batches of up to 500 every second with a 5 s timeout. A failed write
+  keeps its batch with the same `_id`s and backs off up to 30 s; duplicate
+  keys from a timed-out retry count as written. Backoff grows once per tick
+  in which either collection failed. A batch the encoder rejects, or the
+  documents the server rejects for good (BadValue, validation, too large),
+  are dropped and counted instead of retried; other write errors, such as a
+  stepdown, retry the batch; lifted fields are stored as strings so they always encode. The
+  sink never logs, and records from `pymongo`, `motor` and `diagnostics`
+  loggers are never queued.
+  On start it backfills qualifying entries from the ring buffer under the
+  handler lock, so nothing logged meanwhile is lost or stored ahead of the
+  backlog; on shutdown it
+  flushes for up to 2 s before Mongo closes. While Mongo is unreachable
+  requests and logging are unaffected and documents wait in the queues.
 
 ### `execution`
 
@@ -843,6 +883,8 @@ recreation, so coordinate index-shape changes with a maintenance window.
 | `sessions` | `session.repository.mongo.MongoSessionRepository` |
 | `orchestrator_runs`, `orchestrator_run_events`, `orchestrator_recovery_leases` | `execution.repository.orchestrator` (run store, event store) |
 | `orchestrator_agent_tool_bindings`, `orchestrator_agent_calls`, `orchestrator_a2a_observations`, `orchestrator_a2a_observation_conflicts`, `orchestrator_room_epochs`, `orchestrator_hitl_interactions` | `execution.repository.orchestrator.stores` and `.hitl` |
+| `diagnostic_system_events` | `diagnostics.repository.mongo.DiagnosticsMongoRepository` (capped, 16 MiB) |
+| `diagnostic_log_records` | `diagnostics.repository.mongo.DiagnosticsMongoRepository` (capped, 32 MiB) |
 
 Room-state deletion is per owner: `RoomFiles.delete_room_state` calls every bound
 `RoomStateOwner` (`MessageMongoRepository`, `RoomQuoteMongoRepository`,
@@ -855,7 +897,9 @@ deleted per room epoch by the orchestrator epoch cleanup;
 `orchestrator_room_epochs` keeps the deactivated epoch record; and
 `orchestrator_hitl_interactions`, `orchestrator_recovery_leases`, `room_events`,
 `room_event_seq`, `sessions`, `migration_markers`, and `agent_capability_issues`
-are retained, with no deletion or TTL.
+are retained, with no deletion or TTL. `diagnostic_system_events` and
+`diagnostic_log_records` are capped: MongoDB evicts their oldest documents by
+size.
 
 Code, DTOs, HTTP, and SSE name the conversation `conversation_id`. Mongo stores
 it as `room_id` in every collection, including indexes, aggregation paths, and

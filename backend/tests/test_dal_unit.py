@@ -681,7 +681,8 @@ async def test_agent_search_index_failure_is_reported():
     mongo.collection.side_effect = _collection
 
     assert await ensure_runtime_indexes(mongo=mongo) == {
-        "agent_search_index_ready": False
+        "agent_search_index_ready": False,
+        "diagnostics_store_ready": False,
     }
 
 
