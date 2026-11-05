@@ -423,6 +423,60 @@
     "include_in_schema": true
   },
   {
+    "path": "/api/v1/diagnostics/events",
+    "methods": [
+      "GET"
+    ],
+    "name": "diagnostics_events",
+    "endpoint_module": "api_gateway.routes.diagnostics_routes",
+    "declared_owner": "api_gateway.routes.diagnostics_routes",
+    "tags": [
+      "diagnostics"
+    ],
+    "status_code": null,
+    "dependencies": [
+      "get_diagnostics"
+    ],
+    "auth_dependencies": [],
+    "include_in_schema": true
+  },
+  {
+    "path": "/api/v1/diagnostics/logs",
+    "methods": [
+      "GET"
+    ],
+    "name": "diagnostics_logs",
+    "endpoint_module": "api_gateway.routes.diagnostics_routes",
+    "declared_owner": "api_gateway.routes.diagnostics_routes",
+    "tags": [
+      "diagnostics"
+    ],
+    "status_code": null,
+    "dependencies": [
+      "get_diagnostics"
+    ],
+    "auth_dependencies": [],
+    "include_in_schema": true
+  },
+  {
+    "path": "/api/v1/diagnostics/snapshot",
+    "methods": [
+      "GET"
+    ],
+    "name": "diagnostics_snapshot",
+    "endpoint_module": "api_gateway.routes.diagnostics_routes",
+    "declared_owner": "api_gateway.routes.diagnostics_routes",
+    "tags": [
+      "diagnostics"
+    ],
+    "status_code": null,
+    "dependencies": [
+      "get_diagnostics"
+    ],
+    "auth_dependencies": [],
+    "include_in_schema": true
+  },
+  {
     "path": "/api/v1/files/upload",
     "methods": [
       "POST"

@@ -3,10 +3,12 @@ from __future__ import annotations
 import asyncio
 import sys
 import time
+from collections import Counter
 from collections.abc import Awaitable, Callable
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from datetime import UTC, datetime
+from functools import partial
 from pathlib import Path
 from types import SimpleNamespace
 from typing import TYPE_CHECKING, Any
@@ -39,6 +41,7 @@ from common.observability import (
     traced_create_task,
 )
 from common.observability import events as E
+from common.observability.logging import release_version
 from common.protocols import (
     AgentCardResolver,
     AgentExclusionReader,
@@ -77,9 +80,25 @@ from delivery.facade import DeliveryFacade
 from delivery.sse.deduplication import TerminalStatusDeduplicator
 from delivery.sse.manager import SSETransportImpl
 from delivery.types import SSETransport, TaskRunner
+from diagnostics import DiagnosticsService, SnapshotSources, read_token
+from diagnostics.models import (
+    CanaryBreachView,
+    CanaryMetrics,
+    CanaryReading,
+    EventingSection,
+    HealthSection,
+    LeaderSection,
+    ProviderSection,
+    RecoveryRun,
+    SseSection,
+    StoreSection,
+)
 from diagnostics.repository import DiagnosticsMongoRepository
 from diagnostics.store_sink import StoreSink
-from execution.adapters.canary_metrics import collect_metrics
+from execution.adapters.canary_metrics import (
+    collect_metrics,
+    evaluate_canary_thresholds,
+)
 from execution.orchestrator.a2a_runtime.call_counting import AgentCallCounter
 from execution.orchestrator.persistence import TERMINAL_RUN_STATUSES
 from execution.orchestrator.public_text import sanitize_public_text
@@ -94,6 +113,7 @@ from jobs.orchestrator_workers import (
     OrchestratorCanaryDeps,
     OrchestratorProjectionDeps,
     OrchestratorRecoveryDeps,
+    OrchestratorRecoveryJob,
     orchestrator_canary_job,
     orchestrator_projection_job,
     orchestrator_recovery_job,
@@ -497,6 +517,7 @@ async def _runtime_lifespan(app: Any, runtime: ApplicationRuntime):  # noqa: C90
     _provider_runtime = None
     _browser_setup = None
     _diagnostics_sink = None
+    _collect_canary = None
     _bg_started = False
     agent_health_service = None
     redis_kv_ready = False
@@ -2006,6 +2027,7 @@ async def _runtime_lifespan(app: Any, runtime: ApplicationRuntime):  # noqa: C90
                     ),
                 )
 
+            _collect_canary = collect_orchestrator_canary
             orchestrator_canary_job.set_leader_election(_leader)
             orchestrator_canary_job.interval_seconds = (
                 runtime.settings.orchestrator_worker_interval_seconds
@@ -2016,6 +2038,25 @@ async def _runtime_lifespan(app: Any, runtime: ApplicationRuntime):  # noqa: C90
             await orchestrator_recovery_job.start()
             await orchestrator_projection_job.start()
             await orchestrator_canary_job.start()
+
+        app.state.diagnostics_access = create_diagnostics_access(
+            settings=runtime.settings,
+            sources=build_snapshot_sources(
+                app_state=app.state,
+                mongo=mongo_dal,
+                delivery_facade=_delivery_facade,
+                eventing_bus=_eventing_bus,
+                redis_runtime=_redis_runtime,
+                leader=_leader,
+                agent_repository=_agent_deps.agent_repository,
+                recovery_job=orchestrator_recovery_job,
+                recovery_cycle=getattr(_orchestrator_runtime, "recovery_cycle", None),
+                collect_canary=_collect_canary,
+                settings=runtime.settings,
+                store_sink=_diagnostics_sink,
+            ),
+            repository=DiagnosticsMongoRepository(mongo_dal),
+        )
 
     except BaseException:
         # Startup cleanup never replaces the original failure. Every opened
@@ -2075,6 +2116,7 @@ async def _runtime_lifespan(app: Any, runtime: ApplicationRuntime):  # noqa: C90
         app.state.delivery_facade = None
         app.state.mongo_dal = None
         app.state.agent_llm_proxy = None
+        app.state.diagnostics_access = None
         raise
 
     # ── Phase 3: Serve + Normal Shutdown ──
@@ -2159,6 +2201,7 @@ async def _runtime_lifespan(app: Any, runtime: ApplicationRuntime):  # noqa: C90
         app.state.delivery_facade = None
         app.state.mongo_dal = None
         app.state.agent_llm_proxy = None
+        app.state.diagnostics_access = None
         if cleanup_error is not None and body_error is None:
             raise cleanup_error
 
@@ -2309,6 +2352,219 @@ def start_diagnostics_store(
     sink = StoreSink(repository)
     sink.start(handler, ring)
     return sink
+
+
+# Bound on each health probe of the diagnostics snapshot. A Redis ping can
+# take 5 s when Redis is unreachable; that must not hold the whole snapshot.
+_HEALTH_PROBE_SECONDS = 2.0
+
+
+async def _probe[T](awaitable: Awaitable[T]) -> tuple[bool, T | None]:
+    """Whether the call finished in time, and its result."""
+    try:
+        return True, await asyncio.wait_for(awaitable, _HEALTH_PROBE_SECONDS)
+    except Exception:
+        return False, None
+
+
+async def _health_section(
+    *,
+    app_state: Any,
+    mongo: MongoDAL,
+    delivery_facade: DeliveryFacade,
+    eventing_bus: BoundedInternalEventBus,
+    redis_runtime: RedisRuntimeDeps,
+    settings: Any,
+) -> HealthSection:
+    """The flags ``/health`` reads, each probe bounded on its own."""
+    (delivery_ok, _), (eventing_ok, _), (_, pinged) = await asyncio.gather(
+        _probe(delivery_facade.refresh_health()),
+        _probe(eventing_bus.refresh_health()),
+        _probe(mongo.ping()),
+    )
+    command_client = redis_runtime.command_client
+    return HealthSection(
+        mongo_connected=pinged is True,
+        redis_expected=bool(settings.redis_url),
+        delivery_pubsub_connected=delivery_ok
+        and bool(delivery_facade.delivery_pubsub_connected),
+        delivery_kv_connected=delivery_ok
+        and bool(delivery_facade.delivery_kv_connected),
+        # As /health: without Redis the in-memory bus needs no connection.
+        eventing_connected=not settings.redis_url
+        or (eventing_ok and bool(eventing_bus.is_connected)),
+        redis_runtime_connected=bool(command_client and command_client.is_connected),
+        agent_search_index_ready=bool(
+            getattr(app_state, "agent_search_index_ready", False)
+        ),
+    )
+
+
+def _provider_section(app_state: Any) -> ProviderSection:
+    provider_runtime = app_state.provider_runtime
+    return ProviderSection(
+        state=provider_runtime.current.state, last_error=provider_runtime.last_error
+    )
+
+
+async def _agent_records(
+    agent_repository: AgentRepository,
+) -> list[dict[str, object]]:
+    """The agents every user can see, except deleted ones."""
+    return await agent_repository.list_visible(
+        query={"agent_status": {"$ne": "deleted"}}, exhaust=True
+    )
+
+
+def _leader_section(leader: LeaderElector | None) -> LeaderSection:
+    return LeaderSection(enabled=leader is not None, instance_id=get_instance_id())
+
+
+def _eventing_section(eventing_bus: BoundedInternalEventBus) -> EventingSection:
+    dead_letters = list(eventing_bus.dead_letters)
+    in_memory = eventing_bus.transport is None
+    return EventingSection(
+        # The bus's cached flag (health probes it); in memory nothing connects.
+        connected=in_memory or bool(eventing_bus.is_connected),
+        transport="memory" if in_memory else "redis",
+        dead_letter_count=len(dead_letters),
+        dead_letter_capacity=eventing_bus.config.dead_letter_memory_maxlen,
+        dead_letters_by_stage=dict(
+            Counter(letter.failure_stage for letter in dead_letters)
+        ),
+        last_dead_letter_at=max(
+            (letter.timestamp for letter in dead_letters), default=None
+        ),
+    )
+
+
+def _sse_section(delivery_facade: DeliveryFacade) -> SseSection:
+    rooms = delivery_facade.room_connections
+    return SseSection(
+        rooms=len(rooms),
+        connections=sum(len(connections) for connections in rooms.values()),
+    )
+
+
+def _recovery_run(
+    recovery_job: OrchestratorRecoveryJob, recovery_cycle: Any
+) -> RecoveryRun:
+    # None before the first cycle (the job sleeps one interval first).
+    failed_phases = getattr(recovery_cycle, "last_failed_phases", None)
+    return RecoveryRun(
+        last_cycle_completed_at=recovery_job.last_completed_at,
+        last_cycle_failed_phases=list(failed_phases or []),
+    )
+
+
+async def _canary_reading(
+    collect_canary: Callable[[], Awaitable[dict[str, Any]]], settings: Any
+) -> CanaryReading:
+    """A canary reading on demand, whether or not the canary job runs."""
+    metrics = await collect_canary()
+    breaches = evaluate_canary_thresholds(metrics, settings)
+    return CanaryReading(
+        job_enabled=bool(settings.orchestrator_canary_enabled),
+        metrics=CanaryMetrics.model_validate(metrics),
+        breaches=[
+            CanaryBreachView(
+                metric=breach.metric,
+                threshold=breach.threshold,
+                observed=breach.observed,
+            )
+            for breach in breaches
+        ],
+        non_terminal_runs=sum(
+            count
+            for status, count in metrics["runs_by_status"].items()
+            if status not in TERMINAL_RUN_STATUSES
+        ),
+    )
+
+
+_STORE_NOT_STARTED = {
+    "ready": False,
+    "queued": 0,
+    "dropped": 0,
+    "written": 0,
+    "write_failures": 0,
+    "last_error_type": None,
+    "last_write_at": None,
+}
+
+
+def _store_section(store_sink: StoreSink | None) -> StoreSection:
+    stats = store_sink.stats() if store_sink is not None else _STORE_NOT_STARTED
+    ring = ring_buffer()
+    return StoreSection(
+        **stats,
+        ring_size=len(ring) if ring is not None else 0,
+        ring_capacity=ring.capacity if ring is not None else 0,
+    )
+
+
+def build_snapshot_sources(
+    *,
+    app_state: Any,
+    mongo: MongoDAL,
+    delivery_facade: DeliveryFacade,
+    eventing_bus: BoundedInternalEventBus,
+    redis_runtime: RedisRuntimeDeps,
+    leader: LeaderElector | None,
+    agent_repository: AgentRepository,
+    recovery_job: OrchestratorRecoveryJob,
+    recovery_cycle: Any,
+    collect_canary: Callable[[], Awaitable[dict[str, Any]]] | None,
+    settings: Any,
+    store_sink: StoreSink | None,
+) -> SnapshotSources:
+    """The diagnostics snapshot's readers over this runtime's objects."""
+    return SnapshotSources(
+        health=partial(
+            _health_section,
+            app_state=app_state,
+            mongo=mongo,
+            delivery_facade=delivery_facade,
+            eventing_bus=eventing_bus,
+            redis_runtime=redis_runtime,
+            settings=settings,
+        ),
+        provider=partial(_provider_section, app_state),
+        agents=partial(_agent_records, agent_repository),
+        leader=partial(_leader_section, leader),
+        eventing=partial(_eventing_section, eventing_bus),
+        sse=partial(_sse_section, delivery_facade),
+        recovery_run=partial(_recovery_run, recovery_job, recovery_cycle),
+        canary=(
+            partial(_canary_reading, collect_canary, settings)
+            if collect_canary is not None
+            else None
+        ),
+        store=partial(_store_section, store_sink),
+    )
+
+
+def create_diagnostics_access(
+    *,
+    settings: Any,
+    sources: SnapshotSources,
+    repository: DiagnosticsMongoRepository,
+) -> DiagnosticsService:
+    """The diagnostics service of this process, started now."""
+    return DiagnosticsService(
+        sources,
+        repository=repository,
+        ring=ring_buffer(),
+        token=read_token(settings.diagnostics_handoff_file),
+        auth_mode=settings.auth_mode,
+        admin_user_ids=frozenset(settings.admin_user_ids),
+        version=release_version(Path(__file__)),
+        instance_id=get_instance_id(),
+        environment=settings.app_env,
+        log_level=settings.log_level,
+        log_format=settings.log_format,
+        started_at=utcnow(),
+    )
 
 
 def create_agent_capability_issue_repository(mongo: MongoDAL) -> Any:

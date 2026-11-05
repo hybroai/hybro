@@ -3230,6 +3230,417 @@
           }
         }
       }
+    },
+    "/api/v1/diagnostics/snapshot": {
+      "get": {
+        "tags": [
+          "diagnostics"
+        ],
+        "summary": "Diagnostics Snapshot",
+        "operationId": "diagnostics_snapshot_api_v1_diagnostics_snapshot_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DiagnosticsSnapshot"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/diagnostics/events": {
+      "get": {
+        "tags": [
+          "diagnostics"
+        ],
+        "summary": "Diagnostics Events",
+        "operationId": "diagnostics_events_api_v1_diagnostics_events_get",
+        "parameters": [
+          {
+            "name": "service",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Service"
+            }
+          },
+          {
+            "name": "level",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "enum": [
+                    "debug",
+                    "info",
+                    "warning",
+                    "error",
+                    "critical"
+                  ],
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Level"
+            }
+          },
+          {
+            "name": "event",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  },
+                  "maxItems": 20
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Event"
+            }
+          },
+          {
+            "name": "trace_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "pattern": "^[A-Za-z0-9._:-]{1,128}$"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Trace Id"
+            }
+          },
+          {
+            "name": "instance_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "pattern": "^[A-Za-z0-9._:-]{1,128}$"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Instance Id"
+            }
+          },
+          {
+            "name": "since",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "date-time"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Since"
+            }
+          },
+          {
+            "name": "until",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "date-time"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Until"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 500,
+              "minimum": 1,
+              "default": 100,
+              "title": "Limit"
+            }
+          },
+          {
+            "name": "before",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Before"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DiagnosticPage"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/diagnostics/logs": {
+      "get": {
+        "tags": [
+          "diagnostics"
+        ],
+        "summary": "Diagnostics Logs",
+        "operationId": "diagnostics_logs_api_v1_diagnostics_logs_get",
+        "parameters": [
+          {
+            "name": "service",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Service"
+            }
+          },
+          {
+            "name": "level",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "enum": [
+                    "debug",
+                    "info",
+                    "warning",
+                    "error",
+                    "critical"
+                  ],
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Level"
+            }
+          },
+          {
+            "name": "event",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  },
+                  "maxItems": 20
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Event"
+            }
+          },
+          {
+            "name": "trace_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "pattern": "^[A-Za-z0-9._:-]{1,128}$"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Trace Id"
+            }
+          },
+          {
+            "name": "instance_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "pattern": "^[A-Za-z0-9._:-]{1,128}$"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Instance Id"
+            }
+          },
+          {
+            "name": "since",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "date-time"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Since"
+            }
+          },
+          {
+            "name": "until",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "date-time"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Until"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 500,
+              "minimum": 1,
+              "default": 100,
+              "title": "Limit"
+            }
+          },
+          {
+            "name": "before",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Before"
+            }
+          },
+          {
+            "name": "source",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "enum": [
+                "store",
+                "memory"
+              ],
+              "type": "string",
+              "default": "store",
+              "title": "Source"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DiagnosticPage"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
     }
   },
   "components": {
@@ -7147,6 +7558,1016 @@
             "text": "#/components/schemas/TextPart"
           }
         }
+      },
+      "AgentItem": {
+        "properties": {
+          "agent_id": {
+            "type": "string",
+            "title": "Agent Id"
+          },
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "source": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source"
+          },
+          "status": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Status"
+          },
+          "inactive_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Inactive Reason"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "agent_id",
+          "name",
+          "source",
+          "status",
+          "inactive_reason"
+        ],
+        "title": "AgentItem"
+      },
+      "AgentsSection": {
+        "properties": {
+          "total": {
+            "type": "integer",
+            "title": "Total"
+          },
+          "active": {
+            "type": "integer",
+            "title": "Active"
+          },
+          "inactive": {
+            "type": "integer",
+            "title": "Inactive"
+          },
+          "by_source": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "type": "object",
+            "title": "By Source"
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/AgentItem"
+            },
+            "type": "array",
+            "title": "Items"
+          },
+          "truncated": {
+            "type": "boolean",
+            "title": "Truncated"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "total",
+          "active",
+          "inactive",
+          "by_source",
+          "items",
+          "truncated"
+        ],
+        "title": "AgentsSection"
+      },
+      "CanaryBreachView": {
+        "properties": {
+          "metric": {
+            "type": "string",
+            "title": "Metric"
+          },
+          "threshold": {
+            "type": "number",
+            "title": "Threshold"
+          },
+          "observed": {
+            "type": "number",
+            "title": "Observed"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "metric",
+          "threshold",
+          "observed"
+        ],
+        "title": "CanaryBreachView"
+      },
+      "CanaryMetrics": {
+        "properties": {
+          "runs_by_status": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "type": "object",
+            "title": "Runs By Status"
+          },
+          "runs_by_status_window": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "type": "object",
+            "title": "Runs By Status Window"
+          },
+          "projection_outbox_pending": {
+            "type": "integer",
+            "title": "Projection Outbox Pending"
+          },
+          "projection_outbox_blocked": {
+            "type": "integer",
+            "title": "Projection Outbox Blocked"
+          },
+          "projection_outbox_blocked_oldest_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Projection Outbox Blocked Oldest At"
+          },
+          "agent_calls_outstanding": {
+            "type": "integer",
+            "title": "Agent Calls Outstanding"
+          },
+          "observation_conflicts_open": {
+            "type": "integer",
+            "title": "Observation Conflicts Open"
+          },
+          "recovery_cycle_last_run_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Recovery Cycle Last Run At"
+          },
+          "collected_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Collected At"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "runs_by_status",
+          "runs_by_status_window",
+          "projection_outbox_pending",
+          "projection_outbox_blocked",
+          "projection_outbox_blocked_oldest_at",
+          "agent_calls_outstanding",
+          "observation_conflicts_open",
+          "recovery_cycle_last_run_at",
+          "collected_at"
+        ],
+        "title": "CanaryMetrics",
+        "description": "The keys ``execution.adapters.canary_metrics.collect_metrics`` returns."
+      },
+      "CanarySection": {
+        "properties": {
+          "job_enabled": {
+            "type": "boolean",
+            "title": "Job Enabled"
+          },
+          "metrics": {
+            "$ref": "#/components/schemas/CanaryMetrics"
+          },
+          "breaches": {
+            "items": {
+              "$ref": "#/components/schemas/CanaryBreachView"
+            },
+            "type": "array",
+            "title": "Breaches"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "job_enabled",
+          "metrics",
+          "breaches"
+        ],
+        "title": "CanarySection"
+      },
+      "DiagnosticPage": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/DiagnosticRecord"
+            },
+            "type": "array",
+            "title": "Items"
+          },
+          "next_before": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Before"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "items",
+          "next_before"
+        ],
+        "title": "DiagnosticPage",
+        "description": "Newest first; ``next_before`` is set when the page is full."
+      },
+      "DiagnosticRecord": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "timestamp": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Timestamp"
+          },
+          "level": {
+            "type": "string",
+            "title": "Level"
+          },
+          "service": {
+            "type": "string",
+            "title": "Service"
+          },
+          "event": {
+            "type": "string",
+            "title": "Event"
+          },
+          "logger": {
+            "type": "string",
+            "title": "Logger"
+          },
+          "system": {
+            "type": "boolean",
+            "title": "System"
+          },
+          "instance_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Instance Id"
+          },
+          "version": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Version"
+          },
+          "trace_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Trace Id"
+          },
+          "request_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Request Id"
+          },
+          "fields": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/JsonValue"
+            },
+            "type": "object",
+            "title": "Fields"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "id",
+          "timestamp",
+          "level",
+          "service",
+          "event",
+          "logger",
+          "system",
+          "instance_id",
+          "version",
+          "trace_id",
+          "request_id",
+          "fields"
+        ],
+        "title": "DiagnosticRecord"
+      },
+      "DiagnosticsSnapshot": {
+        "properties": {
+          "generated_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Generated At"
+          },
+          "service": {
+            "$ref": "#/components/schemas/ServiceSection"
+          },
+          "health": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/HealthSection"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "provider": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ProviderSection"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "agents": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/AgentsSection"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "jobs": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/JobRunView"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Jobs"
+          },
+          "leader": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/LeaderSection"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "eventing": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/EventingSection"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "sse": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SseSection"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "recovery": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/RecoverySection"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "canary": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/CanarySection"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "store": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/StoreSection"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "errors": {
+            "items": {
+              "$ref": "#/components/schemas/SnapshotError"
+            },
+            "type": "array",
+            "title": "Errors"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "generated_at",
+          "service",
+          "errors"
+        ],
+        "title": "DiagnosticsSnapshot",
+        "description": "Live state of this process; a section whose source failed is null."
+      },
+      "EventingSection": {
+        "properties": {
+          "connected": {
+            "type": "boolean",
+            "title": "Connected"
+          },
+          "transport": {
+            "type": "string",
+            "enum": [
+              "redis",
+              "memory"
+            ],
+            "title": "Transport"
+          },
+          "dead_letter_count": {
+            "type": "integer",
+            "title": "Dead Letter Count"
+          },
+          "dead_letter_capacity": {
+            "type": "integer",
+            "title": "Dead Letter Capacity"
+          },
+          "dead_letters_by_stage": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "type": "object",
+            "title": "Dead Letters By Stage"
+          },
+          "last_dead_letter_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Dead Letter At"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "connected",
+          "transport",
+          "dead_letter_count",
+          "dead_letter_capacity",
+          "dead_letters_by_stage",
+          "last_dead_letter_at"
+        ],
+        "title": "EventingSection"
+      },
+      "HealthSection": {
+        "properties": {
+          "mongo_connected": {
+            "type": "boolean",
+            "title": "Mongo Connected"
+          },
+          "redis_expected": {
+            "type": "boolean",
+            "title": "Redis Expected"
+          },
+          "delivery_pubsub_connected": {
+            "type": "boolean",
+            "title": "Delivery Pubsub Connected"
+          },
+          "delivery_kv_connected": {
+            "type": "boolean",
+            "title": "Delivery Kv Connected"
+          },
+          "eventing_connected": {
+            "type": "boolean",
+            "title": "Eventing Connected"
+          },
+          "redis_runtime_connected": {
+            "type": "boolean",
+            "title": "Redis Runtime Connected"
+          },
+          "agent_search_index_ready": {
+            "type": "boolean",
+            "title": "Agent Search Index Ready"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "mongo_connected",
+          "redis_expected",
+          "delivery_pubsub_connected",
+          "delivery_kv_connected",
+          "eventing_connected",
+          "redis_runtime_connected",
+          "agent_search_index_ready"
+        ],
+        "title": "HealthSection",
+        "description": "Raw connection flags; the derived status stays with ``/health``."
+      },
+      "JobRunView": {
+        "properties": {
+          "job": {
+            "type": "string",
+            "title": "Job"
+          },
+          "running": {
+            "type": "boolean",
+            "title": "Running"
+          },
+          "interval_seconds": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Interval Seconds"
+          },
+          "last_outcome": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "ok",
+                  "failed",
+                  "skipped_not_leader"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Outcome"
+          },
+          "last_started_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Started At"
+          },
+          "last_completed_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Completed At"
+          },
+          "last_duration_ms": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Duration Ms"
+          },
+          "last_skipped_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Skipped At"
+          },
+          "runs": {
+            "type": "integer",
+            "title": "Runs"
+          },
+          "failures": {
+            "type": "integer",
+            "title": "Failures"
+          },
+          "skips": {
+            "type": "integer",
+            "title": "Skips"
+          },
+          "consecutive_failures": {
+            "type": "integer",
+            "title": "Consecutive Failures"
+          },
+          "last_error_type": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Error Type"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "job",
+          "running",
+          "interval_seconds",
+          "last_outcome",
+          "last_started_at",
+          "last_completed_at",
+          "last_duration_ms",
+          "last_skipped_at",
+          "runs",
+          "failures",
+          "skips",
+          "consecutive_failures",
+          "last_error_type"
+        ],
+        "title": "JobRunView",
+        "description": "One job's ``common.observability.job_runs`` state."
+      },
+      "LeaderSection": {
+        "properties": {
+          "enabled": {
+            "type": "boolean",
+            "title": "Enabled"
+          },
+          "instance_id": {
+            "type": "string",
+            "title": "Instance Id"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "enabled",
+          "instance_id"
+        ],
+        "title": "LeaderSection"
+      },
+      "ProviderSection": {
+        "properties": {
+          "state": {
+            "type": "string",
+            "title": "State"
+          },
+          "last_error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Error"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "state",
+          "last_error"
+        ],
+        "title": "ProviderSection"
+      },
+      "RecoverySection": {
+        "properties": {
+          "last_cycle_completed_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Cycle Completed At"
+          },
+          "last_cycle_failed_phases": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Last Cycle Failed Phases"
+          },
+          "non_terminal_runs": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Non Terminal Runs"
+          },
+          "agent_calls_outstanding": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Agent Calls Outstanding"
+          },
+          "projection_outbox_pending": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Projection Outbox Pending"
+          },
+          "projection_outbox_blocked": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Projection Outbox Blocked"
+          },
+          "observation_conflicts_open": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Observation Conflicts Open"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "last_cycle_completed_at",
+          "last_cycle_failed_phases"
+        ],
+        "title": "RecoverySection",
+        "description": "The last cycle, plus canary metrics (null when no reading exists)."
+      },
+      "ServiceSection": {
+        "properties": {
+          "version": {
+            "type": "string",
+            "title": "Version"
+          },
+          "instance_id": {
+            "type": "string",
+            "title": "Instance Id"
+          },
+          "environment": {
+            "type": "string",
+            "title": "Environment"
+          },
+          "started_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Started At"
+          },
+          "uptime_seconds": {
+            "type": "number",
+            "title": "Uptime Seconds"
+          },
+          "auth_mode": {
+            "type": "string",
+            "title": "Auth Mode"
+          },
+          "log_level": {
+            "type": "string",
+            "title": "Log Level"
+          },
+          "log_format": {
+            "type": "string",
+            "title": "Log Format"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "version",
+          "instance_id",
+          "environment",
+          "started_at",
+          "uptime_seconds",
+          "auth_mode",
+          "log_level",
+          "log_format"
+        ],
+        "title": "ServiceSection"
+      },
+      "SnapshotError": {
+        "properties": {
+          "section": {
+            "type": "string",
+            "title": "Section"
+          },
+          "error_type": {
+            "type": "string",
+            "title": "Error Type"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "section",
+          "error_type"
+        ],
+        "title": "SnapshotError"
+      },
+      "SseSection": {
+        "properties": {
+          "rooms": {
+            "type": "integer",
+            "title": "Rooms"
+          },
+          "connections": {
+            "type": "integer",
+            "title": "Connections"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "rooms",
+          "connections"
+        ],
+        "title": "SseSection"
+      },
+      "StoreSection": {
+        "properties": {
+          "ready": {
+            "type": "boolean",
+            "title": "Ready"
+          },
+          "queued": {
+            "type": "integer",
+            "title": "Queued"
+          },
+          "dropped": {
+            "type": "integer",
+            "title": "Dropped"
+          },
+          "written": {
+            "type": "integer",
+            "title": "Written"
+          },
+          "write_failures": {
+            "type": "integer",
+            "title": "Write Failures"
+          },
+          "last_error_type": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Error Type"
+          },
+          "last_write_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Write At"
+          },
+          "ring_size": {
+            "type": "integer",
+            "title": "Ring Size"
+          },
+          "ring_capacity": {
+            "type": "integer",
+            "title": "Ring Capacity"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "ready",
+          "queued",
+          "dropped",
+          "written",
+          "write_failures",
+          "last_error_type",
+          "last_write_at",
+          "ring_size",
+          "ring_capacity"
+        ],
+        "title": "StoreSection"
       }
     },
     "securitySchemes": {

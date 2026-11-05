@@ -34,6 +34,7 @@ from a2a_adapter.remote_task import fetch_remote_task as sdk_fetch_remote_task
 from common.observability import events as E
 from common.utils.logger import get_logger
 from conversation.protocols import ConversationMessageWriter
+from diagnostics import read_token
 from execution.adapters.agent_candidates import AgentServiceCandidateSource
 from execution.adapters.authorization import MembershipAuthorizationRefresh
 from execution.adapters.hitl import DurableHITLApplicationPort
@@ -285,6 +286,12 @@ def validate_orchestrator_runtime(runtime: Any) -> list[str]:
     return [name for name in _RUNTIME_BINDINGS if getattr(runtime, name, None) is None]
 
 
+def _diagnostics_token(settings_obj: Any) -> set[str]:
+    """The per-start diagnostics token; its setting names a path, not a secret."""
+    token = read_token(getattr(settings_obj, "diagnostics_handoff_file", ""))
+    return {token} if token else set()
+
+
 def configured_public_secret_values(settings_obj: Any) -> tuple[str, ...]:
     """Collect configured credential values without logging or serializing them."""
 
@@ -318,6 +325,7 @@ def configured_public_secret_values(settings_obj: Any) -> tuple[str, ...]:
                     decoded = unquote(credential)
                     if len(decoded) >= 4:
                         values.add(decoded)
+    values.update(_diagnostics_token(settings_obj))
     return tuple(sorted(values, key=len, reverse=True))
 
 

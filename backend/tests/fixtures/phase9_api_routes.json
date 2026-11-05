@@ -484,6 +484,71 @@
     "streaming_response": null
   },
   {
+    "auth_dependencies": [],
+    "dependencies": [
+      "get_diagnostics"
+    ],
+    "methods": [
+      "GET"
+    ],
+    "module": "api_gateway.routes.diagnostics_routes",
+    "name": "diagnostics_events",
+    "openapi_response_codes": [
+      "200",
+      "422"
+    ],
+    "owning_protocol": "diagnostics.protocols.DiagnosticsAccess",
+    "path": "/api/v1/diagnostics/events",
+    "response_class": null,
+    "response_model": "DiagnosticPage",
+    "status_code": null,
+    "streaming_response": null,
+    "supporting_protocols": []
+  },
+  {
+    "auth_dependencies": [],
+    "dependencies": [
+      "get_diagnostics"
+    ],
+    "methods": [
+      "GET"
+    ],
+    "module": "api_gateway.routes.diagnostics_routes",
+    "name": "diagnostics_logs",
+    "openapi_response_codes": [
+      "200",
+      "422"
+    ],
+    "owning_protocol": "diagnostics.protocols.DiagnosticsAccess",
+    "path": "/api/v1/diagnostics/logs",
+    "response_class": null,
+    "response_model": "DiagnosticPage",
+    "status_code": null,
+    "streaming_response": null,
+    "supporting_protocols": []
+  },
+  {
+    "auth_dependencies": [],
+    "dependencies": [
+      "get_diagnostics"
+    ],
+    "methods": [
+      "GET"
+    ],
+    "module": "api_gateway.routes.diagnostics_routes",
+    "name": "diagnostics_snapshot",
+    "openapi_response_codes": [
+      "200"
+    ],
+    "owning_protocol": "diagnostics.protocols.DiagnosticsAccess",
+    "path": "/api/v1/diagnostics/snapshot",
+    "response_class": null,
+    "response_model": "DiagnosticsSnapshot",
+    "status_code": null,
+    "streaming_response": null,
+    "supporting_protocols": []
+  },
+  {
     "auth_dependencies": [
       "get_current_user"
     ],

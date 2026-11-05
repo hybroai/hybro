@@ -233,7 +233,8 @@ dependency globals, or define `bind_*` functions.
   `session.protocols.SessionAccess` and `SessionService`,
   `execution.ports.DirectAgentMessenger`, `local_agents.protocols.LocalAgentDiscovery`,
   `llm_gateway.agent_proxy._AgentLLMProxyPort`,
-  `llm_gateway.setup_api.SetupAccess`, and from `common.protocols`
+  `llm_gateway.setup_api.SetupAccess`,
+  `diagnostics.protocols.DiagnosticsAccess`, and from `common.protocols`
   `ExecutionEngine`, `HITLManager`, `SSERouteTransport`, `RoomRouteReader`,
   `SSEStateReader`, `RoomOwnershipReader`, `AgentRegistry`, `AgentMatcher`,
   `FileStorage`, and `PreparedFileStream`.
@@ -261,6 +262,9 @@ Route groups:
   push-notification ingress (see [Push notifications](#push-notifications)).
 - `setup_routes.py`: `/setup` browser model-provider setup (see
   [Browser setup API](#browser-setup-api)).
+- `diagnostics_routes.py`: read-only `/diagnostics` (`GET /snapshot`,
+  `/events`, `/logs`) for administrators, anyone in mock mode, and
+  `hybro doctor` with the per-start token in `X-Hybro-Diagnostics-Token`.
 
 Frontend-facing and agent-network routes use Clerk auth when
 `backend.auth_mode="clerk"`. In local `backend.auth_mode="mock"`, `main.py`
@@ -1024,6 +1028,7 @@ port, or facade port, update the exact method inventory in
 | `RoomEventStore` | `delivery.room_events` | `delivery.room_events.MongoRoomEventStore` | internal to `delivery` |
 | `SSETransport` | `delivery.types` | `delivery.sse.manager.SSETransportImpl` | crosses to composition root |
 | `TaskRunner` | `delivery.types` | callable shape (functions or callables) | crosses to composition root |
+| `DiagnosticsAccess` | `diagnostics.protocols` | `diagnostics.service.DiagnosticsService` | crosses to `api_gateway` |
 | `HITLApplicationStore` | `execution.adapters.hitl` | `execution.repository.orchestrator.hitl.MongoHITLApplicationStore` | internal to `execution` |
 | `InboundArtifactWriter` | `execution.adapters.resources` | `execution.repository.orchestrator.artifacts.GuardedRoomFileArtifactWriter` | internal to `execution` |
 | `InlineArtifactReader` | `execution.adapters.resources` | `execution.repository.orchestrator.stores.MongoObservationInboxStore` | internal to `execution` |
