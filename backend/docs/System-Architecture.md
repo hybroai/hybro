@@ -621,13 +621,12 @@ handler (`common.observability.sinks`) once its collections exist.
   in which either collection failed. A batch the encoder rejects, or the
   documents the server rejects for good (BadValue, validation, too large),
   are dropped and counted instead of retried; other write errors, such as a
-  stepdown, retry the batch; lifted fields are stored as strings so they always encode. The
-  sink never logs, and records from `pymongo`, `motor` and `diagnostics`
-  loggers are never queued.
-  On start it backfills qualifying entries from the ring buffer under the
-  handler lock, so nothing logged meanwhile is lost or stored ahead of the
-  backlog; on shutdown it
-  flushes for up to 2 s before Mongo closes. While Mongo is unreachable
+  stepdown, retry the batch; lifted fields are stored as strings so they
+  always encode. The sink never logs, and records from `pymongo`, `motor` and
+  `diagnostics` loggers are never queued. On start it backfills qualifying
+  entries from the ring buffer under the handler lock, so nothing logged
+  meanwhile is lost or stored ahead of the backlog; on shutdown it flushes for
+  up to 2 s before Mongo closes. While Mongo is unreachable
   requests and logging are unaffected and documents wait in the queues.
 
 ### `execution`
@@ -1282,7 +1281,7 @@ updates and the release workflow compares with the tag.
   `docker inspect`. In a checkout, `upgrade` only migrates.
 - **Doctor.** `hybro doctor` runs `/app/backend/diagnostics_cli.py` with the
   image's Python inside the running container (`docker exec`), after checking
-  that the file exists (an older image prints a stop-and-start hint). The
+  that the file exists (an older image: see Bundle). The
   helper reads `base_url` and the per-start token from
   `/tmp/hybro/diagnostics.json`, never `config.json` or `auth.json`, and GETs
   `/diagnostics/snapshot` over loopback with `X-Hybro-Diagnostics-Token`, a
@@ -3126,6 +3125,122 @@ at WARNING when a metric starts to breach and at DEBUG while it stays
 breached. `stale_task_checker` and `AgentHealthService` catch their own pass
 failures (and the checker its unbound dependencies, as `deps_unbound`), record
 them as `failed`, and emit no `job_run_completed` for that pass.
+
+## Observability
+
+The backend narrates its own lifecycle and keeps that narrative locally, so
+`hybro doctor` can answer "what happened" without an external service.
+
+**Pipeline.** Code calls `get_logger(__name__).emit(events.X, **fields)`
+(see "Logging events"). The catalog checks the event and its fields and marks
+system events with `_hybro_system`. The root logger has two handlers: the
+stdout handler (`StructuredFormatter`, JSON in the image, `auto` in a
+checkout; see "Logging events") and the `SinkHandler` (`common.observability.sinks`), installed by
+`configure_logging(capture=True)` at bootstrap. The sink handler renders each
+record once through the same formatter rules, so every field is already
+redacted, into a frozen `LogEntry` (`sequence`, `timestamp`, `level`,
+`level_no`, `service`, `event`, `logger`, `system`, `fields`) and passes it to every
+registered `LogSink`. Sinks run on the emitting thread and must only buffer.
+Two sinks exist:
+
+- `RingBufferSink`: the last 2,000 entries of this process at every level that
+  reaches the root handlers (the `httpx`, `httpcore`, `pymongo`, `motor` and
+  `redis` loggers are pinned at WARNING), in memory, read by
+  `/diagnostics/logs?source=memory`.
+- `diagnostics.store_sink.StoreSink`: system events at INFO and above and
+  every record at WARNING and above, written to the capped collections (see
+  the `diagnostics` module above).
+
+Both see only what passes `backend.log_level` (see the `diagnostics` module).
+`http_request_completed` is INFO for every outcome and not a system event, so
+the store holds a failed request only through the WARNING or ERROR records it
+produced inside the request, found with `trace_id=<request id>`. An unhandled
+exception's `uvicorn.error` record is logged after the request context ends
+and carries no id.
+
+**System events.** The 18 system events and their marker are listed under
+"Logging events"; the INFO-on-change, DEBUG-while-repeating rule of the jobs,
+the recovery cycle and the canary is described under "Background Jobs" and
+"Logging events". For those events the store holds transitions, not one record
+per tick; failure events such as `job_iteration_failed`,
+`eventing_dead_letter` and `a2a_recovery_phase_failed` are logged on every
+occurrence. `startup_completed` carries an allowlisted configuration summary
+and the provider state; `shutdown_started` carries the uptime.
+
+**Store.** The capped collections, their documents, limits and behaviour
+while MongoDB is down are described under the `diagnostics` module; the
+snapshot's `store` section reports the queue, drops and write failures.
+
+**Process coverage.**
+
+| Process | Store and ring buffer | Bundle |
+|---|---|---|
+| Backend | yes | snapshot, records, its stdout lines |
+| MCP server | no: no Mongo client and no capture, by design | its stdout lines |
+| Caddy | no: per-request access lines | its stdout lines |
+| Entrypoint, supervisord | no | sanitised stdout lines |
+| Bundled agents | no: plain text that can carry prompts | no |
+| mongod, frontend | no: not produced by the redacting formatter | no |
+
+The image runs one backend worker. With several workers (gunicorn), each has
+its own handler, ring buffer, `job_runs` and flush task and writes to the same
+capped collections with its `instance_id`; `/events` and `/logs` span every
+worker sharing the MongoDB and can be filtered by `instance_id`, while the snapshot and
+`source=memory` describe the worker that served the request
+(`service.instance_id`).
+
+**Diagnostics API.** `GET {api_prefix}/diagnostics/snapshot`, `/events` and
+`/logs` (`api_gateway/routes/diagnostics_routes.py`, behaviour in
+`diagnostics.service.DiagnosticsService` behind
+`diagnostics.protocols.DiagnosticsAccess`) are read-only:
+
+- `snapshot` returns live state in sections: service, health (the flags
+  `/health` reads plus a Mongo ping), provider, agents, jobs, leader, event
+  bus, SSE, recovery, canary and store. Each async source and each store query
+  is bounded at 3 s (health probes at 2 s each), and the canary reading, which
+  scans three collections, is shared by concurrent requests and cached for
+  30 s. A section whose source fails is `null` with an `errors` entry
+  (`section`, `error_type`); the route never fails because one subsystem is
+  down. `eventing.connected` is the bus's cached flag;
+  `health.eventing_connected` is the probed value, and both are true for the
+  in-memory bus when Redis is not configured.
+- `events` and `logs` page newest first (`limit` 1 to 500, `before` cursor
+  from `next_before`) with `service`, `level`, `event` (up to 20), `trace_id`,
+  `instance_id`, `since` and `until` filters; `logs?source=memory` reads the
+  ring buffer. A store that is not ready or fails is a 503 with
+  `detail.code == "store_unavailable"`; an invalid cursor is a 422.
+- Authorisation: before startup binds the service (or after shutdown) every
+  route is a 503 `diagnostics_unavailable`. A request whose
+  `X-Hybro-Diagnostics-Token` header matches the per-start token is accepted;
+  a missing or wrong token falls through to the user check: 401 without a
+  signed-in user, 403 unless the user may configure setup (anyone in
+  `auth_mode: mock`, `admin_user_ids` with Clerk). The token header is not declared in the schema and not allowed
+  by CORS. The entrypoint writes the token to `/tmp/hybro/diagnostics.json`
+  (0600) on every container start; `Settings.diagnostics_handoff_file` names
+  the file in the image and is empty in a checkout, which turns the token path
+  off. The token is added to the public-text sanitizer's secret values.
+
+**Doctor and bundle.** `hybro doctor` and `hybro doctor --bundle` read the
+API through the helper `diagnostics_cli.py` inside the container; see
+"Shell CLI" for output, exit statuses and the offline path. The bundle's
+redaction holds by construction: `snapshot.json` is a fixed schema whose only
+free text, agent names, is sanitised; every `.jsonl` record was rendered by
+the redacting formatter before it was stored or buffered; `container.log`
+keeps only the `backend`, `mcp`, `caddy` and unprefixed lines, and passes
+every kept line that is not a JSON object through `sanitize_text`; Caddy's
+JSON lines are kept as written, and the Caddyfile already drops their headers
+and URI, keeping the path and `trace_id`; the helper
+never reads `config.json` or `auth.json`, and the token is in no file.
+Free text in a non-JSON line is redacted by pattern only, so the user is told
+to review the archive before sharing it.
+
+**Adding a sink.** Implement `LogSink` (`Callable[[LogEntry], None]`) that
+only buffers, register it in `container.py` next to the store sink with
+`log_sinks().add_sink(...)` (`log_sinks()` is `None` when capture is not
+installed), and remove it on shutdown. A metrics sink would count entries by
+`event` and read `duration_ms`; an exporter would batch and send them from its
+own task. `MetricsCollector` and `NoopTracingProvider` remain separate from
+the sink pipeline.
 
 ## Deployment Modes
 
