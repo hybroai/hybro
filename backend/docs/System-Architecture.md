@@ -3008,6 +3008,19 @@ leader election prevents duplicate execution across workers.
 - `orphaned_upload_cleaner`: `RoomFiles.recover`.
 - `AgentHealthService`: periodic agent health and liveness.
 
+Every job records its runs in `common.observability.job_runs.job_runs`, a
+process-wide `JobRunRecorder` with one `JobRunState` per job (running flag,
+interval, job start time, last outcome `ok`, `failed` or
+`skipped_not_leader`, last completion and skip times, last duration, counters, consecutive failures and
+the last error type). A successful iteration emits `job_run_completed` (`job`,
+`duration_ms`); `job_skipped_not_leader` and `job_run_completed` are INFO when
+the job's last outcome changed and DEBUG while it repeats, so the INFO record
+marks a transition. The canary logs `orchestrator_canary_threshold_breached`
+at WARNING when a metric starts to breach and at DEBUG while it stays
+breached. `stale_task_checker` and `AgentHealthService` catch their own pass
+failures (and the checker its unbound dependencies, as `deps_unbound`), record
+them as `failed`, and emit no `job_run_completed` for that pass.
+
 ## Deployment Modes
 
 Single-process development:

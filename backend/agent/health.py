@@ -1,12 +1,14 @@
 from __future__ import annotations
 
 import asyncio
+import time
 from typing import Protocol
 
 from a2a_adapter.agent_card_health import probe_agent_card_for_health
 from common.config.loader import settings
 from common.observability import events as E
 from common.observability import get_logger, traced_create_task
+from common.observability.job_runs import job_runs
 from common.protocols import LeaderElector
 from common.types import AgentCard as CommonAgentCard
 from models.agent import (
@@ -387,8 +389,8 @@ class AgentHealthService:
                 name=f"agent-health-retry-{agent_id}",
             )
 
-    async def run_health_check_cycle(self):
-        """Run a single health check cycle for all agents."""
+    async def run_health_check_cycle(self) -> bool:
+        """Run a single health check cycle; ``False`` when it failed."""
         try:
             # Host-discovered agents use the local discovery miss threshold as
             # their authoritative lifecycle; avoid racing that reconciliation.
@@ -444,7 +446,10 @@ class AgentHealthService:
                         self._schedule_retry(agent_id)
 
         except Exception as exc:
+            job_runs.failed(self._leader_lock_name, type(exc).__name__)
             logger.emit(E.AGENT_HEALTH_CYCLE_FAILED, exc=exc)
+            return False
+        return True
 
     async def _health_check_loop(self):
         """Background loop that periodically runs health checks."""
@@ -453,6 +458,7 @@ class AgentHealthService:
                 await self._run_one_iteration()
                 await asyncio.sleep(self.check_interval)
             except Exception as exc:
+                job_runs.failed(self._leader_lock_name, type(exc).__name__)
                 logger.emit(E.JOB_ITERATION_FAILED, exc=exc, job=self._leader_lock_name)
                 await asyncio.sleep(60)
 
@@ -462,14 +468,33 @@ class AgentHealthService:
             ttl = self.check_interval * 2
             acquired = await self._leader.try_acquire(self._leader_lock_name, ttl)
             if not acquired:
-                logger.emit(E.JOB_SKIPPED_NOT_LEADER, job=self._leader_lock_name)
+                logger.emit(
+                    E.JOB_SKIPPED_NOT_LEADER,
+                    level=job_runs.skipped(self._leader_lock_name),
+                    job=self._leader_lock_name,
+                )
                 return  # another instance is the leader
+            started = time.perf_counter()
             try:
-                await self.run_health_check_cycle()
+                completed = await self.run_health_check_cycle()
             finally:
                 await self._leader.release(self._leader_lock_name)
         else:
-            await self.run_health_check_cycle()
+            started = time.perf_counter()
+            completed = await self.run_health_check_cycle()
+        if completed:
+            self._emit_completed(started)
+
+    def _emit_completed(self, started: float) -> None:
+        if self._leader_lock_name is None:
+            return
+        duration_ms = round((time.perf_counter() - started) * 1000, 1)
+        logger.emit(
+            E.JOB_RUN_COMPLETED,
+            level=job_runs.completed(self._leader_lock_name, duration_ms),
+            job=self._leader_lock_name,
+            duration_ms=duration_ms,
+        )
 
     async def start(self):
         """Start the health check background task."""
@@ -484,6 +509,7 @@ class AgentHealthService:
             return
 
         self._running = True
+        job_runs.started(self._leader_lock_name, self.check_interval)
         self._task = traced_create_task(
             self._health_check_loop(),
             name="agent-health-check",
@@ -515,4 +541,5 @@ class AgentHealthService:
                 await self._task
             except asyncio.CancelledError:
                 pass
+        job_runs.stopped(self._leader_lock_name)
         logger.emit(E.JOB_STOPPED, job=self._leader_lock_name)
