@@ -329,11 +329,20 @@ registered on `events.CATALOG`. Code logs through
 - An unknown event, a missing required field, or a renamed key still emits the
   line, annotated with `catalog_violation`. The test suite sets
   `CATALOG.strict = True`, which raises instead.
-- `system=True` marks events a later phase copies into a system event store
-  (`http_request_completed`, `llm_call_completed`, `a2a_call_completed`,
-  `job_iteration_failed`, `eventing_dead_letter`,
-  `eventing_dead_letter_publish_failed`, `redis_lock_operation_failed`);
-  nothing reads the flag yet.
+- `system=True` marks lifecycle events, and `emit` sets `_hybro_system` on
+  their records (nothing reads the attribute yet): `startup_completed`,
+  `shutdown_started`, `provider_config_reloaded`,
+  `provider_config_reload_failed`, `agent_registered`,
+  `bundled_agent_registered`, `agent_deactivated`, `agent_reactivated`,
+  `local_agents_deactivated`, `job_run_completed`, `job_skipped_not_leader`,
+  `job_iteration_failed`, `recovery_cycle_completed`, `eventing_dead_letter`,
+  `eventing_dead_letter_publish_failed`, `sse_subscription_refused`,
+  `orchestrator_canary_threshold_breached` and `redis_lock_operation_failed`.
+  `startup_completed`, `shutdown_started`, `agent_registered`,
+  `local_agents_deactivated`, `job_run_completed`, `recovery_cycle_completed`
+  and `sse_subscription_refused` are defined but not emitted yet. The
+  per-call transport events (`http_request_completed`,
+  `llm_call_completed`, `a2a_call_completed`) are not system events.
 - The event bus emits `eventing_dead_letter` for every dead letter (ERROR for
   the `handler` and `worker` stages, WARNING otherwise) with `failure_stage`,
   `event_type`, `exception_class`, `origin` and the dead letter's bounded

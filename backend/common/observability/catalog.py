@@ -33,6 +33,8 @@ FIXED_FIELDS = frozenset(
 EVENT_NAME_PATTERN = re.compile(r"^[a-z][a-z0-9]*(?:_[a-z0-9]+)*$")
 # Record attribute set on catalog events; the formatter drops ``_`` keys.
 EVENT_MARKER = "_hybro_event"
+# Record attribute set on events whose spec has ``system=True``.
+SYSTEM_MARKER = "_hybro_system"
 
 ExceptionFields = Callable[[BaseException], Mapping[str, Any]]
 LogContext = Callable[[], Mapping[str, Any]]
@@ -47,7 +49,7 @@ class EventSpec:
     name: str
     level: int
     required: frozenset[str] = field(default_factory=frozenset)
-    # Marks events a later phase copies into the system event store.
+    # Marks lifecycle events; ``emit`` sets ``SYSTEM_MARKER`` on their records.
     system: bool = False
 
 
@@ -151,6 +153,8 @@ class EventLogger:
         if exc is not None:
             extra.update(self._exception_fields(exc))
         extra[EVENT_MARKER] = True
+        if spec.system:
+            extra[SYSTEM_MARKER] = True
         self._stdlib.log(resolved_level, spec.name, extra=extra, stacklevel=2)
 
 
@@ -158,6 +162,7 @@ __all__ = [
     "EVENT_MARKER",
     "FIXED_FIELDS",
     "RESERVED_RECORD_FIELDS",
+    "SYSTEM_MARKER",
     "Catalog",
     "CatalogViolation",
     "EventLogger",

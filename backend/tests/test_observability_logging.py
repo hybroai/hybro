@@ -580,6 +580,22 @@ def test_emitted_event_renders_its_name(caplog):
     assert "_hybro_event" not in output
 
 
+def test_system_event_output_omits_the_system_marker(caplog):
+    from common.observability import events, get_logger
+
+    with caplog.at_level(logging.INFO, logger="tests.emitted"):
+        get_logger("tests.emitted").emit(events.JOB_STOPPED, job="j")
+        get_logger("tests.emitted").emit(
+            events.PROVIDER_CONFIG_RELOADED, provider_state="configured"
+        )
+
+    record = [r for r in caplog.records if r.name == "tests.emitted"][-1]
+    assert record._hybro_system is True
+    output = json.loads(_formatter().format(record))
+    assert output["event"] == "provider_config_reloaded"
+    assert not [key for key in output if key.startswith("_")]
+
+
 def test_get_logger_returns_event_logger_bound_to_backend_catalog():
     from common.observability import events, get_logger
     from common.observability.catalog import EventLogger

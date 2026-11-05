@@ -12,6 +12,32 @@ from common.observability.logging import StructuredFormatter
 
 BACKEND_ROOT = Path(__file__).resolve().parents[1]
 
+# The events retained by the diagnostics store. Per-call transport events
+# (http_request_completed, llm_call_completed, a2a_call_completed) are not
+# system events: they would evict the lifecycle history.
+SYSTEM_EVENTS = frozenset(
+    {
+        "startup_completed",
+        "shutdown_started",
+        "provider_config_reloaded",
+        "provider_config_reload_failed",
+        "agent_registered",
+        "bundled_agent_registered",
+        "agent_deactivated",
+        "agent_reactivated",
+        "local_agents_deactivated",
+        "job_run_completed",
+        "job_skipped_not_leader",
+        "job_iteration_failed",
+        "recovery_cycle_completed",
+        "eventing_dead_letter",
+        "eventing_dead_letter_publish_failed",
+        "sse_subscription_refused",
+        "orchestrator_canary_threshold_breached",
+        "redis_lock_operation_failed",
+    }
+)
+
 _SKIPPED_PARTS = frozenset({"tests", "build", ".venv", "scripts", "__pycache__"})
 _LOG_METHODS = frozenset(
     {"debug", "info", "warning", "warn", "error", "exception", "critical", "log"}
@@ -200,11 +226,4 @@ def test_transport_events_carry_their_call_site_fields():
         "outcome",
         "duration_ms",
     }
-    assert all(
-        spec.system
-        for spec in (
-            events.HTTP_REQUEST_COMPLETED,
-            events.LLM_CALL_COMPLETED,
-            events.A2A_CALL_COMPLETED,
-        )
-    )
+    assert {spec.name for spec in events.CATALOG if spec.system} == SYSTEM_EVENTS
