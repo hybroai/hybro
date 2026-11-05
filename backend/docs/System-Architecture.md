@@ -338,8 +338,8 @@ registered on `events.CATALOG`. Code logs through
   `job_iteration_failed`, `recovery_cycle_completed`, `eventing_dead_letter`,
   `eventing_dead_letter_publish_failed`, `sse_subscription_refused`,
   `orchestrator_canary_threshold_breached` and `redis_lock_operation_failed`.
-  `startup_completed`, `shutdown_started` and `sse_subscription_refused` are
-  defined but not emitted yet. The
+  `startup_completed` and `shutdown_started` are defined but not emitted yet.
+  The
   per-call transport events (`http_request_completed`,
   `llm_call_completed`, `a2a_call_completed`) are not system events.
 - The event bus emits `eventing_dead_letter` for every dead letter (ERROR for
@@ -380,6 +380,11 @@ registered on `events.CATALOG`. Code logs through
   to empty, WARNING when it changed and is not empty, DEBUG when it repeats.
   The comparison is per process, so after leadership moves between workers
   the first cycle on the new leader compares with its own last cycle.
+- `delivery.sse.manager` emits `sse_subscription_refused` (`conversation_id`,
+  `reason`) when it refuses a stream: `draining` (INFO, during shutdown),
+  `subscription_limit` (the instance's room subscription limit) or
+  `subscribe_failed`, both WARNING. The stream route ends such a stream
+  without also logging `sse_connection_failed`.
 - `agent` logs a stored status change once, after the write succeeds:
   `agent_deactivated` (WARNING) and `agent_reactivated` (INFO), each with
   `agent_id` and `trigger`: `health_check`, `liveness`, `provider_gating`

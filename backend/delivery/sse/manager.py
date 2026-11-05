@@ -1,14 +1,31 @@
 import asyncio
+import logging
 from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any
 
-from common.observability import MetricsCollector, NoopMetricsCollector
+from common.observability import MetricsCollector, NoopMetricsCollector, get_logger
+from common.observability import events as E
 from delivery.config import DeliveryConfig
 from delivery.sse.connection import SSEConnection
-from delivery.types import TaskRunner
+from delivery.types import RoomSubscriptionLimitExceeded, TaskRunner
+
+logger = get_logger(__name__)
+
+
+def _log_refusal(
+    conversation_id: str, reason: str, *, exc: BaseException | None = None
+) -> None:
+    """A refused subscription; draining is expected during shutdown."""
+    logger.emit(
+        E.SSE_SUBSCRIPTION_REFUSED,
+        level=logging.INFO if reason == "draining" else logging.WARNING,
+        exc=exc,
+        conversation_id=conversation_id,
+        reason=reason,
+    )
 
 
 @dataclass(slots=True)
@@ -173,6 +190,7 @@ class SSETransportImpl:
         connection_id: str,
     ) -> SSEConnection:
         if self._draining:
+            _log_refusal(conversation_id, "draining")
             raise ConnectionRefusedError(
                 "Server is draining - rejecting new SSE connections"
             )
@@ -182,6 +200,7 @@ class SSETransportImpl:
         try:
             async with self._admission(conversation_id):
                 if self._draining:
+                    _log_refusal(conversation_id, "draining")
                     raise ConnectionRefusedError(
                         "Server is draining - rejecting new SSE connections"
                     )
@@ -194,6 +213,13 @@ class SSETransportImpl:
                     try:
                         await self.event_bus.subscribe_room(conversation_id)
                     except Exception as exc:
+                        _log_refusal(
+                            conversation_id,
+                            "subscription_limit"
+                            if isinstance(exc, RoomSubscriptionLimitExceeded)
+                            else "subscribe_failed",
+                            exc=exc,
+                        )
                         raise ConnectionRefusedError(
                             f"Unable to subscribe room {conversation_id}"
                         ) from exc

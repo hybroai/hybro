@@ -129,6 +129,40 @@ class TestStreamRoomMessages:
         }
         assert isinstance(frame["timestamp"], str)
 
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        ("error", "logged"),
+        [(ConnectionRefusedError("draining"), False), (RuntimeError("x"), True)],
+    )
+    async def test_refused_connection_ends_without_connection_failed(
+        self,
+        caplog,
+        mock_user,
+        mock_sse_transport,
+        mock_db_service,
+        sample_room,
+        error,
+        logged,
+    ):
+        mock_sse_transport.add_connection.side_effect = error
+        mock_db_service.get_room_by_room_id.return_value = sample_room
+
+        response = await stream_room_messages(
+            sample_room.conversation_id,
+            mock_user,
+            transport=mock_sse_transport,
+            db=mock_db_service,
+        )
+        with caplog.at_level(logging.DEBUG):
+            frames = [frame async for frame in response.body_iterator]
+
+        assert frames == []
+        failed = [
+            r for r in caplog.records if r.getMessage() == "sse_connection_failed"
+        ]
+        assert bool(failed) is logged
+        mock_sse_transport.remove_connection.assert_not_called()
+
 
 # =============================================================================
 # Room SSE Status Tests
