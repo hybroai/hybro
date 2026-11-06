@@ -118,6 +118,7 @@ class JobRunView(_Model):
     last_completed_at: datetime | None
     last_duration_ms: float | None
     last_skipped_at: datetime | None
+    last_failed_at: datetime | None
     runs: int
     failures: int
     skips: int

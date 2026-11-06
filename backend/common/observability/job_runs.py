@@ -27,6 +27,7 @@ class JobRunState:
     last_completed_at: datetime | None = None
     last_duration_ms: float | None = None
     last_skipped_at: datetime | None = None
+    last_failed_at: datetime | None = None
     runs: int = 0
     failures: int = 0
     skips: int = 0
@@ -93,6 +94,7 @@ class JobRunRecorder:
             state.failures += 1
             state.consecutive_failures += 1
             state.last_error_type = error_type
+            state.last_failed_at = datetime.now(UTC)
 
     def snapshot(self) -> list[JobRunState]:
         with self._lock:

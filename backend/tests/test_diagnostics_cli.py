@@ -62,6 +62,7 @@ HEALTHY: dict = {
             "last_completed_at": "2026-11-05T11:59:48Z",
             "last_duration_ms": 12.0,
             "last_skipped_at": None,
+            "last_failed_at": None,
             "runs": 3,
             "failures": 0,
             "skips": 0,
@@ -77,6 +78,7 @@ HEALTHY: dict = {
             "last_completed_at": "2026-11-05T11:58:55Z",
             "last_duration_ms": 5.0,
             "last_skipped_at": None,
+            "last_failed_at": None,
             "runs": 2,
             "failures": 0,
             "skips": 0,
@@ -229,6 +231,27 @@ def test_problems_lists_each_kind():
     assert lines["Redis"] == "not connected (delivery_kv)"
     assert lines["Jobs"] == "2 running, 1 failing"
     assert "agent_health_check       failed" in text
+
+
+def test_a_failed_job_shows_the_age_of_the_failure():
+    data = snapshot()
+    data["jobs"][0].update(
+        last_outcome="failed",
+        last_completed_at=None,
+        last_failed_at="2026-11-05T11:59:00Z",
+        last_error_type="TimeoutError",
+    )
+    data["jobs"][1].update(
+        last_outcome="failed",
+        last_completed_at="2026-11-05T10:00:00Z",
+        last_failed_at="2026-11-05T11:58:00Z",
+    )
+    text = render(data)
+    rows = [line for line in text.splitlines() if " failed   " in line]
+    [first] = [line for line in rows if "orchestrator_recovery" in line]
+    [second] = [line for line in rows if "agent_health_check" in line]
+    assert " failed   1m ago " in first
+    assert " failed   2m ago " in second
 
 
 def test_null_sections_with_errors_render_unavailable():

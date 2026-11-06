@@ -62,9 +62,24 @@ def test_snapshot_reports_counters_and_timestamps(recorder):
     assert state.last_started_at.tzinfo is not None
     assert state.last_completed_at is not None
     assert state.last_skipped_at is not None
+    assert state.last_failed_at is not None
 
     recorder.stopped("j")
     assert _state(recorder, "j").running is False
+
+
+def test_failed_stamps_its_own_time_and_keeps_last_completed(recorder):
+    recorder.failed("j", "RuntimeError")
+    state = _state(recorder, "j")
+    assert state.last_failed_at is not None
+    assert state.last_completed_at is None
+
+    recorder.completed("j", 1)
+    completed_at = _state(recorder, "j").last_completed_at
+    recorder.failed("j", "RuntimeError")
+    state = _state(recorder, "j")
+    assert state.last_completed_at == completed_at
+    assert state.last_failed_at >= completed_at
 
 
 def test_snapshot_is_a_copy(recorder):

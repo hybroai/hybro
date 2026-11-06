@@ -8233,6 +8233,18 @@
             ],
             "title": "Last Skipped At"
           },
+          "last_failed_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Failed At"
+          },
           "runs": {
             "type": "integer",
             "title": "Runs"
@@ -8272,6 +8284,7 @@
           "last_completed_at",
           "last_duration_ms",
           "last_skipped_at",
+          "last_failed_at",
           "runs",
           "failures",
           "skips",

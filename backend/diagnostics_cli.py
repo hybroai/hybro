@@ -178,6 +178,13 @@ def _age(snapshot: Snapshot, value: object) -> str | None:
     return duration((now - then).total_seconds()) + " ago"
 
 
+# The time each outcome was recorded; a failure keeps the last success's.
+_OUTCOME_STAMP = {
+    "failed": "last_failed_at",
+    "skipped_not_leader": "last_skipped_at",
+}
+
+
 def _number(value: float) -> str:
     return f"{value:g}"
 
@@ -292,11 +299,7 @@ class _Report:
         self.line("Jobs", f"{running} running, {len(failing)} failing")
         for job in jobs:
             outcome = job.get("last_outcome")
-            stamp = (
-                job.get("last_skipped_at")
-                if outcome == "skipped_not_leader"
-                else job.get("last_completed_at")
-            )
+            stamp = job.get(_OUTCOME_STAMP.get(outcome, "last_completed_at"))
             age = _age(self.snapshot, stamp) or "never"
             interval = job.get("interval_seconds")
             every = "" if interval is None else f"every {duration(float(interval))}"
