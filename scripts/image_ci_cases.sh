@@ -2,7 +2,8 @@
 # Entrypoint cases of the single image on native Linux (CI image lane):
 #   - config directory owned by UID 0 (rootless Docker) and by an existing UID;
 #   - data from the 0.3 Compose stack, whose replica set names mongo:27017,
-#     is reconfigured to 127.0.0.1:27017, and a restart then finds it ready.
+#     is reconfigured to 127.0.0.1:27017, and a restart then skips the
+#     preparation because the reconfigured data is recorded as ready.
 # Usage: scripts/image_ci_cases.sh <image>   (needs sudo for chown)
 set -euo pipefail
 
@@ -107,6 +108,6 @@ from pymongo import MongoClient
 print(MongoClient("mongodb://127.0.0.1:27017/?replicaSet=rs0").hybro.migration_probe.count_documents({}))')" = 1
 timeout 70s docker restart "$NAME" >/dev/null
 wait_healthy
-docker logs "$NAME" 2>&1 | grep "MongoDB replica set rs0: ready" >/dev/null
+docker logs "$NAME" 2>&1 | grep "MongoDB replica set rs0: ready (recorded)" >/dev/null
 stop_clean
 echo "Image entrypoint cases passed."

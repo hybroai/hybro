@@ -420,7 +420,10 @@ class FakeProcess:
         return None
 
     def wait(self, timeout=None):
-        return self.poll()
+        code = self.poll()
+        # A running fake stops cleanly when waited for, as mongod does after
+        # the shutdown command.
+        return 0 if code is None else code
 
     def terminate(self):
         self.terminated = True
@@ -448,6 +451,9 @@ def refusing_client(_timeout_ms):
 @pytest.fixture
 def mongo_paths(tmp_path, monkeypatch):
     monkeypatch.setattr(entry, "DATA_DIR", tmp_path / "data")
+    binary = tmp_path / "mongod"
+    binary.write_bytes(b"mongod 7.0")
+    monkeypatch.setattr(entry, "MONGOD_BINARY", binary)
     return tmp_path / "mongod-prepare.log"
 
 
@@ -503,6 +509,7 @@ def test_driver_errors_become_entrypoint_errors(mongo_paths):
             start=lambda *a, **k: process, connect=Client, log=mongo_paths
         )
     assert process.terminated
+    assert not entry.replica_set_recorded()
 
 
 def test_stop_signal_during_preparation_is_a_clean_failure():
@@ -547,6 +554,76 @@ def test_successful_preparation_shuts_the_temporary_mongod_down(mongo_paths, cap
     assert timeouts == [entry.PROBE_TIMEOUT_MS, 60_000]
     assert not process.terminated
     assert "replica set rs0: ready" in capsys.readouterr().err
+    # Recorded once mongod has stopped cleanly, so the next start can skip this.
+    assert entry.replica_set_recorded()
+
+
+def ready_client(_timeout_ms):
+    """A client for a primary whose replica set already names loopback."""
+
+    class Admin:
+        def command(self, name, *args, **kwargs):
+            if name == "replSetGetConfig":
+                return {
+                    "config": {
+                        "_id": "rs0",
+                        "version": 1,
+                        "members": [{"_id": 0, "host": "127.0.0.1:27017"}],
+                    }
+                }
+            if name == "hello":
+                return {"isWritablePrimary": True}
+            return {"ok": 1}
+
+    class Client:
+        admin = Admin()
+
+        def close(self):
+            pass
+
+    return Client()
+
+
+def test_the_record_is_written_only_after_mongod_has_stopped(mongo_paths):
+    seen_at_wait = []
+
+    class Stopping(FakeProcess):
+        def wait(self, timeout=None):
+            seen_at_wait.append(entry.replica_set_recorded())
+            return super().wait(timeout)
+
+    entry.prepare_mongodb(
+        start=lambda *a, **k: Stopping(), connect=ready_client, log=mongo_paths
+    )
+    assert seen_at_wait == [False]
+    assert entry.replica_set_recorded()
+
+
+def test_an_unclean_mongod_stop_is_not_recorded(mongo_paths):
+    class Unclean(FakeProcess):
+        def wait(self, timeout=None):
+            return 14
+
+    entry.prepare_mongodb(
+        start=lambda *a, **k: Unclean(), connect=ready_client, log=mongo_paths
+    )
+    assert not entry.replica_set_recorded()
+
+
+def test_a_mongod_that_does_not_stop_is_not_recorded(mongo_paths):
+    import subprocess
+
+    class Hanging(FakeProcess):
+        def wait(self, timeout=None):
+            if not self.terminated:
+                raise subprocess.TimeoutExpired("mongod", timeout or 0)
+            return -15
+
+    with pytest.raises(entry.EntrypointError, match="TimeoutExpired"):
+        entry.prepare_mongodb(
+            start=lambda *a, **k: Hanging(), connect=ready_client, log=mongo_paths
+        )
+    assert not entry.replica_set_recorded()
 
 
 def test_inspect_runs_on_the_primary_and_its_result_is_returned(mongo_paths):
@@ -614,6 +691,92 @@ def test_user_phase_marks_a_fresh_volume_and_keeps_an_existing_marker(
     marker.write_text('{"complete": true, "migrated_from": "release"}')
     entry.user_phase()
     assert json.loads(marker.read_text())["migrated_from"] == "release"
+
+
+@pytest.fixture
+def boot(tmp_path, monkeypatch):
+    """user_phase with the image paths in tmp_path; returns the preparations run."""
+    monkeypatch.setattr(entry, "DATA_DIR", tmp_path / "data")
+    binary = tmp_path / "mongod"
+    binary.write_bytes(b"mongod 7.0")
+    monkeypatch.setattr(entry, "MONGOD_BINARY", binary)
+    monkeypatch.setattr(entry, "VOLUME_MARKER", tmp_path / "data" / "hybro-volume.json")
+    monkeypatch.setattr(entry, "RUN_DIR", tmp_path / "run")
+    monkeypatch.setattr(entry, "RUNTIME_DIR", tmp_path / "runtime")
+    monkeypatch.setattr(entry, "MANIFEST", REPO_MANIFEST)
+    monkeypatch.setattr(entry.os, "execvpe", lambda *a: None)
+    (tmp_path / "runtime").mkdir(mode=0o700)
+    (tmp_path / "data" / "db").mkdir(parents=True)
+    monkeypatch.setenv("HYBRO_LISTEN", "loopback")
+    monkeypatch.setenv("HYBRO_PUBLIC_PORT", "3000")
+    prepared = []
+    monkeypatch.setattr(entry, "prepare_mongodb", lambda: prepared.append(True))
+    return prepared
+
+
+def test_recorded_replica_set_skips_the_temporary_mongod(boot, capsys):
+    entry.record_replica_set()
+    entry.user_phase()
+    assert boot == []
+    assert "replica set rs0: ready (recorded)" in capsys.readouterr().err
+
+
+@pytest.mark.parametrize(
+    "record",
+    [
+        None,
+        "not json",
+        json.dumps({"replica_set": "rs0", "host": "mongo:27017"}),
+        json.dumps({"replica_set": "other", "host": "127.0.0.1:27017"}),
+    ],
+)
+def test_missing_or_foreign_record_prepares_the_replica_set(boot, record):
+    if record is not None:
+        (entry.DATA_DIR / "db" / "hybro-replica-set.json").write_text(record)
+    entry.user_phase()
+    assert boot == [True]
+
+
+@pytest.mark.parametrize(
+    ("field", "value"), [("host", "mongo:27017"), ("replica_set", "other")]
+)
+def test_a_record_for_another_replica_set_prepares_again(boot, field, value):
+    record = {**entry._expected_record(), field: value}
+    (entry.DATA_DIR / "db" / "hybro-replica-set.json").write_text(json.dumps(record))
+    entry.user_phase()
+    assert boot == [True]
+
+
+def test_an_unreadable_mongod_binary_is_never_recorded(boot, capsys):
+    entry.record_replica_set()
+    entry.MONGOD_BINARY.unlink()
+    assert not entry.replica_set_recorded()
+    (entry.DATA_DIR / "db" / "hybro-replica-set.json").unlink()
+    entry.record_replica_set()
+    assert list((entry.DATA_DIR / "db").iterdir()) == []
+    assert "cannot record the replica set" in capsys.readouterr().err
+
+
+def test_another_mongod_binary_prepares_again(boot):
+    entry.record_replica_set()
+    entry.MONGOD_BINARY.write_bytes(b"mongod 8.0, a different build")
+    entry.user_phase()
+    assert boot == [True]
+
+
+def test_a_failed_record_write_warns_and_leaves_no_partial_file(
+    mongo_paths, monkeypatch, capsys
+):
+    (entry.DATA_DIR / "db").mkdir(parents=True)
+
+    def full_disk(*_args, **_kwargs):
+        raise OSError(28, "No space left on device")
+
+    monkeypatch.setattr(entry.os, "replace", full_disk)
+    entry.record_replica_set()
+    assert not entry.replica_set_recorded()
+    assert list((entry.DATA_DIR / "db").iterdir()) == []
+    assert "cannot record the replica set" in capsys.readouterr().err
 
 
 def test_diagnostics_handoff_is_private_and_fresh_per_start(tmp_path, monkeypatch):

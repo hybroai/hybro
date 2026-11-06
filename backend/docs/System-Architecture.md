@@ -1201,7 +1201,9 @@ per process environment: every program runs as the same UID, which owns
 
 If `mongod` exits or never accepts connections during preparation, the
 entrypoint stops with the exit code and the tail of `mongod`'s output (kept in
-`/tmp/hybro/mongod-prepare.log`). A stop signal during preparation shuts the
+`/tmp/hybro/mongod-prepare.log`). A start that skips preparation (below) has no
+such check: a `mongod` that cannot open its data fails under the supervisor,
+visible as `mongod | ` lines in `hybro logs` and an unhealthy container. A stop signal during preparation shuts the
 temporary `mongod` down. Every supervised program has `killasgroup=true`, so a
 launcher killed after its stop timeout takes its child with it.
 
@@ -1236,7 +1238,15 @@ same way and carries no `trace_id`.
 On a fresh data volume the entrypoint starts `mongod`, initiates `rs0` with
 member `127.0.0.1:27017`, waits for primary, and stops it. Data whose stored
 config names another host, such as `mongo:27017` from the 0.3 Compose stack,
-gets a forced `replSetReconfig` to `127.0.0.1:27017`. In the supervisor,
+gets a forced `replSetReconfig` to `127.0.0.1:27017`. When the temporary
+`mongod` exits 0, the entrypoint writes `/data/db/hybro-replica-set.json`: `rs0`
+on `127.0.0.1:27017` and the size and modification time of `/usr/bin/mongod`. A
+start whose record matches skips the temporary `mongod` and logs
+`MongoDB replica set rs0: ready (recorded)`; another `mongod` binary, a missing
+or unreadable record, or a removed `db/` prepares again. Writing the record is
+best effort. Data copied into an existing `db/` (a restored backup) keeps the
+old record, so delete `hybro-replica-set.json` after restoring. In the
+supervisor,
 `mongod` has the highest priority, so it starts first and stops last
 (`stopwaitsecs` 30); every other program is in one group that stops together
 before it (10 seconds each). Run the container with `--stop-timeout 60`.
