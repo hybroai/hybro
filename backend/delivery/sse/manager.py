@@ -342,14 +342,14 @@ class SSETransportImpl:
                     return
             await self.event_bus.unsubscribe_room(conversation_id)
 
-    def _active_connection_count(self) -> int:
+    def active_connection_count(self) -> int:
         return sum(len(connections) for connections in self.room_connections.values())
 
     def _record_connection_gauge(self) -> None:
         try:
             self._metrics.gauge(
                 "hybro_delivery_sse_connections",
-                self._active_connection_count(),
+                self.active_connection_count(),
                 {"worker_id": self.instance_id},
             )
         except Exception:

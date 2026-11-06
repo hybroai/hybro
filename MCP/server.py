@@ -820,7 +820,15 @@ async def serve(app: Starlette) -> None:
     plain-text handlers next to the structured one.
     """
     config = uvicorn.Config(
-        app, host=MCP_HOST, port=MCP_PORT, log_config=None, access_log=False
+        app,
+        host=MCP_HOST,
+        port=MCP_PORT,
+        log_config=None,
+        access_log=False,
+        # Caddy closes proxied streams at 3 seconds; this bounds the rest. The
+        # stop budget is BACKEND_GRACEFUL_SHUTDOWN_SECONDS in
+        # backend/runtime_entrypoint.py.
+        timeout_graceful_shutdown=5,
     )
     log.emit(MCP_SERVER_STARTING, host=MCP_HOST, port=MCP_PORT)
     await uvicorn.Server(config).serve()

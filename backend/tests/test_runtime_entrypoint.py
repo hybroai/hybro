@@ -121,7 +121,7 @@ def test_loopback_projection_is_same_origin_with_mcp_enabled():
         "http://localhost:3100,http://127.0.0.1:3100"
     )
     assert backend["LOCAL_AGENT_DISCOVERY_EXCLUDED_PORTS"] == "7004,7001"
-    assert programs["backend"].command[-6:] == [
+    assert programs["backend"].command[-8:-2] == [
         "--host",
         "127.0.0.1",
         "--port",
@@ -200,6 +200,19 @@ def test_manifest_processes_carry_each_agent_directory():
 
 
 # ---- Generated configuration ----
+
+
+def test_backend_bounds_its_graceful_shutdown():
+    command = build(loopback()).get("backend").command
+    index = command.index("--timeout-graceful-shutdown")
+    assert command[index + 1] == str(entry.BACKEND_GRACEFUL_SHUTDOWN_SECONDS)
+
+
+@pytest.mark.parametrize("listener", [loopback(), public(insecure=True)])
+def test_caddy_bounds_its_shutdown_grace_period(listener):
+    text = entry.caddyfile(listener=listener, api_prefix="/api/v1")
+    global_options = text.split("\n}\n", 1)[0]
+    assert "\tgrace_period 3s" in global_options.splitlines()
 
 
 def test_loopback_caddyfile_checks_the_host_and_serves_mcp():
@@ -281,11 +294,27 @@ def test_supervisor_starts_mongod_first_and_stops_services_together():
     assert "priority=10\n" in mongod + "\n"
     assert "stopwaitsecs=30" in mongod
     backend = next(s for s in sections if s.startswith("[program:backend]"))
-    assert "stopwaitsecs=10" in backend
+    assert "stopwaitsecs=15" in backend
     assert "runtime_entrypoint.py run backend" in backend
     group = next(s for s in sections if s.startswith("[group:services]"))
     assert "mongod" not in group
     assert "agent-echo_agent" in group
+
+
+def test_the_stop_budget_ends_streams_before_any_kill():
+    from delivery.config import DeliveryConfig
+
+    drain = DeliveryConfig().shutdown_drain_seconds
+    # Caddy closes proxied streams before uvicorn would cancel them, and the
+    # backend's whole shutdown fits in its stop wait.
+    assert entry.CADDY_GRACE_SECONDS < entry.BACKEND_GRACEFUL_SHUTDOWN_SECONDS
+    assert entry.BACKEND_GRACEFUL_SHUTDOWN_SECONDS + drain < (
+        entry.SERVICE_STOP_WAIT_SECONDS
+    )
+    # scripts/hybro runs the container with --stop-timeout 60.
+    cli = (Path(__file__).resolve().parents[2] / "scripts" / "hybro").read_text()
+    assert "--stop-timeout 60" in cli
+    assert entry.SERVICE_STOP_WAIT_SECONDS + entry.MONGOD_STOP_WAIT_SECONDS < 60
 
 
 def test_private_files_are_owner_only(tmp_path):

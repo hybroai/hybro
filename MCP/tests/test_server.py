@@ -935,6 +935,9 @@ async def test_serve_leaves_logging_to_the_structured_formatter(monkeypatch, mcp
             "port": server.MCP_PORT,
             "log_config": None,
             "access_log": False,
+            # Longer than Caddy's 3-second grace period; see the stop budget
+            # in backend/runtime_entrypoint.py.
+            "timeout_graceful_shutdown": 5,
         },
         "config": "config",
         "served": True,

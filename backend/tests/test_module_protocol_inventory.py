@@ -273,6 +273,7 @@ CONSUMER_PORT_METHODS = {
         "list_current_agents",
     },
     ("delivery.types", "SSETransport"): {
+        "active_connection_count",
         "broadcast_frame_to_room",
         "connect",
         "disconnect",

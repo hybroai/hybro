@@ -49,6 +49,15 @@ REPLICA_SET = "rs0"
 WIRED_TIGER_CACHE_GB = "0.25"
 MONGO_READY_SECONDS = 60.0
 PROBE_TIMEOUT_MS = 1000
+# Stop budget, in seconds. Caddy closes proxied streams first, so they end
+# normally; the backend's longer bound only cancels connections that bypass
+# Caddy. A service's stop wait covers that bound plus the backend's SSE drain
+# (shutdown_drain_seconds, 5) before supervisord kills it; mongod stops after
+# the services, and both waits together stay under the CLI's --stop-timeout 60.
+CADDY_GRACE_SECONDS = 3
+BACKEND_GRACEFUL_SHUTDOWN_SECONDS = 5  # MCP/server.py uses the same value.
+SERVICE_STOP_WAIT_SECONDS = 15
+MONGOD_STOP_WAIT_SECONDS = 30
 
 # Variables every program may see; everything else is scoped per program.
 # Only the backend learns where the config directory is (see projections()).
@@ -258,6 +267,10 @@ def projections(
                 "8000",
                 "--workers",
                 "1",
+                # An open SSE stream would otherwise hold the stop until
+                # supervisord's kill, skipping the backend's own shutdown.
+                "--timeout-graceful-shutdown",
+                str(BACKEND_GRACEFUL_SHUTDOWN_SECONDS),
             ],
             backend_dir,
             {
@@ -356,6 +369,9 @@ def caddyfile(*, listener: Listener, api_prefix: str) -> str:
         "\tadmin off",
         "\tauto_https off",
         "\tpersist_config off",
+        # The default grace period is unbounded: an open SSE stream would hold
+        # the stop until supervisord kills Caddy.
+        f"\tgrace_period {CADDY_GRACE_SECONDS}s",
         # Error lines (a 5xx from a handler) carry the request through the
         # default logger, outside the site's access-log filter. Response
         # headers are dropped too, should an access line ever reach it.
@@ -464,7 +480,12 @@ def supervisord_conf(programs: Mapping[str, Program]) -> str:
             "stopsignal=TERM",
             # A launcher killed after stopwaitsecs must not orphan its child.
             "killasgroup=true",
-            f"stopwaitsecs={30 if name == 'mongod' else 10}",
+            "stopwaitsecs="
+            + str(
+                MONGOD_STOP_WAIT_SECONDS
+                if name == "mongod"
+                else SERVICE_STOP_WAIT_SECONDS
+            ),
             f"priority={10 if name == 'mongod' else 100}",
             "stdout_logfile=/dev/stdout",
             "stdout_logfile_maxbytes=0",

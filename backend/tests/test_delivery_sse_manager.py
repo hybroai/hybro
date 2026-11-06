@@ -496,6 +496,18 @@ async def test_draining_rejects_new_connections():
 
 
 @pytest.mark.asyncio
+async def test_active_connection_count_follows_open_and_removed_streams():
+    transport = make_transport()
+    first = await transport.open_connection("room-1")
+    await transport.open_connection("room-2")
+    assert transport.active_connection_count() == 2
+
+    await transport.remove_connection("room-1", first.connection_id)
+
+    assert transport.active_connection_count() == 1
+
+
+@pytest.mark.asyncio
 async def test_terminal_frame_forces_boundary_snapshot():
     # Boundary checkpoint (§7): a settled terminal frame triggers an
     # immediate snapshot fanout so consumers converge on the final state.

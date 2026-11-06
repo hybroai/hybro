@@ -306,6 +306,16 @@ def create_health_check_service(
     )
 
 
+async def drain_delivery_streams(facade: Any | None, seconds: float) -> None:
+    """Shutdown step: refuse new SSE streams and wait for open ones, bounded.
+
+    Usually no stream is open by now: the server has already waited for, or
+    cancelled, its connections. ``seconds`` is an upper bound, not a sleep.
+    """
+    if facade is not None:
+        await facade.drain(seconds)
+
+
 async def startup_runtime(app: Any, runtime: ApplicationRuntime) -> None:
     if runtime._lifespan_context is not None:
         raise RuntimeError("Application runtime has already been started")
@@ -2139,12 +2149,11 @@ async def _runtime_lifespan(app: Any, runtime: ApplicationRuntime):  # noqa: C90
                 )
 
         async def drain_delivery() -> None:
-            if _delivery_facade is not None:
-                _delivery_facade.set_draining(True)
-            await asyncio.sleep(
+            await drain_delivery_streams(
+                _delivery_facade,
                 _delivery_config.shutdown_drain_seconds
                 if _delivery_config is not None
-                else runtime.settings.shutdown_drain_seconds
+                else runtime.settings.shutdown_drain_seconds,
             )
 
         shutdown_steps: list[tuple[str, Callable[[], Awaitable[Any]]]] = []

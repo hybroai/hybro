@@ -1249,7 +1249,15 @@ old record, so delete `hybro-replica-set.json` after restoring. In the
 supervisor,
 `mongod` has the highest priority, so it starts first and stops last
 (`stopwaitsecs` 30); every other program is in one group that stops together
-before it (10 seconds each). Run the container with `--stop-timeout 60`.
+before it (15 seconds each). Run the container with `--stop-timeout 60`.
+Open connections, such as a browser tab's SSE stream, hold a stop for about
+3 seconds: Caddy's `grace_period` is 3 seconds, after which it closes the
+proxied streams and they end normally. The backend and MCP run uvicorn with a
+5-second graceful-shutdown timeout, which cancels only connections that bypass
+Caddy, and then run the application shutdown. The services' 15-second stop wait
+covers that timeout plus the drain below. The backend's
+SSE drain then waits only while streams are still registered, up to
+`shutdown_drain_seconds` (5).
 `scripts/image_smoke.py` checks a running image through its port; the
 `Image CI` job builds the image, runs it with an empty config directory, and
 then runs `scripts/image_ci_cases.sh` for the UID 0 and existing-UID cases and
