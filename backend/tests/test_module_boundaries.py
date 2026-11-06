@@ -26,6 +26,7 @@ DOMAIN_MODULES = frozenset(
         "context_memory",
         "conversation",
         "delivery",
+        "diagnostics",
         "execution",
         "jobs",
         "llm_gateway",

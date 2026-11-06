@@ -3,7 +3,7 @@
 Every backend log line is one of these events, emitted with
 ``get_logger(__name__).emit(events.X, **fields)``. ``required`` lists the
 fields every call site supplies (bound log context counts); ``system`` marks
-events a later phase copies into the system event store.
+lifecycle events; their records carry ``_hybro_system``.
 """
 
 from __future__ import annotations
@@ -21,19 +21,16 @@ HTTP_REQUEST_COMPLETED = define(
     "http_request_completed",
     INFO,
     required={"request_id", "method", "route", "status", "outcome", "duration_ms"},
-    system=True,
 )
 LLM_CALL_COMPLETED = define(
     "llm_call_completed",
     INFO,
     required={"provider", "model", "operation", "attempt", "outcome", "duration_ms"},
-    system=True,
 )
 A2A_CALL_COMPLETED = define(
     "a2a_call_completed",
     INFO,
     required={"agent", "operation", "attempt", "outcome", "duration_ms"},
-    system=True,
 )
 
 # a2a_adapter
@@ -87,7 +84,14 @@ BUNDLED_AGENT_URL_TAKEN = define(
     required={"bundled_name", "agent_id", "holder_source"},
 )
 BUNDLED_AGENT_REGISTERED = define(
-    "bundled_agent_registered", INFO, required={"bundled_name", "agent_id"}
+    "bundled_agent_registered",
+    INFO,
+    required={"bundled_name", "agent_id"},
+    system=True,
+)
+# source is "manual" or "local".
+AGENT_REGISTERED = define(
+    "agent_registered", INFO, required={"agent_id", "source"}, system=True
 )
 BUNDLED_AGENT_REGISTRATION_FAILED = define(
     "bundled_agent_registration_failed", WARNING, required={"bundled_name"}
@@ -114,9 +118,11 @@ AGENT_STATUS_UPDATE_FAILED = define(
     "agent_status_update_failed", ERROR, required={"agent_id", "agent_status"}
 )
 AGENT_DEACTIVATED = define(
-    "agent_deactivated", WARNING, required={"agent_id", "trigger"}
+    "agent_deactivated", WARNING, required={"agent_id", "trigger"}, system=True
 )
-AGENT_REACTIVATED = define("agent_reactivated", INFO, required={"agent_id", "trigger"})
+AGENT_REACTIVATED = define(
+    "agent_reactivated", INFO, required={"agent_id", "trigger"}, system=True
+)
 AGENT_HEALTH_RETRY_SCHEDULED = define(
     "agent_health_retry_scheduled",
     DEBUG,
@@ -415,6 +421,15 @@ RUNTIME_CLEANUP_STEP_FAILED = define(
     "runtime_cleanup_step_failed", WARNING, required={"cleanup_step"}
 )
 STARTUP_BINDINGS_VERIFIED = define("startup_bindings_verified", INFO)
+STARTUP_COMPLETED = define(
+    "startup_completed",
+    INFO,
+    required={"startup_duration_ms", "provider_state", "auth_mode"},
+    system=True,
+)
+SHUTDOWN_STARTED = define(
+    "shutdown_started", INFO, required={"uptime_seconds"}, system=True
+)
 RESYNC_SNAPSHOT_BUILD_FAILED = define(
     "resync_snapshot_build_failed", WARNING, required={"conversation_id"}
 )
@@ -445,13 +460,19 @@ JOB_STOPPED = define("job_stopped", INFO, required={"job"})
 JOB_ITERATION_FAILED = define(
     "job_iteration_failed", ERROR, required={"job"}, system=True
 )
-JOB_SKIPPED_NOT_LEADER = define("job_skipped_not_leader", DEBUG, required={"job"})
+JOB_SKIPPED_NOT_LEADER = define(
+    "job_skipped_not_leader", DEBUG, required={"job"}, system=True
+)
+JOB_RUN_COMPLETED = define(
+    "job_run_completed", INFO, required={"job", "duration_ms"}, system=True
+)
 JOB_ALREADY_STARTED = define("job_already_started", WARNING, required={"job"})
 JOB_START_SKIPPED = define("job_start_skipped", INFO, required={"job", "reason"})
 ORCHESTRATOR_CANARY_THRESHOLD_BREACHED = define(
     "orchestrator_canary_threshold_breached",
     WARNING,
     required={"metric", "threshold", "observed"},
+    system=True,
 )
 HITL_RECONCILIATION_SKIPPED = define(
     "hitl_reconciliation_skipped", WARNING, required={"reason"}
@@ -691,6 +712,13 @@ ARTIFACT_APPEND_SKIPPED = define(
     "artifact_append_skipped", WARNING, required={"message_id", "reason"}
 )
 
+# diagnostics
+
+# reason is the exception class name; the store is then not started.
+DIAGNOSTICS_STORE_UNAVAILABLE = define(
+    "diagnostics_store_unavailable", WARNING, required={"reason"}
+)
+
 # delivery
 
 DELIVERY_COMPLETED = define(
@@ -706,6 +734,13 @@ DELIVERY_COMPLETED = define(
 )
 CANONICAL_FINAL_CONFLICT_IGNORED = define(
     "canonical_final_conflict_ignored", WARNING, required={"message_id", "run_id"}
+)
+# reason is "draining", "subscription_limit" or "subscribe_failed".
+SSE_SUBSCRIPTION_REFUSED = define(
+    "sse_subscription_refused",
+    WARNING,
+    required={"conversation_id", "reason"},
+    system=True,
 )
 TERMINAL_DEDUP_REDIS_OPERATION_TIMED_OUT = define(
     "terminal_dedup_redis_operation_timed_out",
@@ -819,14 +854,20 @@ A2A_PUSH_INGRESS_FAILED = define(
 A2A_RECOVERY_PHASE_FAILED = define(
     "a2a_recovery_phase_failed", ERROR, required={"phase"}
 )
+RECOVERY_CYCLE_COMPLETED = define(
+    "recovery_cycle_completed",
+    INFO,
+    required={"failed_phases", "phase_count", "duration_ms"},
+    system=True,
+)
 
 # llm_gateway
 
 PROVIDER_CONFIG_RELOADED = define(
-    "provider_config_reloaded", INFO, required={"provider_state"}
+    "provider_config_reloaded", INFO, required={"provider_state"}, system=True
 )
 PROVIDER_CONFIG_RELOAD_FAILED = define(
-    "provider_config_reload_failed", WARNING, required={"reason"}
+    "provider_config_reload_failed", WARNING, required={"reason"}, system=True
 )
 PROVIDER_CONFIG_REFRESH_FAILED = define("provider_config_refresh_failed", WARNING)
 PROVIDER_LISTENER_FAILED = define("provider_listener_failed", WARNING)
@@ -839,6 +880,9 @@ OAUTH_CODE_EXCHANGE_FAILED = define("oauth_code_exchange_failed", WARNING)
 
 LOCAL_AGENT_DISCOVERY_CYCLE_FAILED = define(
     "local_agent_discovery_cycle_failed", ERROR, required={"trigger"}
+)
+LOCAL_AGENTS_DEACTIVATED = define(
+    "local_agents_deactivated", INFO, required={"deactivated_count"}, system=True
 )
 LOCAL_AGENT_RECORDS_PRUNED = define(
     "local_agent_records_pruned", INFO, required={"pruned_record_count"}

@@ -11,6 +11,7 @@ from pymongo.errors import OperationFailure
 
 import runtime_entrypoint as entry
 from common.config.loader import FrontendSettings
+from diagnostics import read_token
 
 REPO_MANIFEST = Path(__file__).resolve().parents[2] / "default_agents" / "agents.yaml"
 AGENTS = (
@@ -605,6 +606,42 @@ def test_user_phase_marks_a_fresh_volume_and_keeps_an_existing_marker(
     monkeypatch.setenv("HYBRO_PUBLIC_PORT", "3000")
     entry.user_phase()
     assert json.loads(marker.read_text())["created"] == "fresh"
+    token = json.loads((tmp_path / "run" / "diagnostics.json").read_text())["token"]
+    for program in (tmp_path / "run" / "programs").glob("*.json"):
+        text = program.read_text()
+        assert token not in text
+        assert "diagnostics.json" not in text
     marker.write_text('{"complete": true, "migrated_from": "release"}')
     entry.user_phase()
     assert json.loads(marker.read_text())["migrated_from"] == "release"
+
+
+def test_diagnostics_handoff_is_private_and_fresh_per_start(tmp_path, monkeypatch):
+    monkeypatch.setattr(entry, "RUN_DIR", tmp_path / "run")
+
+    entry.write_diagnostics_handoff("/api/v9")
+    path = tmp_path / "run" / "diagnostics.json"
+    first = json.loads(path.read_text())
+    assert path.stat().st_mode & 0o777 == 0o600
+    assert first["base_url"] == "http://127.0.0.1:8000/api/v9/diagnostics"
+    assert read_token(str(path)) == first["token"]
+
+    entry.write_diagnostics_handoff("/api/v9")
+    assert json.loads(path.read_text())["token"] != first["token"]
+
+
+def test_diagnostics_handoff_replaces_a_loosened_file(tmp_path, monkeypatch):
+    monkeypatch.setattr(entry, "RUN_DIR", tmp_path / "run")
+    (tmp_path / "run").mkdir(mode=0o700)
+    path = tmp_path / "run" / "diagnostics.json"
+    path.write_text("{}")
+    path.chmod(0o644)
+    stale = tmp_path / "run" / ".diagnostics.json.new"
+    stale.write_text("{}")
+    stale.chmod(0o644)
+
+    entry.write_diagnostics_handoff("/api/v1")
+
+    assert path.stat().st_mode & 0o777 == 0o600
+    assert len(json.loads(path.read_text())["token"]) == 64
+    assert [p.name for p in (tmp_path / "run").iterdir()] == ["diagnostics.json"]

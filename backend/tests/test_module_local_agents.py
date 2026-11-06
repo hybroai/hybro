@@ -502,3 +502,80 @@ async def test_discovery_does_not_overwrite_a_record_registration_took_over():
 
     assert result.managed is False
     assert repository.docs["local-1"] == taken_over
+
+
+def _agent_events(caplog, name: str) -> list[logging.LogRecord]:
+    return [r for r in caplog.records if r.getMessage() == name]
+
+
+@pytest.mark.asyncio
+async def test_upsert_local_agent_emits_registration_and_reactivation(caplog):
+    caplog.set_level(logging.DEBUG)
+    repository = FacadeRepository()
+    facade = _facade(repository)
+
+    first = await facade.upsert_local_agent("http://host.docker.internal:9001", _card())
+    await facade.upsert_local_agent("http://host.docker.internal:9001", _card())
+    repository.docs[first.agent_id]["agent_status"] = "inactive"
+    await facade.upsert_local_agent("http://host.docker.internal:9001", _card())
+
+    [registered] = _agent_events(caplog, "agent_registered")
+    assert registered.agent_id == first.agent_id
+    assert registered.source == "local"
+    [reactivated] = _agent_events(caplog, "agent_reactivated")
+    assert reactivated.agent_id == first.agent_id
+    assert reactivated.trigger == "local_discovery"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("count", [0, 2])
+async def test_discovery_cycle_reports_deactivated_count(caplog, count):
+    class DeactivatingWriter(Writer):
+        async def mark_local_agents_inactive(self, agent_ids):
+            await super().mark_local_agents_inactive(agent_ids)
+            return count
+
+    with caplog.at_level(logging.DEBUG, logger="local_agents.service"):
+        await _service(Scanner(), Probe(), DeactivatingWriter()).request_discovery()
+
+    records = _agent_events(caplog, "local_agents_deactivated")
+    if count == 0:
+        assert records == []
+    else:
+        [record] = records
+        assert record.levelno == logging.INFO
+        assert record.deactivated_count == 2
+
+
+@pytest.mark.asyncio
+async def test_upsert_local_agent_is_silent_when_registration_took_over(caplog):
+    caplog.set_level(logging.DEBUG)
+    taken_over = {
+        "agent_id": "local-1",
+        "provider_id": "owner",
+        "source": "cloud",
+        "normalized_url": "http://localhost:9001",
+        "agent_status": "active",
+        "agent_card": {"name": "Registered", "url": "http://localhost:9001"},
+    }
+    repository = FacadeRepository(dict(taken_over))
+    stale = {
+        **taken_over,
+        "provider_id": None,
+        "source": "local",
+        "agent_status": "inactive",
+    }
+
+    async def stale_read(normalized_url, provider_id=None):
+        del normalized_url, provider_id
+        return stale
+
+    repository.find_by_normalized_url = stale_read
+
+    result = await _facade(repository).upsert_local_agent(
+        "http://host.docker.internal:9001", _card()
+    )
+
+    assert result.managed is False
+    assert _agent_events(caplog, "agent_reactivated") == []
+    assert _agent_events(caplog, "agent_registered") == []

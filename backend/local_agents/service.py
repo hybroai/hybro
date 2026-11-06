@@ -150,6 +150,8 @@ class LocalAgentService:
                 inactive_ids.append(agent_id)
 
         deactivated = await self._writer.mark_local_agents_inactive(inactive_ids)
+        if deactivated > 0:
+            logger.emit(E.LOCAL_AGENTS_DEACTIVATED, deactivated_count=deactivated)
         pruned = await self._writer.prune_inactive_local_agents()
         if pruned:
             logger.emit(E.LOCAL_AGENT_RECORDS_PRUNED, pruned_record_count=pruned)

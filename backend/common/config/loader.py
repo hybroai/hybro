@@ -180,6 +180,9 @@ class Settings(BaseModel):
 
     # Inference-only credential for bundled agents; never grants user access.
     default_agent_llm_token: str = Field(default="", repr=False)
+    # The per-start diagnostics handoff the image entrypoint writes; empty in a
+    # checkout, which turns the token path of the diagnostics API off.
+    diagnostics_handoff_file: str = ""
     # provider_id of the bundled agents the backend registers at boot.
     default_agent_provider_id: str = "Hybro AI"
     # Bundled agent manifest (`default_agents/agents.yaml`). Empty disables
@@ -438,6 +441,7 @@ PRIVATE_FIELDS = frozenset(
         "gemini_api_key",
         "clerk_secret_key",
         "default_agent_llm_token",
+        "diagnostics_handoff_file",
     }
 )
 # Retired backend settings. Existing config.json files may still carry them
@@ -633,6 +637,8 @@ def _apply_image_defaults(values: dict) -> None:
         ),
     }.items():
         values.setdefault(key, value)
+    # runtime_entrypoint.RUN_DIR / "diagnostics.json"
+    values["diagnostics_handoff_file"] = "/tmp/hybro/diagnostics.json"
     origins = os.environ.get("HYBRO_FRONTEND_ORIGINS")
     if origins:
         values["frontend_origins"] = origins

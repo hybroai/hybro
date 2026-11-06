@@ -4,8 +4,10 @@ import sys
 import pytest
 
 from common.observability.catalog import (
+    EVENT_MARKER,
     FIXED_FIELDS,
     RESERVED_RECORD_FIELDS,
+    SYSTEM_MARKER,
     Catalog,
     CatalogViolation,
     EventLogger,
@@ -79,6 +81,23 @@ def test_emit_uses_spec_level_name_and_marks_the_record(caplog):
     assert record.deleted == 3
     assert record._hybro_event is True
     assert not hasattr(record, "catalog_violation")
+
+
+def test_emit_marks_records_of_system_events(caplog):
+    catalog = _catalog()
+    system_spec = catalog.define("system_happened", logging.INFO, system=True)
+    plain_spec = catalog.define("plain_happened", logging.INFO)
+    event_logger = _event_logger(catalog)
+
+    with caplog.at_level(logging.INFO, logger=_LOGGER_NAME):
+        event_logger.emit(system_spec)
+        event_logger.emit(plain_spec)
+
+    system_record, plain_record = _records(caplog)
+    assert getattr(system_record, SYSTEM_MARKER) is True
+    assert getattr(system_record, EVENT_MARKER) is True
+    assert not hasattr(plain_record, SYSTEM_MARKER)
+    assert getattr(plain_record, EVENT_MARKER) is True
 
 
 def test_emit_level_override_is_honoured(caplog):

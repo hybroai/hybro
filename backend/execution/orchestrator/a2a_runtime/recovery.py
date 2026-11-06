@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
+import time
 from collections.abc import Awaitable, Callable
 from datetime import UTC, datetime, timedelta
 from hashlib import sha256
@@ -757,6 +759,8 @@ class A2ARecoveryCycle:
             ("projection", projection),
             ("watchdog", watchdog),
         )
+        # Failed phase names of the last finished cycle; None before the first.
+        self.last_failed_phases: list[str] | None = None
 
     async def run_once(self) -> None:
         """Run phases in order, isolating one phase failure from the rest.
@@ -764,14 +768,32 @@ class A2ARecoveryCycle:
         Cancellation is still propagated so job shutdown remains responsive; any
         other phase exception is logged and the cycle continues to the next
         phase. Watchdog remains the last phase by construction.
+
+        ``recovery_cycle_completed`` is INFO (WARNING with failed phases) when
+        the set of failed phases changed since the last cycle, else DEBUG.
         """
+        started = time.perf_counter()
+        failed: list[str] = []
         for name, phase in self.phases:
             try:
                 await phase()
             except asyncio.CancelledError:
                 raise
             except Exception as exc:
+                failed.append(name)
                 logger.emit(E.A2A_RECOVERY_PHASE_FAILED, exc=exc, phase=name)
+        if failed == self.last_failed_phases:
+            level = logging.DEBUG
+        else:
+            level = logging.WARNING if failed else logging.INFO
+        self.last_failed_phases = failed
+        logger.emit(
+            E.RECOVERY_CYCLE_COMPLETED,
+            level=level,
+            failed_phases=failed,
+            phase_count=len(self.phases),
+            duration_ms=round((time.perf_counter() - started) * 1000, 1),
+        )
 
 
 def _kernel_conflict_marker() -> str:

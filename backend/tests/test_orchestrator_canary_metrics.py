@@ -342,6 +342,39 @@ async def test_canary_job_logs_warning_on_breach(monkeypatch, caplog):
     assert breach.terminal_runs == 2
 
 
+def _breach_levels(caplog) -> list[int]:
+    return [
+        record.levelno
+        for record in caplog.records
+        if record.getMessage() == "orchestrator_canary_threshold_breached"
+    ]
+
+
+@pytest.mark.asyncio
+async def test_canary_job_logs_a_persisting_breach_once(monkeypatch, caplog):
+    monkeypatch.setattr("jobs.orchestrator_workers.settings", Settings())
+    readings = iter([1, 1, 0, 1])
+
+    async def collect() -> dict:
+        return {
+            "runs_by_status_window": {"completed": 1, "failed": next(readings)},
+            "projection_outbox_blocked": 0,
+            "projection_outbox_blocked_oldest_at": None,
+            "recovery_cycle_last_run_at": BASE_TIME,
+            "observation_conflicts_open": 0,
+            "collected_at": BASE_TIME,
+        }
+
+    job = OrchestratorCanaryJob(interval_seconds=30)
+    job.set_canary_deps(OrchestratorCanaryDeps(collect=collect))
+
+    with caplog.at_level(logging.DEBUG):
+        for _ in range(4):
+            await job._run_one_iteration()
+
+    assert _breach_levels(caplog) == [logging.WARNING, logging.DEBUG, logging.WARNING]
+
+
 @pytest.mark.asyncio
 async def test_canary_job_skips_leader_gate_when_no_leader_bound():
     called = []

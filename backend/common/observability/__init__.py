@@ -6,7 +6,10 @@ from common.observability.logging import (
     get_logger,
     log_id,
     log_ids,
+    log_sinks,
+    ring_buffer,
     safe_exception_metadata,
+    sanitize_text,
 )
 from common.observability.metrics import MetricsCollector, NoopMetricsCollector
 from common.observability.tracing import (
@@ -28,7 +31,10 @@ __all__ = [
     "get_logger",
     "log_id",
     "log_ids",
+    "log_sinks",
+    "ring_buffer",
     "safe_exception_metadata",
+    "sanitize_text",
     "trace_id_context",
     "traced_create_task",
 ]

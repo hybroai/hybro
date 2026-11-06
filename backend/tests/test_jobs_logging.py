@@ -5,12 +5,15 @@ from __future__ import annotations
 import asyncio
 import logging
 from collections.abc import Callable
+from datetime import UTC, datetime
 from types import SimpleNamespace
 from typing import Any
 
 import pytest
 
 from agent.health import AgentHealthService
+from common.config.loader import Settings
+from common.observability.job_runs import job_runs
 from jobs.cleanup_orphaned_uploads import (
     OrphanedUploadCleaner,
     OrphanedUploadCleanerDeps,
@@ -111,6 +114,18 @@ JOB_IDS = [name for _, name, _ in JOBS]
 
 
 @pytest.fixture(autouse=True)
+def _reset_job_runs():
+    job_runs.reset()
+    yield
+    job_runs.reset()
+
+
+def _job_state(job_name: str):
+    [state] = [state for state in job_runs.snapshot() if state.job == job_name]
+    return state
+
+
+@pytest.fixture(autouse=True)
 def _enable_flagged_jobs(monkeypatch):
     monkeypatch.setattr(
         "jobs.orchestrator_workers.settings",
@@ -149,7 +164,10 @@ async def test_job_start_and_stop_emit_lifecycle_events(
     job = factory(fast=False)
 
     await job.start()
+    assert _job_state(job_name).running is True
+    assert _job_state(job_name).interval_seconds == interval
     await job.stop()
+    assert _job_state(job_name).running is False
 
     [started] = _events(caplog, "job_started")
     assert started.levelno == logging.INFO
@@ -179,6 +197,10 @@ async def test_job_iteration_failure_emits_job_iteration_failed(
     assert record.levelno == logging.ERROR
     assert record.job == job_name
     assert record.error_type == "_DepsFailed"
+    state = _job_state(job_name)
+    assert state.last_outcome == "failed"
+    assert state.last_error_type == "_DepsFailed"
+    assert state.failures >= 1
 
 
 class _Follower:
@@ -205,12 +227,15 @@ async def test_job_skipped_when_not_leader(caplog, factory, job_name, interval):
     job.set_leader_election(leader)
 
     await job._run_one_iteration()
+    await job._run_one_iteration()
 
-    [skipped] = _events(caplog, "job_skipped_not_leader")
-    assert skipped.levelno == logging.DEBUG
-    assert skipped.job == job_name
+    first, second = _events(caplog, "job_skipped_not_leader")
+    assert first.levelno == logging.INFO
+    assert second.levelno == logging.DEBUG
+    assert first.job == job_name
     assert _events(caplog, "job_iteration_failed") == []
     assert leader.released == []
+    assert _job_state(job_name).last_outcome == "skipped_not_leader"
 
 
 class _FailingHealthLeader:
@@ -229,10 +254,12 @@ async def test_health_loop_skipped_when_not_leader(caplog):
     service.set_leader_election(_Follower(), lock_name="agent_health_checker")
 
     await service._run_one_iteration()
+    await service._run_one_iteration()
 
-    [skipped] = _events(caplog, "job_skipped_not_leader", prefix="agent.")
-    assert skipped.levelno == logging.DEBUG
-    assert skipped.job == "agent_health_checker"
+    first, second = _events(caplog, "job_skipped_not_leader", prefix="agent.")
+    assert first.levelno == logging.INFO
+    assert second.levelno == logging.DEBUG
+    assert first.job == "agent_health_checker"
 
 
 @pytest.mark.asyncio
@@ -298,3 +325,187 @@ async def test_disabled_health_loop_emits_job_start_skipped(caplog, monkeypatch)
     [skipped] = _events(caplog, "job_start_skipped", prefix="agent.")
     assert skipped.job == "agent_health_checker"
     assert skipped.reason == "disabled"
+
+
+async def _noop(*_args: Any, **_kwargs: Any) -> None:
+    return None
+
+
+async def _no_rooms() -> list[str]:
+    return []
+
+
+class _RecoveredRoomFiles:
+    async def recover(self, *, max_age_hours: int) -> int:
+        del max_age_hours
+        return 0
+
+
+async def _healthy_metrics() -> dict[str, Any]:
+    now = datetime.now(UTC)
+    return {
+        "runs_by_status_window": {"completed": 10, "failed": 0},
+        "projection_outbox_blocked": 0,
+        "projection_outbox_blocked_oldest_at": None,
+        "recovery_cycle_last_run_at": now,
+        "observation_conflicts_open": 0,
+        "collected_at": now,
+    }
+
+
+class _NoAgents:
+    async def list_visible(self, **_kwargs: Any) -> list[dict[str, Any]]:
+        return []
+
+
+def _ok_recovery() -> OrchestratorRecoveryJob:
+    job = OrchestratorRecoveryJob(interval_seconds=30)
+    job.set_recovery_deps(OrchestratorRecoveryDeps(recover_once=_noop))
+    return job
+
+
+def _ok_projection() -> OrchestratorProjectionJob:
+    job = OrchestratorProjectionJob(interval_seconds=30)
+    job.set_projection_deps(OrchestratorProjectionDeps(project_once=_noop))
+    return job
+
+
+def _ok_canary() -> OrchestratorCanaryJob:
+    job = OrchestratorCanaryJob(interval_seconds=30)
+    job.set_canary_deps(OrchestratorCanaryDeps(collect=_healthy_metrics))
+    return job
+
+
+def _ok_stale() -> StaleTaskChecker:
+    job = StaleTaskChecker(check_interval_minutes=5)
+    job.set_hitl_deps(StaleHITLDeps(reconcile_lifecycle=_noop))
+    return job
+
+
+def _ok_compaction() -> CompactionSweep:
+    job = CompactionSweep(interval_minutes=30)
+    job.set_sweep_deps(
+        CompactionSweepDeps(
+            list_room_ids_with_memory=_no_rooms,
+            get_room_ids_with_non_terminal_runs=_no_rooms,
+            context_compaction=_UnusedCompaction(),
+        )
+    )
+    return job
+
+
+def _ok_cleaner() -> OrphanedUploadCleaner:
+    job = OrphanedUploadCleaner(interval_hours=24)
+    job.set_cleanup_deps(OrphanedUploadCleanerDeps(room_files=_RecoveredRoomFiles()))
+    return job
+
+
+def _ok_health() -> AgentHealthService:
+    service = AgentHealthService(check_interval_seconds=30, repository=_NoAgents())
+    service.set_leader_election(None, lock_name="agent_health_checker")
+    return service
+
+
+OK_JOBS: list[tuple[Callable[[], Any], str, str]] = [
+    (_ok_recovery, ORCHESTRATOR_RECOVERY, "jobs."),
+    (_ok_projection, ORCHESTRATOR_PROJECTION, "jobs."),
+    (_ok_canary, ORCHESTRATOR_CANARY, "jobs."),
+    (_ok_stale, STALE_TASK_CHECKER, "jobs."),
+    (_ok_compaction, COMPACTION_SWEEP, "jobs."),
+    (_ok_cleaner, ORPHANED_UPLOAD_CLEANER, "jobs."),
+    (_ok_health, "agent_health_checker", "agent."),
+]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("factory", "job_name", "prefix"), OK_JOBS, ids=[name for _, name, _ in OK_JOBS]
+)
+async def test_successful_iteration_emits_job_run_completed(
+    caplog, monkeypatch, factory, job_name, prefix
+):
+    monkeypatch.setattr("jobs.orchestrator_workers.settings", Settings())
+    caplog.set_level(logging.DEBUG)
+    job = factory()
+
+    await job._run_one_iteration()
+    await job._run_one_iteration()
+
+    first, second = _events(caplog, "job_run_completed", prefix)
+    assert first.levelno == logging.INFO
+    assert second.levelno == logging.DEBUG
+    assert first.job == job_name
+    assert isinstance(first.duration_ms, (int, float))
+    assert _events(caplog, "job_iteration_failed", prefix) == []
+    state = _job_state(job_name)
+    assert state.last_outcome == "ok"
+    assert state.runs == 2
+
+
+@pytest.mark.asyncio
+async def test_unnamed_health_cycle_emits_no_job_run_completed(caplog):
+    caplog.set_level(logging.DEBUG)
+    service = AgentHealthService(check_interval_seconds=30, repository=_NoAgents())
+
+    await service._run_one_iteration()
+
+    assert _events(caplog, "job_run_completed", "agent.") == []
+    assert job_runs.snapshot() == []
+
+
+class _RaisingAgents:
+    async def list_visible(self, **_kwargs: Any) -> list[dict[str, Any]]:
+        raise _DepsFailed
+
+
+def _stale_failing() -> StaleTaskChecker:
+    job = StaleTaskChecker(check_interval_minutes=5)
+    job.set_hitl_deps(StaleHITLDeps(reconcile_lifecycle=_raise))
+    return job
+
+
+def _stale_unbound() -> StaleTaskChecker:
+    return StaleTaskChecker(check_interval_minutes=5)
+
+
+def _health_failing() -> AgentHealthService:
+    service = AgentHealthService(check_interval_seconds=30, repository=_RaisingAgents())
+    service.set_leader_election(None, lock_name="agent_health_checker")
+    return service
+
+
+def _health_unbound() -> AgentHealthService:
+    service = AgentHealthService(check_interval_seconds=30)
+    service.set_leader_election(None, lock_name="agent_health_checker")
+    return service
+
+
+FAILING_PASSES = [
+    (_stale_failing, STALE_TASK_CHECKER, "_DepsFailed"),
+    (_stale_unbound, STALE_TASK_CHECKER, "deps_unbound"),
+    (_health_failing, "agent_health_checker", "_DepsFailed"),
+    (_health_unbound, "agent_health_checker", "RuntimeError"),
+]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("factory", "job_name", "error_type"),
+    FAILING_PASSES,
+    ids=["stale-raises", "stale-unbound", "health-raises", "health-unbound"],
+)
+async def test_failed_pass_records_one_failure_and_no_completion(
+    caplog, factory, job_name, error_type
+):
+    caplog.set_level(logging.DEBUG)
+    job = factory()
+
+    await job._run_one_iteration()
+
+    assert _events(caplog, "job_run_completed", "") == []
+    state = _job_state(job_name)
+    assert state.last_outcome == "failed"
+    assert state.last_error_type == error_type
+    assert state.failures == 1
+    assert state.consecutive_failures == 1
+    assert state.runs == 0

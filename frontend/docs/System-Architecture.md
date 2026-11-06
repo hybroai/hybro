@@ -950,6 +950,24 @@ The Frontend does not emit `mentioned_agent_ids`, `message_target_mode`,
 `direct`, Ultimate maps to `supervisor`, and room settings only provide the UI
 default.
 
+## Observability
+
+The browser's part of observability is the logger and request ids described
+under "Logging and request ids":
+
+- `log.ts` prints structured events to the console and keeps the last 500
+  entries in a module-level ring buffer (`recentLogs()`), which nothing reads
+  yet. Nothing is sent to the backend.
+- Every backend HTTP call carries its own `X-Request-ID`. The backend binds a
+  valid incoming id as both `request_id` and `trace_id` of the lines that
+  request produces, and returns it in the response. A frontend log line that
+  carries `request_id` therefore finds the backend's WARNING and ERROR records
+  with `GET {api_prefix}/diagnostics/logs?trace_id=<id>`, its INFO lines
+  (including `http_request_completed`) with `source=memory` while they are in
+  that worker's ring buffer, or all of them in `hybro logs --service backend`.
+- The frontend does not call the diagnostics API; `hybro doctor` and
+  administrators read it directly.
+
 ## 13. Unified Portal
 
 The `(portal)` route group provides one shared shell without adding a URL

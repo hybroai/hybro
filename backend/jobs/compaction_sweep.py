@@ -14,6 +14,7 @@ See docs/System-Architecture.md for compaction design.
 from __future__ import annotations
 
 import asyncio
+import time
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from typing import Protocol, runtime_checkable
@@ -22,12 +23,23 @@ from common.config import settings
 from common.dto import CompactionResult
 from common.observability import events as E
 from common.observability import get_logger, traced_create_task
+from common.observability.job_runs import job_runs
 from jobs.constants import COMPACTION_SWEEP
 
 logger = get_logger(__name__)
 
 DEFAULT_INTERVAL_MINUTES = 30
 MAX_CONCURRENT_COMPACTIONS = 5
+
+
+def _emit_completed(job: str, started: float) -> None:
+    duration_ms = round((time.perf_counter() - started) * 1000, 1)
+    logger.emit(
+        E.JOB_RUN_COMPLETED,
+        level=job_runs.completed(job, duration_ms),
+        job=job,
+        duration_ms=duration_ms,
+    )
 
 
 @runtime_checkable
@@ -81,6 +93,7 @@ class CompactionSweep:
             return
         self._running = True
         self._task = traced_create_task(self._run_loop(), name="compaction-sweep")
+        job_runs.started(COMPACTION_SWEEP, self.interval_minutes * 60)
         logger.emit(
             E.JOB_STARTED,
             job=COMPACTION_SWEEP,
@@ -95,6 +108,7 @@ class CompactionSweep:
                 await self._task
             except asyncio.CancelledError:
                 pass
+        job_runs.stopped(COMPACTION_SWEEP)
         logger.emit(E.JOB_STOPPED, job=COMPACTION_SWEEP)
 
     async def _run_loop(self) -> None:
@@ -105,6 +119,7 @@ class CompactionSweep:
             except asyncio.CancelledError:
                 break
             except Exception as exc:
+                job_runs.failed(COMPACTION_SWEEP, type(exc).__name__)
                 logger.emit(E.JOB_ITERATION_FAILED, exc=exc, job=COMPACTION_SWEEP)
                 await asyncio.sleep(60)
 
@@ -114,14 +129,21 @@ class CompactionSweep:
             ttl = int(self.interval_minutes * 60 * 2)
             acquired = await self._leader.try_acquire(COMPACTION_SWEEP, ttl)
             if not acquired:
-                logger.emit(E.JOB_SKIPPED_NOT_LEADER, job=COMPACTION_SWEEP)
+                logger.emit(
+                    E.JOB_SKIPPED_NOT_LEADER,
+                    level=job_runs.skipped(COMPACTION_SWEEP),
+                    job=COMPACTION_SWEEP,
+                )
                 return  # another instance is the leader
+            started = time.perf_counter()
             try:
                 await self.sweep()
             finally:
                 await self._leader.release(COMPACTION_SWEEP)
         else:
+            started = time.perf_counter()
             await self.sweep()
+        _emit_completed(COMPACTION_SWEEP, started)
 
     async def sweep(self) -> dict:
         """Scan all rooms with memory and compact where needed.

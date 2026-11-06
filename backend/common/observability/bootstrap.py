@@ -7,10 +7,10 @@ from common.observability.logging import configure_logging
 
 # Loading settings can log (removed config fields), so install the structured
 # handler with defaults first, then apply the configured level and format.
-configure_logging()
+configure_logging(capture=True)
 
 from common.config.loader import settings  # noqa: E402
 
-configure_logging(settings)
+configure_logging(settings, capture=True)
 
 __all__ = ["settings"]

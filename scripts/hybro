@@ -82,6 +82,7 @@ Commands:
   stop          Stop Hybro
   status        Show whether Hybro is running and its address
   logs          Show Hybro's logs; docker logs options such as -f pass through
+  doctor        Check a running Hybro and list its problems
   upgrade       Install the latest release, update the image, migrate 0.3 data
   cleanup-old   Remove the Hybro 0.3 containers, volumes, and images
   version       Print the version
@@ -102,6 +103,14 @@ Logs options:
   --level <level>       Only lines at this level or above: debug, info,
                         warning, error, critical; hides lines without a level
   --trace <id>          Only lines for one request or trace id
+
+Doctor options:
+  --json                Print the diagnostics snapshot as JSON
+  --bundle              Write a diagnostics archive to share when reporting a
+                        problem; works while Hybro is stopped
+  --output <file>       Archive path for --bundle (default
+                        hybro-diagnostics-<UTC time>.tar.gz here)
+  Exit status: 0 no problems, 1 problems found, 2 the check could not run.
 
 Upgrade options:
   --check               Only report whether a newer release exists
@@ -577,6 +586,158 @@ cmd_logs() {
         END { exit code }'
 }
 
+DIAG_PYTHON=/app/backend/.venv/bin/python
+DIAG_HELPER=/app/backend/diagnostics_cli.py
+
+# hybro doctor exits 2 whenever the check could not run, never through die.
+doctor_fail() {
+    err "$*"
+    exit 2
+}
+
+# Whether the running container has the helper; an older image does not.
+has_helper() {
+    docker exec "$CONTAINER" test -f "$DIAG_HELPER"
+}
+
+# Exits 2 when the container stopped or went away after the first check.
+require_running() {
+    state=$(container_state)
+    [ "$state" = running ] ||
+        doctor_fail "Hybro is not running (container $CONTAINER is ${state:-gone}). Collect its logs with: $CLI doctor --bundle"
+}
+
+# The stop-and-start hint only after doctor --bundle, since a start removes the
+# container and its logs.
+require_helper() {
+    has_helper && return 0
+    require_running
+    doctor_fail "this container runs an older image. Collect its logs first with: $CLI doctor --bundle; then run $CLI stop, then $CLI start"
+}
+
+# doctor_bundle <container state> <output file>
+doctor_bundle() {
+    state=$1
+    out=$2
+    partial=$out.partial
+    offline=1
+    if [ "$state" = running ] && has_helper; then
+        offline=0
+    else
+        # A stopped container, or a running one of an older image: the
+        # script's own image has the helper; no volume is mounted.
+        (ensure_image) || exit 2
+    fi
+    # Created exclusively and private, so a file that appeared since the check
+    # is never overwritten or removed; from here on the partial file is ours.
+    (
+        umask 077
+        set -C
+        : >"$partial"
+    ) 2>/dev/null ||
+        doctor_fail "cannot create $partial: it already exists or the directory is not writable"
+    trap 'rm -f -- "$partial"; exit 130' INT
+    trap 'rm -f -- "$partial"; exit 143' TERM
+    if [ "$offline" = 0 ]; then
+        docker logs --tail 2000 "$CONTAINER" 2>&1 |
+            docker exec -i "$CONTAINER" "$DIAG_PYTHON" "$DIAG_HELPER" bundle >"$partial"
+    else
+        docker logs --tail 2000 "$CONTAINER" 2>&1 |
+            docker run --rm -i --entrypoint "$DIAG_PYTHON" "$IMAGE" \
+                "$DIAG_HELPER" bundle --offline >"$partial"
+    fi
+    status=$?
+    # docker logs of a container removed meanwhile prints nothing, and its
+    # failure is hidden by the pipe.
+    if [ "$status" -eq 0 ] && [ -z "$(container_state)" ]; then
+        rm -f -- "$partial"
+        doctor_fail "the $CONTAINER container was removed while its logs were read"
+    fi
+    if [ "$status" -ne 0 ] || ! mv -- "$partial" "$out"; then
+        rm -f -- "$partial"
+        doctor_fail "cannot write the diagnostics bundle"
+    fi
+    # Kept until the partial file is gone, so an interrupt never leaves it.
+    trap - INT TERM
+    say "Wrote $out"
+    if [ "$offline" = 1 ]; then
+        say "Contains recent container logs only (no snapshot or stored records); review it before sharing."
+    else
+        say "Contains the runtime snapshot, recent system events and logs; review it before sharing."
+    fi
+}
+
+cmd_doctor() {
+    json=0 bundle=0 out="" output_given=0
+    while [ $# -gt 0 ]; do
+        case $1 in
+        --json) json=1 ;;
+        --bundle) bundle=1 ;;
+        --output)
+            [ $# -ge 2 ] || doctor_fail "--output needs a file name"
+            out=$2
+            output_given=1
+            shift
+            ;;
+        --output=*)
+            out=${1#*=}
+            output_given=1
+            ;;
+        -h | --help)
+            usage
+            exit 0
+            ;;
+        *)
+            err "unknown doctor option: $1"
+            usage >&2
+            exit 2
+            ;;
+        esac
+        shift
+    done
+    if [ "$json" = 1 ] && [ "$bundle" = 1 ]; then
+        doctor_fail "--json and --bundle cannot be combined"
+    fi
+    if [ "$output_given" = 1 ] && [ "$bundle" = 0 ]; then
+        doctor_fail "--output needs --bundle"
+    fi
+    if [ "$bundle" = 1 ]; then
+        [ "$output_given" = 0 ] || [ -n "$out" ] || doctor_fail "--output needs a file name"
+        [ -n "$out" ] || out=hybro-diagnostics-$(date -u +%Y%m%d-%H%M%S).tar.gz
+        if [ -e "$out" ] || [ -L "$out" ]; then
+            doctor_fail "$out already exists; choose another file with --output"
+        fi
+        if [ -e "$out.partial" ] || [ -L "$out.partial" ]; then
+            doctor_fail "$out.partial already exists; remove it or choose another file with --output"
+        fi
+    fi
+    (require_docker) || exit 2
+    state=$(container_state)
+    [ -n "$state" ] || doctor_fail "there is no $CONTAINER container. Start Hybro with: $CLI"
+    if [ "$bundle" = 1 ]; then
+        doctor_bundle "$state" "$out"
+        return
+    fi
+    [ "$state" = running ] ||
+        doctor_fail "Hybro is not running (container $CONTAINER is $state). Collect its logs with: $CLI doctor --bundle"
+    require_helper
+    if [ "$json" = 1 ]; then
+        docker exec "$CONTAINER" "$DIAG_PYTHON" "$DIAG_HELPER" doctor --json
+    else
+        docker exec "$CONTAINER" "$DIAG_PYTHON" "$DIAG_HELPER" doctor
+    fi
+    # 0 and 1 are the helper's answers; anything else means it could not
+    # check. A container that stopped mid-run also ends docker exec with 1.
+    case $? in
+    0) return 0 ;;
+    1)
+        require_running
+        return 1
+        ;;
+    *) exit 2 ;;
+    esac
+}
+
 sha256_of() {
     if command -v sha256sum >/dev/null 2>&1; then
         sha256sum "$1" | awk '{ print $1 }'
@@ -802,6 +963,7 @@ start) cmd_start "$@" ;;
 stop) cmd_stop "$@" ;;
 status) cmd_status "$@" ;;
 logs) cmd_logs "$@" ;;
+doctor) cmd_doctor "$@" ;;
 upgrade) cmd_upgrade "$@" ;;
 cleanup-old) cmd_cleanup_old "$@" ;;
 version) say "hybro $HYBRO_VERSION" ;;

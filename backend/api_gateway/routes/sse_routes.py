@@ -143,6 +143,9 @@ async def stream_room_messages(  # noqa: C901
                     )
                     break
 
+        except ConnectionRefusedError:
+            # Delivery already logged the refusal as sse_subscription_refused.
+            pass
         except Exception as exc:
             logger.emit(
                 E.SSE_CONNECTION_FAILED, exc=exc, conversation_id=conversation_id

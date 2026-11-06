@@ -170,8 +170,10 @@ class BundledAgentService:
                 if requires is None:
                     continue
                 updates = _gating_updates(record, inactive_reason(requires, available))
-                if updates:
-                    await self._repository.update(record["agent_id"], updates)
+                if updates and await self._repository.update(
+                    record["agent_id"], updates
+                ):
+                    _emit_status_change(record, updates, trigger="provider_gating")
 
     async def reconcile(
         self, agent: BundledAgent, card: AgentCardSnapshot
@@ -232,7 +234,8 @@ class BundledAgentService:
                 )
                 return agent_id
             # Keeping agent_id lets room history still resolve the agent.
-            await self._repository.update(record["agent_id"], fields)
+            if await self._repository.update(record["agent_id"], fields):
+                _emit_status_change(record, fields, trigger="bundled_registration")
             return record["agent_id"]
 
     async def _find(self, agent: BundledAgent, url: str) -> dict | None:
@@ -269,6 +272,23 @@ class BundledAgentService:
         self._tasks.add(task)
         task.add_done_callback(self._tasks.discard)
         return task
+
+
+def _emit_status_change(record: dict, written: dict[str, Any], *, trigger: str) -> None:
+    """Log a write that changed the stored status between active and inactive."""
+    before = _status_value(record.get("agent_status"), default=None)
+    after = written.get("agent_status")
+    if after == before:
+        return
+    if after == "inactive":
+        logger.emit(
+            E.AGENT_DEACTIVATED,
+            agent_id=record["agent_id"],
+            trigger=trigger,
+            inactive_reason=written.get("inactive_reason"),
+        )
+    elif after == "active":
+        logger.emit(E.AGENT_REACTIVATED, agent_id=record["agent_id"], trigger=trigger)
 
 
 def _gating_updates(record: dict, reason: InactiveReason | None) -> dict[str, Any]:

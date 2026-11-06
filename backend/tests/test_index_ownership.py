@@ -54,6 +54,7 @@ def _owners():
         RoomMongoRepository,
         RoomQuoteMongoRepository,
     )
+    from diagnostics.repository import DiagnosticsMongoRepository
 
     return (
         AgentMongoRepository,
@@ -66,6 +67,7 @@ def _owners():
         MessageMongoRepository,
         HITLRequestStore,
         HITLLifecycleStore,
+        DiagnosticsMongoRepository,
     )
 
 
@@ -104,6 +106,6 @@ def test_container_only_calls_the_owners():
     source = inspect.getsource(container.ensure_runtime_indexes)
 
     assert "create_index(" not in source
-    assert source.count("ensure_indexes()") == 8
+    assert source.count("ensure_indexes()") == 9
     assert "ensure_orchestrator_indexes(" in source
     assert "ensure_room_file_indexes(" in source

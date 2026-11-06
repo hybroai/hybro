@@ -127,6 +127,15 @@ EXPECTED_METHODS = {
             "update_agent_message_task_state",
         },
     },
+    "diagnostics.protocols": {
+        "DiagnosticsAccess": {
+            "can_read",
+            "token_matches",
+            "snapshot",
+            "events",
+            "logs",
+        },
+    },
     "chat.protocols": {
         "ChatRooms": {
             "create_room",

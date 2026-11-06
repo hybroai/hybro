@@ -64,6 +64,7 @@ flowchart TD
 | Core | `execution` | The engine: the orchestrator kernel, the A2A tool runtime, HITL continuation, cancellation, Run lifecycle, and recovery. |
 | Core | `approval` | Human-in-the-loop requests, interactions, answers, cancellation, and reconciliation. |
 | Support | `agent`, `local_agents`, `delivery`, `context_memory`, `room_files`, `llm_gateway` | Agent directory, local discovery, SSE delivery, room memory, files, and model access. |
+| Support | `diagnostics` | The local store of system events and warnings (two capped collections). |
 | Infrastructure | `api_gateway`, `jobs`, `dal`, `a2a_adapter`, `common`, `models` | Routes, workers, Mongo/Redis connections and generic clients, the A2A SDK boundary, and shared contracts. |
 
 Dependency rules:
@@ -232,7 +233,8 @@ dependency globals, or define `bind_*` functions.
   `session.protocols.SessionAccess` and `SessionService`,
   `execution.ports.DirectAgentMessenger`, `local_agents.protocols.LocalAgentDiscovery`,
   `llm_gateway.agent_proxy._AgentLLMProxyPort`,
-  `llm_gateway.setup_api.SetupAccess`, and from `common.protocols`
+  `llm_gateway.setup_api.SetupAccess`,
+  `diagnostics.protocols.DiagnosticsAccess`, and from `common.protocols`
   `ExecutionEngine`, `HITLManager`, `SSERouteTransport`, `RoomRouteReader`,
   `SSEStateReader`, `RoomOwnershipReader`, `AgentRegistry`, `AgentMatcher`,
   `FileStorage`, and `PreparedFileStream`.
@@ -260,6 +262,9 @@ Route groups:
   push-notification ingress (see [Push notifications](#push-notifications)).
 - `setup_routes.py`: `/setup` browser model-provider setup (see
   [Browser setup API](#browser-setup-api)).
+- `diagnostics_routes.py`: read-only `/diagnostics` (`GET /snapshot`,
+  `/events`, `/logs`) for administrators, anyone in mock mode, and
+  `hybro doctor` with the per-start token in `X-Hybro-Diagnostics-Token`.
 
 Frontend-facing and agent-network routes use Clerk auth when
 `backend.auth_mode="clerk"`. In local `backend.auth_mode="mock"`, `main.py`
@@ -329,11 +334,17 @@ registered on `events.CATALOG`. Code logs through
 - An unknown event, a missing required field, or a renamed key still emits the
   line, annotated with `catalog_violation`. The test suite sets
   `CATALOG.strict = True`, which raises instead.
-- `system=True` marks events a later phase copies into a system event store
-  (`http_request_completed`, `llm_call_completed`, `a2a_call_completed`,
-  `job_iteration_failed`, `eventing_dead_letter`,
-  `eventing_dead_letter_publish_failed`, `redis_lock_operation_failed`);
-  nothing reads the flag yet.
+- `system=True` marks lifecycle events, and `emit` sets `_hybro_system` on
+  their records; the diagnostics store keeps them at INFO and above (subject to `backend.log_level`): `startup_completed`,
+  `shutdown_started`, `provider_config_reloaded`,
+  `provider_config_reload_failed`, `agent_registered`,
+  `bundled_agent_registered`, `agent_deactivated`, `agent_reactivated`,
+  `local_agents_deactivated`, `job_run_completed`, `job_skipped_not_leader`,
+  `job_iteration_failed`, `recovery_cycle_completed`, `eventing_dead_letter`,
+  `eventing_dead_letter_publish_failed`, `sse_subscription_refused`,
+  `orchestrator_canary_threshold_breached` and `redis_lock_operation_failed`.
+  The per-call transport events (`http_request_completed`,
+  `llm_call_completed`, `a2a_call_completed`) are not system events.
 - The event bus emits `eventing_dead_letter` for every dead letter (ERROR for
   the `handler` and `worker` stages, WARNING otherwise) with `failure_stage`,
   `event_type`, `exception_class`, `origin` and the dead letter's bounded
@@ -367,9 +378,33 @@ registered on `events.CATALOG`. Code logs through
   `hitl_continuation_recovery_deferred`, `a2a_push_processing_deferred`) marks a
   failure that durable recovery retries; `a2a_recovery_phase_failed` (with
   `phase`) reports one recovery-cycle phase that failed while the cycle went on.
+  After each cycle `recovery_cycle_completed` reports `failed_phases`,
+  `phase_count` and `duration_ms`: INFO when the set of failed phases changed
+  to empty, WARNING when it changed and is not empty, DEBUG when it repeats.
+  The comparison is per process, so after leadership moves between workers
+  the first cycle on the new leader compares with its own last cycle.
+- `main.lifespan` emits `startup_completed` once startup bindings are verified,
+  with `startup_duration_ms`, `provider_state`, `auth_mode` and `config`
+  (`container.startup_summary`: an allowlist of flags, numbers and enumerated
+  names such as `redis_configured` and `orchestrator_canary_enabled`, never a
+  URL, path, key or id). `container.shutdown_runtime` emits `shutdown_started`
+  (`uptime_seconds`) before cleanup begins.
+- `delivery.sse.manager` emits `sse_subscription_refused` (`conversation_id`,
+  `reason`) when it refuses a stream: `draining` (INFO, during shutdown),
+  `subscription_limit` (the instance's room subscription limit) or
+  `subscribe_failed`, both WARNING. The stream route ends such a stream
+  without also logging `sse_connection_failed`.
 - `agent` logs a stored status change once, after the write succeeds:
   `agent_deactivated` (WARNING) and `agent_reactivated` (INFO), each with
-  `agent_id` and `trigger` (`health_check` or `liveness`). The agent health
+  `agent_id` and `trigger`: `health_check`, `liveness`, `provider_gating`
+  (bundled agents re-gated after a provider swap), `bundled_registration`
+  (a bundled record rewritten at boot with a different status) or
+  `local_discovery` (a host agent found again). The bundled triggers log only a
+  change between active and inactive, with `inactive_reason` on
+  deactivation. `agent_registered` (`agent_id`, `source` `manual` or `local`)
+  reports a new registration; bundled agents keep `bundled_agent_registered`.
+  Local discovery reports how many records a cycle deactivated as
+  `local_agents_deactivated` (`deactivated_count`). The agent health
   loop uses the shared job events below with `job=agent_health_checker`.
 - `approval` names a HITL request `hitl_request_id`, never `request_id`
   (the bound HTTP request id), and carries `interaction_id`,
@@ -555,6 +590,44 @@ cross-instance fan-out (see [Room stream and delivery](#room-stream-and-delivery
 - Consumes: `RedisKV`, `RedisPubSub`, and `MetricsCollector`.
 
 Delivery never calls back into Execution.
+
+### `diagnostics`
+
+The local store of what the backend logged about itself. It imports only
+`common`; `container.start_diagnostics_store` registers it on the log sink
+handler (`common.observability.sinks`) once its collections exist.
+
+- Writes: `diagnostic_system_events` (system events at INFO and above, capped
+  at 16 MiB) and `diagnostic_log_records` (every record at WARNING and above,
+  capped at 32 MiB), owned by
+  `diagnostics.repository.mongo.DiagnosticsMongoRepository`. A WARNING system
+  event goes to both. A document holds `ts`, `level`, `level_no`, `service`,
+  `event`, `logger`, `system`, `instance_id`, `version`, `trace_id`,
+  `request_id`, and the remaining redacted fields as one JSON string
+  `fields_json` of at most 16 KiB (a larger one becomes
+  `{"truncated": true, "size": n}`). Capped collections evict their oldest
+  documents by size, so there is no TTL and no secondary index; history
+  survives a restart on the data volume. The store only sees records that
+  pass `backend.log_level`: at `WARNING`, INFO system events such as
+  `startup_completed` are not stored.
+- `ensure_indexes` creates both collections capped (converting one that exists
+  uncapped) and never raises: a failure emits `diagnostics_store_unavailable`
+  and the store is not started.
+- `diagnostics.store_sink.StoreSink` queues documents on the emitting thread
+  (at most 5,000 per collection, oldest dropped and counted) and a flush task
+  writes batches of up to 500 every second with a 5 s timeout. A failed write
+  keeps its batch with the same `_id`s and backs off up to 30 s; duplicate
+  keys from a timed-out retry count as written. Backoff grows once per tick
+  in which either collection failed. A batch the encoder rejects, or the
+  documents the server rejects for good (BadValue, validation, too large),
+  are dropped and counted instead of retried; other write errors, such as a
+  stepdown, retry the batch; lifted fields are stored as strings so they
+  always encode. The sink never logs, and records from `pymongo`, `motor` and
+  `diagnostics` loggers are never queued. On start it backfills qualifying
+  entries from the ring buffer under the handler lock, so nothing logged
+  meanwhile is lost or stored ahead of the backlog; on shutdown it flushes for
+  up to 2 s before Mongo closes. While Mongo is unreachable
+  requests and logging are unaffected and documents wait in the queues.
 
 ### `execution`
 
@@ -813,6 +886,8 @@ recreation, so coordinate index-shape changes with a maintenance window.
 | `sessions` | `session.repository.mongo.MongoSessionRepository` |
 | `orchestrator_runs`, `orchestrator_run_events`, `orchestrator_recovery_leases` | `execution.repository.orchestrator` (run store, event store) |
 | `orchestrator_agent_tool_bindings`, `orchestrator_agent_calls`, `orchestrator_a2a_observations`, `orchestrator_a2a_observation_conflicts`, `orchestrator_room_epochs`, `orchestrator_hitl_interactions` | `execution.repository.orchestrator.stores` and `.hitl` |
+| `diagnostic_system_events` | `diagnostics.repository.mongo.DiagnosticsMongoRepository` (capped, 16 MiB) |
+| `diagnostic_log_records` | `diagnostics.repository.mongo.DiagnosticsMongoRepository` (capped, 32 MiB) |
 
 Room-state deletion is per owner: `RoomFiles.delete_room_state` calls every bound
 `RoomStateOwner` (`MessageMongoRepository`, `RoomQuoteMongoRepository`,
@@ -825,7 +900,9 @@ deleted per room epoch by the orchestrator epoch cleanup;
 `orchestrator_room_epochs` keeps the deactivated epoch record; and
 `orchestrator_hitl_interactions`, `orchestrator_recovery_leases`, `room_events`,
 `room_event_seq`, `sessions`, `migration_markers`, and `agent_capability_issues`
-are retained, with no deletion or TTL.
+are retained, with no deletion or TTL. `diagnostic_system_events` and
+`diagnostic_log_records` are capped: MongoDB evicts their oldest documents by
+size.
 
 Code, DTOs, HTTP, and SSE name the conversation `conversation_id`. Mongo stores
 it as `room_id` in every collection, including indexes, aggregation paths, and
@@ -950,6 +1027,7 @@ port, or facade port, update the exact method inventory in
 | `RoomEventStore` | `delivery.room_events` | `delivery.room_events.MongoRoomEventStore` | internal to `delivery` |
 | `SSETransport` | `delivery.types` | `delivery.sse.manager.SSETransportImpl` | crosses to composition root |
 | `TaskRunner` | `delivery.types` | callable shape (functions or callables) | crosses to composition root |
+| `DiagnosticsAccess` | `diagnostics.protocols` | `diagnostics.service.DiagnosticsService` | crosses to `api_gateway` |
 | `HITLApplicationStore` | `execution.adapters.hitl` | `execution.repository.orchestrator.hitl.MongoHITLApplicationStore` | internal to `execution` |
 | `InboundArtifactWriter` | `execution.adapters.resources` | `execution.repository.orchestrator.artifacts.GuardedRoomFileArtifactWriter` | internal to `execution` |
 | `InlineArtifactReader` | `execution.adapters.resources` | `execution.repository.orchestrator.stores.MongoObservationInboxStore` | internal to `execution` |
@@ -1201,6 +1279,42 @@ updates and the release workflow compares with the tag.
   migrates 0.3 data when found, and re-runs a running container on the new
   image with the port, `HYBRO_LISTEN`, and `HYBRO_INSECURE_NO_AUTH` read from
   `docker inspect`. In a checkout, `upgrade` only migrates.
+- **Doctor.** `hybro doctor` runs `/app/backend/diagnostics_cli.py` with the
+  image's Python inside the running container (`docker exec`), after checking
+  that the file exists (an older image: see Bundle). The
+  helper reads `base_url` and the per-start token from
+  `/tmp/hybro/diagnostics.json`, never `config.json` or `auth.json`, and GETs
+  `/diagnostics/snapshot` over loopback with `X-Hybro-Diagnostics-Token`, a
+  10 s timeout and no proxy. It prints one line per section and then the
+  problems: provider not configured, MongoDB not connected, an expected Redis
+  connection down, a failed job, failed recovery phases, dead letters, blocked
+  projections, canary breaches, the diagnostics store not ready or failing to
+  write, and every snapshot `errors` entry. `--json` prints the snapshot
+  unchanged. Exit status 0 no problems, 1 problems, 2 the check could not run
+  (usage, Docker, no or stopped container, no handoff file, API unreachable).
+- **Bundle.** `hybro doctor --bundle [--output <file>]` pipes `docker logs
+  --tail 2000` into the helper's `bundle` command, which writes a gzipped tar
+  through `<file>.partial` (default `hybro-diagnostics-<UTC time>.tar.gz`; an
+  existing file is refused): `manifest.json`, `snapshot.json`,
+  `system-events.jsonl`, `logs.jsonl` and `memory-logs.jsonl` (up to 2,000
+  records each, paged with `before`), and `container.log`. A fetch that fails
+  is left out and named in the manifest; an empty page ends the paging. The
+  output is refused when it or `<file>.partial` exists; the partial file is
+  created exclusively (`set -C`) under `umask 077` and removed on failure or
+  interrupt, and a bundle fails when the container was removed while its logs
+  were read. A stopped
+  container, or a running one of an older image without the helper, gets
+  `bundle --offline` in `docker run --rm` of the script's image without a
+  volume: the manifest (its version marked as the helper image's) and the
+  container log only. Plain `doctor` on an older image suggests `doctor
+  --bundle` before stop and start, since a start removes the container and its
+  logs; a helper exit status other than 0 or 1 becomes 2, and so does 1 when
+  the container is no longer running. Only `bundle` imports backend code, inside
+  the helper's error handling, so an import failure also exits 2. The container
+  log keeps `backend`, `mcp` and `caddy` lines and unprefixed lines (the
+  entrypoint, supervisord), drops `frontend`, `mongod` and `agent-*` lines and
+  counts both per program in the manifest; a kept line that is not a JSON
+  object goes through `sanitize_text`. The token is in no file of the bundle.
 - **Tests.** `scripts/test_hybro_cli.py` runs the script and `install.sh` under
   sh, dash, and busybox sh against stub `docker`, `curl`, and `npm` (the
   `Shell CLI CI` job, with shellcheck).
@@ -2998,6 +3112,135 @@ leader election prevents duplicate execution across workers.
 - `compaction_sweep`: context memory compaction for eligible rooms.
 - `orphaned_upload_cleaner`: `RoomFiles.recover`.
 - `AgentHealthService`: periodic agent health and liveness.
+
+Every job records its runs in `common.observability.job_runs.job_runs`, a
+process-wide `JobRunRecorder` with one `JobRunState` per job (running flag,
+interval, job start time, last outcome `ok`, `failed` or
+`skipped_not_leader`, last completion and skip times, last duration, counters, consecutive failures and
+the last error type). A successful iteration emits `job_run_completed` (`job`,
+`duration_ms`); `job_skipped_not_leader` and `job_run_completed` are INFO when
+the job's last outcome changed and DEBUG while it repeats, so the INFO record
+marks a transition. The canary logs `orchestrator_canary_threshold_breached`
+at WARNING when a metric starts to breach and at DEBUG while it stays
+breached. `stale_task_checker` and `AgentHealthService` catch their own pass
+failures (and the checker its unbound dependencies, as `deps_unbound`), record
+them as `failed`, and emit no `job_run_completed` for that pass.
+
+## Observability
+
+The backend narrates its own lifecycle and keeps that narrative locally, so
+`hybro doctor` can answer "what happened" without an external service.
+
+**Pipeline.** Code calls `get_logger(__name__).emit(events.X, **fields)`
+(see "Logging events"). The catalog checks the event and its fields and marks
+system events with `_hybro_system`. The root logger has two handlers: the
+stdout handler (`StructuredFormatter`, JSON in the image, `auto` in a
+checkout; see "Logging events") and the `SinkHandler` (`common.observability.sinks`), installed by
+`configure_logging(capture=True)` at bootstrap. The sink handler renders each
+record once through the same formatter rules, so every field is already
+redacted, into a frozen `LogEntry` (`sequence`, `timestamp`, `level`,
+`level_no`, `service`, `event`, `logger`, `system`, `fields`) and passes it to every
+registered `LogSink`. Sinks run on the emitting thread and must only buffer.
+Two sinks exist:
+
+- `RingBufferSink`: the last 2,000 entries of this process at every level that
+  reaches the root handlers (the `httpx`, `httpcore`, `pymongo`, `motor` and
+  `redis` loggers are pinned at WARNING), in memory, read by
+  `/diagnostics/logs?source=memory`.
+- `diagnostics.store_sink.StoreSink`: system events at INFO and above and
+  every record at WARNING and above, written to the capped collections (see
+  the `diagnostics` module above).
+
+Both see only what passes `backend.log_level` (see the `diagnostics` module).
+`http_request_completed` is INFO for every outcome and not a system event, so
+the store holds a failed request only through the WARNING or ERROR records it
+produced inside the request, found with `trace_id=<request id>`. An unhandled
+exception's `uvicorn.error` record is logged after the request context ends
+and carries no id.
+
+**System events.** The 18 system events and their marker are listed under
+"Logging events"; the INFO-on-change, DEBUG-while-repeating rule of the jobs,
+the recovery cycle and the canary is described under "Background Jobs" and
+"Logging events". For those events the store holds transitions, not one record
+per tick; failure events such as `job_iteration_failed`,
+`eventing_dead_letter` and `a2a_recovery_phase_failed` are logged on every
+occurrence. `startup_completed` carries an allowlisted configuration summary
+and the provider state; `shutdown_started` carries the uptime.
+
+**Store.** The capped collections, their documents, limits and behaviour
+while MongoDB is down are described under the `diagnostics` module; the
+snapshot's `store` section reports the queue, drops and write failures.
+
+**Process coverage.**
+
+| Process | Store and ring buffer | Bundle |
+|---|---|---|
+| Backend | yes | snapshot, records, its stdout lines |
+| MCP server | no: no Mongo client and no capture, by design | its stdout lines |
+| Caddy | no: per-request access lines | its stdout lines |
+| Entrypoint, supervisord | no | sanitised stdout lines |
+| Bundled agents | no: plain text that can carry prompts | no |
+| mongod, frontend | no: not produced by the redacting formatter | no |
+
+The image runs one backend worker. With several workers (gunicorn), each has
+its own handler, ring buffer, `job_runs` and flush task and writes to the same
+capped collections with its `instance_id`; `/events` and `/logs` span every
+worker sharing the MongoDB and can be filtered by `instance_id`, while the snapshot and
+`source=memory` describe the worker that served the request
+(`service.instance_id`).
+
+**Diagnostics API.** `GET {api_prefix}/diagnostics/snapshot`, `/events` and
+`/logs` (`api_gateway/routes/diagnostics_routes.py`, behaviour in
+`diagnostics.service.DiagnosticsService` behind
+`diagnostics.protocols.DiagnosticsAccess`) are read-only:
+
+- `snapshot` returns live state in sections: service, health (the flags
+  `/health` reads plus a Mongo ping), provider, agents, jobs, leader, event
+  bus, SSE, recovery, canary and store. Each async source and each store query
+  is bounded at 3 s (health probes at 2 s each), and the canary reading, which
+  scans three collections, is shared by concurrent requests and cached for
+  30 s. A section whose source fails is `null` with an `errors` entry
+  (`section`, `error_type`); the route never fails because one subsystem is
+  down. `eventing.connected` is the bus's cached flag;
+  `health.eventing_connected` is the probed value, and both are true for the
+  in-memory bus when Redis is not configured.
+- `events` and `logs` page newest first (`limit` 1 to 500, `before` cursor
+  from `next_before`) with `service`, `level`, `event` (up to 20), `trace_id`,
+  `instance_id`, `since` and `until` filters; `logs?source=memory` reads the
+  ring buffer. A store that is not ready or fails is a 503 with
+  `detail.code == "store_unavailable"`; an invalid cursor is a 422.
+- Authorisation: before startup binds the service (or after shutdown) every
+  route is a 503 `diagnostics_unavailable`. A request whose
+  `X-Hybro-Diagnostics-Token` header matches the per-start token is accepted;
+  a missing or wrong token falls through to the user check: 401 without a
+  signed-in user, 403 unless the user may configure setup (anyone in
+  `auth_mode: mock`, `admin_user_ids` with Clerk). The token header is not declared in the schema and not allowed
+  by CORS. The entrypoint writes the token to `/tmp/hybro/diagnostics.json`
+  (0600) on every container start; `Settings.diagnostics_handoff_file` names
+  the file in the image and is empty in a checkout, which turns the token path
+  off. The token is added to the public-text sanitizer's secret values.
+
+**Doctor and bundle.** `hybro doctor` and `hybro doctor --bundle` read the
+API through the helper `diagnostics_cli.py` inside the container; see
+"Shell CLI" for output, exit statuses and the offline path. The bundle's
+redaction holds by construction: `snapshot.json` is a fixed schema whose only
+free text, agent names, is sanitised; every `.jsonl` record was rendered by
+the redacting formatter before it was stored or buffered; `container.log`
+keeps only the `backend`, `mcp`, `caddy` and unprefixed lines, and passes
+every kept line that is not a JSON object through `sanitize_text`; Caddy's
+JSON lines are kept as written, and the Caddyfile already drops their headers
+and URI, keeping the path and `trace_id`; the helper
+never reads `config.json` or `auth.json`, and the token is in no file.
+Free text in a non-JSON line is redacted by pattern only, so the user is told
+to review the archive before sharing it.
+
+**Adding a sink.** Implement `LogSink` (`Callable[[LogEntry], None]`) that
+only buffers, register it in `container.py` next to the store sink with
+`log_sinks().add_sink(...)` (`log_sinks()` is `None` when capture is not
+installed), and remove it on shutdown. A metrics sink would count entries by
+`event` and read `duration_ms`; an exporter would batch and send them from its
+own task. `MetricsCollector` and `NoopTracingProvider` remain separate from
+the sink pipeline.
 
 ## Deployment Modes
 

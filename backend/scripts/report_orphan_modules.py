@@ -4,7 +4,8 @@
 Read-only. Walks the static imports of every production module from the
 entry points (``main``, ``__main__``, ``container``,
 ``orchestrator_composition``, ``runtime_entrypoint``, ``volume_migration``,
-and every module under ``scripts``) and lists the modules never reached.
+``diagnostics_cli``, and every module under ``scripts``) and lists the modules
+never reached.
 
 A package ``__init__`` that only re-exports names (imports, a docstring, and
 ``__all__``) does not keep a re-exported module alive by itself: the module is
@@ -32,6 +33,7 @@ ROOT_MODULES = {
     "orchestrator_composition",
     "runtime_entrypoint",
     "volume_migration",
+    "diagnostics_cli",
 }
 ROOT_PACKAGES = ("scripts",)
 EXEMPT_MODULES = {"llm_gateway.oauth_notice"}

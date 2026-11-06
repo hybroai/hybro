@@ -237,6 +237,8 @@ hybro status                 # running or not, with the address
 hybro logs -f                # follow the logs; docker logs options pass through
 hybro logs --service backend --level warning   # one program, warnings and worse
 hybro logs --trace <id>      # one request: its X-Request-ID or trace id
+hybro doctor                 # check a running Hybro and list its problems
+hybro doctor --bundle        # write a diagnostics archive to attach to a report
 hybro stop                   # stop; data stays in the volume
 hybro upgrade                # newest release, its image, and any 0.3 migration
 hybro version
@@ -255,6 +257,17 @@ bundled agents' plain-text output.
 Caddy's `dpanic`, `panic` and `fatal` lines count as `critical`. Filters apply
 after `docker logs`, so `--tail 50 --level error` shows the errors among the
 last 50 lines.
+
+`hybro doctor` prints one line per part of the running instance (provider,
+MongoDB, Redis, agents, background jobs, event bus, recovery, diagnostics store)
+and then its problems; it exits 0 with none, 1 with problems, and 2 when it
+cannot check. `--json` prints the raw snapshot. `hybro doctor --bundle` writes
+`hybro-diagnostics-<time>.tar.gz` (or `--output <file>`) with the runtime
+snapshot, recent system events and logs, and the last 2,000 container log lines
+of the backend, MCP and Caddy; it also works while Hybro is stopped, with the
+log lines only. On an older image, run `hybro doctor --bundle` before stopping
+Hybro, because the next start removes the old container and its logs. Records were redacted when they were logged and plain-text lines
+are redacted by pattern, so review the archive before sharing it.
 
 ## Configuration
 

@@ -3,17 +3,29 @@
 from __future__ import annotations
 
 import asyncio
+import time
 from dataclasses import dataclass
 from typing import Protocol
 
 from common.observability import events as E
 from common.observability import get_logger, traced_create_task
+from common.observability.job_runs import job_runs
 from jobs.constants import ORPHANED_UPLOAD_CLEANER
 
 logger = get_logger(__name__)
 
 DEFAULT_INTERVAL_HOURS = 24
 MAX_AGE_HOURS = 24
+
+
+def _emit_completed(job: str, started: float) -> None:
+    duration_ms = round((time.perf_counter() - started) * 1000, 1)
+    logger.emit(
+        E.JOB_RUN_COMPLETED,
+        level=job_runs.completed(job, duration_ms),
+        job=job,
+        duration_ms=duration_ms,
+    )
 
 
 class LeaderGate(Protocol):
@@ -56,6 +68,7 @@ class OrphanedUploadCleaner:
             self._run_loop(),
             name="orphaned-upload-cleanup",
         )
+        job_runs.started(ORPHANED_UPLOAD_CLEANER, self.interval_hours * 3600)
         logger.emit(
             E.JOB_STARTED,
             job=ORPHANED_UPLOAD_CLEANER,
@@ -71,6 +84,7 @@ class OrphanedUploadCleaner:
             except asyncio.CancelledError:
                 pass
             self._task = None
+        job_runs.stopped(ORPHANED_UPLOAD_CLEANER)
         logger.emit(E.JOB_STOPPED, job=ORPHANED_UPLOAD_CLEANER)
 
     async def _run_loop(self) -> None:
@@ -80,6 +94,7 @@ class OrphanedUploadCleaner:
             except asyncio.CancelledError:
                 break
             except Exception as exc:
+                job_runs.failed(ORPHANED_UPLOAD_CLEANER, type(exc).__name__)
                 logger.emit(
                     E.JOB_ITERATION_FAILED, exc=exc, job=ORPHANED_UPLOAD_CLEANER
                 )
@@ -95,18 +110,26 @@ class OrphanedUploadCleaner:
             ttl = int(self.interval_hours * 3600 * 2)
             acquired = await self._leader.try_acquire(ORPHANED_UPLOAD_CLEANER, ttl)
             if not acquired:
-                logger.emit(E.JOB_SKIPPED_NOT_LEADER, job=ORPHANED_UPLOAD_CLEANER)
+                logger.emit(
+                    E.JOB_SKIPPED_NOT_LEADER,
+                    level=job_runs.skipped(ORPHANED_UPLOAD_CLEANER),
+                    job=ORPHANED_UPLOAD_CLEANER,
+                )
                 return  # another instance is the leader
+            started = time.perf_counter()
             try:
-                deleted = await self.cleanup_orphaned_uploads()
-                if deleted:
-                    logger.emit(E.ORPHANED_UPLOADS_CLEANED, deleted_uploads=deleted)
+                await self._cleanup()
             finally:
                 await self._leader.release(ORPHANED_UPLOAD_CLEANER)
         else:
-            deleted = await self.cleanup_orphaned_uploads()
-            if deleted:
-                logger.emit(E.ORPHANED_UPLOADS_CLEANED, deleted_uploads=deleted)
+            started = time.perf_counter()
+            await self._cleanup()
+        _emit_completed(ORPHANED_UPLOAD_CLEANER, started)
+
+    async def _cleanup(self) -> None:
+        deleted = await self.cleanup_orphaned_uploads()
+        if deleted:
+            logger.emit(E.ORPHANED_UPLOADS_CLEANED, deleted_uploads=deleted)
 
     async def cleanup_orphaned_uploads(self, max_age_hours: int = MAX_AGE_HOURS) -> int:
         """Recover stale writes and remove unreferenced uploads."""

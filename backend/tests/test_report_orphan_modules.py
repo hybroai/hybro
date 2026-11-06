@@ -48,6 +48,7 @@ def test_every_documented_root_counts(tmp_path: Path):
             "orchestrator_composition.py": "import from_composition\n",
             "runtime_entrypoint.py": "import from_entrypoint\n",
             "volume_migration.py": "import from_migration\n",
+            "diagnostics_cli.py": "import from_diagnostics_cli\n",
             "scripts/__init__.py": "",
             "scripts/tool.py": "import from_script\n",
             "from_dunder_main.py": "",
@@ -55,6 +56,7 @@ def test_every_documented_root_counts(tmp_path: Path):
             "from_composition.py": "",
             "from_entrypoint.py": "",
             "from_migration.py": "",
+            "from_diagnostics_cli.py": "",
             "from_script.py": "",
         },
     )

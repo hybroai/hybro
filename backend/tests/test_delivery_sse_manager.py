@@ -1,4 +1,5 @@
 import asyncio
+import logging
 from datetime import UTC, datetime
 from itertools import count
 
@@ -557,3 +558,47 @@ async def test_non_terminal_frame_does_not_force_snapshot():
     )
     await asyncio.sleep(0)
     assert calls == []
+
+
+def _refusals(caplog) -> list[logging.LogRecord]:
+    return [r for r in caplog.records if r.getMessage() == "sse_subscription_refused"]
+
+
+@pytest.mark.asyncio
+async def test_draining_refusal_is_logged_at_info(caplog):
+    transport = make_transport()
+    transport.set_draining(True)
+
+    with caplog.at_level(logging.DEBUG, logger="delivery.sse.manager"):
+        with pytest.raises(ConnectionRefusedError):
+            await transport.open_connection("room-1")
+
+    [record] = _refusals(caplog)
+    assert record.levelno == logging.INFO
+    assert record.reason == "draining"
+    assert record.conversation_id == "room-1"
+    assert record._hybro_system is True
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("error", "reason"),
+    [
+        (RoomSubscriptionLimitExceeded("too many rooms"), "subscription_limit"),
+        (RuntimeError("redis down"), "subscribe_failed"),
+    ],
+)
+async def test_subscription_refusal_is_logged_at_warning(caplog, error, reason):
+    event_bus = FakeEventBus()
+    event_bus.subscribe_error = error
+    transport = make_transport(event_bus=event_bus)
+
+    with caplog.at_level(logging.DEBUG, logger="delivery.sse.manager"):
+        with pytest.raises(ConnectionRefusedError):
+            await transport.open_connection("room-1")
+    await transport._drain_room_cleanup_tasks()
+
+    [record] = _refusals(caplog)
+    assert record.levelno == logging.WARNING
+    assert record.reason == reason
+    assert record.conversation_id == "room-1"

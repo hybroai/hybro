@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
+from collections.abc import Awaitable, Callable
 from datetime import UTC, datetime, timedelta
 from hashlib import sha256
 from types import SimpleNamespace
@@ -976,3 +978,85 @@ async def test_recovery_cycle_isolates_phase_failures_without_reordering(caplog)
         "projection",
         "watchdog",
     ]
+
+
+def _cycle_with(phases: dict[str, Callable[[], Awaitable[None]]]) -> A2ARecoveryCycle:
+    async def ok() -> None:
+        return None
+
+    names = (
+        "cancellation",
+        "continuation",
+        "observations",
+        "calls",
+        "artifacts",
+        "generic_runs",
+        "projection",
+        "watchdog",
+    )
+    return A2ARecoveryCycle(**{name: phases.get(name, ok) for name in names})
+
+
+def _cycle_records(caplog) -> list[logging.LogRecord]:
+    return [r for r in caplog.records if r.getMessage() == "recovery_cycle_completed"]
+
+
+async def test_recovery_cycle_reports_completion_on_change_only(caplog):
+    failing: set[str] = set()
+
+    def phase(name: str) -> Callable[[], Awaitable[None]]:
+        async def run() -> None:
+            if name in failing:
+                raise RuntimeError(f"{name} failed")
+
+        return run
+
+    cycle = _cycle_with({"calls": phase("calls"), "projection": phase("projection")})
+    assert cycle.last_failed_phases is None
+
+    with caplog.at_level(
+        logging.DEBUG, logger="execution.orchestrator.a2a_runtime.recovery"
+    ):
+        await cycle.run_once()
+        await cycle.run_once()
+        failing.add("calls")
+        await cycle.run_once()
+        await cycle.run_once()
+        failing.add("projection")
+        await cycle.run_once()
+        assert cycle.last_failed_phases == ["calls", "projection"]
+        failing.clear()
+        await cycle.run_once()
+
+    records = _cycle_records(caplog)
+    assert [r.levelno for r in records] == [
+        logging.INFO,
+        logging.DEBUG,
+        logging.WARNING,
+        logging.DEBUG,
+        logging.WARNING,
+        logging.INFO,
+    ]
+    assert records[0].failed_phases == []
+    assert records[0].phase_count == 8
+    assert isinstance(records[0].duration_ms, (int, float))
+    assert records[2].failed_phases == ["calls"]
+    assert records[2].phase_count == 8
+    assert records[4].failed_phases == ["calls", "projection"]
+    assert cycle.last_failed_phases == []
+
+
+async def test_recovery_cycle_cancellation_propagates_without_completion(caplog):
+    async def calls() -> None:
+        raise asyncio.CancelledError
+
+    cycle = _cycle_with({"calls": calls})
+
+    with caplog.at_level(
+        logging.DEBUG, logger="execution.orchestrator.a2a_runtime.recovery"
+    ):
+        with pytest.raises(asyncio.CancelledError):
+            await cycle.run_once()
+
+    assert _cycle_records(caplog) == []
+    assert cycle.last_failed_phases is None

@@ -7,6 +7,7 @@ from api_gateway.routes import (
     agent_group_routes,
     agent_network_routes,
     agent_routes,
+    diagnostics_routes,
     files_routes,
     hitl_routes,
     inspection_routes,
@@ -38,6 +39,7 @@ def build_api_gateway_router() -> APIRouter:
     gateway_router.include_router(llm_proxy_routes.router, tags=["internal_llm"])
     gateway_router.include_router(a2a_push_routes.router, tags=["a2a_push"])
     gateway_router.include_router(setup_routes.router, tags=["setup"])
+    gateway_router.include_router(diagnostics_routes.router, tags=["diagnostics"])
 
     return gateway_router
 
