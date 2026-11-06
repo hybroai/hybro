@@ -57,6 +57,30 @@ for uid in 0 65534; do
     test "$(docker exec "$NAME" stat -c %u /data/db)" = "$uid"
     # The image has no procps; /proc needs no package.
     test "$(docker exec "$NAME" stat -c %u /proc/1)" = "$uid"
+    if [ "$uid" = 0 ]; then
+        # Only root could write bytecode under the root-owned /app. Once every
+        # agent and MCP listens, every program has imported its code; with
+        # the image's bytecode current, none was written to the container.
+        timeout 60s docker exec "$NAME" /app/backend/.venv/bin/python -c '
+import socket, time, yaml
+agents = yaml.safe_load(open("/app/bundled_agents.yaml"))["agents"].values()
+ports = [agent["port"] for agent in agents if agent.get("enabled", True)]
+for port in [8001, *ports]:
+    while True:
+        try:
+            socket.create_connection(("127.0.0.1", port), timeout=1).close()
+            break
+        except OSError:
+            time.sleep(0.5)' || {
+            echo "MCP or a bundled agent did not listen within 60 seconds" >&2
+            exit 1
+        }
+        changes="$(docker diff "$NAME")"
+        if printf '%s\n' "$changes" | grep '\.pyc$'; then
+            echo "The running container compiled Python bytecode" >&2
+            exit 1
+        fi
+    fi
     stop_clean
     docker volume rm hybro-image-case-data >/dev/null
 done

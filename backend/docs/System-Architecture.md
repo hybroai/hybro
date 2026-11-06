@@ -1146,7 +1146,10 @@ MCP server from `backend/uv.lock` with the `mcp` extra
 (`uv sync --frozen --no-dev --extra mcp`), and the sample agents from the
 `default_agents/` uv workspace lock
 (`uv sync --frozen --all-packages --no-install-workspace`; the agents are never
-built as packages). Each agent runs as
+built as packages). The build compiles hash-based (`unchecked-hash`) bytecode
+for the sources, both environments, and the standard library, because every
+`hybro` start runs a new container that would otherwise recompile every import.
+Each agent runs as
 `python /app/default_agents/<dir>/__main__.py` from its own directory with
 `PYTHONPATH=/app/default_agents`, so its bare imports resolve to its own files
 and `runtime_config.py` is shared.
