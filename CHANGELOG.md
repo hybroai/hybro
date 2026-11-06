@@ -5,6 +5,39 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.5](https://github.com/hybroai/hybro/compare/v0.4.4...v0.4.5) (2026-11-04)
+
+
+### Features
+
+* **cli:** filter hybro logs by service, level and trace ([f4fa451](https://github.com/hybroai/hybro/commit/f4fa45164d406240806bffdedc6f1b234c3f6151))
+* **frontend:** logger module, ring buffer and X-Request-ID ([62a4714](https://github.com/hybroai/hybro/commit/62a47142defae4149a73be3389ae6a800efb3557))
+* **image:** Caddy JSON access log ([3fc057a](https://github.com/hybroai/hybro/commit/3fc057a6e2d8d6f562c29f34c5c666c636e8973f))
+* **image:** default log_format to json ([fa04ccb](https://github.com/hybroai/hybro/commit/fa04ccb8db88c379c92bdd9bed2c7e88c9f528b6))
+* **local_agents:** scan ports 9000-9999 by default ([c902151](https://github.com/hybroai/hybro/commit/c902151e230e18a69b955c76b92f88f8db189314))
+* **mcp:** structured logging and request ids ([c20cbc9](https://github.com/hybroai/hybro/commit/c20cbc9080181e29938813aceaaf9bba89e88fa9))
+* **observability:** event catalog, EventLogger and guard ([ab755f3](https://github.com/hybroai/hybro/commit/ab755f3adb74d422536338813e5abd35afb5bda5))
+* **observability:** readable, safe and correlated logs ([511aee9](https://github.com/hybroai/hybro/commit/511aee922820451dd0c5b5f518041254a0b5a61f))
+* **observability:** stamp the release version from VERSION ([4a82ae3](https://github.com/hybroai/hybro/commit/4a82ae3a8aea6bc8b00d90f09003d4b6e996370d))
+
+
+### Bug Fixes
+
+* **cli:** ignore level= inside plain-text log lines ([fc13bf4](https://github.com/hybroai/hybro/commit/fc13bf42d47e737d97aeb0dd681d80b66ea01ba0))
+* **cli:** read only a line's own level in hybro logs --level ([08a2976](https://github.com/hybroai/hybro/commit/08a29767fb6095910689ad70abab43d6e87c1dae))
+* **eventing:** re-raise strict catalog violations from dead letters ([b21c9bf](https://github.com/hybroai/hybro/commit/b21c9bfc97d0fd33a4e5e67eaa225fc686ffdad7))
+* **frontend:** log room_sse_connect_failed apart from sse_connect_failed ([b635311](https://github.com/hybroai/hybro/commit/b635311c56b80c0ca67d8c04eb97c8d97443b556))
+* **image:** drop headers and query strings from Caddy logs ([0bcbfc6](https://github.com/hybroai/hybro/commit/0bcbfc6bad8b2a88b8cc23e6476da2ad3662f54d))
+* **image:** drop response headers from Caddy's default logger ([4b8b822](https://github.com/hybroai/hybro/commit/4b8b82242a64d68018448eded45299d63a225830))
+* **image:** log the backend's request id in Caddy access lines ([fd106fe](https://github.com/hybroai/hybro/commit/fd106fe9097f538d4fe4dcbe4f9e10f8fe959f23))
+* **mcp:** log only id-shaped caller ids on mcp_tool_called ([2954645](https://github.com/hybroai/hybro/commit/29546458288666ad4075a4e53f93f374333e40cf))
+* **observability:** bound credential redaction and cover quoted values ([e74b1d7](https://github.com/hybroai/hybro/commit/e74b1d741bd0d6d077c3fc74edb15299b574b01e))
+* **observability:** derive request outcome from the response envelope ([648c744](https://github.com/hybroai/hybro/commit/648c7443220c1db76ade7f5658b79415f4fe4b9b))
+* **observability:** log eventing dead letters, lock failures, job iterations ([ce422ae](https://github.com/hybroai/hybro/commit/ce422ae25611e2e4e5b9deac505af66c80e16e58))
+* **observability:** narrow library text passthrough and redact more secrets ([c64b731](https://github.com/hybroai/hybro/commit/c64b7310a96b0d80512f4b2c4856523416c308ca))
+* **observability:** redact credentials after keys of any length ([97bdbd3](https://github.com/hybroai/hybro/commit/97bdbd31e0f9abf74f68d25249eafaf8353a313b))
+* **observability:** redact more credential keys and headers ([1f2146b](https://github.com/hybroai/hybro/commit/1f2146b3f9b8096f888a2d33114e48d73ba0d321))
+
 ## [0.4.4](https://github.com/hybroai/hybro/compare/v0.4.3...v0.4.4) (2026-11-02)
 
 
