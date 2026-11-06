@@ -1,3 +1,4 @@
+import asyncio
 import time
 from enum import Enum
 from typing import Any
@@ -235,6 +236,16 @@ class DeliveryFacade:
 
     def set_draining(self, draining: bool) -> None:
         self._sse_transport.set_draining(draining)
+
+    async def drain(self, timeout: float) -> None:
+        """Refuse new streams, then wait up to ``timeout`` for open ones to end."""
+        self.set_draining(True)
+        loop = asyncio.get_running_loop()
+        deadline = loop.time() + timeout
+        while (
+            self._sse_transport.active_connection_count() > 0 and loop.time() < deadline
+        ):
+            await asyncio.sleep(0.1)
 
     async def _rollback_start(self, started: list[str]) -> None:
         if "bus" in started:

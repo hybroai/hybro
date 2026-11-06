@@ -77,6 +77,18 @@ COPY default_agents/weather_agent/ /app/default_agents/weather_agent/
 COPY default_agents/agents.yaml /app/bundled_agents.yaml
 # The release version the structured logs stamp on every line.
 COPY VERSION /app/VERSION
+
+# Every start runs a new container, so bytecode written at run time is lost
+# and each program would recompile its imports. Ship it in the image: the
+# sources, both environments, and the standard library. Hash-based .pyc files
+# stay valid whatever the build does to file timestamps; the image's sources
+# never change at run time, so they are not rechecked.
+RUN test -d /opt/python/*/lib/python3.12 \
+    && /app/backend/.venv/bin/python -m compileall -q -j 0 \
+        --invalidation-mode unchecked-hash \
+        -x '/(idlelib|tkinter|lib2to3|ensurepip|turtledemo)/' \
+        /app/backend /app/MCP /app/default_agents /opt/python/*/lib/python3.12
+
 COPY --from=frontend /src/.next/standalone/ /app/frontend/
 
 # Copied binaries are fragile across base image updates; fail the build here.

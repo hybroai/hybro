@@ -1146,7 +1146,10 @@ MCP server from `backend/uv.lock` with the `mcp` extra
 (`uv sync --frozen --no-dev --extra mcp`), and the sample agents from the
 `default_agents/` uv workspace lock
 (`uv sync --frozen --all-packages --no-install-workspace`; the agents are never
-built as packages). Each agent runs as
+built as packages). The build compiles hash-based (`unchecked-hash`) bytecode
+for the sources, both environments, and the standard library, because every
+`hybro` start runs a new container that would otherwise recompile every import.
+Each agent runs as
 `python /app/default_agents/<dir>/__main__.py` from its own directory with
 `PYTHONPATH=/app/default_agents`, so its bare imports resolve to its own files
 and `runtime_config.py` is shared.
@@ -1198,7 +1201,9 @@ per process environment: every program runs as the same UID, which owns
 
 If `mongod` exits or never accepts connections during preparation, the
 entrypoint stops with the exit code and the tail of `mongod`'s output (kept in
-`/tmp/hybro/mongod-prepare.log`). A stop signal during preparation shuts the
+`/tmp/hybro/mongod-prepare.log`). A start that skips preparation (below) has no
+such check: a `mongod` that cannot open its data fails under the supervisor,
+visible as `mongod | ` lines in `hybro logs` and an unhealthy container. A stop signal during preparation shuts the
 temporary `mongod` down. Every supervised program has `killasgroup=true`, so a
 launcher killed after its stop timeout takes its child with it.
 
@@ -1233,10 +1238,26 @@ same way and carries no `trace_id`.
 On a fresh data volume the entrypoint starts `mongod`, initiates `rs0` with
 member `127.0.0.1:27017`, waits for primary, and stops it. Data whose stored
 config names another host, such as `mongo:27017` from the 0.3 Compose stack,
-gets a forced `replSetReconfig` to `127.0.0.1:27017`. In the supervisor,
+gets a forced `replSetReconfig` to `127.0.0.1:27017`. When the temporary
+`mongod` exits 0, the entrypoint writes `/data/db/hybro-replica-set.json`: `rs0`
+on `127.0.0.1:27017` and the size and modification time of `/usr/bin/mongod`. A
+start whose record matches skips the temporary `mongod` and logs
+`MongoDB replica set rs0: ready (recorded)`; another `mongod` binary, a missing
+or unreadable record, or a removed `db/` prepares again. Writing the record is
+best effort. Data copied into an existing `db/` (a restored backup) keeps the
+old record, so delete `hybro-replica-set.json` after restoring. In the
+supervisor,
 `mongod` has the highest priority, so it starts first and stops last
 (`stopwaitsecs` 30); every other program is in one group that stops together
-before it (10 seconds each). Run the container with `--stop-timeout 60`.
+before it (15 seconds each). Run the container with `--stop-timeout 60`.
+Open connections, such as a browser tab's SSE stream, hold a stop for about
+3 seconds: Caddy's `grace_period` is 3 seconds, after which it closes the
+proxied streams and they end normally. The backend and MCP run uvicorn with a
+5-second graceful-shutdown timeout, which cancels only connections that bypass
+Caddy, and then run the application shutdown. The services' 15-second stop wait
+covers that timeout plus the drain below. The backend's
+SSE drain then waits only while streams are still registered, up to
+`shutdown_drain_seconds` (5).
 `scripts/image_smoke.py` checks a running image through its port; the
 `Image CI` job builds the image, runs it with an empty config directory, and
 then runs `scripts/image_ci_cases.sh` for the UID 0 and existing-UID cases and

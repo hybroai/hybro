@@ -2,7 +2,8 @@
 # Entrypoint cases of the single image on native Linux (CI image lane):
 #   - config directory owned by UID 0 (rootless Docker) and by an existing UID;
 #   - data from the 0.3 Compose stack, whose replica set names mongo:27017,
-#     is reconfigured to 127.0.0.1:27017, and a restart then finds it ready.
+#     is reconfigured to 127.0.0.1:27017, and a restart then skips the
+#     preparation because the reconfigured data is recorded as ready.
 # Usage: scripts/image_ci_cases.sh <image>   (needs sudo for chown)
 set -euo pipefail
 
@@ -57,6 +58,30 @@ for uid in 0 65534; do
     test "$(docker exec "$NAME" stat -c %u /data/db)" = "$uid"
     # The image has no procps; /proc needs no package.
     test "$(docker exec "$NAME" stat -c %u /proc/1)" = "$uid"
+    if [ "$uid" = 0 ]; then
+        # Only root could write bytecode under the root-owned /app. Once every
+        # agent and MCP listens, every program has imported its code; with
+        # the image's bytecode current, none was written to the container.
+        timeout 60s docker exec "$NAME" /app/backend/.venv/bin/python -c '
+import socket, time, yaml
+agents = yaml.safe_load(open("/app/bundled_agents.yaml"))["agents"].values()
+ports = [agent["port"] for agent in agents if agent.get("enabled", True)]
+for port in [8001, *ports]:
+    while True:
+        try:
+            socket.create_connection(("127.0.0.1", port), timeout=1).close()
+            break
+        except OSError:
+            time.sleep(0.5)' || {
+            echo "MCP or a bundled agent did not listen within 60 seconds" >&2
+            exit 1
+        }
+        changes="$(docker diff "$NAME")"
+        if printf '%s\n' "$changes" | grep '\.pyc$'; then
+            echo "The running container compiled Python bytecode" >&2
+            exit 1
+        fi
+    fi
     stop_clean
     docker volume rm hybro-image-case-data >/dev/null
 done
@@ -83,6 +108,6 @@ from pymongo import MongoClient
 print(MongoClient("mongodb://127.0.0.1:27017/?replicaSet=rs0").hybro.migration_probe.count_documents({}))')" = 1
 timeout 70s docker restart "$NAME" >/dev/null
 wait_healthy
-docker logs "$NAME" 2>&1 | grep "MongoDB replica set rs0: ready" >/dev/null
+docker logs "$NAME" 2>&1 | grep "MongoDB replica set rs0: ready (recorded)" >/dev/null
 stop_clean
 echo "Image entrypoint cases passed."

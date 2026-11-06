@@ -380,6 +380,7 @@ class _FakeTransport(_LifecycleComponent):
         super().__init__("transport", calls)
         self.closed = False
         self.draining = False
+        self.open_connections = 0
         self.compat_calls: list[tuple] = []
 
     async def start_cancellation_watcher(self):
@@ -394,6 +395,9 @@ class _FakeTransport(_LifecycleComponent):
 
     def set_draining(self, draining: bool):
         self.draining = draining
+
+    def active_connection_count(self) -> int:
+        return self.open_connections
 
     async def open_connection(self, conversation_id: str):
         self.compat_calls.append(("open_connection", conversation_id))
@@ -630,3 +634,62 @@ def test_main_does_not_construct_legacy_sse_broker():
                 assert alias.name.split(".", 1)[0] != "infrastructure"
         elif isinstance(node, ast.Name):
             assert node.id not in forbidden_names
+
+
+@pytest.mark.asyncio
+async def test_drain_without_open_streams_returns_at_once():
+    facade, _publisher, transport, _bus, _calls = _make_facade()
+    loop = asyncio.get_running_loop()
+    started = loop.time()
+
+    await facade.drain(timeout=5.0)
+
+    assert transport.draining is True
+    assert loop.time() - started < 0.5
+
+
+@pytest.mark.asyncio
+async def test_drain_waits_until_the_last_stream_closes():
+    facade, _publisher, transport, _bus, _calls = _make_facade()
+    transport.open_connections = 1
+
+    async def close_later():
+        await asyncio.sleep(0.2)
+        transport.open_connections = 0
+
+    loop = asyncio.get_running_loop()
+    started = loop.time()
+    await asyncio.gather(facade.drain(timeout=5.0), close_later())
+
+    assert 0.2 <= loop.time() - started < 1.0
+
+
+@pytest.mark.asyncio
+async def test_drain_gives_up_at_its_timeout():
+    facade, _publisher, transport, _bus, _calls = _make_facade()
+    transport.open_connections = 2
+    loop = asyncio.get_running_loop()
+    started = loop.time()
+
+    await facade.drain(timeout=0.3)
+
+    assert 0.3 <= loop.time() - started < 1.0
+    assert transport.open_connections == 2
+
+
+@pytest.mark.asyncio
+async def test_the_shutdown_drain_step_bounds_the_facade_drain():
+    import container
+
+    class Facade:
+        def __init__(self):
+            self.drained = []
+
+        async def drain(self, timeout):
+            self.drained.append(timeout)
+
+    facade = Facade()
+    await container.drain_delivery_streams(facade, 5.0)
+    assert facade.drained == [5.0]
+    # Without delivery there is nothing to drain and no wait.
+    await asyncio.wait_for(container.drain_delivery_streams(None, 5.0), 0.5)

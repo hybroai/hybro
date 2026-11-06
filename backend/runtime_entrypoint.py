@@ -15,6 +15,7 @@ log lines with the program name, and forwards stop signals.
 
 from __future__ import annotations
 
+import contextlib
 import grp
 import json
 import os
@@ -36,6 +37,7 @@ RUN_DIR = Path("/tmp/hybro")
 MANIFEST = APP_DIR / "bundled_agents.yaml"
 # Written last on a fresh or migrated volume; the CLI looks for it (`hybro`).
 VOLUME_MARKER = DATA_DIR / "hybro-volume.json"
+MONGOD_BINARY = Path("/usr/bin/mongod")
 BACKEND_PYTHON = APP_DIR / "backend" / ".venv" / "bin" / "python"
 AGENTS_PYTHON = APP_DIR / "default_agents" / ".venv" / "bin" / "python"
 
@@ -47,6 +49,15 @@ REPLICA_SET = "rs0"
 WIRED_TIGER_CACHE_GB = "0.25"
 MONGO_READY_SECONDS = 60.0
 PROBE_TIMEOUT_MS = 1000
+# Stop budget, in seconds. Caddy closes proxied streams first, so they end
+# normally; the backend's longer bound only cancels connections that bypass
+# Caddy. A service's stop wait covers that bound plus the backend's SSE drain
+# (shutdown_drain_seconds, 5) before supervisord kills it; mongod stops after
+# the services, and both waits together stay under the CLI's --stop-timeout 60.
+CADDY_GRACE_SECONDS = 3
+BACKEND_GRACEFUL_SHUTDOWN_SECONDS = 5  # MCP/server.py uses the same value.
+SERVICE_STOP_WAIT_SECONDS = 15
+MONGOD_STOP_WAIT_SECONDS = 30
 
 # Variables every program may see; everything else is scoped per program.
 # Only the backend learns where the config directory is (see projections()).
@@ -256,6 +267,10 @@ def projections(
                 "8000",
                 "--workers",
                 "1",
+                # An open SSE stream would otherwise hold the stop until
+                # supervisord's kill, skipping the backend's own shutdown.
+                "--timeout-graceful-shutdown",
+                str(BACKEND_GRACEFUL_SHUTDOWN_SECONDS),
             ],
             backend_dir,
             {
@@ -354,6 +369,9 @@ def caddyfile(*, listener: Listener, api_prefix: str) -> str:
         "\tadmin off",
         "\tauto_https off",
         "\tpersist_config off",
+        # The default grace period is unbounded: an open SSE stream would hold
+        # the stop until supervisord kills Caddy.
+        f"\tgrace_period {CADDY_GRACE_SECONDS}s",
         # Error lines (a 5xx from a handler) carry the request through the
         # default logger, outside the site's access-log filter. Response
         # headers are dropped too, should an access line ever reach it.
@@ -462,7 +480,12 @@ def supervisord_conf(programs: Mapping[str, Program]) -> str:
             "stopsignal=TERM",
             # A launcher killed after stopwaitsecs must not orphan its child.
             "killasgroup=true",
-            f"stopwaitsecs={30 if name == 'mongod' else 10}",
+            "stopwaitsecs="
+            + str(
+                MONGOD_STOP_WAIT_SECONDS
+                if name == "mongod"
+                else SERVICE_STOP_WAIT_SECONDS
+            ),
             f"priority={10 if name == 'mongod' else 100}",
             "stdout_logfile=/dev/stdout",
             "stdout_logfile_maxbytes=0",
@@ -640,7 +663,9 @@ def prepare_mongodb(
             client.admin.command("shutdown")
         except PyMongoError:  # The server closes the connection while stopping.
             pass
-        process.wait(timeout=30)
+        # Recorded only after a clean stop, so the data is known to reopen.
+        if process.wait(timeout=30) == 0:
+            record_replica_set()
     except (EntrypointError, PyMongoError, subprocess.TimeoutExpired) as exc:
         if process.poll() is None:
             process.terminate()
@@ -658,6 +683,61 @@ def prepare_mongodb(
         if client is not None:
             client.close()
     return result
+
+
+def _replica_set_record() -> Path:
+    # Inside the database directory, so a wiped or replaced db/ loses it too.
+    return DATA_DIR / "db" / "hybro-replica-set.json"
+
+
+def _expected_record() -> dict[str, str] | None:
+    """The replica set, and the mongod binary that last opened the data.
+
+    Another binary (a MongoDB upgrade) prepares again, so data it cannot open
+    fails at preparation with mongod's output rather than under supervisord.
+    """
+    try:
+        binary = MONGOD_BINARY.stat()
+    except OSError:
+        return None
+    return {
+        "replica_set": REPLICA_SET,
+        "host": MONGO_HOST,
+        "mongod": f"{binary.st_size}:{binary.st_mtime_ns}",
+    }
+
+
+def record_replica_set() -> None:
+    """Note that this data's replica set is ``rs0`` on loopback; best effort.
+
+    Without the record the next start only prepares again, so a failed write
+    never fails a start that has already prepared.
+    """
+    expected = _expected_record()
+    record = _replica_set_record()
+    partial = record.with_name(record.name + ".partial")
+    try:
+        if expected is None:
+            raise OSError(f"cannot read {MONGOD_BINARY}")
+        partial.write_text(json.dumps(expected) + "\n", encoding="utf-8")
+        os.replace(partial, record)
+    except OSError as exc:
+        with contextlib.suppress(OSError):
+            partial.unlink(missing_ok=True)
+        print(
+            f"Warning: cannot record the replica set ({exc.strerror or exc}); "
+            "the next start prepares it again.",
+            file=sys.stderr,
+        )
+
+
+def replica_set_recorded() -> bool:
+    try:
+        recorded = json.loads(_replica_set_record().read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return False
+    expected = _expected_record()
+    return expected is not None and recorded == expected
 
 
 def _stop_preparation(_signum: int, _frame: object) -> None:
@@ -711,7 +791,11 @@ def user_phase() -> None:
     )
     write_private(RUN_DIR / "supervisord.conf", supervisord_conf(programs))
     write_diagnostics_handoff(settings.api_prefix)
-    if embedded_mongo:
+    if embedded_mongo and replica_set_recorded():
+        # A temporary mongod start and stop costs seconds on every start; the
+        # record is written only after a preparation that completed.
+        print(f"MongoDB replica set {REPLICA_SET}: ready (recorded)", file=sys.stderr)
+    elif embedded_mongo:
         # A stop during preparation shuts the temporary mongod down cleanly.
         signal.signal(signal.SIGTERM, _stop_preparation)
         prepare_mongodb()
