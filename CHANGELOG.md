@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.6](https://github.com/hybroai/hybro/compare/v0.4.5...v0.4.6) (2026-11-06)
+
+
+### Performance Improvements
+
+* faster hybro start and stop ([84cefcd](https://github.com/hybroai/hybro/commit/84cefcd5cd5fe41d56f4a180a95f03f1722aa1d5))
+* **image:** ship compiled Python bytecode ([905355f](https://github.com/hybroai/hybro/commit/905355f64207ca7524879a9e7afd654c87e7f6ca))
+* **image:** skip the temporary mongod once the replica set is recorded ([f7636cc](https://github.com/hybroai/hybro/commit/f7636ccfc665db6e3994d31834281d0c9c241cf2))
+* **image:** stop in about a second, and cleanly with a tab open ([5f019e0](https://github.com/hybroai/hybro/commit/5f019e0c31758e610d80d17c427545caffe335f7))
+
 ## [0.4.5](https://github.com/hybroai/hybro/compare/v0.4.4...v0.4.5) (2026-11-04)
 
 
