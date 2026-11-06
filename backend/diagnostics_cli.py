@@ -178,7 +178,7 @@ def _age(snapshot: Snapshot, value: object) -> str | None:
     return duration((now - then).total_seconds()) + " ago"
 
 
-# The time each outcome was recorded; a failure keeps the last success's.
+# The field holding when each outcome was last recorded; "ok" uses last_completed_at.
 _OUTCOME_STAMP = {
     "failed": "last_failed_at",
     "skipped_not_leader": "last_skipped_at",
