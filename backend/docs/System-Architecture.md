@@ -1210,7 +1210,12 @@ command and scoped environment to a private file under `/tmp/hybro/programs`,
 writes the Caddyfile and supervisor configuration, prepares MongoDB, and execs
 `supervisord` with only base variables. Each program starts through
 `runtime_entrypoint.py run <name>`, which applies its own environment, prefixes
-its log lines with the program name, and forwards stop signals:
+its log lines with the program name, and forwards stop signals. The
+entrypoint's own routine lines carry an `entrypoint | ` prefix; its warnings
+and errors, and supervisord's lines (`loglevel=warn`), have none. The
+supervisor configuration names `user=root` when the entrypoint runs as root,
+and its control socket takes a password generated on each start, so
+supervisord logs neither CRIT notice. Each program's environment:
 
 - frontend: `api_base_url` empty (same origin), `server_url`
   `http://localhost:<public port>` on loopback or `frontend.server_url` on a
@@ -1272,7 +1277,7 @@ gets a forced `replSetReconfig` to `127.0.0.1:27017`. When the temporary
 `mongod` exits 0, the entrypoint writes `/data/db/hybro-replica-set.json`: `rs0`
 on `127.0.0.1:27017` and the size and modification time of `/usr/bin/mongod`. A
 start whose record matches skips the temporary `mongod` and logs
-`MongoDB replica set rs0: ready (recorded)`; another `mongod` binary, a missing
+`entrypoint | MongoDB replica set rs0: ready (recorded)`; another `mongod` binary, a missing
 or unreadable record, or a removed `db/` prepares again. Writing the record is
 best effort. Data copied into an existing `db/` (a restored backup) keeps the
 old record, so delete `hybro-replica-set.json` after restoring. In the
@@ -1347,8 +1352,14 @@ updates and the release workflow compares with the tag.
   `-p 127.0.0.1:1455:1455` for the OAuth callback. When 1455 is taken, it runs
   again without it and the ChatGPT login uses the paste flow. A stopped
   container of the same name is removed first; a running one only prints its
-  address. Without `-d` the script follows the logs and stops the container on
-  Ctrl-C. `--listen` takes an IP address: `127.0.0.1`, `localhost`, and `::1`
+  address. Without `-d` the script polls the backend's `/health`, the
+  frontend, and `/health` through Caddy (a `docker exec` of the backend's
+  Python; any HTTP answer counts, as a degraded `/health` answers 503), prints
+  the address once all three answer, and then follows the logs through the `hybro logs --level
+  error` filter, which also reads mongod's `"s"` severity; supervisord's own
+  lines have no program name and always show. A container that stops first, or no answer
+  within 180 seconds, prints the last 30 log lines and exits 1. Ctrl-C stops
+  the container. `--listen` takes an IP address: `127.0.0.1`, `localhost`, and `::1`
   are loopback, anything else is public. Start options are flags only.
 - **Update notice.** Release mode reads the latest release tag at most once a
   day (three-second timeout, cached in `$HYBRO_HOME/update-check`) and prints

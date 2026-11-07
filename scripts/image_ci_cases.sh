@@ -58,6 +58,11 @@ for uid in 0 65534; do
     test "$(docker exec "$NAME" stat -c %u /data/db)" = "$uid"
     # The image has no procps; /proc needs no package.
     test "$(docker exec "$NAME" stat -c %u /proc/1)" = "$uid"
+    # supervisord's root and socket notices would print on every start.
+    if docker logs "$NAME" 2>&1 | grep -E " CRIT (Supervisor is running as root|Server 'unix_http_server' running without)"; then
+        echo "supervisord logged a CRIT notice" >&2
+        exit 1
+    fi
     if [ "$uid" = 0 ]; then
         # Only root could write bytecode under the root-owned /app. Once every
         # agent and MCP listens, every program has imported its code; with
