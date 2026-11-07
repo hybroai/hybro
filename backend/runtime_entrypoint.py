@@ -449,8 +449,22 @@ def caddyfile(*, listener: Listener, api_prefix: str) -> str:
     return "\n".join(lines)
 
 
-def supervisord_conf(programs: Mapping[str, Program]) -> str:
-    """mongod starts first and stops last; the services stop together before it."""
+def status(message: str) -> None:
+    """A routine startup line, prefixed like a program's so filters can skip it.
+
+    Warnings and errors stay unprefixed, so ``hybro`` always shows them.
+    """
+    print(f"entrypoint | {message}", file=sys.stderr)
+
+
+def supervisord_conf(programs: Mapping[str, Program], *, as_root: bool) -> str:
+    """mongod starts first and stops last; the services stop together before it.
+
+    ``user=root`` and the socket's per-start password only keep supervisord's
+    CRIT notices out of every start's log; a non-root supervisord refuses a
+    ``user`` it cannot switch to.
+    """
+    password = token_hex(16)
     lines = [
         "[supervisord]",
         "nodaemon=true",
@@ -458,16 +472,21 @@ def supervisord_conf(programs: Mapping[str, Program]) -> str:
         "logfile_maxbytes=0",
         f"pidfile={RUN_DIR / 'supervisord.pid'}",
         "loglevel=warn",
+        *(["user=root"] if as_root else []),
         "",
         "[unix_http_server]",
         f"file={RUN_DIR / 'supervisor.sock'}",
         "chmod=0700",
+        "username=hybro",
+        f"password={password}",
         "",
         "[rpcinterface:supervisor]",
         "supervisor.rpcinterface_factory = supervisor.rpcinterface:make_main_rpcinterface",
         "",
         "[supervisorctl]",
         f"serverurl=unix://{RUN_DIR / 'supervisor.sock'}",
+        "username=hybro",
+        f"password={password}",
     ]
     launcher = f"{BACKEND_PYTHON} {APP_DIR / 'backend' / 'runtime_entrypoint.py'} run"
     for name in programs:
@@ -656,7 +675,7 @@ def prepare_mongodb(
         client = connect(int(MONGO_READY_SECONDS * 1000))
         action = ensure_replica_set(client)
         wait_for_primary(client)
-        print(f"MongoDB replica set {REPLICA_SET}: {action}", file=sys.stderr)
+        status(f"MongoDB replica set {REPLICA_SET}: {action}")
         if inspect is not None:
             result = inspect(client)
         try:
@@ -789,12 +808,15 @@ def user_phase() -> None:
         RUN_DIR / "Caddyfile",
         caddyfile(listener=listener, api_prefix=settings.api_prefix),
     )
-    write_private(RUN_DIR / "supervisord.conf", supervisord_conf(programs))
+    write_private(
+        RUN_DIR / "supervisord.conf",
+        supervisord_conf(programs, as_root=os.geteuid() == 0),
+    )
     write_diagnostics_handoff(settings.api_prefix)
     if embedded_mongo and replica_set_recorded():
         # A temporary mongod start and stop costs seconds on every start; the
         # record is written only after a preparation that completed.
-        print(f"MongoDB replica set {REPLICA_SET}: ready (recorded)", file=sys.stderr)
+        status(f"MongoDB replica set {REPLICA_SET}: ready (recorded)")
     elif embedded_mongo:
         # A stop during preparation shuts the temporary mongod down cleanly.
         signal.signal(signal.SIGTERM, _stop_preparation)

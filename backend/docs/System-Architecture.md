@@ -1180,7 +1180,12 @@ command and scoped environment to a private file under `/tmp/hybro/programs`,
 writes the Caddyfile and supervisor configuration, prepares MongoDB, and execs
 `supervisord` with only base variables. Each program starts through
 `runtime_entrypoint.py run <name>`, which applies its own environment, prefixes
-its log lines with the program name, and forwards stop signals:
+its log lines with the program name, and forwards stop signals. The
+entrypoint's own routine lines carry an `entrypoint | ` prefix; its warnings
+and errors, and supervisord's lines (`loglevel=warn`), have none. The
+supervisor configuration names `user=root` when the entrypoint runs as root,
+and its control socket takes a password generated on each start, so
+supervisord logs neither CRIT notice. Each program's environment:
 
 - frontend: `api_base_url` empty (same origin), `server_url`
   `http://localhost:<public port>` on loopback or `frontend.server_url` on a
@@ -1242,7 +1247,7 @@ gets a forced `replSetReconfig` to `127.0.0.1:27017`. When the temporary
 `mongod` exits 0, the entrypoint writes `/data/db/hybro-replica-set.json`: `rs0`
 on `127.0.0.1:27017` and the size and modification time of `/usr/bin/mongod`. A
 start whose record matches skips the temporary `mongod` and logs
-`MongoDB replica set rs0: ready (recorded)`; another `mongod` binary, a missing
+`entrypoint | MongoDB replica set rs0: ready (recorded)`; another `mongod` binary, a missing
 or unreadable record, or a removed `db/` prepares again. Writing the record is
 best effort. Data copied into an existing `db/` (a restored backup) keeps the
 old record, so delete `hybro-replica-set.json` after restoring. In the

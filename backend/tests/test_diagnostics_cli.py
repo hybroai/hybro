@@ -575,6 +575,7 @@ def test_bundle_redacts_the_container_log(tmp_path):
         b"frontend | GET /",
         b"hybro: Invalid configuration: api_key=sk-PLANTED",
         b'{"msg":"x","attr":{"uri":"mongodb://root:tailpw@db"}}',
+        b"entrypoint | MongoDB replica set rs0: ready (recorded)",
     ]
     run = Run(tmp_path, all_routes())
     assert run("bundle", stdin=b"\n".join(lines) + b"\n") == 0
@@ -593,7 +594,9 @@ def test_bundle_redacts_the_container_log(tmp_path):
     kept = files["container.log"].splitlines()
     assert kept[0] == backend_json
     assert kept[2] == caddy_json
-    assert len(kept) == 5
+    assert len(kept) == 6
+    # The entrypoint's status lines are kept with the unprefixed ones.
+    assert kept[-1] == b"entrypoint | MongoDB replica set rs0: ready (recorded)"
     manifest = json.loads(files["manifest.json"])
     assert manifest["container_log"] == {
         "backend": {"kept": 2, "dropped": 0},
@@ -601,7 +604,7 @@ def test_bundle_redacts_the_container_log(tmp_path):
         "agent-echo": {"kept": 0, "dropped": 1},
         "mongod": {"kept": 0, "dropped": 1},
         "frontend": {"kept": 0, "dropped": 1},
-        "unprefixed": {"kept": 2, "dropped": 0},
+        "unprefixed": {"kept": 3, "dropped": 0},
     }
 
 

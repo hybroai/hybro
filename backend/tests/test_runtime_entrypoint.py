@@ -288,7 +288,7 @@ def test_caddyfile_filters_the_default_logger(listener):
 
 
 def test_supervisor_starts_mongod_first_and_stops_services_together():
-    conf = entry.supervisord_conf(build(loopback()))
+    conf = entry.supervisord_conf(build(loopback()), as_root=False)
     sections = conf.split("\n\n")
     mongod = next(s for s in sections if s.startswith("[program:mongod]"))
     assert "priority=10\n" in mongod + "\n"
@@ -424,8 +424,33 @@ def test_only_the_backend_learns_where_the_config_directory_is():
     assert "HYBRO_HOME" not in entry._BASE_ENV_KEYS
 
 
+def _section(conf: str, name: str) -> dict[str, str]:
+    (section,) = [s for s in conf.split("\n\n") if s.startswith(f"[{name}]")]
+    return dict(line.split("=", 1) for line in section.splitlines()[1:])
+
+
+@pytest.mark.parametrize("as_root", [True, False])
+def test_supervisor_names_root_only_when_it_runs_as_root(as_root):
+    conf = entry.supervisord_conf(build(loopback()), as_root=as_root)
+    # Without it supervisord logs a CRIT line on every start as root; with it,
+    # a non-root supervisord would refuse to start.
+    assert (_section(conf, "supervisord").get("user") == "root") is as_root
+
+
+def test_supervisor_socket_needs_a_per_start_password():
+    programs = build(loopback())
+    conf = entry.supervisord_conf(programs, as_root=False)
+    server = _section(conf, "unix_http_server")
+    client = _section(conf, "supervisorctl")
+    assert server["username"] == client["username"] == "hybro"
+    assert len(server["password"]) >= 32
+    assert client["password"] == server["password"]
+    other = entry.supervisord_conf(programs, as_root=False)
+    assert _section(other, "unix_http_server")["password"] != server["password"]
+
+
 def test_supervised_launchers_are_killed_with_their_children():
-    conf = entry.supervisord_conf(build(loopback()))
+    conf = entry.supervisord_conf(build(loopback()), as_root=False)
     programs = [s for s in conf.split("\n\n") if s.startswith("[program:")]
     assert programs and all("killasgroup=true" in s for s in programs)
 
@@ -582,7 +607,7 @@ def test_successful_preparation_shuts_the_temporary_mongod_down(mongo_paths, cap
     # A short probe, then a patient client for the reconfig and the election.
     assert timeouts == [entry.PROBE_TIMEOUT_MS, 60_000]
     assert not process.terminated
-    assert "replica set rs0: ready" in capsys.readouterr().err
+    assert "entrypoint | MongoDB replica set rs0: ready\n" in capsys.readouterr().err
     # Recorded once mongod has stopped cleanly, so the next start can skip this.
     assert entry.replica_set_recorded()
 
@@ -747,7 +772,20 @@ def test_recorded_replica_set_skips_the_temporary_mongod(boot, capsys):
     entry.record_replica_set()
     entry.user_phase()
     assert boot == []
-    assert "replica set rs0: ready (recorded)" in capsys.readouterr().err
+    assert (
+        capsys.readouterr().err
+        == "entrypoint | MongoDB replica set rs0: ready (recorded)\n"
+    )
+
+
+@pytest.mark.parametrize(("euid", "named"), [(0, True), (1000, False)])
+def test_supervisor_conf_names_root_from_the_effective_uid(
+    boot, monkeypatch, tmp_path, euid, named
+):
+    monkeypatch.setattr(entry.os, "geteuid", lambda: euid)
+    entry.user_phase()
+    conf = (tmp_path / "run" / "supervisord.conf").read_text()
+    assert ("\nuser=root\n" in conf) is named
 
 
 @pytest.mark.parametrize(
