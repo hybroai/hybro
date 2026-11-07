@@ -5,6 +5,19 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.7](https://github.com/hybroai/hybro/compare/v0.4.6...v0.4.7) (2026-11-07)
+
+
+### Features
+
+* **cli:** show only errors after a foreground start is ready ([713ba27](https://github.com/hybroai/hybro/commit/713ba275e4c1b023ec77113f8e663a8f0642ca34))
+* quiet foreground start ([8792e28](https://github.com/hybroai/hybro/commit/8792e282439fd6aa2d67c6ff2b050904aceb3738))
+
+
+### Bug Fixes
+
+* **image:** keep routine startup notices out of the error stream ([13929c4](https://github.com/hybroai/hybro/commit/13929c4826397b4d594f50b9860c520f92f47198))
+
 ## [0.4.6](https://github.com/hybroai/hybro/compare/v0.4.5...v0.4.6) (2026-11-06)
 
 
