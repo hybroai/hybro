@@ -941,11 +941,15 @@ def write_restart_status(state: str, error: str | None = None) -> None:
         )
 
 
-def _announce(line: str) -> None:
-    """One summary line in PID 1's output (``hybro logs``); best effort."""
+def _announce(level: Literal["info", "error"], message: str) -> None:
+    """One logfmt summary line in PID 1's output (``hybro logs``); best effort.
+
+    The level lets the foreground ``hybro`` view, which shows only errors,
+    show a failed restart.
+    """
     with contextlib.suppress(OSError):
         with open(PID1_STDOUT, "a", encoding="utf-8") as output:
-            output.write(f"restart | {line}\n")
+            output.write(f"restart | level={level} msg={json.dumps(message)}\n")
 
 
 def read_runtime_record() -> tuple[Listener, dict[str, Any]]:
@@ -1075,7 +1079,7 @@ def restart(*, check: bool, run: Runner = _supervisorctl) -> int:
         if not check:
             with contextlib.suppress(OSError):
                 write_restart_status("failed", str(exc))
-            _announce(f"failed: {exc}")
+            _announce("error", f"failed: {exc}")
         return 1
     if check:
         print(json.dumps({"ok": True}))
@@ -1086,7 +1090,7 @@ def restart(*, check: bool, run: Runner = _supervisorctl) -> int:
         except BlockingIOError:
             # Another restart is running and owns the status file.
             print(json.dumps({"ok": True, "skipped": True}))
-            _announce("skipped: another restart is running.")
+            _announce("info", "skipped: another restart is running.")
             return 0
         try:
             restarted = _restart_services(plan, record, run)
@@ -1099,10 +1103,10 @@ def restart(*, check: bool, run: Runner = _supervisorctl) -> int:
             print(json.dumps({"ok": False, "error": error}))
             with contextlib.suppress(OSError):
                 write_restart_status("failed", error)
-            _announce(f"failed: {error}")
+            _announce("error", f"failed: {error}")
             return 1
         write_restart_status("completed")
-        _announce(f"completed: restarted {restarted}.")
+        _announce("info", f"completed: restarted {restarted}.")
         print(json.dumps({"ok": True}))
         return 0
 

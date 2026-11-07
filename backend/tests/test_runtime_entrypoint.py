@@ -1051,7 +1051,9 @@ def test_failed_restart_without_check_records_the_failure(started, capsys):
     status = restart_status(started)
     assert status["state"] == "failed"
     assert "hybro stop" in status["error"]
-    assert "failed" in (entry.PID1_STDOUT).read_text()
+    # logfmt with a level, so the foreground `hybro` view (errors only) shows it.
+    line = entry.PID1_STDOUT.read_text().splitlines()[-1]
+    assert line.startswith('restart | level=error msg="failed: ')
 
 
 def test_restart_rewrites_the_services_and_restarts_exactly_them(started):
@@ -1085,7 +1087,8 @@ def test_restart_rewrites_the_services_and_restarts_exactly_them(started):
         ).restart_revision
     )
     assert record["listen"] == "loopback"
-    assert "completed" in entry.PID1_STDOUT.read_text()
+    line = entry.PID1_STDOUT.read_text().splitlines()[-1]
+    assert line.startswith('restart | level=info msg="completed: restarted ')
 
 
 def test_a_service_not_running_after_restart_fails(started):

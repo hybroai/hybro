@@ -196,10 +196,7 @@ class InstanceSettings:
         before = _Values(previous, image=self.image)
         after = _Values(current, image=self.image)
         changed = tuple(
-            spec.key
-            for spec in specs
-            if (before.present(spec), before.value(spec))
-            != (after.present(spec), after.value(spec))
+            spec.key for spec in specs if _stored(before, spec) != _stored(after, spec)
         )
         # Also applies a level edited by hand since the last save.
         level = after.value(field_spec("backend.log_level"))
@@ -351,6 +348,14 @@ def _check_types(specs: tuple[FieldSpec, ...], values: Mapping[str, object]) -> 
             )
     if errors:
         raise _invalid(tuple(errors))
+
+
+def _stored(values: _Values, spec: FieldSpec) -> tuple[bool, object]:
+    """What config.json holds for ``spec``; capped fields keep the entered value."""
+    if spec.name in _CAPPED_FIELDS:
+        section = getattr(values.config, spec.section)
+        return spec.name in section, section.get(spec.name)
+    return values.present(spec), values.value(spec)
 
 
 def _normalize(

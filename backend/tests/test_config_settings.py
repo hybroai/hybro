@@ -243,6 +243,9 @@ def test_discovery_start_above_the_default_end_is_rejected() -> None:
         ("compaction_content_ttl_days", 10**9),
         ("llm_gateway_request_timeout_seconds", 0),
         ("llm_gateway_stream_timeout_seconds", 0),
+        ("orchestrator_fast_deadline_seconds", 1e12),
+        ("orchestrator_ultimate_deadline_seconds", 1e12),
+        ("orchestrator_passthrough_deadline_seconds", 1e12),
     ],
 )
 def test_values_that_break_the_services_are_rejected_at_startup(field, value) -> None:
@@ -252,10 +255,20 @@ def test_values_that_break_the_services_are_rejected_at_startup(field, value) ->
     assert caught.value.errors()[0]["loc"] == (field,)
 
 
-@pytest.mark.parametrize("field", ["max_message_length", "inspection_timeout_ms"])
-def test_frontend_numbers_stay_within_what_the_browser_accepts(field) -> None:
+def test_frontend_inspection_timeout_stays_within_what_the_browser_accepts() -> None:
     from common.config.loader import FrontendSettings
 
+    field = "inspection_timeout_ms"
     with pytest.raises(ValidationError):
         FrontendSettings.model_validate({field: 2**31})
     assert getattr(FrontendSettings.model_validate({field: 2**31 - 1}), field)
+
+
+def test_frontend_message_length_stays_within_the_backend_limit() -> None:
+    from common.config.loader import FrontendSettings
+    from models.room import MAX_MESSAGE_LENGTH
+
+    with pytest.raises(ValidationError):
+        FrontendSettings.model_validate({"max_message_length": MAX_MESSAGE_LENGTH + 1})
+    limit = FrontendSettings.model_validate({"max_message_length": MAX_MESSAGE_LENGTH})
+    assert limit.max_message_length == MAX_MESSAGE_LENGTH

@@ -25,6 +25,12 @@ from common.observability import get_logger
 logger = get_logger(__name__)
 
 
+# Ten years: a Run's deadline is wall-clock date math, which overflows far later.
+_MAX_DEADLINE_SECONDS = 10 * 365 * 24 * 3600
+# models.room.MAX_MESSAGE_LENGTH: the backend refuses longer messages.
+_MAX_MESSAGE_LENGTH = 10_000
+
+
 class Settings(BaseModel):
     model_config = ConfigDict(extra="forbid", strict=True, hide_input_in_errors=True)
 
@@ -94,7 +100,9 @@ class Settings(BaseModel):
     )
     orchestrator_fast_max_transport_retries_per_call: int = 2
     orchestrator_fast_max_compactions: int = 2
-    orchestrator_fast_deadline_seconds: float = Field(default=300.0, gt=0)
+    orchestrator_fast_deadline_seconds: float = Field(
+        default=300.0, gt=0, le=_MAX_DEADLINE_SECONDS
+    )
     orchestrator_fast_initial_routing: str = "explicit_agent_first"
     orchestrator_fast_tool_execution: str = "parallel"
     orchestrator_fast_finalization: str = "pass_through"
@@ -111,14 +119,18 @@ class Settings(BaseModel):
     )
     orchestrator_ultimate_max_transport_retries_per_call: int = 3
     orchestrator_ultimate_max_compactions: int = 3
-    orchestrator_ultimate_deadline_seconds: float = Field(default=600.0, gt=0)
+    orchestrator_ultimate_deadline_seconds: float = Field(
+        default=600.0, gt=0, le=_MAX_DEADLINE_SECONDS
+    )
     orchestrator_ultimate_initial_routing: str = "explicit_agent_first"
     orchestrator_ultimate_tool_execution: str = "parallel"
     orchestrator_ultimate_finalization: str = "pass_through"
 
     # Passthrough: zero model turns and one call to the single mentioned Agent.
     # The deadline counts active time only; a suspended Run's clock is stopped.
-    orchestrator_passthrough_deadline_seconds: float = Field(default=300.0, gt=0)
+    orchestrator_passthrough_deadline_seconds: float = Field(
+        default=300.0, gt=0, le=_MAX_DEADLINE_SECONDS
+    )
     orchestrator_passthrough_max_transport_retries_per_call: int = Field(
         default=2, gt=0
     )
@@ -630,8 +642,8 @@ class FrontendSettings(BaseModel):
     clerk_sign_in_fallback_redirect_url: str = "/"
     clerk_sign_up_fallback_redirect_url: str = "/"
     enable_waitlist: bool = True
-    # The browser needs safe integers, and setTimeout caps at 2**31 - 1 ms.
-    max_message_length: int = Field(default=10000, gt=0, le=2**31 - 1)
+    # The backend's message limit, and setTimeout's cap of 2**31 - 1 ms.
+    max_message_length: int = Field(default=10000, gt=0, le=_MAX_MESSAGE_LENGTH)
     inspection_timeout_ms: int = Field(default=300000, gt=0, le=2**31 - 1)
 
     @field_validator("api_base_url", "server_url")

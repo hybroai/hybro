@@ -59,7 +59,7 @@ Edit `~/.hybro/config.json` by hand or through the
 {
   "version": 1,
   "backend": { "log_level": "DEBUG" },
-  "frontend": { "max_message_length": 12000 }
+  "frontend": { "max_message_length": 8000 }
 }
 ```
 
@@ -78,9 +78,12 @@ Startup rules added with the Settings API: `orchestrator_fast_*` and
 `llm_gateway_request_timeout_seconds`/`llm_gateway_stream_timeout_seconds`
 timeouts must be greater than 0, `approval_deadline_hours` and
 `orchestrator_call_wait_ceiling_hours` are at most 87600 (ten years),
-`compaction_content_ttl_days` is at most 36500, and `frontend.max_message_length`
-and `frontend.inspection_timeout_ms` are at most 2147483647 (what the browser
-can use). Before, such values passed startup and failed every
+the `orchestrator_fast_*`, `orchestrator_ultimate_*` and
+`orchestrator_passthrough_*` `deadline_seconds` are at most 315360000 (ten
+years), `compaction_content_ttl_days` is at most 36500,
+`frontend.max_message_length` is at most 10000 (the backend refuses longer
+messages), and `frontend.inspection_timeout_ms` is at most 2147483647 (what the
+browser can use). Before, such values passed startup and failed every
 Fast or Ultimate Run (or made the health check loop spin); now startup rejects
 them and names the field. Fix the value in `config.json` if Hybro no longer
 starts after an upgrade.
@@ -142,7 +145,8 @@ invalid configuration returns 409 `config_invalid` and nothing restarts; a
 restart already running returns 409 `restart_in_progress`. From a checkout it
 returns 409 `restart_unavailable`: restart the processes yourself. Like a start,
 a restart may create a missing internal token in `auth.json`. The helper writes
-one summary line to `hybro logs`.
+one logfmt summary line to `hybro logs` (`restart | level=info ...`, or
+`level=error` for a failure, which the foreground `hybro` view also shows).
 
 The port, listener mode, and auth mode are shown read-only. The port and
 listener are `hybro` flags (`--port`, `--listen`, `--insecure-no-auth`), and

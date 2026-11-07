@@ -1340,8 +1340,10 @@ for those programs, then `supervisorctl status` and requires each to be
 `{"state", "error", "updated_at"}`: `restarting`, then `completed` or `failed`)
 and refreshes `updated_at` every 10 seconds while supervisorctl runs. There is
 no rollback: supervisord keeps retrying a failed service, and the backend
-reads `config.json` itself. The helper's stdio is closed; it writes one
-`restart | ...` summary line to PID 1's stdout so it shows in `hybro logs`.
+reads `config.json` itself. The helper's stdio is closed; it writes one logfmt
+summary line, `restart | level=info msg="..."` (`level=error` on failure), to
+PID 1's stdout so it shows in `hybro logs` and, for a failure, in the
+foreground view, which keeps only errors.
 Caddy and mongod are never named, so the port stays open and MongoDB stays up.
 
 ### Shell CLI

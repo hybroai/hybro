@@ -165,7 +165,7 @@ def field(body: dict, key: str) -> dict:
     ("key", "submitted", "stored"),
     [
         ("backend.compaction_enabled", False, False),
-        ("frontend.max_message_length", 12000, 12000),
+        ("frontend.max_message_length", 8000, 8000),
         ("backend.approval_deadline_hours", 48.5, 48.5),
         (
             "backend.a2a_push_callback_base_url",
@@ -303,8 +303,11 @@ async def test_parallel_calls_above_agent_calls_are_capped_with_a_notice(
     assert field(response.json()["settings"], parallel)["value"] == 2
     profile_values = harness.store.read_config().backend
     assert profile_values[parallel.removeprefix("backend.")] == 5
+    # The stored value changed even though the capped value did not.
+    response = await put(harness, {parallel: 6})
+    assert response.json()["changed"] == [parallel]
     view = (await put(harness, {agent_calls: 8})).json()["settings"]
-    assert field(view, parallel)["value"] == 5
+    assert field(view, parallel)["value"] == 6
     assert not [n for n in view["notices"] if n["code"] == "capped_fields"]
 
 
