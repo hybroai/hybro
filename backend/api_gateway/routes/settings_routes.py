@@ -16,7 +16,12 @@ from fastapi.routing import APIRoute
 
 from api_gateway.registry import mark_declared_owner
 from common.auth import ClerkUser, get_current_user
-from instance_settings.models import SettingsErrorBody, SettingsView
+from instance_settings.models import (
+    SettingsErrorBody,
+    SettingsSaved,
+    SettingsUpdate,
+    SettingsView,
+)
 from instance_settings.protocols import SettingsAccess, SettingsRequestError
 
 _ERRORS = {status: {"model": SettingsErrorBody} for status in (403, 409, 422, 503)}
@@ -66,6 +71,13 @@ SettingsDependency = Annotated[SettingsAccess, Depends(get_instance_settings)]
 @router.get("")
 async def read_settings(settings: SettingsDependency) -> SettingsView:
     return await settings.view()
+
+
+@router.put("")
+async def update_settings(
+    body: SettingsUpdate, settings: SettingsDependency
+) -> SettingsSaved:
+    return await settings.update(body)
 
 
 mark_declared_owner(router, "api_gateway.routes.settings_routes")

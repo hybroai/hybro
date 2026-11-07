@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import logging
 from pathlib import Path
 
 import pytest
@@ -386,3 +387,76 @@ def test_registry_specs_are_frozen():
     with pytest.raises((AttributeError, TypeError)):
         spec.key = "backend.other"  # type: ignore[misc]
     assert isinstance(GROUPS, tuple)
+
+
+# -- writes -------------------------------------------------------------------
+
+
+def test_set_log_level_changes_root_and_handlers_only(monkeypatch):
+    from common.observability import logging as observability
+    from common.observability.logging import set_log_level
+
+    stream, sink = logging.Handler(), logging.Handler()
+    monkeypatch.setattr(observability, "_configured_handler", stream)
+    monkeypatch.setattr(observability, "_sink_handler", sink)
+    root = logging.getLogger()
+    previous = root.level
+    libraries = [logging.getLogger(name) for name in ("httpx", "pymongo")]
+    for library in libraries:
+        library.setLevel(logging.WARNING)
+    try:
+        set_log_level("DEBUG")
+        assert (root.level, stream.level, sink.level) == (logging.DEBUG,) * 3
+        assert [library.level for library in libraries] == [logging.WARNING] * 2
+        set_log_level("ERROR")
+        assert (root.level, stream.level, sink.level) == (logging.ERROR,) * 3
+    finally:
+        root.setLevel(previous)
+
+
+def test_update_settings_applies_edits_under_the_lock(tmp_path):
+    from common.config.runtime_store import SettingsRevisionConflict
+
+    store = RuntimeConfigStore(tmp_path / "home")
+    seen: list[dict] = []
+
+    def validate(document: dict) -> dict:
+        seen.append(json.loads(json.dumps(document)))
+        return document
+
+    previous, current = store.update_settings(
+        {("backend", "compaction_enabled"): False, ("frontend", "x"): None},
+        expected_revision=RuntimeConfig().settings_revision,
+        validate=validate,
+    )
+    assert previous == RuntimeConfig()
+    assert current.backend == {"compaction_enabled": False}
+    assert seen == [{"version": 1, "backend": {"compaction_enabled": False}}]
+    with pytest.raises(SettingsRevisionConflict):
+        store.update_settings(
+            {("backend", "compaction_enabled"): True},
+            expected_revision=previous.settings_revision,
+            validate=validate,
+        )
+    with pytest.raises(ValueError):
+        store.update_settings(
+            {("provider", "id"): "openai"},
+            expected_revision=current.settings_revision,
+            validate=validate,
+        )
+
+
+def test_update_settings_refuses_an_invalid_file(tmp_path):
+    from common.config.runtime_config import RuntimeConfigurationError
+    from common.config.runtime_store import SettingsFileInvalid
+
+    home = tmp_path / "home"
+    write_config(home, "[]")
+    with pytest.raises(SettingsFileInvalid) as caught:
+        RuntimeConfigStore(home).update_settings(
+            {("backend", "log_level"): "DEBUG"},
+            expected_revision="x",
+            validate=lambda document: document,
+        )
+    assert isinstance(caught.value, RuntimeConfigurationError)
+    assert (home / "config.json").read_text() == "[]"

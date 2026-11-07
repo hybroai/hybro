@@ -37,6 +37,19 @@ from common.config.runtime_config import (
 
 _MAX_FILE_BYTES = 64 * 1024
 _OAUTH_REFRESH_TIMEOUT = 15
+_SETTINGS_SECTIONS = frozenset({"backend", "frontend"})
+
+
+class SettingsFileInvalid(RuntimeConfigurationError):
+    """The current config.json does not validate, so a settings edit cannot apply."""
+
+
+class SettingsRevisionConflict(RuntimeConfigurationError):
+    """config.json changed since the editor read it."""
+
+
+class SettingsCandidateInvalid(RuntimeConfigurationError):
+    """The edited document fails a cross-section rule; the message is safe."""
 
 
 async def _store_io[T](operation: Callable[[], T]) -> T:
@@ -205,6 +218,29 @@ def parse_config(data: bytes) -> RuntimeConfig:
         raise RuntimeConfigurationError(
             "Invalid config.json; expected bounded JSON with unique keys and finite values."
         ) from None
+
+
+def _with_settings_edits(
+    original: dict[str, object], edits: Mapping[tuple[str, str], object]
+) -> dict[str, object]:
+    """A copy of a validated document with the edits applied; None removes a key."""
+    from common.config.loader import strip_removed_fields
+
+    document = json.loads(json.dumps(original))
+    for (section, name), value in edits.items():
+        target = document.get(section)
+        if value is None:
+            if isinstance(target, dict):
+                target.pop(name, None)
+            continue
+        if target is None:
+            target = document[section] = {}
+        target[name] = value
+    # A retired key is dropped on read, so it is not written back either.
+    document.pop("instances", None)
+    if isinstance(document.get("backend"), dict):
+        document["backend"], _ = strip_removed_fields(document["backend"])
+    return document
 
 
 def _unique_json_pairs(pairs: list[tuple[str, object]]) -> dict[str, object]:
@@ -631,6 +667,46 @@ class RuntimeConfigStore:
             if validate is not None:
                 validate(candidate)
             self._replace("config.json", encoded)
+
+    def update_settings(
+        self,
+        edits: Mapping[tuple[str, str], object],
+        *,
+        expected_revision: str,
+        validate: Callable[[dict[str, object]], dict[str, object]],
+    ) -> tuple[RuntimeConfig, RuntimeConfig]:
+        """Apply ``backend``/``frontend`` edits if config.json is still the one read.
+
+        ``edits`` maps ``(section, name)`` to a value, or None to remove the key.
+        ``validate`` sees the candidate document, raises on field errors, and
+        returns the document to write (with normalized values). Nothing is
+        written when that equals the current document. Returns the previous and
+        the resulting document. Provider, models, image_size and auth.json are
+        never touched.
+        """
+        if any(section not in _SETTINGS_SECTIONS for section, _ in edits):
+            raise ValueError("Settings edits apply only to backend and frontend.")
+        with self._locked():
+            data = self._read("config.json")
+            try:
+                previous = parse_config(data) if data is not None else RuntimeConfig()
+            except RuntimeConfigurationError as exc:
+                raise SettingsFileInvalid(str(exc)) from None
+            if previous.settings_revision != expected_revision:
+                raise SettingsRevisionConflict(
+                    "config.json changed since it was read; reload and retry."
+                )
+            original = _json_object(data) if data is not None else {"version": 1}
+            document = validate(_with_settings_edits(original, edits))
+            if document == original:
+                return previous, previous
+            encoded = (json.dumps(document, indent=2, allow_nan=False) + "\n").encode()
+            try:
+                current = parse_config(encoded)
+            except RuntimeConfigurationError as exc:
+                raise SettingsCandidateInvalid(str(exc)) from None
+            self._replace("config.json", encoded)
+            return previous, current
 
     def read_stored_credential(self) -> StoredCredential | None:
         """Read setup's credential snapshot without creating an absent directory.

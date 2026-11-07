@@ -6,17 +6,33 @@ that page ships.
 
 from __future__ import annotations
 
-from typing import Literal
+from typing import Annotated, Literal
 
-from pydantic import ConfigDict, StrictBool, StrictFloat, StrictInt, StrictStr
+from pydantic import (
+    ConfigDict,
+    Field,
+    StrictBool,
+    StrictFloat,
+    StrictInt,
+    StrictStr,
+    StringConstraints,
+)
 
 from common.dto.base import FrozenDTO
+from instance_settings.registry import FIELDS
 
 RestartState = Literal["idle", "requested", "restarting", "completed", "failed"]
 NoticeCode = Literal["removed_fields", "instances_ignored", "unlisted_fields"]
 # Values are JSON scalars typed strictly, so "12" is never coerced to 12 nor
 # true to 1 before the loader validates them.
 FieldValue = StrictBool | StrictInt | StrictFloat | StrictStr | None
+SubmittedValue = (
+    StrictBool
+    | StrictInt
+    | StrictFloat
+    | Annotated[StrictStr, StringConstraints(max_length=2048)]
+    | None
+)
 
 
 class _SettingsDTO(FrozenDTO):
@@ -84,6 +100,19 @@ class SettingsView(_SettingsDTO):
     system: SystemInfo
 
 
+class SettingsUpdate(_SettingsDTO):
+    revision: str = Field(min_length=1, max_length=128)
+    # Registry keys; null removes the key from config.json (back to default).
+    values: dict[str, SubmittedValue] = Field(min_length=1, max_length=len(FIELDS))
+
+
+class SettingsSaved(_SettingsDTO):
+    # Keys whose stored value changed; a no-op edit lists none.
+    changed: tuple[str, ...]
+    restart_required: bool
+    settings: SettingsView
+
+
 class SettingsFieldError(_SettingsDTO):
     # A registry key, or None when the error is not about one submitted key.
     field: str | None
@@ -105,6 +134,8 @@ __all__ = [
     "SettingsFieldError",
     "SettingsGroup",
     "SettingsNotice",
+    "SettingsSaved",
+    "SettingsUpdate",
     "SettingsView",
     "SystemInfo",
 ]

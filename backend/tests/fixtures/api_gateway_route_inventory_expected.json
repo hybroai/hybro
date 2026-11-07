@@ -1043,6 +1043,24 @@
     "include_in_schema": true
   },
   {
+    "path": "/api/v1/settings",
+    "methods": [
+      "PUT"
+    ],
+    "name": "update_settings",
+    "endpoint_module": "api_gateway.routes.settings_routes",
+    "declared_owner": "api_gateway.routes.settings_routes",
+    "tags": [
+      "settings"
+    ],
+    "status_code": null,
+    "dependencies": [
+      "get_instance_settings"
+    ],
+    "auth_dependencies": [],
+    "include_in_schema": true
+  },
+  {
     "path": "/api/v1/setup/api-key",
     "methods": [
       "POST"

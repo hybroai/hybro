@@ -4,7 +4,13 @@ from __future__ import annotations
 
 from typing import Protocol
 
-from instance_settings.models import SettingsErrorBody, SettingsFieldError, SettingsView
+from instance_settings.models import (
+    SettingsErrorBody,
+    SettingsFieldError,
+    SettingsSaved,
+    SettingsUpdate,
+    SettingsView,
+)
 
 
 class SettingsRequestError(Exception):
@@ -30,6 +36,8 @@ class SettingsAccess(Protocol):
     def can_configure(self, user_id: str) -> bool: ...
 
     async def view(self) -> SettingsView: ...
+
+    async def update(self, request: SettingsUpdate) -> SettingsSaved: ...
 
 
 __all__ = ["SettingsAccess", "SettingsRequestError"]

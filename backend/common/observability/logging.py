@@ -577,6 +577,20 @@ def configure_logging(
         logger.setLevel(logging.WARNING)
 
 
+def set_log_level(level: str) -> None:
+    """Change the backend's level live: the root logger and its two handlers.
+
+    ``level`` is a validated ``Settings.log_level`` name. Library loggers that
+    ``configure_logging`` pinned to WARNING keep that level.
+    """
+
+    value = logging.getLevelNamesMapping()[level]
+    logging.getLogger().setLevel(value)
+    for handler in (_configured_handler, _sink_handler):
+        if handler is not None:
+            handler.setLevel(value)
+
+
 def _install_capture(
     root: logging.Logger, renderer: StructuredFormatter, level: int
 ) -> None:
@@ -693,4 +707,5 @@ __all__ = [
     "log_ids",
     "release_version",
     "safe_exception_metadata",
+    "set_log_level",
 ]

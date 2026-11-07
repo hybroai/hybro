@@ -1486,6 +1486,31 @@
   {
     "auth_dependencies": [],
     "dependencies": [
+      "get_instance_settings"
+    ],
+    "methods": [
+      "PUT"
+    ],
+    "module": "api_gateway.routes.settings_routes",
+    "name": "update_settings",
+    "openapi_response_codes": [
+      "200",
+      "403",
+      "409",
+      "422",
+      "503"
+    ],
+    "owning_protocol": "instance_settings.protocols.SettingsAccess",
+    "path": "/api/v1/settings",
+    "response_class": null,
+    "response_model": "SettingsSaved",
+    "status_code": null,
+    "streaming_response": null,
+    "supporting_protocols": []
+  },
+  {
+    "auth_dependencies": [],
+    "dependencies": [
       "get_setup_reader"
     ],
     "methods": [

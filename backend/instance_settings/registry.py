@@ -368,6 +368,15 @@ def field_default(spec: FieldSpec, *, image: bool) -> Scalar:
     return _model(spec.section).model_fields[spec.name].default
 
 
+def option_matches(spec: FieldSpec, value: str) -> bool:
+    """Whether an enum string names an option, as the loader normalizes it.
+
+    The loader maps an empty value to the default, so ``""`` is refused here.
+    """
+    assert spec.options is not None
+    return value.strip().casefold() in {option.casefold() for option in spec.options}
+
+
 def json_type_matches(spec: FieldSpec, value: object) -> bool:
     """Whether a submitted JSON value has the kind's type, before validation.
 
@@ -392,4 +401,5 @@ __all__ = [
     "field_spec",
     "is_field",
     "json_type_matches",
+    "option_matches",
 ]

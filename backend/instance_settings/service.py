@@ -5,6 +5,10 @@ running: the backend's startup ``Settings`` (with the live log level), the
 startup document's frontend section, and the revision the frontend and agents
 were started with (``runtime.json`` in the image). Values of keys outside the
 registry are never returned.
+
+A write edits only registry keys under ``backend``/``frontend``, with the
+startup validation rules, if config.json still has the revision the editor
+read. ``backend.log_level`` applies live; everything else after a restart.
 """
 
 from __future__ import annotations
@@ -14,26 +18,44 @@ import json
 from collections.abc import Callable, Mapping
 from pathlib import Path
 
-from pydantic import BaseModel
+from pydantic import BaseModel, ValidationError
 
-from common.config.loader import FrontendSettings, Settings, validate_backend
+from common.config.loader import (
+    BackendFieldError,
+    FrontendSettings,
+    Settings,
+    validate_backend,
+)
 from common.config.runtime_config import RuntimeConfig, RuntimeConfigurationError
-from common.config.runtime_store import RuntimeConfigStore
+from common.config.runtime_store import (
+    RuntimeConfigStore,
+    SettingsCandidateInvalid,
+    SettingsFileInvalid,
+    SettingsRevisionConflict,
+)
+from common.observability.logging import set_log_level
 from instance_settings.models import (
     RestartStatus,
     SettingsField,
+    SettingsFieldError,
     SettingsGroup,
     SettingsNotice,
+    SettingsSaved,
+    SettingsUpdate,
     SettingsView,
     SystemInfo,
 )
+from instance_settings.protocols import SettingsRequestError
 from instance_settings.registry import (
     FIELDS,
     GROUPS,
     FieldSpec,
     Scalar,
     field_default,
+    field_spec,
     is_field,
+    json_type_matches,
+    option_matches,
 )
 
 # Shown instead of a path: the backend cannot know the host's location.
@@ -127,6 +149,58 @@ class InstanceSettings:
         except OSError:
             config, error = None, "Cannot read config.json."
         return await self._view(config, error)
+
+    async def update(self, request: SettingsUpdate) -> SettingsSaved:
+        unknown = sum(1 for key in request.values if not is_field(key))
+        if unknown:
+            # The client's keys are never echoed.
+            message = (
+                "1 field is not an editable setting."
+                if unknown == 1
+                else f"{unknown} fields are not editable settings."
+            )
+            raise _invalid(
+                (SettingsFieldError(field=None, code="unknown_field", message=message),)
+            )
+        specs = tuple(field_spec(key) for key in request.values)
+        _check_types(specs, request.values)
+        edits = {(spec.section, spec.name): request.values[spec.key] for spec in specs}
+        try:
+            previous, current = await asyncio.to_thread(
+                self._store.update_settings,
+                edits,
+                expected_revision=request.revision,
+                validate=lambda document: _normalize(specs, document),
+            )
+        except SettingsFileInvalid as exc:
+            raise SettingsRequestError("config_invalid", 409, str(exc)) from None
+        except SettingsRevisionConflict as exc:
+            raise SettingsRequestError("revision_conflict", 409, str(exc)) from None
+        except SettingsCandidateInvalid as exc:
+            raise SettingsRequestError("invalid_settings", 422, str(exc)) from None
+        except (RuntimeConfigurationError, OSError):
+            raise SettingsRequestError(
+                "settings_unavailable", 503, "Cannot write config.json."
+            ) from None
+        before = _Values(previous, image=self.image)
+        after = _Values(current, image=self.image)
+        changed = tuple(
+            spec.key
+            for spec in specs
+            if (before.present(spec), before.value(spec))
+            != (after.present(spec), after.value(spec))
+        )
+        log_level = field_spec("backend.log_level")
+        if log_level in specs:
+            level = after.value(log_level)
+            assert isinstance(level, str)
+            if level != self._log_level:
+                set_log_level(level)
+                self._log_level = level
+        view = await self._view(current, None)
+        return SettingsSaved(
+            changed=changed, restart_required=view.restart_pending, settings=view
+        )
 
     async def _view(
         self, config: RuntimeConfig | None, error: str | None
@@ -228,6 +302,81 @@ class InstanceSettings:
         )
 
 
+def _invalid(errors: tuple[SettingsFieldError, ...]) -> SettingsRequestError:
+    return SettingsRequestError(
+        "invalid_settings", 422, "Some settings are invalid.", errors=errors
+    )
+
+
+def _check_types(specs: tuple[FieldSpec, ...], values: Mapping[str, object]) -> None:
+    """Refuse values of the wrong JSON type before the loader can coerce them."""
+    errors: list[SettingsFieldError] = []
+    for spec in specs:
+        value = values[spec.key]
+        if value is None:
+            continue
+        if not json_type_matches(spec, value):
+            errors.append(
+                SettingsFieldError(
+                    field=spec.key,
+                    code="type_mismatch",
+                    message=f"Expected a value of type {spec.kind}.",
+                )
+            )
+        elif spec.kind == "enum" and not option_matches(spec, str(value)):
+            assert spec.options is not None
+            errors.append(
+                SettingsFieldError(
+                    field=spec.key,
+                    code="invalid_option",
+                    message="Choose one of " + ", ".join(spec.options) + ".",
+                )
+            )
+    if errors:
+        raise _invalid(tuple(errors))
+
+
+def _normalize(
+    specs: tuple[FieldSpec, ...], document: dict[str, object]
+) -> dict[str, object]:
+    """Validate a candidate as startup does; write the validated values.
+
+    Runs inside the store lock. Field errors name ``section.name`` and carry
+    pydantic's message without the input.
+    """
+    errors: list[SettingsFieldError] = []
+    validated: dict[str, BaseModel] = {}
+    for section, model in (("backend", Settings), ("frontend", FrontendSettings)):
+        values = document.get(section, {})
+        assert isinstance(values, dict)
+        try:
+            validated[section] = _validated(values, model)
+        except BackendFieldError as exc:
+            errors.append(
+                SettingsFieldError(
+                    field=f"{section}.{exc.field}", code="value_error", message=str(exc)
+                )
+            )
+        except ValidationError as exc:
+            errors.extend(
+                SettingsFieldError(
+                    field=f"{section}.{error['loc'][0]}" if error["loc"] else None,
+                    code=error["type"],
+                    message=error["msg"],
+                )
+                for error in exc.errors(
+                    include_input=False, include_url=False, include_context=False
+                )
+            )
+    if errors:
+        raise _invalid(tuple(errors))
+    for spec in specs:
+        values = document.get(spec.section)
+        if isinstance(values, dict) and spec.name in values:
+            values[spec.name] = getattr(validated[spec.section], spec.name)
+    return document
+
+
 def _notices(config: RuntimeConfig) -> tuple[SettingsNotice, ...]:
     notices: list[SettingsNotice] = []
     if config.removed_backend_fields:
@@ -257,4 +406,4 @@ def _notice(code: str, fields: tuple[str, ...]) -> SettingsNotice:
     return SettingsNotice(code=code, fields=fields, message=_NOTICE_MESSAGES[code])
 
 
-__all__ = ["InstanceSettings"]
+__all__ = ["InstanceSettings", "SettingsRequestError"]
