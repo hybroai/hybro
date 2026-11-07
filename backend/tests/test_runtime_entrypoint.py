@@ -9,7 +9,11 @@ import time
 from pathlib import Path
 
 import pytest
-from pymongo.errors import OperationFailure
+from pymongo.errors import (
+    AutoReconnect,
+    OperationFailure,
+    ServerSelectionTimeoutError,
+)
 
 import runtime_entrypoint as entry
 from common.config.loader import FrontendSettings
@@ -391,6 +395,78 @@ def test_migrated_data_is_reconfigured_to_loopback():
     assert kwargs == {"force": True}
     assert value["members"] == [{"_id": 0, "host": "127.0.0.1:27017", "priority": 1}]
     assert value["version"] == 4
+
+
+def test_a_reconfig_that_drops_the_connection_counts_as_applied():
+    # A forced reconfig can close the connection it arrived on.
+    class Dropping(FakeAdmin):
+        def command(self, name, value=None, **kwargs):
+            if name == "replSetReconfig":
+                self.calls.append((name, value, kwargs))
+                raise AutoReconnect("connection closed")
+            return super().command(name, value, **kwargs)
+
+    config = {
+        "_id": "rs0",
+        "version": 3,
+        "members": [{"_id": 0, "host": "mongo:27017"}],
+    }
+    client = FakeClient(config)
+    client.admin = Dropping(config)
+    assert entry.ensure_replica_set(client) == "reconfigured"
+
+
+def test_wait_for_primary_rides_out_dropped_connections():
+    replies = iter(
+        [
+            AutoReconnect("closed"),
+            {"isWritablePrimary": False},
+            {"isWritablePrimary": True},
+        ]
+    )
+
+    class Flaky:
+        class admin:  # noqa: N801 - mimics the pymongo attribute
+            @staticmethod
+            def command(name):
+                reply = next(replies)
+                if isinstance(reply, Exception):
+                    raise reply
+                return reply
+
+    entry.wait_for_primary(Flaky(), timeout=5, interval=0)
+
+
+def test_wait_for_primary_times_out_on_a_lasting_disconnect():
+    class Gone:
+        class admin:  # noqa: N801 - mimics the pymongo attribute
+            @staticmethod
+            def command(name):
+                raise AutoReconnect("closed")
+
+    with pytest.raises(entry.EntrypointError, match="primary"):
+        entry.wait_for_primary(Gone(), timeout=0.01, interval=0)
+
+
+def test_an_unreachable_server_is_not_mistaken_for_a_dropped_connection():
+    # ServerSelectionTimeoutError subclasses AutoReconnect but means mongod is gone.
+    class Unreachable(FakeAdmin):
+        def command(self, name, value=None, **kwargs):
+            if name in ("replSetReconfig", "hello"):
+                raise ServerSelectionTimeoutError("no server")
+            return super().command(name, value, **kwargs)
+
+    config = {
+        "_id": "rs0",
+        "version": 3,
+        "members": [{"_id": 0, "host": "mongo:27017"}],
+    }
+    client = FakeClient(config)
+    client.admin = Unreachable(config)
+    with pytest.raises(ServerSelectionTimeoutError):
+        entry.ensure_replica_set(client)
+    with pytest.raises(ServerSelectionTimeoutError):
+        entry.wait_for_primary(client, timeout=5, interval=0)
 
 
 def test_other_replica_set_errors_propagate():

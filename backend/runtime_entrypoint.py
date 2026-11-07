@@ -591,7 +591,11 @@ def ensure_replica_set(client: Any) -> str:
 
     Returns what was done: ``initiated``, ``reconfigured``, or ``ready``.
     """
-    from pymongo.errors import OperationFailure
+    from pymongo.errors import (
+        AutoReconnect,
+        OperationFailure,
+        ServerSelectionTimeoutError,
+    )
 
     member = {"_id": 0, "host": MONGO_HOST}
     try:
@@ -610,16 +614,34 @@ def ensure_replica_set(client: Any) -> str:
     first = config["members"][0]
     config["members"] = [{**first, "host": MONGO_HOST}]
     config["version"] = int(config["version"]) + 1
-    client.admin.command("replSetReconfig", config, force=True)
+    try:
+        client.admin.command("replSetReconfig", config, force=True)
+    except ServerSelectionTimeoutError:
+        raise  # The server stayed unreachable: mongod is gone, not a dropped link.
+    except AutoReconnect:
+        # The reconfig can close the connection it arrived on. Whether it was
+        # applied shows in wait_for_primary: unapplied, the member stays
+        # unreachable and never becomes primary.
+        pass
     return "reconfigured"
 
 
-def wait_for_primary(client: Any, *, timeout: float = MONGO_READY_SECONDS) -> None:
+def wait_for_primary(
+    client: Any, *, timeout: float = MONGO_READY_SECONDS, interval: float = 0.5
+) -> None:
+    """Wait for a writable primary, riding out connections the reconfig drops."""
+    from pymongo.errors import AutoReconnect, ServerSelectionTimeoutError
+
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
-        if client.admin.command("hello").get("isWritablePrimary"):
-            return
-        time.sleep(0.5)
+        try:
+            if client.admin.command("hello").get("isWritablePrimary"):
+                return
+        except ServerSelectionTimeoutError:
+            raise  # Unreachable for the client's whole timeout: mongod is gone.
+        except AutoReconnect:
+            pass
+        time.sleep(interval)
     raise EntrypointError("MongoDB did not become primary in time.")
 
 
