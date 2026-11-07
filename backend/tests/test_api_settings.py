@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import sys
 from pathlib import Path
 
 import httpx
@@ -24,9 +25,11 @@ from common.config.runtime_config import (
 )
 from common.config.runtime_store import RuntimeConfigStore
 from instance_settings import InstanceSettings, SettingsRequestError
+from instance_settings import restart as restart_module
+from instance_settings.restart import RestartControl
 
 BASE = "http://fixture/api/v1"
-ROUTES = (("GET", "/settings"), ("PUT", "/settings"))
+ROUTES = (("GET", "/settings"), ("PUT", "/settings"), ("POST", "/settings/restart"))
 
 
 class Harness:
@@ -36,8 +39,12 @@ class Harness:
         *,
         admins: frozenset[str] | None = None,
         wired: bool = True,
+        restart: RestartControl | None = None,
     ) -> None:
         self.store = RuntimeConfigStore(home)
+        self.restart = restart or RestartControl(
+            runtime_file=None, python=sys.executable, entrypoint=home / "missing.py"
+        )
         self.settings = InstanceSettings(
             store=self.store,
             settings=Settings(),
@@ -46,6 +53,7 @@ class Harness:
             if admins is None
             else (lambda user: user in admins),
             version="9.9.9",
+            restart=self.restart,
         )
         self.user = "user_local_developer"
         app = FastAPI()
@@ -447,3 +455,95 @@ async def test_two_saves_with_one_revision_conflict(harness):
         put(harness, {"frontend.max_message_length": 9}, token=token),
     )
     assert sorted(r.status_code for r in responses) == [200, 409]
+
+
+# -- POST restart -------------------------------------------------------------
+
+CHECK_OK = "import json\nprint(json.dumps({'ok': True}))\n"
+CHECK_INVALID = (
+    "import json, sys\n"
+    "print(json.dumps({'ok': False, 'error': 'Invalid configuration: bad'}))\n"
+    "sys.exit(1)\n"
+)
+
+
+@pytest.fixture
+def image_harness(tmp_path, monkeypatch):
+    """A harness whose restart control runs a fixture check script."""
+    launches: list[list[str]] = []
+    monkeypatch.setattr(
+        restart_module, "Popen", lambda command, **kwargs: launches.append(command)
+    )
+
+    async def make(check: str = CHECK_OK) -> Harness:
+        run = tmp_path / "run"
+        run.mkdir(exist_ok=True)
+        (run / "runtime.json").write_text("{}")
+        entrypoint = tmp_path / "entrypoint.py"
+        entrypoint.write_text(check)
+        harness = Harness(
+            tmp_path / "home",
+            restart=RestartControl(
+                runtime_file=run / "runtime.json",
+                python=sys.executable,
+                entrypoint=entrypoint,
+            ),
+        )
+        harness.launches = launches
+        return harness
+
+    return make
+
+
+async def test_restart_in_a_checkout_is_unavailable(harness):
+    response = await harness.http.post("/settings/restart")
+    assert response.status_code == 409
+    assert response.json()["code"] == "restart_unavailable"
+    view = (await harness.http.get("/settings")).json()
+    assert view["restart"] == {
+        "available": False,
+        "state": "idle",
+        "error": None,
+        "updated_at": None,
+    }
+
+
+async def test_restart_is_accepted_and_launched_after_the_response(image_harness):
+    harness = await image_harness()
+    try:
+        view = (await harness.http.get("/settings")).json()
+        assert (view["restart"]["available"], view["restart"]["state"]) == (
+            True,
+            "idle",
+        )
+        response = await harness.http.post("/settings/restart")
+        assert response.status_code == 202, response.text
+        restart = response.json()["restart"]
+        assert (restart["available"], restart["state"]) == (True, "requested")
+        assert harness.launches == [
+            [sys.executable, str(harness.restart.entrypoint), "restart"]
+        ]
+        view = (await harness.http.get("/settings")).json()
+        assert view["restart"]["state"] == "requested"
+
+        second = await harness.http.post("/settings/restart")
+        assert second.status_code == 409
+        assert second.json()["code"] == "restart_in_progress"
+        assert len(harness.launches) == 1
+    finally:
+        await harness.aclose()
+
+
+async def test_restart_with_an_invalid_config_is_a_conflict(image_harness):
+    harness = await image_harness(CHECK_INVALID)
+    try:
+        response = await harness.http.post("/settings/restart")
+        assert response.status_code == 409
+        body = response.json()
+        assert (body["code"], body["detail"]) == (
+            "config_invalid",
+            "Invalid configuration: bad",
+        )
+        assert harness.launches == []
+    finally:
+        await harness.aclose()

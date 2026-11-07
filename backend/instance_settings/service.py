@@ -35,6 +35,7 @@ from common.config.runtime_store import (
 )
 from common.observability.logging import set_log_level
 from instance_settings.models import (
+    RestartAccepted,
     RestartStatus,
     SettingsField,
     SettingsFieldError,
@@ -57,6 +58,7 @@ from instance_settings.registry import (
     json_type_matches,
     option_matches,
 )
+from instance_settings.restart import RestartControl
 
 # Shown instead of a path: the backend cannot know the host's location.
 CONFIG_LOCATION = "~/.hybro/config.json (or $HYBRO_HOME/config.json)"
@@ -72,10 +74,6 @@ _NOTICE_MESSAGES = {
         "These keys are set in config.json but cannot be edited on this page."
     ),
 }
-
-
-# Until the restart trigger is wired, the view reports it as unavailable.
-_UNAVAILABLE_RESTART = RestartStatus(available=False, state="idle")
 
 
 def _validated(section: Mapping[str, object], model: type[BaseModel]) -> BaseModel:
@@ -113,12 +111,14 @@ class InstanceSettings:
         startup_config: RuntimeConfig,
         can_configure: Callable[[str], bool],
         version: str,
+        restart: RestartControl,
     ) -> None:
         self._store = store
         self._settings = settings
         self._startup = startup_config
         self._can_configure = can_configure
         self._version = version
+        self._restart = restart
         self._runtime_file = (
             Path(settings.instance_runtime_file)
             if settings.instance_runtime_file
@@ -202,6 +202,13 @@ class InstanceSettings:
             changed=changed, restart_required=view.restart_pending, settings=view
         )
 
+    async def restart(self) -> RestartAccepted:
+        """Validate and record a restart; ``launch_restart`` starts it."""
+        return RestartAccepted(restart=await self._restart.request())
+
+    def launch_restart(self) -> None:
+        self._restart.launch()
+
     async def _view(
         self, config: RuntimeConfig | None, error: str | None
     ) -> SettingsView:
@@ -209,7 +216,7 @@ class InstanceSettings:
         return self._build_view(config, error, runtime, restart)
 
     def _read_runtime(self) -> tuple[dict[str, object] | None, RestartStatus]:
-        return self._runtime_record(), _UNAVAILABLE_RESTART
+        return self._runtime_record(), self._restart.status()
 
     def _runtime_record(self) -> dict[str, object] | None:
         """``runtime.json`` in the image; None in a checkout or when unreadable."""

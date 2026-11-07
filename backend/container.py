@@ -726,7 +726,9 @@ async def _runtime_lifespan(app: Any, runtime: ApplicationRuntime):  # noqa: C90
             )
             app.state.setup_access = _browser_setup
             from instance_settings import InstanceSettings
+            from instance_settings.restart import RestartControl
 
+            runtime_file = runtime.settings.instance_runtime_file
             app.state.instance_settings = InstanceSettings(
                 store=_provider_runtime.store,
                 settings=runtime.settings,
@@ -734,6 +736,12 @@ async def _runtime_lifespan(app: Any, runtime: ApplicationRuntime):  # noqa: C90
                 startup_config=_provider_runtime.current.config,
                 can_configure=_browser_setup.can_configure,
                 version=release_version(Path(__file__)),
+                restart=RestartControl(
+                    runtime_file=Path(runtime_file) if runtime_file else None,
+                    python=sys.executable,
+                    entrypoint=Path(__file__).resolve().parent
+                    / "runtime_entrypoint.py",
+                ),
             )
             agent_selection_llm_service = AgentSelectionLLMService(
                 llm_provider=llm_provider

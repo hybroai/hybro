@@ -113,6 +113,10 @@ class SettingsSaved(_SettingsDTO):
     settings: SettingsView
 
 
+class RestartAccepted(_SettingsDTO):
+    restart: RestartStatus
+
+
 class SettingsFieldError(_SettingsDTO):
     # A registry key, or None when the error is not about one submitted key.
     field: str | None
@@ -127,6 +131,7 @@ class SettingsErrorBody(_SettingsDTO):
 
 
 __all__ = [
+    "RestartAccepted",
     "RestartState",
     "RestartStatus",
     "SettingsErrorBody",

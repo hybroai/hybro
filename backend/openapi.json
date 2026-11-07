@@ -3361,6 +3361,68 @@
         }
       }
     },
+    "/api/v1/settings/restart": {
+      "post": {
+        "tags": [
+          "settings"
+        ],
+        "summary": "Restart Services",
+        "description": "Restart the backend, frontend, MCP and agents; Caddy and MongoDB stay up.",
+        "operationId": "restart_services_api_v1_settings_restart_post",
+        "responses": {
+          "202": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestartAccepted"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SettingsErrorBody"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SettingsErrorBody"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Unprocessable Entity",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SettingsErrorBody"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Service Unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SettingsErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/diagnostics/snapshot": {
       "get": {
         "tags": [
@@ -9050,6 +9112,19 @@
         ],
         "title": "RecoverySection",
         "description": "The last cycle, plus canary metrics (null when no reading exists)."
+      },
+      "RestartAccepted": {
+        "properties": {
+          "restart": {
+            "$ref": "#/components/schemas/RestartStatus"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "restart"
+        ],
+        "title": "RestartAccepted"
       },
       "RestartStatus": {
         "properties": {

@@ -9,7 +9,7 @@ from __future__ import annotations
 from collections.abc import Callable, Coroutine
 from typing import Annotated, Any
 
-from fastapi import APIRouter, Depends, Request, Response
+from fastapi import APIRouter, BackgroundTasks, Depends, Request, Response
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from fastapi.routing import APIRoute
@@ -17,6 +17,7 @@ from fastapi.routing import APIRoute
 from api_gateway.registry import mark_declared_owner
 from common.auth import ClerkUser, get_current_user
 from instance_settings.models import (
+    RestartAccepted,
     SettingsErrorBody,
     SettingsSaved,
     SettingsUpdate,
@@ -78,6 +79,17 @@ async def update_settings(
     body: SettingsUpdate, settings: SettingsDependency
 ) -> SettingsSaved:
     return await settings.update(body)
+
+
+@router.post("/restart", status_code=202)
+async def restart_services(
+    settings: SettingsDependency, background: BackgroundTasks
+) -> RestartAccepted:
+    """Restart the backend, frontend, MCP and agents; Caddy and MongoDB stay up."""
+    accepted = await settings.restart()
+    # After the response is sent: the restart stops this backend too.
+    background.add_task(settings.launch_restart)
+    return accepted
 
 
 mark_declared_owner(router, "api_gateway.routes.settings_routes")

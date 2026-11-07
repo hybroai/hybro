@@ -1000,6 +1000,24 @@
     "include_in_schema": true
   },
   {
+    "path": "/api/v1/settings/restart",
+    "methods": [
+      "POST"
+    ],
+    "name": "restart_services",
+    "endpoint_module": "api_gateway.routes.settings_routes",
+    "declared_owner": "api_gateway.routes.settings_routes",
+    "tags": [
+      "settings"
+    ],
+    "status_code": 202,
+    "dependencies": [
+      "get_instance_settings"
+    ],
+    "auth_dependencies": [],
+    "include_in_schema": true
+  },
+  {
     "path": "/api/v1/setup/api-key",
     "methods": [
       "POST"

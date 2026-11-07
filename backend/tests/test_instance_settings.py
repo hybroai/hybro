@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import json
 import logging
+import sys
+import time
 from pathlib import Path
 
 import pytest
@@ -25,6 +27,7 @@ from common.config.runtime_config import (
 )
 from common.config.runtime_store import RuntimeConfigStore
 from instance_settings.registry import FIELDS, GROUPS, field_default, field_spec
+from instance_settings.restart import RestartControl
 from instance_settings.service import InstanceSettings
 
 EXPECTED_KEYS = {
@@ -91,16 +94,25 @@ def service(
     admins: frozenset[str] | None = None,
 ) -> InstanceSettings:
     startup = startup if startup is not None else RuntimeConfig()
+    settings = (
+        settings
+        if settings is not None
+        else Settings.model_validate(dict(startup.backend))
+    )
+    runtime_file = settings.instance_runtime_file
     return InstanceSettings(
         store=RuntimeConfigStore(home),
-        settings=settings
-        if settings is not None
-        else Settings.model_validate(dict(startup.backend)),
+        settings=settings,
         startup_config=startup,
         can_configure=(lambda user: True)
         if admins is None
         else (lambda user: user in admins),
         version="9.9.9",
+        restart=RestartControl(
+            runtime_file=Path(runtime_file) if runtime_file else None,
+            python=sys.executable,
+            entrypoint=home / "runtime_entrypoint.py",
+        ),
     )
 
 
@@ -353,6 +365,11 @@ async def test_system_info_and_services_revision_in_the_image(tmp_path):
         True,
     )
     assert view.restart_pending is False
+    assert (view.restart.available, view.restart.state) == (True, "idle")
+    (runtime_file.parent / "restart.json").write_text(
+        json.dumps({"state": "completed", "error": None, "updated_at": time.time()})
+    )
+    assert (await instance.view()).restart.state == "completed"
     # Image defaults apply to unset keys.
     assert fields_by_key(view)["backend.local_agent_discovery_enabled"].default is True
     assert str(tmp_path) not in view.model_dump_json()

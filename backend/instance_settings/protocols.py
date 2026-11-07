@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import Protocol
 
 from instance_settings.models import (
+    RestartAccepted,
     SettingsErrorBody,
     SettingsFieldError,
     SettingsSaved,
@@ -38,6 +39,10 @@ class SettingsAccess(Protocol):
     async def view(self) -> SettingsView: ...
 
     async def update(self, request: SettingsUpdate) -> SettingsSaved: ...
+
+    async def restart(self) -> RestartAccepted: ...
+
+    def launch_restart(self) -> None: ...
 
 
 __all__ = ["SettingsAccess", "SettingsRequestError"]
