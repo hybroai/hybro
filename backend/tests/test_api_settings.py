@@ -273,19 +273,39 @@ def field_errors(response) -> list[tuple[str | None, str]]:
             {"backend.a2a_push_callback_base_url": "https://user:pw@example.org"},
             [("backend.a2a_push_callback_base_url", "value_error")],
         ),
-        (
-            {
-                "backend.orchestrator_fast_max_agent_calls": 2,
-                "backend.orchestrator_fast_max_parallel_calls": 3,
-            },
-            [("backend.orchestrator_fast_max_parallel_calls", "value_error")],
-        ),
     ],
 )
 async def test_field_errors_name_the_field(harness, values, expected):
     response = await put(harness, values)
     assert field_errors(response) == expected
     assert not (harness.store.home / "config.json").exists()
+
+
+@pytest.mark.parametrize("profile", ["fast", "ultimate"])
+async def test_parallel_calls_above_agent_calls_are_capped_with_a_notice(
+    harness, profile
+):
+    agent_calls = f"backend.orchestrator_{profile}_max_agent_calls"
+    parallel = f"backend.orchestrator_{profile}_max_parallel_calls"
+    # Only the agent calls: the default parallel calls are capped.
+    response = await put(harness, {agent_calls: 2})
+    assert response.status_code == 200, response.text
+    view = response.json()["settings"]
+    assert (field(view, parallel)["value"], field(view, parallel)["source"]) == (
+        2,
+        "default",
+    )
+    capped = [n for n in view["notices"] if n["code"] == "capped_fields"]
+    assert [n["fields"] for n in capped] == [[parallel]]
+    # The entered value is kept, so raising the agent calls restores it.
+    response = await put(harness, {parallel: 5})
+    assert response.status_code == 200, response.text
+    assert field(response.json()["settings"], parallel)["value"] == 2
+    profile_values = harness.store.read_config().backend
+    assert profile_values[parallel.removeprefix("backend.")] == 5
+    view = (await put(harness, {agent_calls: 8})).json()["settings"]
+    assert field(view, parallel)["value"] == 5
+    assert not [n for n in view["notices"] if n["code"] == "capped_fields"]
 
 
 async def test_port_end_is_checked_against_the_files_start(harness):

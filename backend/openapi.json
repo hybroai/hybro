@@ -7050,7 +7050,8 @@
             "enum": [
               "removed_fields",
               "instances_ignored",
-              "unlisted_fields"
+              "unlisted_fields",
+              "capped_fields"
             ],
             "title": "Code"
           },

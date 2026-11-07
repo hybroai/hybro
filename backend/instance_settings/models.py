@@ -22,7 +22,9 @@ from common.dto.base import FrozenDTO
 from instance_settings.registry import FIELDS
 
 RestartState = Literal["idle", "requested", "restarting", "completed", "failed"]
-NoticeCode = Literal["removed_fields", "instances_ignored", "unlisted_fields"]
+NoticeCode = Literal[
+    "removed_fields", "instances_ignored", "unlisted_fields", "capped_fields"
+]
 # Values are JSON scalars typed strictly, so "12" is never coerced to 12 nor
 # true to 1 before the loader validates them.
 FieldValue = StrictBool | StrictInt | StrictFloat | StrictStr | None

@@ -73,7 +73,18 @@ _NOTICE_MESSAGES = {
     "unlisted_fields": (
         "These keys are set in config.json but cannot be edited on this page."
     ),
+    "capped_fields": (
+        "Parallel Agent calls are capped at the profile's Agent call limit."
+    ),
 }
+# Fields the loader caps rather than refuses. A save keeps the entered value,
+# so raising the limit later restores it; the view shows the capped value.
+_CAPPED_FIELDS = frozenset(
+    {
+        "orchestrator_fast_max_parallel_calls",
+        "orchestrator_ultimate_max_parallel_calls",
+    }
+)
 
 
 def _validated(section: Mapping[str, object], model: type[BaseModel]) -> BaseModel:
@@ -97,7 +108,7 @@ class _Values:
         return spec.name in getattr(self.config, spec.section)
 
     def value(self, spec: FieldSpec) -> Scalar:
-        if not self.present(spec):
+        if not self.present(spec) and spec.name not in _CAPPED_FIELDS:
             return field_default(spec, image=self.image)
         return getattr(self.models[spec.section], spec.name)
 
@@ -378,7 +389,11 @@ def _normalize(
         raise _invalid(tuple(errors))
     for spec in specs:
         values = document.get(spec.section)
-        if isinstance(values, dict) and spec.name in values:
+        if (
+            isinstance(values, dict)
+            and spec.name in values
+            and spec.name not in _CAPPED_FIELDS
+        ):
             values[spec.name] = getattr(validated[spec.section], spec.name)
     return document
 
@@ -405,6 +420,15 @@ def _notices(config: RuntimeConfig) -> tuple[SettingsNotice, ...]:
     )
     if unlisted:
         notices.append(_notice("unlisted_fields", unlisted))
+    effective = _validated(config.backend, Settings)
+    capped = tuple(
+        f"backend.{name}"
+        for name in sorted(_CAPPED_FIELDS)
+        if getattr(effective, name)
+        < config.backend.get(name, Settings.model_fields[name].default)
+    )
+    if capped:
+        notices.append(_notice("capped_fields", capped))
     return tuple(notices)
 
 

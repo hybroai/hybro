@@ -73,9 +73,7 @@ frontend overrides under `frontend`, and image output size is `image_size`.
 
 Startup rules added with the Settings API: `orchestrator_fast_*` and
 `orchestrator_ultimate_*` `max_agent_calls`, `max_parallel_calls` and
-`deadline_seconds` must be greater than 0, `max_parallel_calls` must not exceed
-the same profile's `max_agent_calls` (also when one of the two is left at its
-default), `local_agent_discovery_port_start` must not exceed the port end
+`deadline_seconds` must be greater than 0, `local_agent_discovery_port_start` must not exceed the port end
 (including the default end), `backend.agent_health_check_interval` and the
 `llm_gateway_request_timeout_seconds`/`llm_gateway_stream_timeout_seconds`
 timeouts must be greater than 0, `approval_deadline_hours` and
@@ -87,6 +85,11 @@ Fast or Ultimate Run (or made the health check loop spin); now startup rejects
 them and names the field. Fix the value in `config.json` if Hybro no longer
 starts after an upgrade.
 
+A profile's `max_parallel_calls` above its `max_agent_calls` (including the
+default parallel value when only `max_agent_calls` is lowered) is capped to
+`max_agent_calls` instead of failing. `config.json` keeps the entered value;
+the Settings API shows the capped value and a `capped_fields` notice.
+
 ## Settings API
 
 The backend serves the instance settings under `{api_prefix}/settings`
@@ -95,7 +98,7 @@ the response shapes may still change before that page ships.
 
 | Route | Behavior |
 |---|---|
-| `GET /settings` | The editable fields with their value, default, bounds, group, whether each applies `live` or after a `restart`, and per-field `restart_pending`; a top-level `revision`, `restart_pending` and restart status; notices for retired, ignored, or unlisted keys (names only); and read-only system information. |
+| `GET /settings` | The editable fields with their value, default, bounds, group, whether each applies `live` or after a `restart`, and per-field `restart_pending`; a top-level `revision`, `restart_pending` and restart status; notices for retired, ignored, unlisted, or capped keys (names only); and read-only system information. |
 | `PUT /settings` | `{"revision": "<from GET>", "values": {"backend.log_level": "DEBUG", ...}}`. Saves the given fields; `null` removes a key, so it returns to its default. Returns the keys that changed, `restart_required`, and the new view. |
 | `POST /settings/restart` | 202. Body `{}` with `Content-Type: application/json` (otherwise 415 `json_required`, so another site cannot send it as a simple cross-site POST). Checks the saved configuration and restarts the services in place (image only). |
 

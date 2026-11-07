@@ -1617,7 +1617,7 @@ the signed-in user and `BrowserSetup.can_configure` (everyone in mock mode,
 
 | Route | Behavior |
 |---|---|
-| `GET ""` | `SettingsView`: `revision`, `config_error`, top-level `restart_pending`, `restart` status, `groups`, `fields` (registry spec, `default`, effective `value`, `source`, per-field `restart_pending`), `notices` (`removed_fields`, `instances_ignored`, `unlisted_fields`, names only), and `system` (version, `image` or `checkout`, port, listen mode, auth mode, MCP availability, a generic config location). |
+| `GET ""` | `SettingsView`: `revision`, `config_error`, top-level `restart_pending`, `restart` status, `groups`, `fields` (registry spec, `default`, effective `value`, `source`, per-field `restart_pending`), `notices` (`removed_fields`, `instances_ignored`, `unlisted_fields`, `capped_fields`, names only), and `system` (version, `image` or `checkout`, port, listen mode, auth mode, MCP availability, a generic config location). |
 | `PUT ""` | `SettingsUpdate` `{revision, values}`, registry keys only, `null` removes a key. Returns `SettingsSaved` `{changed, restart_required, settings}`. |
 | `POST "/restart"` | 202 `RestartAccepted` `{restart}`; the helper is launched in a background task after the response. |
 

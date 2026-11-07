@@ -158,17 +158,14 @@ def test_orchestrator_profile_bounds_reject_zero_at_startup(profile, suffix) -> 
 
 
 @pytest.mark.parametrize("profile", ["fast", "ultimate"])
-def test_parallel_calls_above_agent_calls_names_the_parallel_field(profile) -> None:
-    with pytest.raises(ValidationError) as caught:
-        Settings.model_validate(
-            {
-                f"orchestrator_{profile}_max_agent_calls": 2,
-                f"orchestrator_{profile}_max_parallel_calls": 3,
-            }
-        )
-    assert [error["loc"] for error in caught.value.errors()] == [
-        (f"orchestrator_{profile}_max_parallel_calls",)
-    ]
+def test_parallel_calls_above_agent_calls_are_capped(profile) -> None:
+    settings = Settings.model_validate(
+        {
+            f"orchestrator_{profile}_max_agent_calls": 2,
+            f"orchestrator_{profile}_max_parallel_calls": 3,
+        }
+    )
+    assert getattr(settings, f"orchestrator_{profile}_max_parallel_calls") == 2
     settings = Settings.model_validate(
         {
             f"orchestrator_{profile}_max_agent_calls": 3,
@@ -224,13 +221,10 @@ def test_backend_pre_checks_name_the_field(values, field) -> None:
 
 
 @pytest.mark.parametrize("profile", ["fast", "ultimate"])
-def test_agent_calls_below_the_default_parallel_calls_are_rejected(profile) -> None:
-    # Field validators skip defaults unless asked; the rule must still hold.
-    with pytest.raises(ValidationError) as caught:
-        Settings.model_validate({f"orchestrator_{profile}_max_agent_calls": 1})
-    assert [error["loc"] for error in caught.value.errors()] == [
-        (f"orchestrator_{profile}_max_parallel_calls",)
-    ]
+def test_agent_calls_below_the_default_parallel_calls_cap_the_default(profile) -> None:
+    # Field validators skip defaults unless asked; the cap must still apply.
+    settings = Settings.model_validate({f"orchestrator_{profile}_max_agent_calls": 1})
+    assert getattr(settings, f"orchestrator_{profile}_max_parallel_calls") == 1
 
 
 def test_discovery_start_above_the_default_end_is_rejected() -> None:

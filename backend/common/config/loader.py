@@ -411,8 +411,9 @@ class Settings(BaseModel):
             "max_parallel_calls", "max_agent_calls"
         )
         agent_calls = info.data.get(agent_calls_field)
+        # Capped, not refused: more parallel calls than calls cannot run anyway.
         if agent_calls is not None and value > agent_calls:
-            raise ValueError(f"Parallel calls must not exceed {agent_calls_field}")
+            return agent_calls
         return value
 
     @field_validator("compaction_concurrency", mode="before")
