@@ -64,6 +64,10 @@ containers = state.setdefault("containers", {})
 volumes = state.setdefault("volumes", [])
 command = args[0]
 def helper():
+    if state.get("exec_fail_times"):
+        state["exec_fail_times"] -= 1
+        save()
+        sys.exit(1)
     if "-i" in args:
         state["exec_stdin"] = sys.stdin.read()
     if state.get("exec_stops") in containers:
@@ -371,16 +375,97 @@ def test_bare_hybro_pulls_runs_and_follows_logs(cli):
     assert options(run, "--add-host") == ["host.docker.internal:host-gateway"]
     assert options(run, "--stop-timeout") == ["60"]
     assert run[-1] == IMAGE
-    assert ["logs", "-f", "hybro"] in cli.calls()
-    assert "Hybro is starting at http://localhost:3000" in cli.output
+    calls = cli.calls()
+    (probe,) = _health_probes(cli)
+    assert probe[:2] == ["exec", "hybro"]
+    assert '(8000, "/health"), (3000, "/"), (8080, "/health")' in probe[-1]
+    assert calls.index(probe) < calls.index(["logs", "-f", "hybro"])
+    assert f"Starting Hybro {VERSION}..." in cli.output
+    assert re.search(r"Hybro is ready at http://localhost:3000 \(\d+s\)\. Press Ctrl-C to stop\.", cli.output)
+    assert "Full logs: hybro logs -f" in cli.output
+    assert "Hybro is starting at" not in cli.output
     assert cli.hybro_home.stat().st_mode & 0o777 == 0o700
+
+
+def _health_probes(cli: Cli) -> list[list[str]]:
+    return [call for call in cli.calls() if call[:1] == ["exec"] and any("/health" in a for a in call)]
+
+
+MONGOD_SAMPLE = [
+    'mongod | {"t":{"$date":"x"},"s":"I",  "c":"NETWORK",  "id":1, "msg":"Waiting for connections"}',
+    'mongod | {"t":{"$date":"x"},"s":"D1", "c":"STORAGE",  "id":2, "msg":"debug"}',
+    'mongod | {"t":{"$date":"x"},"s":"W",  "c":"CONTROL",  "id":3, "msg":"warn"}',
+    'mongod | {"t":{"$date":"x"},"s":"E",  "c":"STORAGE",  "id":4, "msg":"error"}',
+    'mongod | {"t":{"$date":"x"},"s":"F",  "c":"STORAGE",  "id":5, "msg":"fatal"}',
+]
+
+
+def test_foreground_shows_only_errors(cli):
+    supervisord = "2026-11-07 02:27:30,001 WARN exited: backend (exit status 1; not expected)"
+    cli.state["logs_sample"] = "\n".join([*LOGS_SAMPLE.splitlines(), *MONGOD_SAMPLE, supervisord])
+    result = cli.run()
+    assert result.returncode == 1  # The stub's log stream ends.
+    shown = result.stdout.splitlines()
+    shown = shown[shown.index("Full logs: hybro logs -f") + 1 :]
+    assert shown == [
+        'backend | {"timestamp":"t","level":"error","event":"job_iteration_failed","trace_id":"t-2"}',
+        'caddy | {"level":"error","msg":"handled request","status":502}',
+        *MONGOD_SAMPLE[3:],
+        supervisord,
+    ]
+    assert "Hybro stopped (exit code" in result.stderr
+
+
+def test_foreground_keeps_probing_until_ready(cli):
+    cli.state["images"] = [IMAGE]
+    cli.state["exec_fail_times"] = 2
+    cli.run()
+    assert len(_health_probes(cli)) == 3
+    assert "Hybro is ready at http://localhost:3000" in cli.output
+    assert ["logs", "-f", "hybro"] in cli.calls()
+
+
+def test_foreground_timeout_leaves_hybro_running(cli):
+    cli.state["images"] = [IMAGE]
+    cli.state["exec_exit"] = 1
+    # Each date call moves the clock 100 seconds, so the second check times out.
+    clock = cli.tmp / "clock"
+    clock.write_text("0")
+    (cli.tools / "date").unlink()
+    (cli.tools / "date").write_text(
+        f"#!{sys.executable}\nfrom pathlib import Path\n"
+        f"p = Path({str(clock)!r}); now = int(p.read_text()) + 100; p.write_text(str(now)); print(now)\n"
+    )
+    (cli.tools / "date").chmod(0o755)
+    result = cli.run()
+    assert result.returncode == 1
+    assert len(_health_probes(cli)) == 2
+    assert "did not become ready within 180s; it is still running" in result.stderr
+    assert ["logs", "--tail", "30", "hybro"] in cli.calls()
+    assert not [call for call in cli.calls() if call[:1] == ["stop"]]
+    assert cli.state["containers"]["hybro"]["status"] == "running"
+
+
+def test_foreground_start_failure_prints_the_log_tail(cli):
+    cli.state["images"] = [IMAGE]
+    cli.state["exec_exit"] = 1
+    cli.state["exec_stops"] = "hybro"
+    cli.state["logs_sample"] = "backend | Traceback: boom"
+    result = cli.run()
+    assert result.returncode == 1
+    assert ["logs", "--tail", "30", "hybro"] in cli.calls()
+    assert ["logs", "-f", "hybro"] not in cli.calls()
+    assert "backend | Traceback: boom" in cli.output
+    assert "Hybro stopped before it was ready" in result.stderr
+    assert "Hybro is ready" not in cli.output
 
 
 def test_start_detached_with_an_existing_image(cli):
     cli.state["images"] = [IMAGE]
     result = cli.run("start", "-d")
     assert result.returncode == 0, cli.output
-    assert not [call for call in cli.calls() if call[0] in ("pull", "logs")]
+    assert not [call for call in cli.calls() if call[0] in ("pull", "logs", "exec")]
+    assert "Hybro is starting at http://localhost:3000" in result.stdout
     assert "Stop it with: hybro stop" in result.stdout
 
 
@@ -493,6 +578,38 @@ def test_ctrl_c_stops_the_container(cli):
     assert process.returncode == 0, output
     assert "Stopping Hybro" in output
     assert ["stop", "hybro"] in cli.calls()
+
+
+@pytest.mark.parametrize("phase", ["probe", "sleep"])
+def test_ctrl_c_while_starting_stops_the_container(cli, phase):
+    cli.state["images"] = [IMAGE]
+    if phase == "probe":
+        cli.state["exec_block"] = True
+    else:
+        # SIGINT lands in the sleep after a failed probe; the next would pass.
+        cli.state["exec_fail_times"] = 1
+    cli.state_path.write_text(json.dumps(cli.state))
+    cli.calls_path.write_text("")
+    process = subprocess.Popen(
+        [*cli.shell, str(cli.script)],
+        env=cli.env(),
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True,
+        start_new_session=True,
+    )
+    deadline = time.monotonic() + 15
+    while not _health_probes(cli):
+        assert time.monotonic() < deadline, "health never probed"
+        time.sleep(0.1)
+    time.sleep(0.3)
+    os.killpg(process.pid, signal.SIGINT)
+    output, _ = process.communicate(timeout=15)
+    assert process.returncode == 0, output
+    assert "Stopping Hybro" in output
+    assert ["stop", "hybro"] in cli.calls()
+    assert ["logs", "-f", "hybro"] not in cli.calls()
+    assert "Hybro is ready" not in output
 
 
 # ---- dev mode ----
@@ -921,6 +1038,12 @@ def test_logs_level_reads_only_the_line_level(cli):
         "mcp | timestamp=t level=error event=mcp_tool_called",
         "mcp | level=error event=e",
     ]
+
+
+def test_logs_level_reads_mongod_severity(cli):
+    assert _logs_of(cli, MONGOD_SAMPLE, "--level", "warning") == MONGOD_SAMPLE[2:]
+    assert _logs_of(cli, MONGOD_SAMPLE, "--level", "critical") == MONGOD_SAMPLE[4:]
+    assert _logs_of(cli, MONGOD_SAMPLE, "--level", "debug") == MONGOD_SAMPLE
 
 
 def test_logs_service_filter_works_with_timestamps(cli):
