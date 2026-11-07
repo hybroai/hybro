@@ -591,11 +591,7 @@ def ensure_replica_set(client: Any) -> str:
 
     Returns what was done: ``initiated``, ``reconfigured``, or ``ready``.
     """
-    from pymongo.errors import (
-        AutoReconnect,
-        OperationFailure,
-        ServerSelectionTimeoutError,
-    )
+    from pymongo.errors import OperationFailure
 
     member = {"_id": 0, "host": MONGO_HOST}
     try:
@@ -603,9 +599,15 @@ def ensure_replica_set(client: Any) -> str:
     except OperationFailure as exc:
         if exc.code != 94:  # NotYetInitialized
             raise
-        client.admin.command(
-            "replSetInitiate", {"_id": REPLICA_SET, "members": [member]}
-        )
+        try:
+            client.admin.command(
+                "replSetInitiate", {"_id": REPLICA_SET, "members": [member]}
+            )
+        except OperationFailure as again:
+            # A retry while the first initiate is still being applied:
+            # AlreadyInitialized (23) or ConfigurationInProgress (109).
+            if again.code not in (23, 109):
+                raise
         return "initiated"
     hosts = [entry["host"] for entry in config["members"]]
     if hosts == [MONGO_HOST]:
@@ -614,15 +616,9 @@ def ensure_replica_set(client: Any) -> str:
     first = config["members"][0]
     config["members"] = [{**first, "host": MONGO_HOST}]
     config["version"] = int(config["version"]) + 1
-    try:
-        client.admin.command("replSetReconfig", config, force=True)
-    except ServerSelectionTimeoutError:
-        raise  # The server stayed unreachable: mongod is gone, not a dropped link.
-    except AutoReconnect:
-        # The reconfig can close the connection it arrived on. Whether it was
-        # applied shows in wait_for_primary: unapplied, the member stays
-        # unreachable and never becomes primary.
-        pass
+    # A dropped connection propagates: settle_replica_set reads the config again
+    # and reissues the reconfig only if it was not applied.
+    client.admin.command("replSetReconfig", config, force=True)
     return "reconfigured"
 
 
@@ -633,7 +629,7 @@ def wait_for_primary(
     from pymongo.errors import AutoReconnect, ServerSelectionTimeoutError
 
     deadline = time.monotonic() + timeout
-    while time.monotonic() < deadline:
+    while True:  # Asks at least once, even with no time left.
         try:
             if client.admin.command("hello").get("isWritablePrimary"):
                 return
@@ -641,8 +637,50 @@ def wait_for_primary(
             raise  # Unreachable for the client's whole timeout: mongod is gone.
         except AutoReconnect:
             pass
+        if time.monotonic() >= deadline:
+            raise EntrypointError("MongoDB did not become primary in time.")
         time.sleep(interval)
-    raise EntrypointError("MongoDB did not become primary in time.")
+
+
+def settle_replica_set(
+    client: Any,
+    inspect: Any = None,
+    *,
+    timeout: float = MONGO_READY_SECONDS,
+    interval: float = 0.5,
+) -> tuple[str, Any]:
+    """Set up ``rs0``, wait for a primary, and run ``inspect``; return both results.
+
+    mongod closes every client connection when its replica-set state changes,
+    for example as copied data naming another host moves it to REMOVED just
+    after it starts answering pings. So any step can see a dropped connection;
+    each is safe to repeat, and all are retried until ``timeout``. The first
+    action other than ``ready`` is reported, so a drop after an applied step
+    still names it. An initiate or reconfig whose reply was lost is reported
+    as ``ready``: the retry reads the config it applied.
+    """
+    from pymongo.errors import AutoReconnect, ServerSelectionTimeoutError
+
+    deadline = time.monotonic() + timeout
+    action = "ready"
+    while True:
+        try:
+            done = ensure_replica_set(client)
+            action = done if action == "ready" else action
+            wait_for_primary(client, timeout=max(deadline - time.monotonic(), 0))
+            return action, (inspect(client) if inspect is not None else None)
+        except ServerSelectionTimeoutError:
+            raise  # Unreachable for the client's whole timeout: mongod is gone.
+        except AutoReconnect:
+            if time.monotonic() >= deadline:
+                raise
+        time.sleep(interval)
+
+
+def _driver_error(exc: BaseException) -> str:
+    """The error's type and the first line of its message, kept short."""
+    message = str(exc).splitlines()[0][:200] if str(exc) else ""
+    return f"{type(exc).__name__}: {message}" if message else type(exc).__name__
 
 
 def _log_tail(path: Path, lines: int = 20) -> str:
@@ -692,8 +730,8 @@ def prepare_mongodb(
 
     mongod's output goes to a private log whose tail is shown on failure, so a
     data directory it cannot use explains itself instead of a driver timeout.
-    ``inspect(client)`` runs on the primary before shutdown; its result is
-    returned.
+    ``inspect(client)`` runs on the primary before shutdown and must be safe to
+    repeat: a dropped connection runs it again. Its result is returned.
     """
     from pymongo import MongoClient
     from pymongo.errors import PyMongoError
@@ -717,11 +755,8 @@ def prepare_mongodb(
         # The reconfig and the election can drop connections briefly; this
         # client lets the driver wait for the server to come back.
         client = connect(int(MONGO_READY_SECONDS * 1000))
-        action = ensure_replica_set(client)
-        wait_for_primary(client)
+        action, result = settle_replica_set(client, inspect)
         status(f"MongoDB replica set {REPLICA_SET}: {action}")
-        if inspect is not None:
-            result = inspect(client)
         try:
             client.admin.command("shutdown")
         except PyMongoError:  # The server closes the connection while stopping.
@@ -736,7 +771,7 @@ def prepare_mongodb(
                 process.wait(timeout=10)
             except subprocess.TimeoutExpired:
                 process.kill()
-        detail = str(exc) if isinstance(exc, EntrypointError) else type(exc).__name__
+        detail = str(exc) if isinstance(exc, EntrypointError) else _driver_error(exc)
         tail = _log_tail(log)
         raise EntrypointError(
             f"MongoDB preparation failed: {detail}"

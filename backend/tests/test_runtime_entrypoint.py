@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import contextlib
+import copy
 import json
 import os
 import time
@@ -352,7 +353,7 @@ class FakeAdmin:
         if name == "replSetGetConfig":
             if self.config is None:
                 raise OperationFailure("no replset config", code=94)
-            return {"config": self.config}
+            return {"config": copy.deepcopy(self.config)}  # as from the server
         return {"ok": 1}
 
 
@@ -397,14 +398,25 @@ def test_migrated_data_is_reconfigured_to_loopback():
     assert value["version"] == 4
 
 
-def test_a_reconfig_that_drops_the_connection_counts_as_applied():
-    # A forced reconfig can close the connection it arrived on.
+def test_a_reconfig_dropped_before_it_applied_is_sent_again():
+    # The drop that moves the node to REMOVED can land on the reconfig itself.
     class Dropping(FakeAdmin):
         def command(self, name, value=None, **kwargs):
             if name == "replSetReconfig":
                 self.calls.append((name, value, kwargs))
-                raise AutoReconnect("connection closed")
+                if len(self.calls_named(name)) == 1:
+                    raise AutoReconnect("connection closed")
+                self.config = value
+                return {"ok": 1}
+            if name == "hello":
+                return {
+                    "isWritablePrimary": self.config["members"][0]["host"]
+                    == "127.0.0.1:27017"
+                }
             return super().command(name, value, **kwargs)
+
+        def calls_named(self, name):
+            return [call for call in self.calls if call[0] == name]
 
     config = {
         "_id": "rs0",
@@ -413,7 +425,11 @@ def test_a_reconfig_that_drops_the_connection_counts_as_applied():
     }
     client = FakeClient(config)
     client.admin = Dropping(config)
-    assert entry.ensure_replica_set(client) == "reconfigured"
+    assert entry.settle_replica_set(client, timeout=5, interval=0) == (
+        "reconfigured",
+        None,
+    )
+    assert len(client.admin.calls_named("replSetReconfig")) == 2
 
 
 def test_wait_for_primary_rides_out_dropped_connections():
@@ -791,6 +807,124 @@ def test_inspect_runs_on_the_primary_and_its_result_is_returned(mongo_paths):
     )
     assert result == {"rooms": 1}
     assert len(seen) == 1
+
+
+def dropping_client(drops: dict[str, int], calls: list[str]):
+    """A loopback primary that closes the connection ``drops[name]`` times."""
+
+    class Admin:
+        def command(self, name, *args, **kwargs):
+            calls.append(name)
+            if drops.get(name, 0) > 0:
+                drops[name] -= 1
+                raise AutoReconnect("connection closed")
+            return ready_client(0).admin.command(name, *args, **kwargs)
+
+    class Client:
+        admin = Admin()
+
+        def __init__(self, _timeout_ms):
+            pass
+
+        def close(self):
+            pass
+
+    return Client
+
+
+def test_a_connection_dropped_while_reading_the_config_is_retried(
+    mongo_paths, monkeypatch
+):
+    # Copied data naming another host: mongod drops every connection as it
+    # moves to REMOVED, which can land on the first command after the ping.
+    monkeypatch.setattr(entry.time, "sleep", lambda _s: None)
+    calls = []
+    process = FakeProcess()
+    entry.prepare_mongodb(
+        start=lambda *a, **k: process,
+        connect=dropping_client({"replSetGetConfig": 1}, calls),
+        log=mongo_paths,
+    )
+    assert calls == [
+        "ping",
+        "replSetGetConfig",
+        "replSetGetConfig",
+        "hello",
+        "shutdown",
+    ]
+    assert not process.terminated
+    assert entry.replica_set_recorded()
+
+
+def test_a_connection_dropped_during_inspect_is_retried(mongo_paths, monkeypatch):
+    monkeypatch.setattr(entry.time, "sleep", lambda _s: None)
+    attempts = []
+
+    def inspect(client):
+        attempts.append(client)
+        if len(attempts) == 1:
+            raise AutoReconnect("connection closed")
+        return {"rooms": 3}
+
+    result = entry.prepare_mongodb(
+        start=lambda *a, **k: FakeProcess(),
+        connect=dropping_client({}, []),
+        log=mongo_paths,
+        inspect=inspect,
+    )
+    assert result == {"rooms": 3}
+    assert len(attempts) == 2
+
+
+def test_connections_that_keep_dropping_fail_in_time(mongo_paths, monkeypatch):
+    clock = iter(range(0, 1000, 10))
+    monkeypatch.setattr(entry.time, "monotonic", lambda: next(clock))
+    monkeypatch.setattr(entry.time, "sleep", lambda _s: None)
+    process = FakeProcess()
+    calls = []
+    with pytest.raises(entry.EntrypointError) as error:
+        entry.prepare_mongodb(
+            start=lambda *a, **k: process,
+            connect=dropping_client({"replSetGetConfig": 1000}, calls),
+            log=mongo_paths,
+        )
+    assert "AutoReconnect: connection closed" in str(error.value)
+    assert calls.count("replSetGetConfig") > 1
+    assert process.terminated
+    assert not entry.replica_set_recorded()
+
+
+def test_an_unreachable_server_during_inspect_is_not_retried(mongo_paths):
+    attempts = []
+
+    def inspect(client):
+        attempts.append(client)
+        raise ServerSelectionTimeoutError("no server")
+
+    process = FakeProcess()
+    with pytest.raises(entry.EntrypointError, match="ServerSelectionTimeoutError"):
+        entry.prepare_mongodb(
+            start=lambda *a, **k: process,
+            connect=dropping_client({}, []),
+            log=mongo_paths,
+            inspect=inspect,
+        )
+    assert len(attempts) == 1
+    assert process.terminated
+
+
+def test_a_driver_error_names_its_type_and_message(mongo_paths):
+    def inspect(_client):
+        raise OperationFailure("not authorized on hybro", code=13)
+
+    with pytest.raises(entry.EntrypointError) as error:
+        entry.prepare_mongodb(
+            start=lambda *a, **k: FakeProcess(),
+            connect=dropping_client({}, []),
+            log=mongo_paths,
+            inspect=inspect,
+        )
+    assert "OperationFailure: not authorized on hybro" in str(error.value)
 
 
 def test_volume_marker_is_written_atomically(tmp_path):
@@ -1218,3 +1352,137 @@ def test_the_heartbeat_refreshes_updated_at_during_supervisorctl(started, monkey
 def test_pid1_output_is_best_effort(started, monkeypatch):
     monkeypatch.setattr(entry, "PID1_STDOUT", started / "missing" / "fd")
     assert entry.restart(check=False, run=FakeSupervisor()) == 0
+
+
+@pytest.mark.parametrize("code", [23, 109])  # AlreadyInitialized, in progress
+def test_an_initiate_retried_after_a_dropped_connection_succeeds(code):
+    # The first initiate went through but its reply was lost.
+    class Initiating(FakeAdmin):
+        def command(self, name, value=None, **kwargs):
+            self.calls.append((name, value, kwargs))
+            initiates = [call for call in self.calls if call[0] == "replSetInitiate"]
+            if name == "replSetGetConfig":
+                raise OperationFailure("no replset config", code=94)
+            if name == "replSetInitiate":
+                if len(initiates) == 1:
+                    raise AutoReconnect("connection closed")
+                raise OperationFailure("already initialized", code=code)
+            return {"ok": 1, "isWritablePrimary": True}
+
+    client = FakeClient(None)
+    client.admin = Initiating(None)
+    action, _ = entry.settle_replica_set(client, interval=0)
+    assert action == "initiated"
+    names = [call[0] for call in client.admin.calls]
+    assert names.count("replSetInitiate") == 2
+
+
+def test_an_initiate_rejected_for_another_reason_fails():
+    class Rejecting(FakeAdmin):
+        def command(self, name, value=None, **kwargs):
+            if name == "replSetInitiate":
+                raise OperationFailure("bad config", code=93)
+            return super().command(name, value, **kwargs)
+
+    client = FakeClient(None)
+    client.admin = Rejecting(None)
+    with pytest.raises(OperationFailure):
+        entry.settle_replica_set(client, interval=0)
+
+
+def test_a_reconfig_applied_before_a_drop_is_still_reported():
+    class Repointing(FakeAdmin):
+        def command(self, name, value=None, **kwargs):
+            if name == "replSetReconfig":
+                self.config = value
+            if name == "hello":
+                return {"isWritablePrimary": True}
+            return super().command(name, value, **kwargs)
+
+    config = {
+        "_id": "rs0",
+        "version": 3,
+        "members": [{"_id": 0, "host": "mongo:27017"}],
+    }
+    client = FakeClient(config)
+    client.admin = Repointing(config)
+    attempts = []
+
+    def inspect(_client):
+        attempts.append(1)
+        if len(attempts) == 1:
+            raise AutoReconnect("connection closed")
+        return {"rooms": 1}
+
+    assert entry.settle_replica_set(client, inspect, interval=0) == (
+        "reconfigured",
+        {"rooms": 1},
+    )
+
+
+def test_not_primary_during_inspect_is_retried():
+    from pymongo.errors import NotPrimaryError
+
+    client = FakeClient(
+        {"_id": "rs0", "version": 1, "members": [{"_id": 0, "host": "127.0.0.1:27017"}]}
+    )
+    client.admin.command = lambda name, *a, **k: (
+        {"isWritablePrimary": True}
+        if name == "hello"
+        else FakeAdmin.command(client.admin, name, *a, **k)
+    )
+    attempts = []
+
+    def inspect(_client):
+        attempts.append(1)
+        if len(attempts) == 1:
+            raise NotPrimaryError("not primary")
+        return {}
+
+    assert entry.settle_replica_set(client, inspect, interval=0) == ("ready", {})
+    assert len(attempts) == 2
+
+
+def test_wait_for_primary_asks_once_even_with_no_time_left():
+    asked = []
+
+    class Primary:
+        class admin:  # noqa: N801 - mimics the pymongo attribute
+            @staticmethod
+            def command(name):
+                asked.append(name)
+                return {"isWritablePrimary": True}
+
+    entry.wait_for_primary(Primary(), timeout=0)
+    assert asked == ["hello"]
+
+
+def test_an_initiate_whose_reply_was_lost_is_not_sent_again():
+    class Initiating(FakeAdmin):
+        def command(self, name, value=None, **kwargs):
+            if name == "replSetInitiate":
+                self.calls.append((name, value, kwargs))
+                self.config = value
+                raise AutoReconnect("connection closed")
+            if name == "hello":
+                return {"isWritablePrimary": True}
+            return super().command(name, value, **kwargs)
+
+    client = FakeClient(None)
+    client.admin = Initiating(None)
+    assert entry.settle_replica_set(client, interval=0) == ("ready", None)
+    names = [call[0] for call in client.admin.calls]
+    assert names == ["replSetGetConfig", "replSetInitiate", "replSetGetConfig"]
+
+
+def test_an_unreachable_server_while_reading_the_config_is_not_retried():
+    class Unreachable(FakeAdmin):
+        def command(self, name, value=None, **kwargs):
+            self.calls.append((name, value, kwargs))
+            raise ServerSelectionTimeoutError("no server")
+
+    client = FakeClient(None)
+    client.admin = Unreachable(None)
+    with pytest.raises(ServerSelectionTimeoutError):
+        entry.settle_replica_set(client, interval=0)
+    assert len(client.admin.calls) == 1
