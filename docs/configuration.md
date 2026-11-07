@@ -24,8 +24,12 @@ required combinations. A missing model provider is allowed: Room Chat and the
 LLM-backed agents stay inactive and the app points to Settings.
 
 Settings page edits use the same validation before saving. Manual JSON edits are
-validated at the next startup. Settings other than the model provider are a
-startup snapshot: run `hybro stop` and `hybro` after changes.
+validated at the next startup. Each service reads its settings when it starts.
+The exceptions are the model provider and models, which reload live, and
+`backend.log_level` saved through the [Settings API](#settings-api), which
+applies to the running backend at once. Everything else applies after a
+restart: the Settings API restarts the services in place in the image, and
+`hybro stop` and `hybro` always work.
 
 `.env`, `.env.example` and `frontend/.env.local` are not required by this contract.
 The container's entrypoint supplies only scoped values to each service; the
@@ -39,9 +43,17 @@ On every start the container also creates a diagnostics token in
 reads it through `docker exec`. It is replaced on the next start and is not a
 configuration field.
 
+The entrypoint also writes `/tmp/hybro/runtime.json` (mode 0600): this start's
+listener mode, public port, whether MongoDB is embedded, and the revision of the
+configuration the services were started with. The restart helper writes its
+progress to `/tmp/hybro/restart.json`. Both are runtime records inside the
+container, rewritten on each start or restart; neither is a configuration
+source.
+
 ## Edit configuration
 
-Edit `~/.hybro/config.json`, then restart:
+Edit `~/.hybro/config.json` by hand or through the
+[Settings API](#settings-api), then restart:
 
 ```json
 {
@@ -58,6 +70,74 @@ hybro stop && hybro
 Use the Settings page for Provider and model changes. Startup generates missing
 internal tokens in `auth.json` without rotating existing values. Backend overrides live under `backend`, public
 frontend overrides under `frontend`, and image output size is `image_size`.
+
+Startup rules added with the Settings API: `orchestrator_fast_*` and
+`orchestrator_ultimate_*` `max_agent_calls`, `max_parallel_calls` and
+`deadline_seconds` must be greater than 0, `max_parallel_calls` must not exceed
+the same profile's `max_agent_calls`, and `backend.agent_health_check_interval`
+must be greater than 0. Before, such values passed startup and failed every
+Fast or Ultimate Run (or made the health check loop spin); now startup rejects
+them and names the field. Fix the value in `config.json` if Hybro no longer
+starts after an upgrade.
+
+## Settings API
+
+The backend serves the instance settings under `{api_prefix}/settings`
+(`/api/v1/settings` by default). The frontend Settings page will be its client;
+the response shapes may still change before that page ships.
+
+| Route | Behavior |
+|---|---|
+| `GET /settings` | The editable fields with their value, default, bounds, group, whether each applies `live` or after a `restart`, and per-field `restart_pending`; a top-level `revision`, `restart_pending` and restart status; notices for retired, ignored, or unlisted keys (names only); and read-only system information. |
+| `PUT /settings` | `{"revision": "<from GET>", "values": {"backend.log_level": "DEBUG", ...}}`. Saves the given fields; `null` removes a key, so it returns to its default. Returns the keys that changed, `restart_required`, and the new view. |
+| `POST /settings/restart` | 202. Checks the saved configuration and restarts the services in place (image only). |
+
+Every route is admin-only, including `GET`: anyone in `mock` auth mode, and in
+`clerk` mode only users in `backend.admin_user_ids`; others get 403
+`forbidden`.
+
+Only the curated registry fields can be read or written: run limits, the
+agent health check, local agent discovery, message length, compaction, log
+level and format, and the advanced orchestrator, passthrough, session and LLM
+gateway limits. Other keys, such as infrastructure URLs, internal tuning, and
+credentials, are never returned, and a write to one fails with
+`unknown_field`. `provider`, `models`, `image_size` and `auth.json` are never
+touched; the model provider keeps its own setup routes.
+
+A write uses the startup validation rules. Values must have the field's JSON
+type (`"12"` is not an integer), and the normalized value is stored (for
+example `"debug"` becomes `"DEBUG"`). Errors return 422 `invalid_settings` with
+per-field `errors` (`field`, `code`, `message`) that never echo the submitted
+value. A save also drops retired keys and the 0.3 `instances` block, as setup
+saves do.
+
+The `revision` token covers `backend`, `frontend` and `image_size`, not the
+model provider. When `config.json` changed since the editor read it, `PUT`
+returns 409 `revision_conflict`; reload and retry. An invalid `config.json`
+returns 409 `config_invalid`; `GET` then shows `config_error` and the running
+values.
+
+`backend.log_level` applies live. Every other field applies after a restart,
+and `restart_pending` reports a saved change the running services do not use
+yet, including `image_size` and hand edits. The Settings page offers **Save**
+(`PUT` only) and **Save & restart** (`PUT`, then `POST /settings/restart`).
+
+The restart re-runs the start's configuration check and, when it passes,
+restarts the backend, frontend, MCP and bundled agents through supervisord;
+Caddy and the embedded MongoDB keep running, so the port stays open and data
+stays up. The restart refuses a change it cannot apply in place, such as a
+hand-edited `api_prefix` or switching between embedded and external MongoDB,
+with "This change needs a full restart: run `hybro stop` and `hybro`." An
+invalid configuration returns 409 `config_invalid` and nothing restarts; a
+restart already running returns 409 `restart_in_progress`. From a checkout it
+returns 409 `restart_unavailable`: restart the processes yourself. Like a start,
+a restart may create a missing internal token in `auth.json`. The helper writes
+one summary line to `hybro logs`.
+
+The port, listener mode, and auth mode are shown read-only. The port and
+listener are `hybro` flags (`--port`, `--listen`, `--insecure-no-auth`), and
+`backend.auth_mode` is not a registry field: change it in `config.json` and
+run `hybro stop` and `hybro`.
 
 ## Model access for Agents
 

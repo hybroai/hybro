@@ -65,6 +65,7 @@ flowchart TD
 | Core | `approval` | Human-in-the-loop requests, interactions, answers, cancellation, and reconciliation. |
 | Support | `agent`, `local_agents`, `delivery`, `context_memory`, `room_files`, `llm_gateway` | Agent directory, local discovery, SSE delivery, room memory, files, and model access. |
 | Support | `diagnostics` | The local store of system events and warnings (two capped collections). |
+| Support | `instance_settings` | The admin settings API: the curated field registry, validated `config.json` writes, the live log level, and the in-place service restart trigger. |
 | Infrastructure | `api_gateway`, `jobs`, `dal`, `a2a_adapter`, `common`, `models` | Routes, workers, Mongo/Redis connections and generic clients, the A2A SDK boundary, and shared contracts. |
 
 Dependency rules:
@@ -234,7 +235,8 @@ dependency globals, or define `bind_*` functions.
   `execution.ports.DirectAgentMessenger`, `local_agents.protocols.LocalAgentDiscovery`,
   `llm_gateway.agent_proxy._AgentLLMProxyPort`,
   `llm_gateway.setup_api.SetupAccess`,
-  `diagnostics.protocols.DiagnosticsAccess`, and from `common.protocols`
+  `diagnostics.protocols.DiagnosticsAccess`,
+  `instance_settings.protocols.SettingsAccess`, and from `common.protocols`
   `ExecutionEngine`, `HITLManager`, `SSERouteTransport`, `RoomRouteReader`,
   `SSEStateReader`, `RoomOwnershipReader`, `AgentRegistry`, `AgentMatcher`,
   `FileStorage`, and `PreparedFileStream`.
@@ -262,6 +264,8 @@ Route groups:
   push-notification ingress (see [Push notifications](#push-notifications)).
 - `setup_routes.py`: `/setup` browser model-provider setup (see
   [Browser setup API](#browser-setup-api)).
+- `settings_routes.py`: admin-only `/settings` instance settings and
+  `POST /settings/restart` (see [Settings API](#settings-api)).
 - `diagnostics_routes.py`: read-only `/diagnostics` (`GET /snapshot`,
   `/events`, `/logs`) for administrators, anyone in mock mode, and
   `hybro doctor` with the per-start token in `X-Hybro-Diagnostics-Token`.
@@ -679,6 +683,29 @@ Owns orchestration after a user message is accepted.
   (Agent), `RoomFileReader` and `RoomFileArtifactOwner` (`room_files`),
   `DirectA2AClient` (`a2a_adapter`), `LLMTurnGateway` (`llm_gateway`),
   `DeliveryEventPublisher`, `RoomOwnershipReader`, and `MongoDAL`.
+
+### `instance_settings`
+
+The owner of the Settings API behind `api_gateway/routes/settings_routes.py`
+(see [Settings API](#settings-api)). It imports only `common`.
+
+- `registry.py`: the curated `FieldSpec` registry (key, group, level, `live`
+  or `restart`, kind, options). Defaults and bounds come from the loader's
+  `Settings` and `FrontendSettings` models (`annotated_types` metadata, plus
+  `loader.image_defaults()` in the image), so the form and startup share one
+  set of rules.
+- `service.py`: `InstanceSettings`, built in `container.py` next to
+  `BrowserSetup` and bound on `app.state.instance_settings`. It holds the
+  startup `Settings`, the boot document, the running log level, and
+  `BrowserSetup.can_configure` for authorization.
+- `restart.py`: `RestartControl`, the backend side of the restart trigger.
+- `models.py`: the frozen request and response DTOs.
+- Writes no collections; writes `config.json` through
+  `RuntimeConfigStore.update_settings`.
+- Exposes `instance_settings.protocols.SettingsAccess` (implemented by
+  `InstanceSettings`) and `SettingsRequestError` to `api_gateway`.
+- Consumes: `common.config` (loader, `RuntimeConfig`, `RuntimeConfigStore`)
+  and `common.observability.logging.set_log_level`.
 
 ### `jobs`
 
@@ -1122,7 +1149,9 @@ follow the same rule through `runtime_store.RETIRED_SERVICE_KEYS`
 Credentials stay in `auth.json`; its `services` mapping holds scoped service
 secrets separately from Provider credentials. Setup edits and OAuth rotations
 preserve unrelated fields. The Provider selection and its credential reload
-live; every other field applies after restart.
+live, and so does `backend.log_level` saved through the Settings API; every
+other field applies after a restart, which the Settings API can run in place
+in the image.
 
 The image entrypoint (`backend/runtime_entrypoint.py`, below) is the one
 projection owner: it validates `config.json`, generates missing internal tokens
@@ -1263,6 +1292,36 @@ SSE drain then waits only while streams are still registered, up to
 `Image CI` job builds the image, runs it with an empty config directory, and
 then runs `scripts/image_ci_cases.sh` for the UID 0 and existing-UID cases and
 a forced reconfig from data whose replica set names `mongo:27017`.
+
+### In-place service restart
+
+`runtime_entrypoint.py restart [--check]` is the Settings API's restart
+helper. `main()` matches it before the root branch, so it never runs the root
+or user phase and never starts a second supervisord, even when the services run
+as root. It reads `/tmp/hybro/runtime.json`, which the user phase writes on
+every start (mode 0600: `listen`, `public_port`, `insecure_no_auth`,
+`embedded_mongo`, and `services_revision`, the `restart_revision` of the
+configuration the programs were projected from). It then runs `plan_runtime`,
+the same validation and projection the user phase uses; `--check` reads the
+internal credentials without generating missing ones, so it never writes
+`auth.json`. A plan whose Caddyfile or `supervisord.conf` differs from the
+running one (a changed `api_prefix`, or a different program set such
+as embedded versus external MongoDB) is refused with "This change needs a full
+restart". `--check` stops there and prints one JSON line, `{"ok": true}` or
+`{"ok": false, "error": ...}`.
+
+The real run takes an exclusive `flock` on `/tmp/hybro/restart.lock` (busy:
+exit without touching the status), rewrites the program files of every program
+except `caddy` and `mongod`, runs `supervisorctl restart services:<name> ...`
+for those programs, then `supervisorctl status` and requires each to be
+`RUNNING`. On success it records the new `services_revision` in
+`runtime.json`. It writes its state to `/tmp/hybro/restart.json` (mode 0600,
+`{"state", "error", "updated_at"}`: `restarting`, then `completed` or `failed`)
+and refreshes `updated_at` every 10 seconds while supervisorctl runs. There is
+no rollback: supervisord keeps retrying a failed service, and the backend
+reads `config.json` itself. The helper's stdio is closed; it writes one
+`restart | ...` summary line to PID 1's stdout so it shows in `hybro logs`.
+Caddy and mongod are never named, so the port stays open and MongoDB stays up.
 
 ### Shell CLI
 
@@ -1534,6 +1593,66 @@ whose ID is in `backend.admin_user_ids`. The list is empty by default, which
 disables browser changes until an operator sets it in `config.json`. Headless
 setup remains possible by writing `config.json` and `auth.json` directly; the
 `ProviderRuntime` picks up the change without a restart.
+
+### Settings API
+
+The client is the frontend Settings page (not yet built); the response shapes
+may still change before it ships. `api_gateway/routes/settings_routes.py` is a
+thin adapter over `instance_settings.protocols.SettingsAccess`. All routes are
+under `{api_prefix}/settings` and admin-only, including the read: they require
+the signed-in user and `BrowserSetup.can_configure` (everyone in mock mode,
+`backend.admin_user_ids` in clerk mode), else 403 `forbidden`; a missing
+`app.state.instance_settings` returns 503 `settings_unavailable`.
+
+| Route | Behavior |
+|---|---|
+| `GET ""` | `SettingsView`: `revision`, `config_error`, top-level `restart_pending`, `restart` status, `groups`, `fields` (registry spec, `default`, effective `value`, `source`, per-field `restart_pending`), `notices` (`removed_fields`, `instances_ignored`, `unlisted_fields`, names only), and `system` (version, `image` or `checkout`, port, listen mode, auth mode, MCP availability, a generic config location). |
+| `PUT ""` | `SettingsUpdate` `{revision, values}`, registry keys only, `null` removes a key. Returns `SettingsSaved` `{changed, restart_required, settings}`. |
+| `POST "/restart"` | 202 `RestartAccepted` `{restart}`; the helper is launched in a background task after the response. |
+
+Read: every `GET` reads `config.json` again and compares it with what is
+running: the startup `Settings` (with the live log level) for backend fields,
+the boot document's frontend section for frontend fields, and for the
+top-level flag the file's `restart_revision` against `services_revision` in
+`runtime.json` (the boot document's in a checkout or when the record is
+unreadable). `RuntimeConfig.settings_revision` hashes `backend`, `frontend` and
+`image_size`; `restart_revision` also leaves out `backend.log_level`. Provider
+and models are in neither, so a setup save does not conflict with a settings
+form or mark a restart pending. An invalid file returns `revision: null`,
+`config_error`, and the running values. Values of non-registry keys are never
+returned.
+
+Write: unknown keys are refused before any file I/O (`unknown_field`, without
+echoing the key), then each value's JSON type is checked against its kind
+(`type_mismatch`, `invalid_option`). `RuntimeConfigStore.update_settings` runs
+in a worker thread under the store's lock: it parses the current file (invalid:
+409 `config_invalid`), compares `settings_revision` with the submitted token
+(409 `revision_conflict`), applies the edits to `backend`/`frontend` of the raw
+document, drops retired keys and `instances`, validates with
+`loader.validate_backend` and `FrontendSettings` (pre-check failures carry the
+field through `loader.BackendFieldError`), writes the normalized values, runs
+`parse_config` for cross-section rules (422 `invalid_settings` without field
+entries), and replaces the file atomically. A no-op write leaves the file
+alone. Field errors are 422 `invalid_settings` with `errors` built without
+input. A changed `backend.log_level` is applied with
+`common.observability.logging.set_log_level` (root logger and the configured
+and sink handlers; noisy library loggers stay at WARNING). `auth.json`,
+`provider`, `models` and `image_size` are never touched. The
+`ProviderRuntime` notices the file change and reloads once, which is harmless.
+
+Restart: `RestartControl` is available only when `runtime.json` exists (the
+image); otherwise 409 `restart_unavailable`. An `asyncio.Lock` serializes the
+request: a `requested` or `restarting` status, or a held lock, returns 409
+`restart_in_progress`; then `restart --check` runs as a subprocess (30 s
+timeout, an environment of only `PATH`, `HOME`, `LANG`, `LC_ALL`, `TZ`,
+`HYBRO_HOME`, `HYBRO_CONTAINER`), and a failure returns 409 `config_invalid`
+with the helper's message. It then writes `restart.json` as `requested`, and
+the background task starts `restart` with `start_new_session=True` and closed
+stdio, so supervisord stopping the backend does not stop it (see
+[In-place service restart](#in-place-service-restart)). A `requested` or
+`restarting` status older than 60 seconds is reported as `failed`. Request
+validation failures return 422 `invalid_request` without the input; every
+error body is `SettingsErrorBody` `{detail, code, errors}`.
 
 ### Bundled-agent inference proxy
 
