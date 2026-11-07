@@ -1666,8 +1666,8 @@ alone. Field errors are 422 `invalid_settings` with `errors` built without
 input. A changed `backend.log_level` is applied with
 `common.observability.logging.set_log_level` (root logger and the configured
 and sink handlers; noisy library loggers stay at WARNING). `auth.json`,
-`provider`, `models` and `image_size` are never touched. The
-`ProviderRuntime` notices the file change and reloads once, which is harmless.
+`provider`, `models` and `image_size` are never touched; the browser setup
+routes (`setup_api.BrowserSetup`) own them. The `ProviderRuntime` notices the file change and reloads once, which is harmless.
 
 Restart: `RestartControl` is available only when `runtime.json` exists (the
 image); otherwise 409 `restart_unavailable`. An `asyncio.Lock` serializes the
