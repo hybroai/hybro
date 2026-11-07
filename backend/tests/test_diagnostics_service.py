@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
 from types import MappingProxyType
 
@@ -198,6 +199,7 @@ def _service(
     auth_mode: str = "clerk",
     clock: _Clock | None = None,
     canary: bool = True,
+    log_level: Callable[[], str] = lambda: "INFO",
 ) -> DiagnosticsService:
     sources = sources or _Sources()
     return DiagnosticsService(
@@ -210,7 +212,7 @@ def _service(
         version="0.4.4",
         instance_id="ab12cd34",
         environment="test",
-        log_level="INFO",
+        log_level=log_level,
         log_format="json",
         started_at=T0,
         now=clock or _Clock(),
@@ -218,6 +220,13 @@ def _service(
 
 
 # ── Snapshot ──────────────────────────────────────────────────────────────
+
+
+async def test_snapshot_reports_the_current_log_level():
+    level = ["INFO"]
+    service = _service(log_level=lambda: level[0])
+    level[0] = "DEBUG"  # The Settings API changed it live.
+    assert (await service.snapshot()).service.log_level == "DEBUG"
 
 
 async def test_snapshot_maps_every_section():

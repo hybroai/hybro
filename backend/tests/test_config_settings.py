@@ -144,3 +144,145 @@ def test_local_agent_discovery_scans_9000_to_9999_by_default():
         settings.local_agent_discovery_port_end,
     ) == (9000, 9999)
     assert (config.port_start, config.port_end) == (9000, 9999)
+
+
+@pytest.mark.parametrize("profile", ["fast", "ultimate"])
+@pytest.mark.parametrize(
+    "suffix", ["max_agent_calls", "max_parallel_calls", "deadline_seconds"]
+)
+def test_orchestrator_profile_bounds_reject_zero_at_startup(profile, suffix) -> None:
+    field = f"orchestrator_{profile}_{suffix}"
+    with pytest.raises(ValidationError) as caught:
+        Settings.model_validate({field: 0})
+    assert caught.value.errors()[0]["loc"] == (field,)
+
+
+@pytest.mark.parametrize("profile", ["fast", "ultimate"])
+def test_parallel_calls_above_agent_calls_are_capped(profile) -> None:
+    settings = Settings.model_validate(
+        {
+            f"orchestrator_{profile}_max_agent_calls": 2,
+            f"orchestrator_{profile}_max_parallel_calls": 3,
+        }
+    )
+    assert getattr(settings, f"orchestrator_{profile}_max_parallel_calls") == 2
+    settings = Settings.model_validate(
+        {
+            f"orchestrator_{profile}_max_agent_calls": 3,
+            f"orchestrator_{profile}_max_parallel_calls": 3,
+        }
+    )
+    assert getattr(settings, f"orchestrator_{profile}_max_parallel_calls") == 3
+
+
+def test_agent_health_check_interval_rejects_zero() -> None:
+    with pytest.raises(ValidationError):
+        Settings.model_validate({"agent_health_check_interval": 0})
+
+
+def test_instance_runtime_file_is_private_and_image_only(monkeypatch) -> None:
+    from common.config.loader import (
+        PRIVATE_FIELDS,
+        _apply_image_defaults,
+        image_defaults,
+    )
+
+    assert "instance_runtime_file" in PRIVATE_FIELDS
+    assert Settings().instance_runtime_file == ""
+    values: dict = {"instance_runtime_file": "/elsewhere.json"}
+    _apply_image_defaults(values)
+    assert values["instance_runtime_file"] == "/tmp/hybro/runtime.json"
+    monkeypatch.setenv("LOCAL_AGENT_DISCOVERY_EXCLUDED_PORTS", "7001")
+    defaults = image_defaults()
+    assert defaults["log_format"] == "json"
+    assert defaults["local_agent_discovery_enabled"] is True
+    assert defaults["local_agent_discovery_excluded_ports"] == "7001"
+    assert "instance_runtime_file" not in defaults
+
+
+@pytest.mark.parametrize(
+    ("values", "field"),
+    [
+        ({"llm_gateway_max_attempts": -1}, "llm_gateway_max_attempts"),
+        (
+            {"a2a_push_callback_base_url": "https://user:pw@example.org"},
+            "a2a_push_callback_base_url",
+        ),
+        ({"some_port": 70000}, "some_port"),
+    ],
+)
+def test_backend_pre_checks_name_the_field(values, field) -> None:
+    from common.config.loader import BackendFieldError, validate_backend
+
+    with pytest.raises(BackendFieldError) as caught:
+        validate_backend(values)
+    assert caught.value.field == field
+    assert "pw" not in str(caught.value)
+
+
+@pytest.mark.parametrize("profile", ["fast", "ultimate"])
+def test_agent_calls_below_the_default_parallel_calls_cap_the_default(profile) -> None:
+    # Field validators skip defaults unless asked; the cap must still apply.
+    settings = Settings.model_validate({f"orchestrator_{profile}_max_agent_calls": 1})
+    assert getattr(settings, f"orchestrator_{profile}_max_parallel_calls") == 1
+
+
+def test_discovery_start_above_the_default_end_is_rejected() -> None:
+    with pytest.raises(ValidationError) as caught:
+        Settings.model_validate({"local_agent_discovery_port_start": 10000})
+    assert [error["loc"] for error in caught.value.errors()] == [
+        ("local_agent_discovery_port_end",)
+    ]
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("orchestrator_call_wait_ceiling_hours", 1e12),
+        ("approval_deadline_hours", 1e8),
+        ("compaction_content_ttl_days", 10**9),
+        ("llm_gateway_request_timeout_seconds", 0),
+        ("llm_gateway_stream_timeout_seconds", 0),
+        ("orchestrator_fast_deadline_seconds", 1e12),
+        ("orchestrator_ultimate_deadline_seconds", 1e12),
+        ("orchestrator_passthrough_deadline_seconds", 1e12),
+        ("orchestrator_fast_max_model_turns", 2**63),
+        ("orchestrator_ultimate_max_model_turns", 10_001),
+        ("orchestrator_fast_max_agent_calls", 10_001),
+        ("orchestrator_ultimate_max_agent_calls", 2**63),
+        ("orchestrator_passthrough_max_transport_retries_per_call", 101),
+    ],
+)
+def test_values_that_break_the_services_are_rejected_at_startup(field, value) -> None:
+    # Too large for timedelta date math, or a timeout that fails every call.
+    with pytest.raises(ValidationError) as caught:
+        Settings.model_validate({field: value})
+    assert caught.value.errors()[0]["loc"] == (field,)
+
+
+def test_frontend_inspection_timeout_stays_within_what_the_browser_accepts() -> None:
+    from common.config.loader import FrontendSettings
+
+    field = "inspection_timeout_ms"
+    with pytest.raises(ValidationError):
+        FrontendSettings.model_validate({field: 2**31})
+    assert getattr(FrontendSettings.model_validate({field: 2**31 - 1}), field)
+
+
+def test_frontend_message_length_stays_within_the_backend_limit() -> None:
+    from common.config.loader import FrontendSettings
+    from models.room import MAX_MESSAGE_LENGTH
+
+    with pytest.raises(ValidationError):
+        FrontendSettings.model_validate({"max_message_length": MAX_MESSAGE_LENGTH + 1})
+    limit = FrontendSettings.model_validate({"max_message_length": MAX_MESSAGE_LENGTH})
+    assert limit.max_message_length == MAX_MESSAGE_LENGTH
+
+
+def test_validate_backend_refuses_integers_beyond_a_safe_json_integer() -> None:
+    from common.config.loader import BackendFieldError, validate_backend
+
+    # Finite as a float, but MongoDB stores at most 8-byte ints.
+    with pytest.raises(BackendFieldError) as caught:
+        validate_backend({"agent_health_check_interval": 2**53})
+    assert caught.value.field == "agent_health_check_interval"

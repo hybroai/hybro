@@ -12,6 +12,7 @@ from common.config.loader import settings
 import api_gateway
 from api_gateway.errors import (
     provider_not_configured_handler,
+    settings_request_error_handler,
     setup_request_error_handler,
 )
 from common.auth import bind_auth_config
@@ -19,6 +20,7 @@ from common.protocols import HealthCheck
 from common.middleware.request_concurrency import RequestConcurrencyLimitMiddleware
 from common.middleware.request_logging import RequestLoggingMiddleware
 from common.middleware.request_size import RequestBodyLimitMiddleware
+from instance_settings import SettingsRequestError
 from llm_gateway.errors import ProviderNotConfigured
 from llm_gateway.setup_api import SetupRequestError
 from container import (
@@ -123,6 +125,7 @@ def create_app(
     app.state.agent_rate_limiter_factory = agent_rate_limiter_factory
     app.add_exception_handler(ProviderNotConfigured, provider_not_configured_handler)
     app.add_exception_handler(SetupRequestError, setup_request_error_handler)
+    app.add_exception_handler(SettingsRequestError, settings_request_error_handler)
 
     app.add_middleware(
         CORSMiddleware,

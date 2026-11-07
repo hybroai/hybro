@@ -41,7 +41,7 @@ from common.observability import (
     traced_create_task,
 )
 from common.observability import events as E
-from common.observability.logging import release_version
+from common.observability.logging import current_log_level, release_version
 from common.protocols import (
     AgentCardResolver,
     AgentExclusionReader,
@@ -725,6 +725,24 @@ async def _runtime_lifespan(app: Any, runtime: ApplicationRuntime):  # noqa: C90
                 admin_user_ids=frozenset(runtime.settings.admin_user_ids),
             )
             app.state.setup_access = _browser_setup
+            from instance_settings import InstanceSettings
+            from instance_settings.restart import RestartControl
+
+            runtime_file = runtime.settings.instance_runtime_file
+            app.state.instance_settings = InstanceSettings(
+                store=_provider_runtime.store,
+                settings=runtime.settings,
+                # The document this backend booted with, read at construction.
+                startup_config=_provider_runtime.current.config,
+                can_configure=_browser_setup.can_configure,
+                version=release_version(Path(__file__)),
+                restart=RestartControl(
+                    runtime_file=Path(runtime_file) if runtime_file else None,
+                    python=sys.executable,
+                    entrypoint=Path(__file__).resolve().parent
+                    / "runtime_entrypoint.py",
+                ),
+            )
             agent_selection_llm_service = AgentSelectionLLMService(
                 llm_provider=llm_provider
             )
@@ -2570,7 +2588,7 @@ def create_diagnostics_access(
         version=release_version(Path(__file__)),
         instance_id=get_instance_id(),
         environment=settings.app_env,
-        log_level=settings.log_level,
+        log_level=current_log_level,
         log_format=settings.log_format,
         started_at=utcnow(),
     )

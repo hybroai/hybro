@@ -133,7 +133,7 @@ LLM-backed agents stay inactive; Echo Agent and MCP work at once. The
    key, an optional image model and image size. **Save models** applies them.
 
 The provider and models apply without a restart; a new image size applies after
-`hybro stop` and `hybro`. The status at the top of the section shows **Not set
+`hybro stop` and `hybro`, or a restart through the Settings API. The status at the top of the section shows **Not set
 up**, **Waiting for sign-in**, **Connected**, or **ChatGPT sign-in expired**,
 with **Sign in again** for the last.
 
@@ -249,7 +249,9 @@ From a checkout, `./scripts/hybro start --build` rebuilds `hybro:dev` from the
 working tree and `--recreate` replaces a running container. Start options are
 flags only; environment variables do not become a second configuration source.
 Configuration changes apply after `hybro stop` and `hybro`, except the model
-provider, which applies at once.
+provider, which applies at once. The admin-only Settings API restarts the
+services in place and applies the log level live; see
+[docs/configuration.md](docs/configuration.md#settings-api).
 
 Each log line starts with its program's name (`backend | `, `caddy | `, ...).
 `--level` keeps lines at that level or above and hides lines without a
@@ -275,8 +277,10 @@ are redacted by pattern, so review the archive before sharing it.
 Configuration lives in `~/.hybro/` (or the absolute path in `HYBRO_HOME`):
 `config.json` holds settings and `auth.json` holds credentials. Set up the model
 provider on the **Settings** page; it applies at once. Other settings are read
-at startup, so edit `config.json` and run `hybro stop && hybro`. Repository
-`.env` files are not read.
+at startup: edit `config.json` and run `hybro stop && hybro`, or save them
+through the admin-only Settings API (`/api/v1/settings`), which uses the same
+validation, applies the log level live, and restarts the services in place for
+the rest. Repository `.env` files are not read.
 
 See [docs/configuration.md](docs/configuration.md) for the configuration
 contract, editing, model access for agents, and the backend fields.

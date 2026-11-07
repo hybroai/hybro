@@ -182,6 +182,7 @@ packages = [
     "delivery.event_bus",
     "diagnostics",
     "diagnostics.repository",
+    "instance_settings",
     "execution",
     "execution.adapters",
     "execution.orchestrator",

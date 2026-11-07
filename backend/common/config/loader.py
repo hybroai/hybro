@@ -25,6 +25,16 @@ from common.observability import get_logger
 logger = get_logger(__name__)
 
 
+# Ten years: a Run's deadline is wall-clock date math, which overflows far later.
+_MAX_DEADLINE_SECONDS = 10 * 365 * 24 * 3600
+# Model turns and Agent calls per Run; Runs persist them in MongoDB.
+_MAX_RUN_LIMIT = 10_000
+# Any integer setting: a safe JSON integer, well inside MongoDB's 8 bytes.
+_MAX_INTEGER = 2**53 - 1
+# models.room.MAX_MESSAGE_LENGTH: the backend refuses longer messages.
+_MAX_MESSAGE_LENGTH = 10_000
+
+
 class Settings(BaseModel):
     model_config = ConfigDict(extra="forbid", strict=True, hide_input_in_errors=True)
 
@@ -65,8 +75,8 @@ class Settings(BaseModel):
     llm_gateway_generation_provider: str = "openai"
     llm_gateway_max_attempts: int = 2
     llm_gateway_retry_backoff_seconds: float = 0.2
-    llm_gateway_request_timeout_seconds: float = 300.0
-    llm_gateway_stream_timeout_seconds: float = 300.0
+    llm_gateway_request_timeout_seconds: float = Field(default=300.0, gt=0)
+    llm_gateway_stream_timeout_seconds: float = Field(default=300.0, gt=0)
     # Per-route timeout used by the orchestrator kernel. Orchestrator model
     # calls pass this explicitly, so it overrides the gateway defaults above.
     llm_gateway_route_timeout_seconds: float = 300.0
@@ -86,13 +96,17 @@ class Settings(BaseModel):
     orchestrator_fast_prompt_id: str = "orchestrator_fast"
     orchestrator_fast_prompt_version: str = "5"
     orchestrator_fast_thinking_level: str | None = None
-    orchestrator_fast_max_model_turns: int = 12
+    orchestrator_fast_max_model_turns: int = Field(default=12, le=_MAX_RUN_LIMIT)
     orchestrator_fast_grace_model_turns: int = 1
-    orchestrator_fast_max_agent_calls: int = 10
-    orchestrator_fast_max_parallel_calls: int = 3
+    orchestrator_fast_max_agent_calls: int = Field(default=10, gt=0, le=_MAX_RUN_LIMIT)
+    orchestrator_fast_max_parallel_calls: int = Field(
+        default=3, gt=0, validate_default=True
+    )
     orchestrator_fast_max_transport_retries_per_call: int = 2
     orchestrator_fast_max_compactions: int = 2
-    orchestrator_fast_deadline_seconds: float = 300.0
+    orchestrator_fast_deadline_seconds: float = Field(
+        default=300.0, gt=0, le=_MAX_DEADLINE_SECONDS
+    )
     orchestrator_fast_initial_routing: str = "explicit_agent_first"
     orchestrator_fast_tool_execution: str = "parallel"
     orchestrator_fast_finalization: str = "pass_through"
@@ -101,22 +115,30 @@ class Settings(BaseModel):
     orchestrator_ultimate_prompt_id: str = "orchestrator_ultimate"
     orchestrator_ultimate_prompt_version: str = "5"
     orchestrator_ultimate_thinking_level: str | None = None
-    orchestrator_ultimate_max_model_turns: int = 24
+    orchestrator_ultimate_max_model_turns: int = Field(default=24, le=_MAX_RUN_LIMIT)
     orchestrator_ultimate_grace_model_turns: int = 2
-    orchestrator_ultimate_max_agent_calls: int = 20
-    orchestrator_ultimate_max_parallel_calls: int = 4
+    orchestrator_ultimate_max_agent_calls: int = Field(
+        default=20, gt=0, le=_MAX_RUN_LIMIT
+    )
+    orchestrator_ultimate_max_parallel_calls: int = Field(
+        default=4, gt=0, validate_default=True
+    )
     orchestrator_ultimate_max_transport_retries_per_call: int = 3
     orchestrator_ultimate_max_compactions: int = 3
-    orchestrator_ultimate_deadline_seconds: float = 600.0
+    orchestrator_ultimate_deadline_seconds: float = Field(
+        default=600.0, gt=0, le=_MAX_DEADLINE_SECONDS
+    )
     orchestrator_ultimate_initial_routing: str = "explicit_agent_first"
     orchestrator_ultimate_tool_execution: str = "parallel"
     orchestrator_ultimate_finalization: str = "pass_through"
 
     # Passthrough: zero model turns and one call to the single mentioned Agent.
     # The deadline counts active time only; a suspended Run's clock is stopped.
-    orchestrator_passthrough_deadline_seconds: float = Field(default=300.0, gt=0)
+    orchestrator_passthrough_deadline_seconds: float = Field(
+        default=300.0, gt=0, le=_MAX_DEADLINE_SECONDS
+    )
     orchestrator_passthrough_max_transport_retries_per_call: int = Field(
-        default=2, gt=0
+        default=2, gt=0, le=100
     )
 
     # Mandatory canonical lifecycle worker cadence.
@@ -124,14 +146,15 @@ class Settings(BaseModel):
 
     # Waits. A suspended Run's deadline clock is stopped; an acknowledged remote
     # Agent call is polled until this ceiling, measured from its acceptance.
-    orchestrator_call_wait_ceiling_hours: float = Field(default=168.0, gt=0)
+    # Bounded (ten years) so deadline date math cannot overflow.
+    orchestrator_call_wait_ceiling_hours: float = Field(default=168.0, gt=0, le=87600)
     # Public base URL at which remote Agents reach this backend, for example
     # "https://hybro.example.com". When set, canonical dispatch registers an A2A
     # push-notification config with Agents whose card advertises
     # pushNotifications; polling remains the fallback. Empty disables push.
     a2a_push_callback_base_url: str = ""
     # Supervisor ask_user approval deadline; None means no deadline.
-    approval_deadline_hours: float | None = Field(default=None, gt=0)
+    approval_deadline_hours: float | None = Field(default=None, gt=0, le=87600)
 
     # Sessions. A send waits this long for its run to settle or pause for the
     # owner before answering "working"; a run with no lifecycle event within
@@ -151,14 +174,17 @@ class Settings(BaseModel):
     log_level: str = "INFO"
     log_format: str = "auto"
 
-    # Agent Health
-    agent_health_check_interval: int = 3600
+    # Agent Health. Zero would make the health loop spin.
+    agent_health_check_interval: int = Field(default=3600, gt=0)
 
     # Local Agent Discovery (Docker backend -> host gateway)
     local_agent_discovery_enabled: bool = False
     local_agent_discovery_host: str = "host.docker.internal"
     local_agent_discovery_port_start: int = Field(default=9000, ge=1, le=65535)
-    local_agent_discovery_port_end: int = Field(default=9999, ge=1, le=65535)
+    # Validated even as a default, so the range check sees a lone start.
+    local_agent_discovery_port_end: int = Field(
+        default=9999, ge=1, le=65535, validate_default=True
+    )
     local_agent_discovery_interval_seconds: int = Field(default=120, gt=0)
     local_agent_discovery_connect_timeout_seconds: float = Field(default=0.05, gt=0)
     local_agent_discovery_probe_timeout_seconds: float = Field(default=3.0, gt=0)
@@ -183,6 +209,9 @@ class Settings(BaseModel):
     # The per-start diagnostics handoff the image entrypoint writes; empty in a
     # checkout, which turns the token path of the diagnostics API off.
     diagnostics_handoff_file: str = ""
+    # This start's transport record the image entrypoint writes (listen mode,
+    # public port, services revision); empty in a checkout. Not a user setting.
+    instance_runtime_file: str = ""
     # provider_id of the bundled agents the backend registers at boot.
     default_agent_provider_id: str = "Hybro AI"
     # Bundled agent manifest (`default_agents/agents.yaml`). Empty disables
@@ -266,7 +295,8 @@ class Settings(BaseModel):
         80000  # Trigger compaction when full turns exceed this
     )
     compaction_preserve_recent: int = 10  # Always keep this many recent turns FULL
-    compaction_content_ttl_days: int = 0  # TTL for stored content (0 = forever)
+    # TTL for stored content (0 = forever); at most 100 years.
+    compaction_content_ttl_days: int = Field(default=0, ge=0, le=36500)
 
     # Local room file storage
     hybro_file_dir: str = Field(
@@ -387,6 +417,23 @@ class Settings(BaseModel):
             )
         return value
 
+    @field_validator(
+        "orchestrator_fast_max_parallel_calls",
+        "orchestrator_ultimate_max_parallel_calls",
+    )
+    @classmethod
+    def validate_parallel_calls(cls, value: int, info: ValidationInfo) -> int:
+        # Declared after the matching max_agent_calls, so info.data holds it;
+        # validate_default runs this when only max_agent_calls is set.
+        agent_calls_field = info.field_name.replace(
+            "max_parallel_calls", "max_agent_calls"
+        )
+        agent_calls = info.data.get(agent_calls_field)
+        # Capped, not refused: more parallel calls than calls cannot run anyway.
+        if agent_calls is not None and value > agent_calls:
+            return agent_calls
+        return value
+
     @field_validator("compaction_concurrency", mode="before")
     @classmethod
     def normalize_compaction_concurrency(cls, value):
@@ -442,6 +489,7 @@ PRIVATE_FIELDS = frozenset(
         "clerk_secret_key",
         "default_agent_llm_token",
         "diagnostics_handoff_file",
+        "instance_runtime_file",
     }
 )
 # Retired backend settings. Existing config.json files may still carry them
@@ -548,6 +596,14 @@ def validate_openai_base_url(value: str | None) -> str | None:
     return value
 
 
+class BackendFieldError(ValueError):
+    """A backend pre-check failure attributed to one key; never holds the value."""
+
+    def __init__(self, field: str, message: str) -> None:
+        super().__init__(message)
+        self.field = field
+
+
 def validate_backend(values: dict[str, object]) -> Settings:
     if PRIVATE_FIELDS.intersection(values) or ROUTE_FIELDS.intersection(values):
         raise ValueError("Use setup for model selection and auth.json for credentials")
@@ -555,15 +611,28 @@ def validate_backend(values: dict[str, object]) -> Settings:
         if key.endswith("_url") and isinstance(value, str) and value:
             parsed = urlsplit(value)
             if parsed.username or parsed.password:
-                raise ValueError("URL credentials belong in auth.json")
+                raise BackendFieldError(key, "URL credentials belong in auth.json")
         if key == "openai_base_url" and value:
-            validate_openai_base_url(value)
+            try:
+                validate_openai_base_url(value)
+            except ValueError as exc:
+                raise BackendFieldError(key, str(exc)) from None
         if isinstance(value, (int, float)) and not isinstance(value, bool):
-            if not math.isfinite(value) or value < 0:
-                raise ValueError("Numeric settings must be finite and nonnegative")
-            if key.endswith("_port") and not 1 <= value <= 65535:
-                raise ValueError("Port must be between 1 and 65535")
+            _check_number(key, value)
     return Settings.model_validate(values)
+
+
+def _check_number(key: str, value: float) -> None:
+    try:
+        finite = math.isfinite(value)
+    except OverflowError:  # An int too large to compare as a float.
+        finite = False
+    if not finite or value < 0:
+        raise BackendFieldError(key, "Numeric settings must be finite and nonnegative")
+    if isinstance(value, int) and value > _MAX_INTEGER:
+        raise BackendFieldError(key, "Integer settings must be at most 2**53 - 1")
+    if key.endswith("_port") and not 1 <= value <= 65535:
+        raise BackendFieldError(key, "Port must be between 1 and 65535")
 
 
 # Public projection fields that are not settings: MCP is always `{origin}/mcp`.
@@ -581,8 +650,9 @@ class FrontendSettings(BaseModel):
     clerk_sign_in_fallback_redirect_url: str = "/"
     clerk_sign_up_fallback_redirect_url: str = "/"
     enable_waitlist: bool = True
-    max_message_length: int = Field(default=10000, gt=0)
-    inspection_timeout_ms: int = Field(default=300000, gt=0)
+    # The backend's message limit, and setTimeout's cap of 2**31 - 1 ms.
+    max_message_length: int = Field(default=10000, gt=0, le=_MAX_MESSAGE_LENGTH)
+    inspection_timeout_ms: int = Field(default=300000, gt=0, le=2**31 - 1)
 
     @field_validator("api_base_url", "server_url")
     @classmethod
@@ -614,14 +684,14 @@ class FrontendSettings(BaseModel):
 _REPO_MANIFEST = Path(__file__).resolve().parents[3] / "default_agents" / "agents.yaml"
 
 
-def _apply_image_defaults(values: dict) -> None:
+def image_defaults() -> dict[str, object]:
     """Defaults for the single image (``HYBRO_CONTAINER=image``).
 
     Every service runs in one container on loopback. The entrypoint
-    (``runtime_entrypoint.py``) derives this instance's frontend origins and the
-    bundled agent ports and passes them as internal transport variables.
+    (``runtime_entrypoint.py``) derives the bundled agent ports and passes them
+    as an internal transport variable. config.json values win over these.
     """
-    for key, value in {
+    return {
         "mongodb_url": "mongodb://127.0.0.1:27017/hybro?replicaSet=rs0",
         "redis_url": "",
         "hybro_file_dir": "/data/files",
@@ -635,10 +705,17 @@ def _apply_image_defaults(values: dict) -> None:
         "local_agent_discovery_excluded_ports": os.environ.get(
             "LOCAL_AGENT_DISCOVERY_EXCLUDED_PORTS", ""
         ),
-    }.items():
+    }
+
+
+def _apply_image_defaults(values: dict) -> None:
+    """Apply ``image_defaults``, the forced internal paths, and the origins
+    the entrypoint derived for this instance."""
+    for key, value in image_defaults().items():
         values.setdefault(key, value)
-    # runtime_entrypoint.RUN_DIR / "diagnostics.json"
+    # runtime_entrypoint.RUN_DIR / "diagnostics.json" and "runtime.json"
     values["diagnostics_handoff_file"] = "/tmp/hybro/diagnostics.json"
+    values["instance_runtime_file"] = "/tmp/hybro/runtime.json"
     origins = os.environ.get("HYBRO_FRONTEND_ORIGINS")
     if origins:
         values["frontend_origins"] = origins

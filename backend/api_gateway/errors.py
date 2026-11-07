@@ -5,6 +5,7 @@ from __future__ import annotations
 from fastapi import HTTPException, Request
 from fastapi.responses import JSONResponse
 
+from instance_settings import SettingsRequestError
 from llm_gateway.errors import ProviderNotConfigured
 from llm_gateway.setup_api import SetupRequestError
 
@@ -35,6 +36,14 @@ async def setup_request_error_handler(request: Request, exc: Exception) -> JSONR
     return JSONResponse(
         exc.body().model_dump(exclude_none=True), status_code=exc.status
     )
+
+
+async def settings_request_error_handler(
+    request: Request, exc: Exception
+) -> JSONResponse:
+    """A coded settings failure; field errors never echo submitted values."""
+    assert isinstance(exc, SettingsRequestError)
+    return JSONResponse(exc.body().model_dump(), status_code=exc.status)
 
 
 async def provider_not_configured_handler(

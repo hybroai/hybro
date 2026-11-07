@@ -1461,6 +1461,82 @@
   {
     "auth_dependencies": [],
     "dependencies": [
+      "get_instance_settings"
+    ],
+    "methods": [
+      "GET"
+    ],
+    "module": "api_gateway.routes.settings_routes",
+    "name": "read_settings",
+    "openapi_response_codes": [
+      "200",
+      "403",
+      "409",
+      "422",
+      "503"
+    ],
+    "owning_protocol": "instance_settings.protocols.SettingsAccess",
+    "path": "/api/v1/settings",
+    "response_class": null,
+    "response_model": "SettingsView",
+    "status_code": null,
+    "streaming_response": null,
+    "supporting_protocols": []
+  },
+  {
+    "auth_dependencies": [],
+    "dependencies": [
+      "get_instance_settings"
+    ],
+    "methods": [
+      "PUT"
+    ],
+    "module": "api_gateway.routes.settings_routes",
+    "name": "update_settings",
+    "openapi_response_codes": [
+      "200",
+      "403",
+      "409",
+      "422",
+      "503"
+    ],
+    "owning_protocol": "instance_settings.protocols.SettingsAccess",
+    "path": "/api/v1/settings",
+    "response_class": null,
+    "response_model": "SettingsSaved",
+    "status_code": null,
+    "streaming_response": null,
+    "supporting_protocols": []
+  },
+  {
+    "auth_dependencies": [],
+    "dependencies": [
+      "get_instance_settings"
+    ],
+    "methods": [
+      "POST"
+    ],
+    "module": "api_gateway.routes.settings_routes",
+    "name": "restart_services",
+    "openapi_response_codes": [
+      "202",
+      "403",
+      "409",
+      "415",
+      "422",
+      "503"
+    ],
+    "owning_protocol": "instance_settings.protocols.SettingsAccess",
+    "path": "/api/v1/settings/restart",
+    "response_class": null,
+    "response_model": "RestartAccepted",
+    "status_code": 202,
+    "streaming_response": null,
+    "supporting_protocols": []
+  },
+  {
+    "auth_dependencies": [],
+    "dependencies": [
       "get_setup_reader"
     ],
     "methods": [

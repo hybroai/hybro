@@ -11,20 +11,28 @@ MongoDB replica set, then exec supervisord.
 Each supervised program starts through ``runtime_entrypoint.py run <name>``,
 which reads that program's own environment from a private file, prefixes its
 log lines with the program name, and forwards stop signals.
+
+``runtime_entrypoint.py restart [--check]`` is the Settings page's restart
+helper: it plans the services from the current config.json like a start does,
+refuses changes only a full restart applies (Caddy or the program set), and
+restarts every service except Caddy and mongod through supervisorctl.
 """
 
 from __future__ import annotations
 
 import contextlib
+import fcntl
 import grp
 import json
 import os
 import pwd
+import re
 import signal
 import subprocess
 import sys
+import threading
 import time
-from collections.abc import Mapping
+from collections.abc import Callable, Iterator, Mapping
 from dataclasses import dataclass
 from pathlib import Path
 from secrets import token_hex
@@ -58,6 +66,16 @@ CADDY_GRACE_SECONDS = 3
 BACKEND_GRACEFUL_SHUTDOWN_SECONDS = 5  # MCP/server.py uses the same value.
 SERVICE_STOP_WAIT_SECONDS = 15
 MONGOD_STOP_WAIT_SECONDS = 30
+
+# The restart helper's status heartbeat; the backend treats a status older
+# than 60 seconds as a restart that died.
+RESTART_HEARTBEAT_SECONDS = 10.0
+SUPERVISORCTL_TIMEOUT_SECONDS = 300
+# Services the restart helper never restarts: Caddy keeps the port open and
+# mongod keeps the data; a change to either needs a full restart.
+KEEP_RUNNING = frozenset({"caddy", "mongod"})
+# The helper's summary lines go to PID 1's output, so they show in `hybro logs`.
+PID1_STDOUT = Path("/proc/1/fd/1")
 
 # Variables every program may see; everything else is scoped per program.
 # Only the backend learns where the config directory is (see projections()).
@@ -528,17 +546,22 @@ def write_private(path: Path, text: str) -> None:
         handle.write(text)
 
 
-def write_diagnostics_handoff(api_prefix: str) -> None:
-    """Hand ``hybro doctor`` and the backend a token made for this start.
+def replace_private(path: Path, text: str) -> None:
+    """Replace ``path`` with a fresh 0600 file in one step.
 
-    A fresh 0600 file replaces the old one, so a reader never sees a partial
-    file and a loosened mode from an earlier start does not survive.
+    A reader never sees a partial file, and a loosened mode from an earlier
+    write does not survive.
     """
-    path = RUN_DIR / "diagnostics.json"
-    staging = path.with_name(".diagnostics.json.new")
+    staging = path.with_name(f".{path.name}.new")
     staging.unlink(missing_ok=True)
-    write_private(
-        staging,
+    write_private(staging, text)
+    os.replace(staging, path)
+
+
+def write_diagnostics_handoff(api_prefix: str) -> None:
+    """Hand ``hybro doctor`` and the backend a token made for this start."""
+    replace_private(
+        RUN_DIR / "diagnostics.json",
         json.dumps(
             {
                 "base_url": f"{BACKEND_ORIGIN}{api_prefix}/diagnostics",
@@ -546,7 +569,6 @@ def write_diagnostics_handoff(api_prefix: str) -> None:
             }
         ),
     )
-    os.replace(staging, path)
 
 
 def mark_volume_complete(
@@ -569,7 +591,11 @@ def ensure_replica_set(client: Any) -> str:
 
     Returns what was done: ``initiated``, ``reconfigured``, or ``ready``.
     """
-    from pymongo.errors import OperationFailure
+    from pymongo.errors import (
+        AutoReconnect,
+        OperationFailure,
+        ServerSelectionTimeoutError,
+    )
 
     member = {"_id": 0, "host": MONGO_HOST}
     try:
@@ -588,16 +614,34 @@ def ensure_replica_set(client: Any) -> str:
     first = config["members"][0]
     config["members"] = [{**first, "host": MONGO_HOST}]
     config["version"] = int(config["version"]) + 1
-    client.admin.command("replSetReconfig", config, force=True)
+    try:
+        client.admin.command("replSetReconfig", config, force=True)
+    except ServerSelectionTimeoutError:
+        raise  # The server stayed unreachable: mongod is gone, not a dropped link.
+    except AutoReconnect:
+        # The reconfig can close the connection it arrived on. Whether it was
+        # applied shows in wait_for_primary: unapplied, the member stays
+        # unreachable and never becomes primary.
+        pass
     return "reconfigured"
 
 
-def wait_for_primary(client: Any, *, timeout: float = MONGO_READY_SECONDS) -> None:
+def wait_for_primary(
+    client: Any, *, timeout: float = MONGO_READY_SECONDS, interval: float = 0.5
+) -> None:
+    """Wait for a writable primary, riding out connections the reconfig drops."""
+    from pymongo.errors import AutoReconnect, ServerSelectionTimeoutError
+
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
-        if client.admin.command("hello").get("isWritablePrimary"):
-            return
-        time.sleep(0.5)
+        try:
+            if client.admin.command("hello").get("isWritablePrimary"):
+                return
+        except ServerSelectionTimeoutError:
+            raise  # Unreachable for the client's whole timeout: mongod is gone.
+        except AutoReconnect:
+            pass
+        time.sleep(interval)
     raise EntrypointError("MongoDB did not become primary in time.")
 
 
@@ -763,20 +807,37 @@ def _stop_preparation(_signum: int, _frame: object) -> None:
     raise EntrypointError("Stopped during MongoDB preparation.")
 
 
-def user_phase() -> None:
+@dataclass(frozen=True)
+class RuntimePlan:
+    programs: dict[str, Program]
+    caddyfile: str
+    embedded_mongo: bool
+    api_prefix: str
+    # restart_revision of the document the programs were projected from.
+    services_revision: str
+
+
+def plan_runtime(
+    store: Any, listener: Listener, *, check_only: bool = False
+) -> RuntimePlan:
+    """Validate the configuration and project every program from it.
+
+    A check reads the internal credentials without generating missing ones,
+    so a pre-flight never writes ``auth.json``.
+    """
     from common.config.loader import get_settings
     from common.config.runtime_config import RuntimeConfigurationError
-    from common.config.runtime_store import RuntimeConfigStore
 
-    store = RuntimeConfigStore(RUNTIME_DIR)
     try:
         # A credential that cannot be resolved still boots (credential_invalid).
         config = store.load({}).config
-        secrets = store.ensure_service_credentials()
+        if check_only:
+            secrets = store.read_service_credentials()
+        else:
+            secrets = store.ensure_service_credentials()
         settings = get_settings()
     except (RuntimeConfigurationError, ValueError) as exc:
         raise EntrypointError(f"Invalid configuration: {exc}") from None
-    listener = read_listener(os.environ)
     check_listener(
         listener,
         auth_mode=settings.auth_mode,
@@ -786,6 +847,9 @@ def user_phase() -> None:
     embedded_mongo = (
         "mongodb_url" not in config.backend and "mongodb_url" not in secrets
     )
+    if check_only:
+        # Generated on the real run; the check compares no environments.
+        secrets = {"default_agent_llm_token": "", **secrets}
     programs = projections(
         listener=listener,
         api_prefix=settings.api_prefix,
@@ -795,29 +859,66 @@ def user_phase() -> None:
         agents=manifest_processes(MANIFEST),
         embedded_mongo=embedded_mongo,
     )
-    RUN_DIR.mkdir(mode=0o700, parents=True, exist_ok=True)
-    base = {key: os.environ[key] for key in _BASE_ENV_KEYS if key in os.environ}
-    for name, program in programs.items():
-        spec = {
-            "command": program.command,
-            "cwd": program.cwd,
-            "env": {**base, **program.env},
-        }
-        write_private(RUN_DIR / "programs" / f"{name}.json", json.dumps(spec))
-    write_private(
-        RUN_DIR / "Caddyfile",
-        caddyfile(listener=listener, api_prefix=settings.api_prefix),
+    return RuntimePlan(
+        programs=programs,
+        caddyfile=caddyfile(listener=listener, api_prefix=settings.api_prefix),
+        embedded_mongo=embedded_mongo,
+        api_prefix=settings.api_prefix,
+        services_revision=config.restart_revision,
     )
+
+
+def base_environment() -> dict[str, str]:
+    return {key: os.environ[key] for key in _BASE_ENV_KEYS if key in os.environ}
+
+
+def program_spec(program: Program, base: Mapping[str, str]) -> str:
+    """The private file ``run_program`` reads at each program start."""
+    return json.dumps(
+        {"command": program.command, "cwd": program.cwd, "env": {**base, **program.env}}
+    )
+
+
+def write_runtime_record(listener: Listener, plan: RuntimePlan) -> None:
+    """This start's transport and services revision; not a configuration source."""
+    replace_private(
+        RUN_DIR / "runtime.json",
+        json.dumps(
+            {
+                "listen": listener.mode,
+                "public_port": listener.public_port,
+                "insecure_no_auth": listener.insecure_no_auth,
+                "embedded_mongo": plan.embedded_mongo,
+                "services_revision": plan.services_revision,
+            }
+        ),
+    )
+
+
+def user_phase() -> None:
+    from common.config.runtime_store import RuntimeConfigStore
+
+    store = RuntimeConfigStore(RUNTIME_DIR)
+    listener = read_listener(os.environ)
+    plan = plan_runtime(store, listener)
+    RUN_DIR.mkdir(mode=0o700, parents=True, exist_ok=True)
+    base = base_environment()
+    for name, program in plan.programs.items():
+        write_private(
+            RUN_DIR / "programs" / f"{name}.json", program_spec(program, base)
+        )
+    write_private(RUN_DIR / "Caddyfile", plan.caddyfile)
     write_private(
         RUN_DIR / "supervisord.conf",
-        supervisord_conf(programs, as_root=os.geteuid() == 0),
+        supervisord_conf(plan.programs, as_root=os.geteuid() == 0),
     )
-    write_diagnostics_handoff(settings.api_prefix)
-    if embedded_mongo and replica_set_recorded():
+    write_diagnostics_handoff(plan.api_prefix)
+    write_runtime_record(listener, plan)
+    if plan.embedded_mongo and replica_set_recorded():
         # A temporary mongod start and stop costs seconds on every start; the
         # record is written only after a preparation that completed.
         status(f"MongoDB replica set {REPLICA_SET}: ready (recorded)")
-    elif embedded_mongo:
+    elif plan.embedded_mongo:
         # A stop during preparation shuts the temporary mongod down cleanly.
         signal.signal(signal.SIGTERM, _stop_preparation)
         prepare_mongodb()
@@ -831,6 +932,205 @@ def user_phase() -> None:
         ["supervisord", "-c", str(RUN_DIR / "supervisord.conf")],
         base,
     )
+
+
+# ------------------------------------------------------------ restart helper
+
+FULL_RESTART = "This change needs a full restart: run `hybro stop` and `hybro`."
+Runner = Callable[..., "subprocess.CompletedProcess[str]"]
+
+
+def _supervisorctl(command: list[str], *, timeout: float) -> Any:
+    return subprocess.run(
+        command,
+        stdin=subprocess.DEVNULL,
+        capture_output=True,
+        text=True,
+        timeout=timeout,
+        check=False,
+    )
+
+
+# The heartbeat thread and the helper share one staging file.
+_STATUS_LOCK = threading.Lock()
+
+
+def write_restart_status(state: str, error: str | None = None) -> None:
+    with _STATUS_LOCK:
+        replace_private(
+            RUN_DIR / "restart.json",
+            json.dumps({"state": state, "error": error, "updated_at": time.time()}),
+        )
+
+
+def _announce(level: Literal["info", "error"], message: str) -> None:
+    """One logfmt summary line in PID 1's output (``hybro logs``); best effort.
+
+    The level lets the foreground ``hybro`` view, which shows only errors,
+    show a failed restart.
+    """
+    with contextlib.suppress(OSError):
+        with open(PID1_STDOUT, "a", encoding="utf-8") as output:
+            output.write(f"restart | level={level} msg={json.dumps(message)}\n")
+
+
+def read_runtime_record() -> tuple[Listener, dict[str, Any]]:
+    try:
+        record = json.loads((RUN_DIR / "runtime.json").read_text(encoding="utf-8"))
+        listener = Listener(
+            mode=record["listen"],
+            public_port=record["public_port"],
+            insecure_no_auth=record["insecure_no_auth"],
+        )
+    except (OSError, ValueError, TypeError, KeyError):
+        raise EntrypointError(
+            f"Cannot read this start's runtime record. {FULL_RESTART}"
+        ) from None
+    if (
+        listener.mode not in ("loopback", "public")
+        or not isinstance(listener.public_port, int)
+        or not isinstance(listener.insecure_no_auth, bool)
+    ):
+        raise EntrypointError(
+            f"Cannot read this start's runtime record. {FULL_RESTART}"
+        )
+    return listener, record
+
+
+def _check_restartable(plan: RuntimePlan) -> None:
+    """Only the services restart; Caddy and the program set stay as started."""
+    try:
+        current_caddyfile = (RUN_DIR / "Caddyfile").read_text(encoding="utf-8")
+        current_conf = (RUN_DIR / "supervisord.conf").read_text(encoding="utf-8")
+    except OSError:
+        raise EntrypointError(FULL_RESTART) from None
+    # supervisord.conf names exactly the programs, mongod among them when
+    # MongoDB is embedded. Its socket password is new on every start, so only
+    # the program names are compared.
+    running = set(re.findall(r"^\[program:([^\]]+)\]$", current_conf, re.M))
+    if plan.caddyfile != current_caddyfile or running != set(plan.programs):
+        raise EntrypointError(FULL_RESTART)
+
+
+@contextlib.contextmanager
+def _heartbeat() -> Iterator[None]:
+    """Refresh the status while a supervisorctl call runs."""
+    stop = threading.Event()
+
+    def beat() -> None:
+        while not stop.wait(RESTART_HEARTBEAT_SECONDS):
+            with contextlib.suppress(OSError):
+                write_restart_status("restarting")
+
+    thread = threading.Thread(target=beat, daemon=True)
+    thread.start()
+    try:
+        yield
+    finally:
+        stop.set()
+        thread.join()
+
+
+def _call(run: Runner, command: list[str]) -> Any:
+    write_restart_status("restarting")
+    try:
+        with _heartbeat():
+            return run(command, timeout=SUPERVISORCTL_TIMEOUT_SECONDS)
+    except (OSError, subprocess.SubprocessError):
+        raise EntrypointError("supervisorctl did not complete.") from None
+    finally:
+        write_restart_status("restarting")
+
+
+def _not_running(output: str, names: list[str]) -> list[str]:
+    states: dict[str, str] = {}
+    for line in output.splitlines():
+        parts = line.split()
+        if len(parts) >= 2:
+            states[parts[0]] = parts[1]
+    return [
+        f"{name} ({states.get(name, 'UNKNOWN')})"
+        for name in names
+        if states.get(name) != "RUNNING"
+    ]
+
+
+def _restart_services(plan: RuntimePlan, record: dict[str, Any], run: Runner) -> str:
+    base = base_environment()
+    services = [name for name in plan.programs if name not in KEEP_RUNNING]
+    for name in services:
+        replace_private(
+            RUN_DIR / "programs" / f"{name}.json",
+            program_spec(plan.programs[name], base),
+        )
+    names = [f"services:{name}" for name in services]
+    control = ["supervisorctl", "-c", str(RUN_DIR / "supervisord.conf")]
+    restarted = _call(run, [*control, "restart", *names])
+    if restarted.returncode != 0:
+        raise EntrypointError(
+            f"supervisorctl restart exited with code {restarted.returncode}."
+        )
+    # The restart exit code alone does not prove each service came back.
+    status = _call(run, [*control, "status", *names])
+    failed = _not_running(status.stdout or "", names)
+    if failed:
+        raise EntrypointError("Some services did not start: " + ", ".join(failed))
+    replace_private(
+        RUN_DIR / "runtime.json",
+        json.dumps({**record, "services_revision": plan.services_revision}),
+    )
+    return ", ".join(services)
+
+
+def restart(*, check: bool, run: Runner = _supervisorctl) -> int:
+    """Plan from config.json and restart every service but Caddy and mongod.
+
+    Prints one JSON result line. ``check`` validates without side effects.
+    No rollback on failure: supervisord keeps retrying the services, and
+    the backend reads config.json itself, so old program files would not
+    restore the old state.
+    """
+    from common.config.runtime_store import RuntimeConfigStore
+
+    try:
+        listener, record = read_runtime_record()
+        plan = plan_runtime(RuntimeConfigStore(RUNTIME_DIR), listener, check_only=check)
+        _check_restartable(plan)
+    except EntrypointError as exc:
+        print(json.dumps({"ok": False, "error": str(exc)}))
+        if not check:
+            with contextlib.suppress(OSError):
+                write_restart_status("failed", str(exc))
+            _announce("error", f"failed: {exc}")
+        return 1
+    if check:
+        print(json.dumps({"ok": True}))
+        return 0
+    with open(RUN_DIR / "restart.lock", "a") as lock:
+        try:
+            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            # Another restart is running and owns the status file.
+            print(json.dumps({"ok": True, "skipped": True}))
+            _announce("info", "skipped: another restart is running.")
+            return 0
+        try:
+            restarted = _restart_services(plan, record, run)
+        except (EntrypointError, OSError) as exc:
+            error = (
+                str(exc)
+                if isinstance(exc, EntrypointError)
+                else "Cannot write the service files."
+            )
+            print(json.dumps({"ok": False, "error": error}))
+            with contextlib.suppress(OSError):
+                write_restart_status("failed", error)
+            _announce("error", f"failed: {error}")
+            return 1
+        write_restart_status("completed")
+        _announce("info", f"completed: restarted {restarted}.")
+        print(json.dumps({"ok": True}))
+        return 0
 
 
 # -------------------------------------------------------------- program run
@@ -868,6 +1168,13 @@ def run_program(name: str) -> int:
 def main(argv: list[str]) -> int:
     if len(argv) == 3 and argv[1] == "run":
         return run_program(argv[2])
+    # Before the root branch: services that run as root (a UID 0 config
+    # directory) call this too, and must never start a second supervisord.
+    if len(argv) >= 2 and argv[1] == "restart":
+        if argv[2:] not in ([], ["--check"]):
+            print("usage: runtime_entrypoint.py restart [--check]", file=sys.stderr)
+            return 2
+        return restart(check=argv[2:] == ["--check"])
     try:
         if os.geteuid() == 0:
             root_phase()

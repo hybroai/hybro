@@ -3231,6 +3231,208 @@
         }
       }
     },
+    "/api/v1/settings": {
+      "get": {
+        "tags": [
+          "settings"
+        ],
+        "summary": "Read Settings",
+        "operationId": "read_settings_api_v1_settings_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SettingsView"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SettingsErrorBody"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SettingsErrorBody"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Unprocessable Entity",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SettingsErrorBody"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Service Unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SettingsErrorBody"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "settings"
+        ],
+        "summary": "Update Settings",
+        "operationId": "update_settings_api_v1_settings_put",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SettingsUpdate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SettingsSaved"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SettingsErrorBody"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SettingsErrorBody"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Unprocessable Entity",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SettingsErrorBody"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Service Unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SettingsErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/settings/restart": {
+      "post": {
+        "tags": [
+          "settings"
+        ],
+        "summary": "Restart Services",
+        "description": "Restart the backend, frontend, MCP and agents; Caddy and MongoDB stay up.\n\nThe body is ``{}``. Requiring a JSON content type makes the browser send a\nCORS preflight, so another site cannot trigger a restart with a simple\nPOST, which mock mode would otherwise accept from any page.",
+        "operationId": "restart_services_api_v1_settings_restart_post",
+        "responses": {
+          "202": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestartAccepted"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SettingsErrorBody"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SettingsErrorBody"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Unprocessable Entity",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SettingsErrorBody"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Service Unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SettingsErrorBody"
+                }
+              }
+            }
+          },
+          "415": {
+            "description": "Unsupported Media Type",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SettingsErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/diagnostics/snapshot": {
       "get": {
         "tags": [
@@ -5636,6 +5838,83 @@
         "type": "object",
         "title": "StreamOptions"
       },
+      "SystemInfo": {
+        "properties": {
+          "version": {
+            "type": "string",
+            "title": "Version"
+          },
+          "deployment": {
+            "type": "string",
+            "enum": [
+              "image",
+              "checkout"
+            ],
+            "title": "Deployment"
+          },
+          "port": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Port"
+          },
+          "listen": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "loopback",
+                  "public"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Listen"
+          },
+          "auth_mode": {
+            "type": "string",
+            "enum": [
+              "mock",
+              "clerk"
+            ],
+            "title": "Auth Mode"
+          },
+          "mcp_available": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Mcp Available"
+          },
+          "config_location": {
+            "type": "string",
+            "title": "Config Location"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "version",
+          "deployment",
+          "port",
+          "listen",
+          "auth_mode",
+          "mcp_available",
+          "config_location"
+        ],
+        "title": "SystemInfo"
+      },
       "Task": {
         "properties": {
           "id": {
@@ -6515,6 +6794,426 @@
         ],
         "title": "SessionSummary",
         "description": "One row of the owner's session list."
+      },
+      "SettingsErrorBody": {
+        "properties": {
+          "detail": {
+            "type": "string",
+            "title": "Detail"
+          },
+          "code": {
+            "type": "string",
+            "title": "Code"
+          },
+          "errors": {
+            "items": {
+              "$ref": "#/components/schemas/SettingsFieldError"
+            },
+            "type": "array",
+            "title": "Errors",
+            "default": []
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "detail",
+          "code"
+        ],
+        "title": "SettingsErrorBody"
+      },
+      "SettingsField": {
+        "properties": {
+          "key": {
+            "type": "string",
+            "title": "Key"
+          },
+          "group": {
+            "type": "string",
+            "title": "Group"
+          },
+          "level": {
+            "type": "string",
+            "enum": [
+              "basic",
+              "advanced"
+            ],
+            "title": "Level"
+          },
+          "apply": {
+            "type": "string",
+            "enum": [
+              "live",
+              "restart"
+            ],
+            "title": "Apply"
+          },
+          "label": {
+            "type": "string",
+            "title": "Label"
+          },
+          "description": {
+            "type": "string",
+            "title": "Description"
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "boolean",
+              "integer",
+              "number",
+              "url",
+              "enum"
+            ],
+            "title": "Kind"
+          },
+          "options": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Options"
+          },
+          "nullable": {
+            "type": "boolean",
+            "title": "Nullable"
+          },
+          "minimum": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Minimum"
+          },
+          "maximum": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Maximum"
+          },
+          "exclusive_minimum": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Exclusive Minimum"
+          },
+          "default": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "integer"
+              },
+              {
+                "type": "number"
+              },
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Default"
+          },
+          "value": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "integer"
+              },
+              {
+                "type": "number"
+              },
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Value"
+          },
+          "source": {
+            "type": "string",
+            "enum": [
+              "config",
+              "default"
+            ],
+            "title": "Source"
+          },
+          "restart_pending": {
+            "type": "boolean",
+            "title": "Restart Pending"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "key",
+          "group",
+          "level",
+          "apply",
+          "label",
+          "description",
+          "kind",
+          "options",
+          "nullable",
+          "minimum",
+          "maximum",
+          "exclusive_minimum",
+          "default",
+          "value",
+          "source",
+          "restart_pending"
+        ],
+        "title": "SettingsField"
+      },
+      "SettingsFieldError": {
+        "properties": {
+          "field": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Field"
+          },
+          "code": {
+            "type": "string",
+            "title": "Code"
+          },
+          "message": {
+            "type": "string",
+            "title": "Message"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "field",
+          "code",
+          "message"
+        ],
+        "title": "SettingsFieldError"
+      },
+      "SettingsGroup": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "label": {
+            "type": "string",
+            "title": "Label"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "id",
+          "label"
+        ],
+        "title": "SettingsGroup"
+      },
+      "SettingsNotice": {
+        "properties": {
+          "code": {
+            "type": "string",
+            "enum": [
+              "removed_fields",
+              "instances_ignored",
+              "unlisted_fields",
+              "capped_fields"
+            ],
+            "title": "Code"
+          },
+          "fields": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Fields"
+          },
+          "message": {
+            "type": "string",
+            "title": "Message"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "code",
+          "fields",
+          "message"
+        ],
+        "title": "SettingsNotice"
+      },
+      "SettingsSaved": {
+        "properties": {
+          "changed": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Changed"
+          },
+          "restart_required": {
+            "type": "boolean",
+            "title": "Restart Required"
+          },
+          "settings": {
+            "$ref": "#/components/schemas/SettingsView"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "changed",
+          "restart_required",
+          "settings"
+        ],
+        "title": "SettingsSaved"
+      },
+      "SettingsUpdate": {
+        "properties": {
+          "revision": {
+            "type": "string",
+            "maxLength": 128,
+            "minLength": 1,
+            "title": "Revision"
+          },
+          "values": {
+            "additionalProperties": {
+              "anyOf": [
+                {
+                  "type": "boolean"
+                },
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "string",
+                  "maxLength": 2048
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "type": "object",
+            "maxProperties": 29,
+            "minProperties": 1,
+            "title": "Values"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "revision",
+          "values"
+        ],
+        "title": "SettingsUpdate"
+      },
+      "SettingsView": {
+        "properties": {
+          "revision": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Revision"
+          },
+          "config_error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Config Error"
+          },
+          "restart_pending": {
+            "type": "boolean",
+            "title": "Restart Pending"
+          },
+          "restart": {
+            "$ref": "#/components/schemas/RestartStatus"
+          },
+          "groups": {
+            "items": {
+              "$ref": "#/components/schemas/SettingsGroup"
+            },
+            "type": "array",
+            "title": "Groups"
+          },
+          "fields": {
+            "items": {
+              "$ref": "#/components/schemas/SettingsField"
+            },
+            "type": "array",
+            "title": "Fields"
+          },
+          "notices": {
+            "items": {
+              "$ref": "#/components/schemas/SettingsNotice"
+            },
+            "type": "array",
+            "title": "Notices"
+          },
+          "system": {
+            "$ref": "#/components/schemas/SystemInfo"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "revision",
+          "config_error",
+          "restart_pending",
+          "restart",
+          "groups",
+          "fields",
+          "notices",
+          "system"
+        ],
+        "title": "SettingsView"
       },
       "SessionHistoryEntry": {
         "properties": {
@@ -8424,6 +9123,67 @@
         ],
         "title": "RecoverySection",
         "description": "The last cycle, plus canary metrics (null when no reading exists)."
+      },
+      "RestartAccepted": {
+        "properties": {
+          "restart": {
+            "$ref": "#/components/schemas/RestartStatus"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "restart"
+        ],
+        "title": "RestartAccepted"
+      },
+      "RestartStatus": {
+        "properties": {
+          "available": {
+            "type": "boolean",
+            "title": "Available"
+          },
+          "state": {
+            "type": "string",
+            "enum": [
+              "idle",
+              "requested",
+              "restarting",
+              "completed",
+              "failed"
+            ],
+            "title": "State"
+          },
+          "error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error"
+          },
+          "updated_at": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Updated At"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "available",
+          "state"
+        ],
+        "title": "RestartStatus"
       },
       "ServiceSection": {
         "properties": {

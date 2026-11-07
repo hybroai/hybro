@@ -157,14 +157,37 @@ class RuntimeConfig(_StrictModel):
 
     @property
     def revision(self) -> str:
-        canonical = json.dumps(
-            self.model_dump(exclude_none=True),
-            sort_keys=True,
-            separators=(",", ":"),
-            ensure_ascii=False,
-        ).encode("utf-8")
-        digest = hashlib.sha256(canonical).digest()
-        return base64.urlsafe_b64encode(digest).decode("ascii").rstrip("=")
+        return _digest(self.model_dump(exclude_none=True))
+
+    @property
+    def settings_revision(self) -> str:
+        """Revision of the restart-applied sections only.
+
+        Provider and models apply live through setup, so a setup save neither
+        conflicts with a settings form nor marks a restart pending.
+        """
+        return _digest(
+            self.model_dump(
+                include={"backend", "frontend", "image_size"}, exclude_none=True
+            )
+        )
+
+    @property
+    def restart_revision(self) -> str:
+        """``settings_revision`` without ``backend.log_level``, which applies live."""
+        data = self.model_dump(
+            include={"backend", "frontend", "image_size"}, exclude_none=True
+        )
+        data["backend"] = {k: v for k, v in data["backend"].items() if k != "log_level"}
+        return _digest(data)
+
+
+def _digest(data: dict[str, object]) -> str:
+    canonical = json.dumps(
+        data, sort_keys=True, separators=(",", ":"), ensure_ascii=False
+    ).encode("utf-8")
+    digest = hashlib.sha256(canonical).digest()
+    return base64.urlsafe_b64encode(digest).decode("ascii").rstrip("=")
 
 
 class ApiKeyCredential(_StrictModel):
