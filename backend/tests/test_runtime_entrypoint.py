@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import contextlib
 import json
 import os
+import time
 from pathlib import Path
 
 import pytest
@@ -837,3 +839,259 @@ def test_diagnostics_handoff_replaces_a_loosened_file(tmp_path, monkeypatch):
     assert path.stat().st_mode & 0o777 == 0o600
     assert len(json.loads(path.read_text())["token"]) == 64
     assert [p.name for p in (tmp_path / "run").iterdir()] == ["diagnostics.json"]
+
+
+# ---- Runtime plan and the restart helper ----
+
+
+@pytest.fixture
+def started(boot, tmp_path, monkeypatch):
+    """A completed user_phase start; returns the run directory."""
+    from common.config.loader import get_settings
+
+    monkeypatch.setenv("HYBRO_HOME", str(tmp_path / "runtime"))
+    monkeypatch.setattr(entry, "PID1_STDOUT", tmp_path / "pid1.log")
+    get_settings.cache_clear()
+    entry.user_phase()
+    get_settings.cache_clear()
+    yield tmp_path / "run"
+    get_settings.cache_clear()
+
+
+def write_runtime_config(document: dict) -> None:
+    from common.config.loader import get_settings
+
+    (entry.RUNTIME_DIR / "config.json").write_text(json.dumps(document))
+    get_settings.cache_clear()
+
+
+def program_files(run: Path) -> dict[str, str]:
+    return {p.stem: p.read_text() for p in (run / "programs").glob("*.json")}
+
+
+def restart_status(run: Path) -> dict:
+    return json.loads((run / "restart.json").read_text())
+
+
+class FakeSupervisor:
+    """Answers supervisorctl restart and status; states default to RUNNING."""
+
+    def __init__(self, states: dict[str, str] | None = None, *, exit_code: int = 0):
+        self.states = states or {}
+        self.exit_code = exit_code
+        self.calls: list[list[str]] = []
+        self.seen_status: list[dict] = []
+
+    def __call__(self, command, *, timeout):
+        import subprocess
+
+        self.calls.append(command)
+        with contextlib.suppress(OSError):
+            self.seen_status.append(restart_status(entry.RUN_DIR))
+        action, names = command[3], command[4:]
+        if action == "status":
+            lines = [
+                f"{name:<32} {self.states.get(name, 'RUNNING'):<10} pid 1, uptime 0:00:03"
+                for name in names
+            ]
+            return subprocess.CompletedProcess(command, 0, "\n".join(lines) + "\n", "")
+        return subprocess.CompletedProcess(command, self.exit_code, "", "")
+
+
+SERVICES = [
+    "services:backend",
+    "services:mcp",
+    "services:frontend",
+    "services:agent-echo_agent",
+    "services:agent-weather_agent",
+    "services:agent-image_generator_agent",
+    "services:agent-travel_planner_agent",
+    "services:agent-story_agent",
+]
+
+
+def test_plan_runtime_matches_the_user_phase_outputs(started):
+    from common.config.runtime_store import RuntimeConfigStore
+
+    plan = entry.plan_runtime(RuntimeConfigStore(entry.RUNTIME_DIR), loopback(3000))
+    assert plan.api_prefix == "/api/v1"
+    assert plan.embedded_mongo is True
+    assert plan.caddyfile == (started / "Caddyfile").read_text()
+    assert (
+        entry.supervisord_conf(plan.programs)
+        == (started / "supervisord.conf").read_text()
+    )
+    base = {k: os.environ[k] for k in entry._BASE_ENV_KEYS if k in os.environ}
+    assert {
+        name: entry.program_spec(program, base)
+        for name, program in plan.programs.items()
+    } == program_files(started)
+
+
+def test_runtime_record_is_private_and_names_the_services_revision(started):
+    from common.config.runtime_config import RuntimeConfig
+
+    path = started / "runtime.json"
+    assert path.stat().st_mode & 0o777 == 0o600
+    assert json.loads(path.read_text()) == {
+        "listen": "loopback",
+        "public_port": 3000,
+        "insecure_no_auth": False,
+        "embedded_mongo": True,
+        "services_revision": RuntimeConfig().restart_revision,
+    }
+
+
+def test_restart_matched_before_the_root_branch(monkeypatch):
+    calls = []
+    monkeypatch.setattr(entry.os, "geteuid", lambda: 0)
+    monkeypatch.setattr(entry, "root_phase", lambda: calls.append("root"))
+    monkeypatch.setattr(entry, "user_phase", lambda: calls.append("user"))
+    monkeypatch.setattr(
+        entry, "restart", lambda *, check: calls.append(("restart", check)) or 0
+    )
+    assert entry.main(["x", "restart", "--check"]) == 0
+    assert entry.main(["x", "restart"]) == 0
+    assert calls == [("restart", True), ("restart", False)]
+    assert entry.main(["x", "restart", "--now"]) == 2
+    assert calls == [("restart", True), ("restart", False)]
+
+
+def test_restart_check_passes_without_side_effects(started, capsys):
+    before = program_files(started)
+    supervisor = FakeSupervisor()
+    assert entry.restart(check=True, run=supervisor) == 0
+    assert json.loads(capsys.readouterr().out.strip().splitlines()[-1]) == {"ok": True}
+    assert supervisor.calls == []
+    assert program_files(started) == before
+    assert not (started / "restart.json").exists()
+
+
+def test_restart_check_does_not_write_auth_json(started):
+    auth = entry.RUNTIME_DIR / "auth.json"
+    auth.unlink()
+    assert entry.restart(check=True, run=FakeSupervisor()) == 0
+    assert not auth.exists()
+
+
+@pytest.mark.parametrize(
+    ("document", "message"),
+    [
+        ("{not json", "Invalid configuration"),
+        ({"version": 1, "backend": {"api_prefix": "/api/v2"}}, "full restart"),
+        (
+            {"version": 1, "backend": {"mongodb_url": "mongodb://db:27017/x"}},
+            "full restart",
+        ),
+    ],
+)
+def test_restart_check_refuses_what_a_service_restart_cannot_apply(
+    started, capsys, document, message
+):
+    if isinstance(document, str):
+        (entry.RUNTIME_DIR / "config.json").write_text(document)
+    else:
+        write_runtime_config(document)
+    assert entry.restart(check=True, run=FakeSupervisor()) == 1
+    result = json.loads(capsys.readouterr().out.strip().splitlines()[-1])
+    assert result["ok"] is False
+    assert message in result["error"]
+    assert not (started / "restart.json").exists()
+
+
+def test_failed_restart_without_check_records_the_failure(started, capsys):
+    write_runtime_config({"version": 1, "backend": {"api_prefix": "/api/v2"}})
+    supervisor = FakeSupervisor()
+    assert entry.restart(check=False, run=supervisor) == 1
+    assert supervisor.calls == []
+    status = restart_status(started)
+    assert status["state"] == "failed"
+    assert "hybro stop" in status["error"]
+    assert "failed" in (entry.PID1_STDOUT).read_text()
+
+
+def test_restart_rewrites_the_services_and_restarts_exactly_them(started):
+    from common.config.runtime_config import RuntimeConfig
+
+    before = program_files(started)
+    write_runtime_config({"version": 1, "frontend": {"max_message_length": 9}})
+    supervisor = FakeSupervisor()
+    assert entry.restart(check=False, run=supervisor) == 0
+    conf = str(started / "supervisord.conf")
+    assert supervisor.calls == [
+        ["supervisorctl", "-c", conf, "restart", *SERVICES],
+        ["supervisorctl", "-c", conf, "status", *SERVICES],
+    ]
+    after = program_files(started)
+    assert after["caddy"] == before["caddy"]
+    assert after["mongod"] == before["mongod"]
+    assert after["frontend"] != before["frontend"]
+    assert '\\"max_message_length\\": 9' in after["frontend"]
+    for path in (started / "programs").iterdir():
+        assert path.suffix == ".json", path
+        assert path.stat().st_mode & 0o777 == 0o600
+    status = restart_status(started)
+    assert (status["state"], status["error"]) == ("completed", None)
+    assert supervisor.seen_status[0]["state"] == "restarting"
+    record = json.loads((started / "runtime.json").read_text())
+    assert (
+        record["services_revision"]
+        == RuntimeConfig.model_validate(
+            {"frontend": {"max_message_length": 9}}
+        ).restart_revision
+    )
+    assert record["listen"] == "loopback"
+    assert "completed" in entry.PID1_STDOUT.read_text()
+
+
+def test_a_service_not_running_after_restart_fails(started):
+    revision = json.loads((started / "runtime.json").read_text())["services_revision"]
+    write_runtime_config({"version": 1, "frontend": {"max_message_length": 9}})
+    supervisor = FakeSupervisor({"services:frontend": "BACKOFF"})
+    assert entry.restart(check=False, run=supervisor) == 1
+    status = restart_status(started)
+    assert status["state"] == "failed"
+    assert "services:frontend" in status["error"]
+    record = json.loads((started / "runtime.json").read_text())
+    assert record["services_revision"] == revision
+
+
+def test_a_failed_supervisorctl_restart_fails(started):
+    assert entry.restart(check=False, run=FakeSupervisor(exit_code=7)) == 1
+    assert restart_status(started)["state"] == "failed"
+
+
+def test_a_busy_restart_lock_leaves_the_status_alone(started):
+    import fcntl
+
+    (started / "restart.json").write_text('{"state": "restarting"}')
+    with open(started / "restart.lock", "w") as held:
+        fcntl.flock(held, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        supervisor = FakeSupervisor()
+        assert entry.restart(check=False, run=supervisor) == 0
+    assert supervisor.calls == []
+    assert (started / "restart.json").read_text() == '{"state": "restarting"}'
+
+
+def test_the_heartbeat_refreshes_updated_at_during_supervisorctl(started, monkeypatch):
+    monkeypatch.setattr(entry, "RESTART_HEARTBEAT_SECONDS", 0.01)
+    beats: list[float] = []
+
+    def slow(command, *, timeout):
+        first = restart_status(entry.RUN_DIR)["updated_at"]
+        deadline = time.monotonic() + 2
+        while time.monotonic() < deadline:
+            current = restart_status(entry.RUN_DIR)
+            if current["updated_at"] != first:
+                beats.append(current["updated_at"])
+                break
+            time.sleep(0.005)
+        return FakeSupervisor()(command, timeout=timeout)
+
+    assert entry.restart(check=False, run=slow) == 0
+    assert len(beats) == 2
+
+
+def test_pid1_output_is_best_effort(started, monkeypatch):
+    monkeypatch.setattr(entry, "PID1_STDOUT", started / "missing" / "fd")
+    assert entry.restart(check=False, run=FakeSupervisor()) == 0
