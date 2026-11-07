@@ -1287,8 +1287,14 @@ updates and the release workflow compares with the tag.
   `-p 127.0.0.1:1455:1455` for the OAuth callback. When 1455 is taken, it runs
   again without it and the ChatGPT login uses the paste flow. A stopped
   container of the same name is removed first; a running one only prints its
-  address. Without `-d` the script follows the logs and stops the container on
-  Ctrl-C. `--listen` takes an IP address: `127.0.0.1`, `localhost`, and `::1`
+  address. Without `-d` the script polls the backend's `/health`, the
+  frontend, and `/health` through Caddy (a `docker exec` of the backend's
+  Python; any HTTP answer counts, as a degraded `/health` answers 503), prints
+  the address once all three answer, and then follows the logs through the `hybro logs --level
+  error` filter, which also reads mongod's `"s"` severity; supervisord's own
+  lines have no program name and always show. A container that stops first, or no answer
+  within 180 seconds, prints the last 30 log lines and exits 1. Ctrl-C stops
+  the container. `--listen` takes an IP address: `127.0.0.1`, `localhost`, and `::1`
   are loopback, anything else is public. Start options are flags only.
 - **Update notice.** Release mode reads the latest release tag at most once a
   day (three-second timeout, cached in `$HYBRO_HOME/update-check`) and prints

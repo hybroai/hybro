@@ -78,7 +78,7 @@ Hybro $HYBRO_VERSION: AI agents and rooms in one container.
 Usage: $CLI [command] [options]
 
 Commands:
-  start         Start Hybro and follow its logs (the default command)
+  start         Start Hybro and show only its errors (the default command)
   stop          Stop Hybro
   status        Show whether Hybro is running and its address
   logs          Show Hybro's logs; docker logs options such as -f pass through
@@ -348,17 +348,62 @@ start_container() {
     die "cannot start the $CONTAINER container"
 }
 
+READY_TIMEOUT=180
+# Any HTTP answer counts, as /health answers 503 while a dependency is degraded.
+# The backend and the frontend first: Caddy logs an error for each request it
+# cannot proxy.
+HEALTH_PROBE='import http.client
+for port, path in ((8000, "/health"), (3000, "/"), (8080, "/health")):
+    connection = http.client.HTTPConnection("127.0.0.1", port, timeout=2)
+    connection.request("GET", path)
+    connection.getresponse()'
+
+# Waits until the backend, the frontend and Caddy answer; fails on Ctrl-C,
+# when the container stops, or when the timeout passes.
+wait_ready() {
+    started=$(date +%s)
+    while :; do
+        [ "$INTERRUPTED" = 0 ] || return 1
+        [ "$(container_state)" = running ] || return 1
+        docker exec "$CONTAINER" "$DIAG_PYTHON" -c "$HEALTH_PROBE" >/dev/null 2>&1 && break
+        [ $(($(date +%s) - started)) -lt "$READY_TIMEOUT" ] || return 1
+        sleep 1
+    done
+    [ "$INTERRUPTED" = 0 ] || return 1
+    READY_SECONDS=$(($(date +%s) - started))
+}
+
+stop_on_interrupt() {
+    [ "$INTERRUPTED" = 1 ] || return 0
+    say "Stopping Hybro..."
+    docker stop "$CONTAINER" >/dev/null || die "cannot stop $CONTAINER"
+    exit 0
+}
+
+# The foreground start: a ready line, then only errors, including those logged
+# while starting; mongod, Caddy and the agents warn on every normal start.
+# supervisord lines carry no program name and are always shown. Ctrl-C stops
+# Hybro.
 follow_logs() {
-    say "Following the logs; press Ctrl-C to stop Hybro."
+    say "Starting Hybro $HYBRO_VERSION..."
     INTERRUPTED=0
     trap 'INTERRUPTED=1' INT
-    docker logs -f "$CONTAINER"
-    trap - INT
-    if [ "$INTERRUPTED" = 1 ]; then
-        say "Stopping Hybro..."
-        docker stop "$CONTAINER" >/dev/null || die "cannot stop $CONTAINER"
-        exit 0
+    if ! wait_ready; then
+        trap - INT
+        stop_on_interrupt
+        docker logs --tail 30 "$CONTAINER" 2>&1
+        if [ "$(container_state)" = running ]; then
+            err "Hybro did not become ready within ${READY_TIMEOUT}s; it is still running."
+            die "Follow its logs with: $CLI logs -f, or stop it with: $CLI stop"
+        fi
+        code=$(docker container inspect -f '{{.State.ExitCode}}' "$CONTAINER" 2>/dev/null)
+        die "Hybro stopped before it was ready (exit code ${code:-unknown}). Show the logs with: $CLI logs"
     fi
+    say "Hybro is ready at $url (${READY_SECONDS}s). Press Ctrl-C to stop."
+    say "Full logs: $CLI logs -f"
+    docker logs -f "$CONTAINER" 2>&1 | filter_logs "" "$(log_levels error)" ""
+    trap - INT
+    stop_on_interrupt
     code=$(docker container inspect -f '{{.State.ExitCode}}' "$CONTAINER" 2>/dev/null)
     die "Hybro stopped (exit code ${code:-unknown}). Show the logs with: $CLI logs"
 }
@@ -453,8 +498,8 @@ cmd_start() {
     ensure_image
     start_container
     url=$(url_for "$BIND" "$PORT")
-    say "Hybro is starting at $url"
     if [ "$DETACH" = 1 ]; then
+        say "Hybro is starting at $url"
         say "Running in the background. Stop it with: $CLI stop"
         return 0
     fi
@@ -547,7 +592,13 @@ cmd_logs() {
     # docker's own errors carry no program prefix and are always shown; its exit
     # status reaches awk as a sentinel line so a failure is not masked by the pipe.
     { docker logs "$@" "$CONTAINER" 2>&1 || echo "hybro_docker_exit=$?"; } |
-        awk -v service="$service" -v levels="$levels" -v trace="$trace" '
+        filter_logs "$service" "$levels" "$trace"
+}
+
+# filter_logs <service> <level alternation> <trace id>: filters docker logs
+# lines on stdin. A hybro_docker_exit=<n> line sets the exit status.
+filter_logs() {
+    awk -v service="$1" -v levels="$2" -v trace="$3" '
         /^hybro_docker_exit=[0-9]+$/ { code = substr($0, 19) + 0; next }
         {
             split_at = index($0, " | ")
@@ -564,7 +615,19 @@ cmd_logs() {
         }
         # JSON lines write level before any message text; logfmt lines start
         # with it or with timestamp then level. Plain text has no level.
+        # mongod writes its severity as "s": F, E, W, I, or D1 to D5.
         function level_of(text,    value) {
+            if (match(text, /^[{]"t":[{][^}]*[}],"s":"[^"]*"/)) {
+                value = substr(text, RSTART, RLENGTH)
+                sub(/^.*"s":"/, "", value)
+                sub(/"$/, "", value)
+                if (value == "F") return "fatal"
+                if (value == "E") return "error"
+                if (value == "W") return "warning"
+                if (value == "I") return "info"
+                if (value ~ /^D[1-5]$/) return "debug"
+                return ""
+            }
             if (substr(text, 1, 1) == "{") {
                 if (!match(text, /"level":"[^"]*"/)) return ""
                 return substr(text, RSTART + 9, RLENGTH - 10)

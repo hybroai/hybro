@@ -86,7 +86,8 @@ profiles; if the directory is not on `PATH`, it prints the line to add. With npm
 instead: `npm install -g @hybroai/cli`. Both install the same script.
 
 `hybro` (or `hybro start`) pulls the image for its own version, starts the
-container, prints the address, and follows the logs; Ctrl-C stops Hybro.
+container, waits until it is ready, prints the address, and then shows only
+errors (`hybro logs -f` shows everything); Ctrl-C stops Hybro.
 `hybro start -d` runs it in the background.
 
 | | Released install | Source checkout |
@@ -230,7 +231,7 @@ See [MCP tools, health, and native startup](backend/README.md#local-mcp-access).
 ## Running
 
 ```bash
-hybro                        # start and follow the logs; Ctrl-C stops Hybro
+hybro                        # start, then show only errors; Ctrl-C stops Hybro
 hybro start -d               # start in the background
 hybro start --port 4000      # another host port (the default is 3000, 3100 from a checkout)
 hybro status                 # running or not, with the address
