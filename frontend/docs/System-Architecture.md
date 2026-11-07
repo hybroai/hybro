@@ -163,6 +163,11 @@ src/app/
     |-- network/agents/new/page.tsx
     |-- connect/mcp/page.tsx
     |-- connect/api/page.tsx
+    |-- settings/layout.tsx      # Settings title, section tabs, restart banner
+    |-- settings/page.tsx        # redirect -> /settings/model-provider
+    |-- settings/model-provider/page.tsx
+    |-- settings/configuration/page.tsx
+    |-- settings/system/page.tsx
     |-- chat/page.tsx
     |-- pricing/page.tsx
     |-- room/[id]/page.tsx
@@ -183,7 +188,7 @@ src/app/
 
 ### Unified routing
 
-The application exposes one unprefixed route tree with four destinations:
+The application exposes one unprefixed route tree with these destinations:
 
 - `/`: Overview.
 - `/network`: the Network workspace. View state lives in the URL: `view`
@@ -196,12 +201,17 @@ The application exposes one unprefixed route tree with four destinations:
   agent registration.
 - `/chat` and `/room/[id]`: Chats (chat home and room workspace).
 - `/connect/mcp` and `/connect/api`: Access pages (MCP and API tabs).
+- `/settings/model-provider`, `/settings/configuration`, and
+  `/settings/system`: instance Settings; `/settings` redirects to Model
+  provider.
 
 There is no host-based route rewrite. `/agents*`, `/networks`,
 `/access/*`, and `/manage*` paths are page-level `redirect()` routes to their
 canonical equivalents. `src/lib/routes.ts` is the canonical route vocabulary
 (`overview`, `network`, `networkWith(query)`, `networkAgent(id)`,
-`registerAgent`, `connectMcp`, `connectApi`, `chat`, `room(id)`).
+`registerAgent`, `connectMcp`, `connectApi`, `settings`,
+`settingsModelProvider`, `settingsConfiguration`, `settingsSystem`, `chat`,
+`room(id)`).
 
 The Network workspace merges visible registered agents with locally available
 agents through `useNetworks`. Its **Add agent** menu offers **Add Remote Agent**
@@ -249,7 +259,7 @@ src/components/
 |-- subnets/                  # one subnet dialog (create/edit), delete confirmation, room/chat dialog host
 |-- connect/                  # Access pages, per-assistant setups, copyable access materials
 |-- providers/                # React Query provider
-|-- settings/                 # settings dialog sections (account, model provider) and helpers
+|-- settings/                 # Settings page sections, tabs, restart banner; Account dialog sections
 |-- setup/                    # model provider banners
 |-- room-page-shell.tsx       # room workspace shell
 |-- room-chat-input.tsx       # composer input, mentions, uploads
@@ -1066,7 +1076,7 @@ selects the saved subnet in the group selector and prefills the composer; room c
 navigation do not occur until the user sends the message. A failed create re-reads the saved groups once and selects a subnet a concurrent tab created.
 
 The shared side menu is `PortalSidebar`, a 14.5rem Sidebar with a 4rem
-icon-only collapsed state. `NavAgent` renders the five flat `CONSUMER_NAV`
+icon-only collapsed state. `NavAgent` renders the six flat `CONSUMER_NAV`
 destinations; the active item's icon uses the primary color:
 
 - **Overview** opens `/` (exact match only).
@@ -1079,10 +1089,12 @@ destinations; the active item's icon uses the primary color:
   sessions that outside clients open through MCP or the Sessions API and shows
   a count badge for sessions in `waiting_on_owner`.
 - **Access** opens `/connect/mcp` and stays active on `/connect/*`.
+- **Settings** opens `/settings/model-provider` and stays active on
+  `/settings/*`.
 
 The order tells the story in sequence: Chats is where a new user starts, the
 Inbox fills once a client is set up, and Access is where that client is set
-up.
+up. Settings comes last because it configures the instance itself.
 
 The same primary menu is used on `/about`, the other existing portal pages, and
 the feature pages. Chat and Room routes add a separate History column
@@ -1288,17 +1300,7 @@ shows no notice.
   agent catalog (`useAgentCatalog`, inactive Agents included), and a settings
   save invalidates that catalog, because the save re-gates the bundled Agents.
 
-Every banner links to `?settings=model-provider` on the current path
-(`src/lib/settings-url.ts`). `SettingsDialogProvider` watches that parameter
-inside a `Suspense` boundary and opens the dialog on that section; closing the
-dialog removes the parameter. The dialog keeps one size on every section
-(880px wide, `min(760px, 85vh)` tall) and scrolls the section body inside it.
-It has a section menu with icons (Model
-provider, Profile, Password, Sessions, About; Profile also holds the danger
-zone) and shows one section at a time, keeping all mounted so a sign-in in
-progress survives switching. Model provider is the default, and its menu item
-carries a dot in the status color. About shows the version from
-`package.json`.
+Every banner links to `/settings/model-provider`.
 
 `ModelProviderSection` (`src/components/settings/model-provider-section.tsx`)
 shows a status card and three numbered cards. `providerPhase` maps the status
@@ -1332,6 +1334,64 @@ sign-in expired** (red, with **Sign in again**).
 A save writes the returned status into the query cache, so banners and composer
 gating update at once. Failures show the backend's safe `detail` under the card
 that failed.
+
+### Settings page
+
+`/settings/*` shares `src/app/(portal)/settings/layout.tsx`: the "Settings"
+title, `SettingsTabs` (a top tab bar, `nav` "Settings sections", the current
+tab marked `aria-current`), then `RestartBanner` and `SettingsPanes`. The route
+pages only set the title; `SettingsPanes` mounts a section on its first visit
+and hides it on other tabs, so a ChatGPT sign-in in progress and unsaved
+Configuration edits survive switching tabs. The Model
+provider tab carries a dot in the provider status color; the Configuration tab
+carries an amber dot while saved changes wait for a restart. A tab with a dot
+names its state in its accessible name, for example "Configuration (restart
+pending)".
+
+Configuration and System read `GET {api_prefix}/settings` through
+`useInstanceSettings` (`src/hooks/useInstanceSettings.ts`, key
+`['settings', 'instance']`; client in `src/lib/api/settings.ts`). The endpoint
+is admin-only: a 403 shows "Only an admin can view and change these settings."
+While the restart state is `requested` or `restarting`, the query polls every
+2 s and keeps its last data when a fetch fails, because the backend is down
+during the restart.
+
+- Configuration (`ConfigurationSection`) renders the registry fields from the
+  response: one card per basic group, then a collapsed Advanced group that
+  opens by itself when one of its fields is changed or invalid. Each field
+  shows a Live, Restart, or Restart pending tag, its description, and, when set
+  in `config.json`, its default with **Reset to default** (sends `null`).
+  `src/lib/instance-settings.ts` parses drafts with the field's type and range,
+  so errors show before a save. A sticky "Unsaved changes" bar offers
+  **Discard** and **Save changes**; the confirmation dialog lists each
+  `old → new` and offers **Save & restart** (when restart is available) and
+  **Save**. A save sends `PUT /settings` with the revision the first edit was
+  made against, so a newer file (another tab, a hand edit) is a 409 conflict
+  alert with **Load new values** rather than an overwrite. A 409
+  `config_invalid` reloads the view; a 422 maps errors to fields and toasts
+  the ones that match no field. The form is read-only while `config.json` has
+  an error or a restart starts or runs.
+- System (`SystemSection`) shows the version, how Hybro runs, port, listen
+  address, sign-in mode, MCP gateway, the configuration file, a **Restart
+  Hybro** card (`POST /settings/restart`, image only), the `config.json`
+  notices, and About links.
+- `RestartBanner` shows a restart in progress, a failed restart with its error,
+  saved changes waiting for a restart with **Restart now**, and, after each
+  restart this page saw finish, a dismissible confirmation. When that restart
+  applied `frontend.*` fields, which the browser reads once per page load, the
+  confirmation asks for a reload with **Reload page** instead. A provider save
+  invalidates the settings view, so an image size change shows here at once.
+  Saves and restart requests cancel in-flight settings fetches before writing
+  their result; a refused restart rereads the view, so a restart another tab
+  started shows here. Every restart
+  control shares one mutation key, so while the request is open (the backend
+  checks the configuration first) all of them show the restart as starting.
+
+### Account dialog
+
+The user menu's **Account** item opens `SettingsDialog` through
+`SettingsDialogProvider`, rendered outside the sidebar tree. It has Profile
+(with the danger zone), Password, and Sessions panes, all kept mounted.
 
 ### Visual system
 

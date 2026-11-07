@@ -6,6 +6,7 @@ import { server } from '../../setup/msw-server'
 import { stubFetchWithoutSignal } from '../../utils/fetch-without-signal'
 import { getApiUrl } from '@/lib/utils'
 import { AGENT_CATALOG_KEY } from '@/hooks/room/useAgentCatalog'
+import { instanceSettingsQueryKey } from '@/hooks/useInstanceSettings'
 import { ModelProviderSection } from '@/components/settings/model-provider-section'
 
 // Every setup route is mocked; nothing reaches a backend or a model provider.
@@ -71,6 +72,8 @@ describe('ModelProviderSection', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Check and save' }))
 
     await waitFor(() => expect(invalidate).toHaveBeenCalledWith({ queryKey: AGENT_CATALOG_KEY }))
+    // A provider save can leave a restart pending (image size), so the Settings restart state is reread.
+    expect(invalidate).toHaveBeenCalledWith({ queryKey: instanceSettingsQueryKey })
     expect(bodies).toEqual([{ path: 'api-key', body: { provider: 'deepseek', api_key: 'sk-fixture', text_model: 'deepseek-v4-flash', image_model: null } }])
     expect(await screen.findByText('API key saved')).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Replace key' })).toBeInTheDocument()

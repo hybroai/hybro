@@ -1,7 +1,7 @@
 "use client"
 
 import { useState, useEffect } from "react"
-import { UserPlus, LogOut, Settings, Sun, Moon, Monitor } from "lucide-react"
+import { UserPlus, LogOut, UserRound, Sun, Moon, Monitor } from "lucide-react"
 import { useRouter } from "next/navigation"
 import { useUser, useAuthClient } from "@/lib/auth"
 import { useTheme } from "next-themes"
@@ -199,8 +199,8 @@ export function NavUser() {
               openSettings()
               setOpenMobile(false)
             }}>
-              <Settings className="mr-2 h-4 w-4" />
-              Settings
+              <UserRound className="mr-2 h-4 w-4" />
+              Account
             </DropdownMenuItem>
             <DropdownMenuSeparator />
             <DropdownMenuSub open={themeSubOpen} onOpenChange={setThemeSubOpen}>

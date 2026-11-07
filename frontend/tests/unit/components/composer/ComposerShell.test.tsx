@@ -414,7 +414,7 @@ describe('ComposerShell', () => {
     try {
       render(<ComposerShell adapter={mockAdapter} />)
       expect(screen.getByTestId('setup-banner')).toHaveTextContent('Room Chat needs a model to plan and answer.')
-      expect(screen.getByRole('link', { name: 'Set up provider' })).toHaveAttribute('href', '/room/test-room?settings=model-provider')
+      expect(screen.getByRole('link', { name: 'Set up provider' })).toHaveAttribute('href', '/settings/model-provider')
       expect(screen.queryByRole('button', { name: 'Dismiss' })).toBeNull()
       expect(screen.getByTestId('room-chat-input').getAttribute('data-editor-disabled')).toBe('true')
       expect(screen.getByTestId('room-chat-input').getAttribute('data-placeholder')).toBe('Connect a model provider to start a chat')

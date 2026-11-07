@@ -30,7 +30,7 @@ describe('Overview setup banner', () => {
     expect(banner).toHaveTextContent('Connect a model provider')
     expect(banner).toHaveTextContent('Room Chat and 4 sample agents need one. Until then, MCP clients can use the Echo agent.')
     expect(banner).toHaveAttribute('data-tone', 'warning')
-    expect(screen.getByRole('link', { name: 'Set up provider' })).toHaveAttribute('href', '/?settings=model-provider')
+    expect(screen.getByRole('link', { name: 'Set up provider' })).toHaveAttribute('href', '/settings/model-provider')
     fireEvent.click(screen.getByRole('button', { name: 'Dismiss' }))
     expect(screen.queryByTestId('setup-banner')).toBeNull()
     expect(localStorage.getItem(DISMISSED_KEY)).toBe('unconfigured')
@@ -56,7 +56,7 @@ describe('Overview setup banner', () => {
     expect(banner).toHaveTextContent('ChatGPT sign-in expired')
     expect(banner).toHaveTextContent('Room Chat and 4 sample agents are paused until you sign in again.')
     expect(banner).toHaveAttribute('data-tone', 'error')
-    expect(screen.getByRole('link', { name: 'Sign in again' })).toHaveAttribute('href', '/?settings=model-provider')
+    expect(screen.getByRole('link', { name: 'Sign in again' })).toHaveAttribute('href', '/settings/model-provider')
     expect(screen.getByRole('button', { name: 'Dismiss' })).toBeInTheDocument()
   })
 

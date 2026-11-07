@@ -15,4 +15,8 @@ export const routes = {
   registerAgent: '/network/agents/new',
   connectMcp: '/connect/mcp',
   connectApi: '/connect/api',
+  settings: '/settings',
+  settingsModelProvider: '/settings/model-provider',
+  settingsConfiguration: '/settings/configuration',
+  settingsSystem: '/settings/system',
 } as const
