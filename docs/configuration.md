@@ -71,20 +71,28 @@ Use the Settings page for Provider and model changes. Startup generates missing
 internal tokens in `auth.json` without rotating existing values. Backend overrides live under `backend`, public
 frontend overrides under `frontend`, and image output size is `image_size`.
 
-Startup rules added with the Settings API: `orchestrator_fast_*` and
-`orchestrator_ultimate_*` `max_agent_calls`, `max_parallel_calls` and
-`deadline_seconds` must be greater than 0, `local_agent_discovery_port_start` must not exceed the port end
-(including the default end), `backend.agent_health_check_interval` and the
-`llm_gateway_request_timeout_seconds`/`llm_gateway_stream_timeout_seconds`
-timeouts must be greater than 0, `approval_deadline_hours` and
-`orchestrator_call_wait_ceiling_hours` are at most 87600 (ten years),
-the `orchestrator_fast_*`, `orchestrator_ultimate_*` and
-`orchestrator_passthrough_*` `deadline_seconds` are at most 315360000 (ten
-years), `compaction_content_ttl_days` is at most 36500,
-`frontend.max_message_length` is at most 10000 (the backend refuses longer
-messages), and `frontend.inspection_timeout_ms` is at most 2147483647 (what the
-browser can use). Before, such values passed startup and failed every
-Fast or Ultimate Run (or made the health check loop spin); now startup rejects
+Startup rules added with the Settings API (all under `backend` unless named
+`frontend`):
+
+- Greater than 0: the Fast and Ultimate `max_agent_calls`, `max_parallel_calls`
+  and `deadline_seconds`, `agent_health_check_interval`,
+  `llm_gateway_request_timeout_seconds` and `llm_gateway_stream_timeout_seconds`.
+- `local_agent_discovery_port_start` must not exceed the port end, including the
+  default end.
+- At most 87600 (ten years): `approval_deadline_hours` and
+  `orchestrator_call_wait_ceiling_hours`.
+- At most 315360000 (ten years): the Fast, Ultimate and passthrough
+  `deadline_seconds`.
+- At most 10000: the Fast and Ultimate `max_model_turns` and `max_agent_calls`.
+- At most 100: `orchestrator_passthrough_max_transport_retries_per_call`.
+- At most 36500: `compaction_content_ttl_days`.
+- At most 9007199254740991 (2**53 - 1): any integer backend setting.
+- `frontend.max_message_length` at most 10000 (the backend refuses longer
+  messages) and `frontend.inspection_timeout_ms` at most 2147483647 (what the
+  browser can use).
+
+Before, such values passed startup and then failed every Run, stopped the
+backend from booting, or made the health check loop spin; now startup rejects
 them and names the field. Fix the value in `config.json` if Hybro no longer
 starts after an upgrade.
 

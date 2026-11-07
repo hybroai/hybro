@@ -412,6 +412,14 @@ async def test_a_huge_integer_is_a_field_error_not_a_crash(harness):
     ]
 
 
+async def test_a_run_limit_mongodb_cannot_store_is_a_field_error(harness):
+    response = await put(harness, {"backend.orchestrator_fast_max_model_turns": 2**63})
+    assert response.status_code == 422, response.text
+    assert [error["field"] for error in response.json()["errors"]] == [
+        "backend.orchestrator_fast_max_model_turns"
+    ]
+
+
 async def test_a_huge_integer_in_the_file_is_reported_as_invalid(harness):
     harness.store.home.mkdir(mode=0o700, parents=True)
     (harness.store.home / "config.json").write_text(

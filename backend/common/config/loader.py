@@ -27,6 +27,10 @@ logger = get_logger(__name__)
 
 # Ten years: a Run's deadline is wall-clock date math, which overflows far later.
 _MAX_DEADLINE_SECONDS = 10 * 365 * 24 * 3600
+# Model turns and Agent calls per Run; Runs persist them in MongoDB.
+_MAX_RUN_LIMIT = 10_000
+# Any integer setting: a safe JSON integer, well inside MongoDB's 8 bytes.
+_MAX_INTEGER = 2**53 - 1
 # models.room.MAX_MESSAGE_LENGTH: the backend refuses longer messages.
 _MAX_MESSAGE_LENGTH = 10_000
 
@@ -92,9 +96,9 @@ class Settings(BaseModel):
     orchestrator_fast_prompt_id: str = "orchestrator_fast"
     orchestrator_fast_prompt_version: str = "5"
     orchestrator_fast_thinking_level: str | None = None
-    orchestrator_fast_max_model_turns: int = 12
+    orchestrator_fast_max_model_turns: int = Field(default=12, le=_MAX_RUN_LIMIT)
     orchestrator_fast_grace_model_turns: int = 1
-    orchestrator_fast_max_agent_calls: int = Field(default=10, gt=0)
+    orchestrator_fast_max_agent_calls: int = Field(default=10, gt=0, le=_MAX_RUN_LIMIT)
     orchestrator_fast_max_parallel_calls: int = Field(
         default=3, gt=0, validate_default=True
     )
@@ -111,9 +115,11 @@ class Settings(BaseModel):
     orchestrator_ultimate_prompt_id: str = "orchestrator_ultimate"
     orchestrator_ultimate_prompt_version: str = "5"
     orchestrator_ultimate_thinking_level: str | None = None
-    orchestrator_ultimate_max_model_turns: int = 24
+    orchestrator_ultimate_max_model_turns: int = Field(default=24, le=_MAX_RUN_LIMIT)
     orchestrator_ultimate_grace_model_turns: int = 2
-    orchestrator_ultimate_max_agent_calls: int = Field(default=20, gt=0)
+    orchestrator_ultimate_max_agent_calls: int = Field(
+        default=20, gt=0, le=_MAX_RUN_LIMIT
+    )
     orchestrator_ultimate_max_parallel_calls: int = Field(
         default=4, gt=0, validate_default=True
     )
@@ -132,7 +138,7 @@ class Settings(BaseModel):
         default=300.0, gt=0, le=_MAX_DEADLINE_SECONDS
     )
     orchestrator_passthrough_max_transport_retries_per_call: int = Field(
-        default=2, gt=0
+        default=2, gt=0, le=100
     )
 
     # Mandatory canonical lifecycle worker cadence.
@@ -623,6 +629,8 @@ def _check_number(key: str, value: float) -> None:
         finite = False
     if not finite or value < 0:
         raise BackendFieldError(key, "Numeric settings must be finite and nonnegative")
+    if isinstance(value, int) and value > _MAX_INTEGER:
+        raise BackendFieldError(key, "Integer settings must be at most 2**53 - 1")
     if key.endswith("_port") and not 1 <= value <= 65535:
         raise BackendFieldError(key, "Port must be between 1 and 65535")
 

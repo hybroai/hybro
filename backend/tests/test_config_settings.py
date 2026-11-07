@@ -246,6 +246,11 @@ def test_discovery_start_above_the_default_end_is_rejected() -> None:
         ("orchestrator_fast_deadline_seconds", 1e12),
         ("orchestrator_ultimate_deadline_seconds", 1e12),
         ("orchestrator_passthrough_deadline_seconds", 1e12),
+        ("orchestrator_fast_max_model_turns", 2**63),
+        ("orchestrator_ultimate_max_model_turns", 10_001),
+        ("orchestrator_fast_max_agent_calls", 10_001),
+        ("orchestrator_ultimate_max_agent_calls", 2**63),
+        ("orchestrator_passthrough_max_transport_retries_per_call", 101),
     ],
 )
 def test_values_that_break_the_services_are_rejected_at_startup(field, value) -> None:
@@ -272,3 +277,12 @@ def test_frontend_message_length_stays_within_the_backend_limit() -> None:
         FrontendSettings.model_validate({"max_message_length": MAX_MESSAGE_LENGTH + 1})
     limit = FrontendSettings.model_validate({"max_message_length": MAX_MESSAGE_LENGTH})
     assert limit.max_message_length == MAX_MESSAGE_LENGTH
+
+
+def test_validate_backend_refuses_integers_beyond_a_safe_json_integer() -> None:
+    from common.config.loader import BackendFieldError, validate_backend
+
+    # Finite as a float, but MongoDB stores at most 8-byte ints.
+    with pytest.raises(BackendFieldError) as caught:
+        validate_backend({"agent_health_check_interval": 2**53})
+    assert caught.value.field == "agent_health_check_interval"
