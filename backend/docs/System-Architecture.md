@@ -1309,11 +1309,27 @@ every start (mode 0600: `listen`, `public_port`, `insecure_no_auth`,
 configuration the programs were projected from). It then runs `plan_runtime`,
 the same validation and projection the user phase uses; `--check` reads the
 internal credentials without generating missing ones, so it never writes
-`auth.json`. A plan whose Caddyfile or `supervisord.conf` differs from the
-running one (a changed `api_prefix`, or a different program set such
-as embedded versus external MongoDB) is refused with "This change needs a full
-restart". `--check` stops there and prints one JSON line, `{"ok": true}` or
+`auth.json`. `--check` stops there and prints one JSON line, `{"ok": true}` or
 `{"ok": false, "error": ...}`.
+
+The in-place restart refuses, keeping every service on its current
+configuration:
+
+- a configuration that fails startup validation (`config.json` or `auth.json`
+  unreadable or invalid, or a public listener without `auth_mode` `"clerk"` and
+  `frontend.server_url`), with the validation message;
+- changes that need a full restart, with "This change needs a full restart:
+  run `hybro stop` and `hybro`": a changed `backend.api_prefix` (the generated
+  Caddyfile differs from the running one), or a different program set (the
+  `[program:...]` names in the running `supervisord.conf`), which happens when
+  `mongodb_url` is added to or removed from `config.json` or `auth.json`
+  (embedded versus external MongoDB). The listener, port and authentication
+  opt-out come from the start's `runtime.json` and cannot change in place;
+  `supervisord.conf` itself is never rewritten, so its per-start socket
+  password is not compared;
+- a missing or unreadable `runtime.json` (same full-restart message);
+- a restart already in progress (`409 restart_in_progress` from the API; a
+  helper that finds `restart.lock` held exits without changes).
 
 The real run takes an exclusive `flock` on `/tmp/hybro/restart.lock` (busy:
 exit without touching the status), rewrites the program files of every program
