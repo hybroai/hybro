@@ -28,6 +28,7 @@ DOMAIN_MODULES = frozenset(
         "delivery",
         "diagnostics",
         "execution",
+        "instance_settings",
         "jobs",
         "llm_gateway",
         "local_agents",

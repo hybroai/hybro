@@ -1074,6 +1074,7 @@ port, or facade port, update the exact method inventory in
 | `EpochFencedRoomArtifactOwner` | `execution.repository.orchestrator.artifacts` | `execution.repository.orchestrator.artifacts.RoomFilesEpochFencedArtifactOwner` | internal to `execution` |
 | `RoomFileArtifactOwner` | `execution.repository.orchestrator.artifacts` | `room_files.service.RoomFiles` | crosses to `room_files` |
 | `AsyncMongoCollection` | `execution.repository.orchestrator.stores` | the raw Motor collection (`MongoCollectionAdapter.raw_collection`, third-party) | crosses to `dal` |
+| `SettingsAccess` | `instance_settings.protocols` | `instance_settings.service.InstanceSettings` | crosses to `api_gateway` |
 | `LeaderGate` | `jobs.cleanup_orphaned_uploads` | `dal.redis.lock.LeaderElectorImpl` | crosses to `dal` |
 | `CompactionPort` | `jobs.compaction_sweep` | `context_memory.facade.ContextMemoryFacade` | crosses to `context_memory` |
 | `LeaderGate` | `jobs.compaction_sweep` | `dal.redis.lock.LeaderElectorImpl` | crosses to `dal` |

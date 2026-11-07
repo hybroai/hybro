@@ -88,11 +88,11 @@ class Settings(BaseModel):
     orchestrator_fast_thinking_level: str | None = None
     orchestrator_fast_max_model_turns: int = 12
     orchestrator_fast_grace_model_turns: int = 1
-    orchestrator_fast_max_agent_calls: int = 10
-    orchestrator_fast_max_parallel_calls: int = 3
+    orchestrator_fast_max_agent_calls: int = Field(default=10, gt=0)
+    orchestrator_fast_max_parallel_calls: int = Field(default=3, gt=0)
     orchestrator_fast_max_transport_retries_per_call: int = 2
     orchestrator_fast_max_compactions: int = 2
-    orchestrator_fast_deadline_seconds: float = 300.0
+    orchestrator_fast_deadline_seconds: float = Field(default=300.0, gt=0)
     orchestrator_fast_initial_routing: str = "explicit_agent_first"
     orchestrator_fast_tool_execution: str = "parallel"
     orchestrator_fast_finalization: str = "pass_through"
@@ -103,11 +103,11 @@ class Settings(BaseModel):
     orchestrator_ultimate_thinking_level: str | None = None
     orchestrator_ultimate_max_model_turns: int = 24
     orchestrator_ultimate_grace_model_turns: int = 2
-    orchestrator_ultimate_max_agent_calls: int = 20
-    orchestrator_ultimate_max_parallel_calls: int = 4
+    orchestrator_ultimate_max_agent_calls: int = Field(default=20, gt=0)
+    orchestrator_ultimate_max_parallel_calls: int = Field(default=4, gt=0)
     orchestrator_ultimate_max_transport_retries_per_call: int = 3
     orchestrator_ultimate_max_compactions: int = 3
-    orchestrator_ultimate_deadline_seconds: float = 600.0
+    orchestrator_ultimate_deadline_seconds: float = Field(default=600.0, gt=0)
     orchestrator_ultimate_initial_routing: str = "explicit_agent_first"
     orchestrator_ultimate_tool_execution: str = "parallel"
     orchestrator_ultimate_finalization: str = "pass_through"
@@ -151,8 +151,8 @@ class Settings(BaseModel):
     log_level: str = "INFO"
     log_format: str = "auto"
 
-    # Agent Health
-    agent_health_check_interval: int = 3600
+    # Agent Health. Zero would make the health loop spin.
+    agent_health_check_interval: int = Field(default=3600, gt=0)
 
     # Local Agent Discovery (Docker backend -> host gateway)
     local_agent_discovery_enabled: bool = False
@@ -183,6 +183,9 @@ class Settings(BaseModel):
     # The per-start diagnostics handoff the image entrypoint writes; empty in a
     # checkout, which turns the token path of the diagnostics API off.
     diagnostics_handoff_file: str = ""
+    # This start's transport record the image entrypoint writes (listen mode,
+    # public port, services revision); empty in a checkout. Not a user setting.
+    instance_runtime_file: str = ""
     # provider_id of the bundled agents the backend registers at boot.
     default_agent_provider_id: str = "Hybro AI"
     # Bundled agent manifest (`default_agents/agents.yaml`). Empty disables
@@ -387,6 +390,21 @@ class Settings(BaseModel):
             )
         return value
 
+    @field_validator(
+        "orchestrator_fast_max_parallel_calls",
+        "orchestrator_ultimate_max_parallel_calls",
+    )
+    @classmethod
+    def validate_parallel_calls(cls, value: int, info: ValidationInfo) -> int:
+        # Declared after the matching max_agent_calls, so info.data holds it.
+        agent_calls_field = info.field_name.replace(
+            "max_parallel_calls", "max_agent_calls"
+        )
+        agent_calls = info.data.get(agent_calls_field)
+        if agent_calls is not None and value > agent_calls:
+            raise ValueError(f"Parallel calls must not exceed {agent_calls_field}")
+        return value
+
     @field_validator("compaction_concurrency", mode="before")
     @classmethod
     def normalize_compaction_concurrency(cls, value):
@@ -442,6 +460,7 @@ PRIVATE_FIELDS = frozenset(
         "clerk_secret_key",
         "default_agent_llm_token",
         "diagnostics_handoff_file",
+        "instance_runtime_file",
     }
 )
 # Retired backend settings. Existing config.json files may still carry them
@@ -548,6 +567,14 @@ def validate_openai_base_url(value: str | None) -> str | None:
     return value
 
 
+class BackendFieldError(ValueError):
+    """A backend pre-check failure attributed to one key; never holds the value."""
+
+    def __init__(self, field: str, message: str) -> None:
+        super().__init__(message)
+        self.field = field
+
+
 def validate_backend(values: dict[str, object]) -> Settings:
     if PRIVATE_FIELDS.intersection(values) or ROUTE_FIELDS.intersection(values):
         raise ValueError("Use setup for model selection and auth.json for credentials")
@@ -555,14 +582,19 @@ def validate_backend(values: dict[str, object]) -> Settings:
         if key.endswith("_url") and isinstance(value, str) and value:
             parsed = urlsplit(value)
             if parsed.username or parsed.password:
-                raise ValueError("URL credentials belong in auth.json")
+                raise BackendFieldError(key, "URL credentials belong in auth.json")
         if key == "openai_base_url" and value:
-            validate_openai_base_url(value)
+            try:
+                validate_openai_base_url(value)
+            except ValueError as exc:
+                raise BackendFieldError(key, str(exc)) from None
         if isinstance(value, (int, float)) and not isinstance(value, bool):
             if not math.isfinite(value) or value < 0:
-                raise ValueError("Numeric settings must be finite and nonnegative")
+                raise BackendFieldError(
+                    key, "Numeric settings must be finite and nonnegative"
+                )
             if key.endswith("_port") and not 1 <= value <= 65535:
-                raise ValueError("Port must be between 1 and 65535")
+                raise BackendFieldError(key, "Port must be between 1 and 65535")
     return Settings.model_validate(values)
 
 
@@ -614,14 +646,14 @@ class FrontendSettings(BaseModel):
 _REPO_MANIFEST = Path(__file__).resolve().parents[3] / "default_agents" / "agents.yaml"
 
 
-def _apply_image_defaults(values: dict) -> None:
+def image_defaults() -> dict[str, object]:
     """Defaults for the single image (``HYBRO_CONTAINER=image``).
 
     Every service runs in one container on loopback. The entrypoint
-    (``runtime_entrypoint.py``) derives this instance's frontend origins and the
-    bundled agent ports and passes them as internal transport variables.
+    (``runtime_entrypoint.py``) derives the bundled agent ports and passes them
+    as an internal transport variable. config.json values win over these.
     """
-    for key, value in {
+    return {
         "mongodb_url": "mongodb://127.0.0.1:27017/hybro?replicaSet=rs0",
         "redis_url": "",
         "hybro_file_dir": "/data/files",
@@ -635,10 +667,17 @@ def _apply_image_defaults(values: dict) -> None:
         "local_agent_discovery_excluded_ports": os.environ.get(
             "LOCAL_AGENT_DISCOVERY_EXCLUDED_PORTS", ""
         ),
-    }.items():
+    }
+
+
+def _apply_image_defaults(values: dict) -> None:
+    """Apply ``image_defaults``, the forced internal paths, and the origins
+    the entrypoint derived for this instance."""
+    for key, value in image_defaults().items():
         values.setdefault(key, value)
-    # runtime_entrypoint.RUN_DIR / "diagnostics.json"
+    # runtime_entrypoint.RUN_DIR / "diagnostics.json" and "runtime.json"
     values["diagnostics_handoff_file"] = "/tmp/hybro/diagnostics.json"
+    values["instance_runtime_file"] = "/tmp/hybro/runtime.json"
     origins = os.environ.get("HYBRO_FRONTEND_ORIGINS")
     if origins:
         values["frontend_origins"] = origins

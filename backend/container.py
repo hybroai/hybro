@@ -725,6 +725,16 @@ async def _runtime_lifespan(app: Any, runtime: ApplicationRuntime):  # noqa: C90
                 admin_user_ids=frozenset(runtime.settings.admin_user_ids),
             )
             app.state.setup_access = _browser_setup
+            from instance_settings import InstanceSettings
+
+            app.state.instance_settings = InstanceSettings(
+                store=_provider_runtime.store,
+                settings=runtime.settings,
+                # The document this backend booted with, read at construction.
+                startup_config=_provider_runtime.current.config,
+                can_configure=_browser_setup.can_configure,
+                version=release_version(Path(__file__)),
+            )
             agent_selection_llm_service = AgentSelectionLLMService(
                 llm_provider=llm_provider
             )

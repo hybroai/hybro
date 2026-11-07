@@ -14,6 +14,7 @@ from api_gateway.routes import (
     llm_proxy_routes,
     room_routes,
     session_routes,
+    settings_routes,
     setup_routes,
     sse_routes,
 )
@@ -39,6 +40,7 @@ def build_api_gateway_router() -> APIRouter:
     gateway_router.include_router(llm_proxy_routes.router, tags=["internal_llm"])
     gateway_router.include_router(a2a_push_routes.router, tags=["a2a_push"])
     gateway_router.include_router(setup_routes.router, tags=["setup"])
+    gateway_router.include_router(settings_routes.router, tags=["settings"])
     gateway_router.include_router(diagnostics_routes.router, tags=["diagnostics"])
 
     return gateway_router

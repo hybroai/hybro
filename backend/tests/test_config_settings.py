@@ -144,3 +144,80 @@ def test_local_agent_discovery_scans_9000_to_9999_by_default():
         settings.local_agent_discovery_port_end,
     ) == (9000, 9999)
     assert (config.port_start, config.port_end) == (9000, 9999)
+
+
+@pytest.mark.parametrize("profile", ["fast", "ultimate"])
+@pytest.mark.parametrize(
+    "suffix", ["max_agent_calls", "max_parallel_calls", "deadline_seconds"]
+)
+def test_orchestrator_profile_bounds_reject_zero_at_startup(profile, suffix) -> None:
+    field = f"orchestrator_{profile}_{suffix}"
+    with pytest.raises(ValidationError) as caught:
+        Settings.model_validate({field: 0})
+    assert caught.value.errors()[0]["loc"] == (field,)
+
+
+@pytest.mark.parametrize("profile", ["fast", "ultimate"])
+def test_parallel_calls_above_agent_calls_names_the_parallel_field(profile) -> None:
+    with pytest.raises(ValidationError) as caught:
+        Settings.model_validate(
+            {
+                f"orchestrator_{profile}_max_agent_calls": 2,
+                f"orchestrator_{profile}_max_parallel_calls": 3,
+            }
+        )
+    assert [error["loc"] for error in caught.value.errors()] == [
+        (f"orchestrator_{profile}_max_parallel_calls",)
+    ]
+    settings = Settings.model_validate(
+        {
+            f"orchestrator_{profile}_max_agent_calls": 3,
+            f"orchestrator_{profile}_max_parallel_calls": 3,
+        }
+    )
+    assert getattr(settings, f"orchestrator_{profile}_max_parallel_calls") == 3
+
+
+def test_agent_health_check_interval_rejects_zero() -> None:
+    with pytest.raises(ValidationError):
+        Settings.model_validate({"agent_health_check_interval": 0})
+
+
+def test_instance_runtime_file_is_private_and_image_only(monkeypatch) -> None:
+    from common.config.loader import (
+        PRIVATE_FIELDS,
+        _apply_image_defaults,
+        image_defaults,
+    )
+
+    assert "instance_runtime_file" in PRIVATE_FIELDS
+    assert Settings().instance_runtime_file == ""
+    values: dict = {"instance_runtime_file": "/elsewhere.json"}
+    _apply_image_defaults(values)
+    assert values["instance_runtime_file"] == "/tmp/hybro/runtime.json"
+    monkeypatch.setenv("LOCAL_AGENT_DISCOVERY_EXCLUDED_PORTS", "7001")
+    defaults = image_defaults()
+    assert defaults["log_format"] == "json"
+    assert defaults["local_agent_discovery_enabled"] is True
+    assert defaults["local_agent_discovery_excluded_ports"] == "7001"
+    assert "instance_runtime_file" not in defaults
+
+
+@pytest.mark.parametrize(
+    ("values", "field"),
+    [
+        ({"llm_gateway_max_attempts": -1}, "llm_gateway_max_attempts"),
+        (
+            {"a2a_push_callback_base_url": "https://user:pw@example.org"},
+            "a2a_push_callback_base_url",
+        ),
+        ({"some_port": 70000}, "some_port"),
+    ],
+)
+def test_backend_pre_checks_name_the_field(values, field) -> None:
+    from common.config.loader import BackendFieldError, validate_backend
+
+    with pytest.raises(BackendFieldError) as caught:
+        validate_backend(values)
+    assert caught.value.field == field
+    assert "pw" not in str(caught.value)
