@@ -65,8 +65,8 @@ class Settings(BaseModel):
     llm_gateway_generation_provider: str = "openai"
     llm_gateway_max_attempts: int = 2
     llm_gateway_retry_backoff_seconds: float = 0.2
-    llm_gateway_request_timeout_seconds: float = 300.0
-    llm_gateway_stream_timeout_seconds: float = 300.0
+    llm_gateway_request_timeout_seconds: float = Field(default=300.0, gt=0)
+    llm_gateway_stream_timeout_seconds: float = Field(default=300.0, gt=0)
     # Per-route timeout used by the orchestrator kernel. Orchestrator model
     # calls pass this explicitly, so it overrides the gateway defaults above.
     llm_gateway_route_timeout_seconds: float = 300.0
@@ -128,14 +128,15 @@ class Settings(BaseModel):
 
     # Waits. A suspended Run's deadline clock is stopped; an acknowledged remote
     # Agent call is polled until this ceiling, measured from its acceptance.
-    orchestrator_call_wait_ceiling_hours: float = Field(default=168.0, gt=0)
+    # Bounded (ten years) so deadline date math cannot overflow.
+    orchestrator_call_wait_ceiling_hours: float = Field(default=168.0, gt=0, le=87600)
     # Public base URL at which remote Agents reach this backend, for example
     # "https://hybro.example.com". When set, canonical dispatch registers an A2A
     # push-notification config with Agents whose card advertises
     # pushNotifications; polling remains the fallback. Empty disables push.
     a2a_push_callback_base_url: str = ""
     # Supervisor ask_user approval deadline; None means no deadline.
-    approval_deadline_hours: float | None = Field(default=None, gt=0)
+    approval_deadline_hours: float | None = Field(default=None, gt=0, le=87600)
 
     # Sessions. A send waits this long for its run to settle or pause for the
     # owner before answering "working"; a run with no lifecycle event within
@@ -276,7 +277,8 @@ class Settings(BaseModel):
         80000  # Trigger compaction when full turns exceed this
     )
     compaction_preserve_recent: int = 10  # Always keep this many recent turns FULL
-    compaction_content_ttl_days: int = 0  # TTL for stored content (0 = forever)
+    # TTL for stored content (0 = forever); at most 100 years.
+    compaction_content_ttl_days: int = Field(default=0, ge=0, le=36500)
 
     # Local room file storage
     hybro_file_dir: str = Field(
@@ -627,8 +629,9 @@ class FrontendSettings(BaseModel):
     clerk_sign_in_fallback_redirect_url: str = "/"
     clerk_sign_up_fallback_redirect_url: str = "/"
     enable_waitlist: bool = True
-    max_message_length: int = Field(default=10000, gt=0)
-    inspection_timeout_ms: int = Field(default=300000, gt=0)
+    # The browser needs safe integers, and setTimeout caps at 2**31 - 1 ms.
+    max_message_length: int = Field(default=10000, gt=0, le=2**31 - 1)
+    inspection_timeout_ms: int = Field(default=300000, gt=0, le=2**31 - 1)
 
     @field_validator("api_base_url", "server_url")
     @classmethod

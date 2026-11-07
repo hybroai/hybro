@@ -76,8 +76,13 @@ Startup rules added with the Settings API: `orchestrator_fast_*` and
 `deadline_seconds` must be greater than 0, `max_parallel_calls` must not exceed
 the same profile's `max_agent_calls` (also when one of the two is left at its
 default), `local_agent_discovery_port_start` must not exceed the port end
-(including the default end), and `backend.agent_health_check_interval` must be
-greater than 0. Before, such values passed startup and failed every
+(including the default end), `backend.agent_health_check_interval` and the
+`llm_gateway_request_timeout_seconds`/`llm_gateway_stream_timeout_seconds`
+timeouts must be greater than 0, `approval_deadline_hours` and
+`orchestrator_call_wait_ceiling_hours` are at most 87600 (ten years),
+`compaction_content_ttl_days` is at most 36500, and `frontend.max_message_length`
+and `frontend.inspection_timeout_ms` are at most 2147483647 (what the browser
+can use). Before, such values passed startup and failed every
 Fast or Ultimate Run (or made the health check loop spin); now startup rejects
 them and names the field. Fix the value in `config.json` if Hybro no longer
 starts after an upgrade.

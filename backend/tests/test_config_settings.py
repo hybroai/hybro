@@ -239,3 +239,29 @@ def test_discovery_start_above_the_default_end_is_rejected() -> None:
     assert [error["loc"] for error in caught.value.errors()] == [
         ("local_agent_discovery_port_end",)
     ]
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("orchestrator_call_wait_ceiling_hours", 1e12),
+        ("approval_deadline_hours", 1e8),
+        ("compaction_content_ttl_days", 10**9),
+        ("llm_gateway_request_timeout_seconds", 0),
+        ("llm_gateway_stream_timeout_seconds", 0),
+    ],
+)
+def test_values_that_break_the_services_are_rejected_at_startup(field, value) -> None:
+    # Too large for timedelta date math, or a timeout that fails every call.
+    with pytest.raises(ValidationError) as caught:
+        Settings.model_validate({field: value})
+    assert caught.value.errors()[0]["loc"] == (field,)
+
+
+@pytest.mark.parametrize("field", ["max_message_length", "inspection_timeout_ms"])
+def test_frontend_numbers_stay_within_what_the_browser_accepts(field) -> None:
+    from common.config.loader import FrontendSettings
+
+    with pytest.raises(ValidationError):
+        FrontendSettings.model_validate({field: 2**31})
+    assert getattr(FrontendSettings.model_validate({field: 2**31 - 1}), field)
