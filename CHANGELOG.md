@@ -5,6 +5,28 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.8](https://github.com/hybroai/hybro/compare/v0.4.7...v0.4.8) (2026-11-07)
+
+
+### Features
+
+* **image:** add a restart helper that restarts the services in place ([609818a](https://github.com/hybroai/hybro/commit/609818ae05bedf75275739622f7b21e26439bab4))
+* **settings:** add POST /api/v1/settings/restart ([99e6d99](https://github.com/hybroai/hybro/commit/99e6d990994485ff0020d3d2cd31ff8386b88f9b))
+* **settings:** add PUT /api/v1/settings with a live log level ([0a60dac](https://github.com/hybroai/hybro/commit/0a60dac1356b4ae20fa43e2dd077e5648ad80fe2))
+* **settings:** add the instance settings API and in-place restart ([04c1b0f](https://github.com/hybroai/hybro/commit/04c1b0fd77c9dd2dc1588ff9c8f30fd71e925a69))
+* **settings:** add the settings field registry and GET /api/v1/settings ([ee3bca6](https://github.com/hybroai/hybro/commit/ee3bca66c43c08a010c6bf0790201d7014654c38))
+
+
+### Bug Fixes
+
+* **config:** bound Run limits and every integer setting ([87eb68c](https://github.com/hybroai/hybro/commit/87eb68c95f41359c020e863a79096e7f8575b713))
+* **config:** bound settings that overflow date math or break the browser ([4e66113](https://github.com/hybroai/hybro/commit/4e6611336df652fa595b5845fefbadb704071588))
+* **config:** cap parallel calls at the agent call limit instead of failing ([e7c13f7](https://github.com/hybroai/hybro/commit/e7c13f71967c105f9139efcb79aa063af5c7751c))
+* **image:** ride out connections the replica-set reconfig drops ([761be13](https://github.com/hybroai/hybro/commit/761be136e937fbf59fbc636b83c406e53e743434))
+* **settings:** bound Run deadlines and message length, report restart failures ([cdbed4f](https://github.com/hybroai/hybro/commit/cdbed4f97fe50c6614d7963ab230df8e40cbcf2c))
+* **settings:** check cross-field rules on defaults and require JSON for restart ([81d4eeb](https://github.com/hybroai/hybro/commit/81d4eeb28008e480b7436072c14f262e5796ff36))
+* **settings:** reject huge numbers, bound the save lock, report the live log level ([a557e50](https://github.com/hybroai/hybro/commit/a557e502df2e9a00b8a6221a852080f48d52c806))
+
 ## [0.4.7](https://github.com/hybroai/hybro/compare/v0.4.6...v0.4.7) (2026-11-07)
 
 
