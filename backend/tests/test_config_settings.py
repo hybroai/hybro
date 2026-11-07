@@ -221,3 +221,21 @@ def test_backend_pre_checks_name_the_field(values, field) -> None:
         validate_backend(values)
     assert caught.value.field == field
     assert "pw" not in str(caught.value)
+
+
+@pytest.mark.parametrize("profile", ["fast", "ultimate"])
+def test_agent_calls_below_the_default_parallel_calls_are_rejected(profile) -> None:
+    # Field validators skip defaults unless asked; the rule must still hold.
+    with pytest.raises(ValidationError) as caught:
+        Settings.model_validate({f"orchestrator_{profile}_max_agent_calls": 1})
+    assert [error["loc"] for error in caught.value.errors()] == [
+        (f"orchestrator_{profile}_max_parallel_calls",)
+    ]
+
+
+def test_discovery_start_above_the_default_end_is_rejected() -> None:
+    with pytest.raises(ValidationError) as caught:
+        Settings.model_validate({"local_agent_discovery_port_start": 10000})
+    assert [error["loc"] for error in caught.value.errors()] == [
+        ("local_agent_discovery_port_end",)
+    ]

@@ -89,7 +89,9 @@ class Settings(BaseModel):
     orchestrator_fast_max_model_turns: int = 12
     orchestrator_fast_grace_model_turns: int = 1
     orchestrator_fast_max_agent_calls: int = Field(default=10, gt=0)
-    orchestrator_fast_max_parallel_calls: int = Field(default=3, gt=0)
+    orchestrator_fast_max_parallel_calls: int = Field(
+        default=3, gt=0, validate_default=True
+    )
     orchestrator_fast_max_transport_retries_per_call: int = 2
     orchestrator_fast_max_compactions: int = 2
     orchestrator_fast_deadline_seconds: float = Field(default=300.0, gt=0)
@@ -104,7 +106,9 @@ class Settings(BaseModel):
     orchestrator_ultimate_max_model_turns: int = 24
     orchestrator_ultimate_grace_model_turns: int = 2
     orchestrator_ultimate_max_agent_calls: int = Field(default=20, gt=0)
-    orchestrator_ultimate_max_parallel_calls: int = Field(default=4, gt=0)
+    orchestrator_ultimate_max_parallel_calls: int = Field(
+        default=4, gt=0, validate_default=True
+    )
     orchestrator_ultimate_max_transport_retries_per_call: int = 3
     orchestrator_ultimate_max_compactions: int = 3
     orchestrator_ultimate_deadline_seconds: float = Field(default=600.0, gt=0)
@@ -158,7 +162,10 @@ class Settings(BaseModel):
     local_agent_discovery_enabled: bool = False
     local_agent_discovery_host: str = "host.docker.internal"
     local_agent_discovery_port_start: int = Field(default=9000, ge=1, le=65535)
-    local_agent_discovery_port_end: int = Field(default=9999, ge=1, le=65535)
+    # Validated even as a default, so the range check sees a lone start.
+    local_agent_discovery_port_end: int = Field(
+        default=9999, ge=1, le=65535, validate_default=True
+    )
     local_agent_discovery_interval_seconds: int = Field(default=120, gt=0)
     local_agent_discovery_connect_timeout_seconds: float = Field(default=0.05, gt=0)
     local_agent_discovery_probe_timeout_seconds: float = Field(default=3.0, gt=0)
@@ -396,7 +403,8 @@ class Settings(BaseModel):
     )
     @classmethod
     def validate_parallel_calls(cls, value: int, info: ValidationInfo) -> int:
-        # Declared after the matching max_agent_calls, so info.data holds it.
+        # Declared after the matching max_agent_calls, so info.data holds it;
+        # validate_default runs this when only max_agent_calls is set.
         agent_calls_field = info.field_name.replace(
             "max_parallel_calls", "max_agent_calls"
         )

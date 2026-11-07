@@ -448,6 +448,18 @@ async def test_log_level_applies_live_and_never_needs_a_restart(harness):
     assert view["restart_pending"] is False
 
 
+async def test_a_hand_edited_log_level_applies_on_the_next_save(harness):
+    root = logging.getLogger()
+    harness.store.update_config(["backend", "log_level"], "WARNING")
+    response = await put(harness, {"backend.compaction_enabled": False})
+    assert response.status_code == 200, response.text
+    assert root.level == logging.WARNING
+    log_level = field(response.json()["settings"], "backend.log_level")
+    assert (log_level["value"], log_level["restart_pending"]) == ("WARNING", False)
+    await put(harness, {"backend.log_level": None})
+    assert root.level == logging.INFO
+
+
 async def test_two_saves_with_one_revision_conflict(harness):
     token = await revision(harness)
     responses = await asyncio.gather(
@@ -496,7 +508,7 @@ def image_harness(tmp_path, monkeypatch):
 
 
 async def test_restart_in_a_checkout_is_unavailable(harness):
-    response = await harness.http.post("/settings/restart")
+    response = await harness.http.post("/settings/restart", json={})
     assert response.status_code == 409
     assert response.json()["code"] == "restart_unavailable"
     view = (await harness.http.get("/settings")).json()
@@ -516,7 +528,7 @@ async def test_restart_is_accepted_and_launched_after_the_response(image_harness
             True,
             "idle",
         )
-        response = await harness.http.post("/settings/restart")
+        response = await harness.http.post("/settings/restart", json={})
         assert response.status_code == 202, response.text
         restart = response.json()["restart"]
         assert (restart["available"], restart["state"]) == (True, "requested")
@@ -526,7 +538,7 @@ async def test_restart_is_accepted_and_launched_after_the_response(image_harness
         view = (await harness.http.get("/settings")).json()
         assert view["restart"]["state"] == "requested"
 
-        second = await harness.http.post("/settings/restart")
+        second = await harness.http.post("/settings/restart", json={})
         assert second.status_code == 409
         assert second.json()["code"] == "restart_in_progress"
         assert len(harness.launches) == 1
@@ -534,10 +546,31 @@ async def test_restart_is_accepted_and_launched_after_the_response(image_harness
         await harness.aclose()
 
 
+@pytest.mark.parametrize(
+    "request_options",
+    [
+        {},
+        {"content": b"{}"},
+        {"data": {"x": "1"}},
+        {"content": b"{}", "headers": {"content-type": "text/plain"}},
+    ],
+)
+async def test_restart_needs_a_json_request(image_harness, request_options):
+    # A cross-site page can send these without a CORS preflight.
+    harness = await image_harness()
+    try:
+        response = await harness.http.post("/settings/restart", **request_options)
+        assert response.status_code == 415
+        assert response.json()["code"] == "json_required"
+        assert harness.launches == []
+    finally:
+        await harness.aclose()
+
+
 async def test_restart_with_an_invalid_config_is_a_conflict(image_harness):
     harness = await image_harness(CHECK_INVALID)
     try:
-        response = await harness.http.post("/settings/restart")
+        response = await harness.http.post("/settings/restart", json={})
         assert response.status_code == 409
         body = response.json()
         assert (body["code"], body["detail"]) == (

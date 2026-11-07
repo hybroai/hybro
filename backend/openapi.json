@@ -3367,7 +3367,7 @@
           "settings"
         ],
         "summary": "Restart Services",
-        "description": "Restart the backend, frontend, MCP and agents; Caddy and MongoDB stay up.",
+        "description": "Restart the backend, frontend, MCP and agents; Caddy and MongoDB stay up.\n\nThe body is ``{}``. Requiring a JSON content type makes the browser send a\nCORS preflight, so another site cannot trigger a restart with a simple\nPOST, which mock mode would otherwise accept from any page.",
         "operationId": "restart_services_api_v1_settings_restart_post",
         "responses": {
           "202": {
@@ -3412,6 +3412,16 @@
           },
           "503": {
             "description": "Service Unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SettingsErrorBody"
+                }
+              }
+            }
+          },
+          "415": {
+            "description": "Unsupported Media Type",
             "content": {
               "application/json": {
                 "schema": {

@@ -81,11 +81,21 @@ async def update_settings(
     return await settings.update(body)
 
 
-@router.post("/restart", status_code=202)
+@router.post("/restart", status_code=202, responses={415: {"model": SettingsErrorBody}})
 async def restart_services(
-    settings: SettingsDependency, background: BackgroundTasks
+    request: Request, settings: SettingsDependency, background: BackgroundTasks
 ) -> RestartAccepted:
-    """Restart the backend, frontend, MCP and agents; Caddy and MongoDB stay up."""
+    """Restart the backend, frontend, MCP and agents; Caddy and MongoDB stay up.
+
+    The body is ``{}``. Requiring a JSON content type makes the browser send a
+    CORS preflight, so another site cannot trigger a restart with a simple
+    POST, which mock mode would otherwise accept from any page.
+    """
+    media_type = request.headers.get("content-type", "").split(";")[0].strip()
+    if media_type.lower() != "application/json":
+        raise SettingsRequestError(
+            "json_required", 415, "Send the restart request as JSON."
+        )
     accepted = await settings.restart()
     # After the response is sent: the restart stops this backend too.
     background.add_task(settings.launch_restart)

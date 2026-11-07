@@ -190,13 +190,12 @@ class InstanceSettings:
             if (before.present(spec), before.value(spec))
             != (after.present(spec), after.value(spec))
         )
-        log_level = field_spec("backend.log_level")
-        if log_level in specs:
-            level = after.value(log_level)
-            assert isinstance(level, str)
-            if level != self._log_level:
-                set_log_level(level)
-                self._log_level = level
+        # Also applies a level edited by hand since the last save.
+        level = after.value(field_spec("backend.log_level"))
+        assert isinstance(level, str)
+        if level != self._log_level:
+            set_log_level(level)
+            self._log_level = level
         view = await self._view(current, None)
         return SettingsSaved(
             changed=changed, restart_required=view.restart_pending, settings=view
