@@ -239,7 +239,7 @@ class DiagnosticsService:
         version: str,
         instance_id: str,
         environment: str,
-        log_level: str,
+        log_level: Callable[[], str],
         log_format: str,
         started_at: datetime,
         now: Callable[[], datetime] = utcnow,
@@ -255,9 +255,10 @@ class DiagnosticsService:
             "instance_id": instance_id,
             "environment": environment,
             "auth_mode": auth_mode,
-            "log_level": log_level,
             "log_format": log_format,
         }
+        # Read per snapshot: the Settings API changes the level live.
+        self._log_level = log_level
         self._started_at = started_at
         self._now = now
         self._canary_cache: tuple[datetime, CanaryReading] | None = None
@@ -295,6 +296,7 @@ class DiagnosticsService:
             generated_at=generated_at,
             service=ServiceSection(
                 **self._identity,
+                log_level=self._log_level(),
                 started_at=self._started_at,
                 uptime_seconds=(generated_at - self._started_at).total_seconds(),
             ),

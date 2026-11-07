@@ -41,7 +41,7 @@ from common.observability import (
     traced_create_task,
 )
 from common.observability import events as E
-from common.observability.logging import release_version
+from common.observability.logging import current_log_level, release_version
 from common.protocols import (
     AgentCardResolver,
     AgentExclusionReader,
@@ -2588,7 +2588,7 @@ def create_diagnostics_access(
         version=release_version(Path(__file__)),
         instance_id=get_instance_id(),
         environment=settings.app_env,
-        log_level=settings.log_level,
+        log_level=current_log_level,
         log_format=settings.log_format,
         started_at=utcnow(),
     )

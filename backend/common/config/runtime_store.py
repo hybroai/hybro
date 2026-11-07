@@ -36,6 +36,8 @@ from common.config.runtime_config import (
 )
 
 _MAX_FILE_BYTES = 64 * 1024
+# How long a settings save waits for the directory lock before giving up.
+_SETTINGS_LOCK_SECONDS = 30.0
 _OAUTH_REFRESH_TIMEOUT = 15
 _SETTINGS_SECTIONS = frozenset({"backend", "frontend"})
 
@@ -391,6 +393,26 @@ class RuntimeConfigStore:
         finally:
             os.close(fd)
 
+    @contextmanager
+    def _bounded_locked(self, seconds: float) -> Iterator[None]:
+        """``_locked`` that gives up after ``seconds``; for request threads."""
+        fd = self._open_lock()
+        try:
+            deadline = time.monotonic() + seconds
+            while True:
+                try:
+                    fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                    break
+                except BlockingIOError:
+                    if time.monotonic() >= deadline:
+                        raise RuntimeConfigurationError(
+                            "Configuration is busy; try again."
+                        ) from None
+                    time.sleep(0.05)
+            yield
+        finally:
+            os.close(fd)
+
     @asynccontextmanager
     async def _async_locked(self) -> AsyncIterator[None]:
         # Opening/validating files and flock never run on the event loop. A failed
@@ -686,7 +708,7 @@ class RuntimeConfigStore:
         """
         if any(section not in _SETTINGS_SECTIONS for section, _ in edits):
             raise ValueError("Settings edits apply only to backend and frontend.")
-        with self._locked():
+        with self._bounded_locked(_SETTINGS_LOCK_SECONDS):
             data = self._read("config.json")
             try:
                 previous = parse_config(data) if data is not None else RuntimeConfig()

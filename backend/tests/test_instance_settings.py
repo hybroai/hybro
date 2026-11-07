@@ -477,3 +477,28 @@ def test_update_settings_refuses_an_invalid_file(tmp_path):
         )
     assert isinstance(caught.value, RuntimeConfigurationError)
     assert (home / "config.json").read_text() == "[]"
+
+
+def test_update_settings_gives_up_when_the_lock_stays_held(tmp_path, monkeypatch):
+    import fcntl
+    import os
+
+    from common.config import runtime_store
+    from common.config.runtime_config import RuntimeConfigurationError
+
+    monkeypatch.setattr(runtime_store, "_SETTINGS_LOCK_SECONDS", 0.2)
+    store = RuntimeConfigStore(tmp_path / "home")
+    holder = store._open_lock()
+    try:
+        fcntl.flock(holder, fcntl.LOCK_EX)
+        started = time.monotonic()
+        with pytest.raises(RuntimeConfigurationError):
+            store.update_settings(
+                {("backend", "compaction_enabled"): False},
+                expected_revision=RuntimeConfig().settings_revision,
+                validate=lambda document: document,
+            )
+        assert time.monotonic() - started < 2
+    finally:
+        os.close(holder)
+    assert not (tmp_path / "home" / "config.json").exists()

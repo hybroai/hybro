@@ -577,6 +577,12 @@ def configure_logging(
         logger.setLevel(logging.WARNING)
 
 
+def current_log_level() -> str:
+    """The root logger's level name, as ``set_log_level`` last left it."""
+
+    return logging.getLevelName(logging.getLogger().level)
+
+
 def set_log_level(level: str) -> None:
     """Change the backend's level live: the root logger and its two handlers.
 

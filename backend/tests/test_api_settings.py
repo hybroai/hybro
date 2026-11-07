@@ -381,6 +381,25 @@ async def test_invalid_file_is_a_conflict(harness):
     assert (harness.store.home / "config.json").read_text() == "{not json"
 
 
+async def test_a_huge_integer_is_a_field_error_not_a_crash(harness):
+    response = await put(harness, {"backend.agent_health_check_interval": 10**400})
+    assert response.status_code == 422, response.text
+    assert [error["field"] for error in response.json()["errors"]] == [
+        "backend.agent_health_check_interval"
+    ]
+
+
+async def test_a_huge_integer_in_the_file_is_reported_as_invalid(harness):
+    harness.store.home.mkdir(mode=0o700, parents=True)
+    (harness.store.home / "config.json").write_text(
+        '{"version": 1, "backend": {"agent_health_check_interval": 1' + "0" * 400 + "}}"
+    )
+    response = await harness.http.get("/settings")
+    assert response.status_code == 200, response.text
+    assert response.json()["revision"] is None
+    assert response.json()["config_error"]
+
+
 async def test_other_sections_and_auth_are_untouched(harness):
     harness.store.save(
         RuntimeConfig(

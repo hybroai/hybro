@@ -597,13 +597,19 @@ def validate_backend(values: dict[str, object]) -> Settings:
             except ValueError as exc:
                 raise BackendFieldError(key, str(exc)) from None
         if isinstance(value, (int, float)) and not isinstance(value, bool):
-            if not math.isfinite(value) or value < 0:
-                raise BackendFieldError(
-                    key, "Numeric settings must be finite and nonnegative"
-                )
-            if key.endswith("_port") and not 1 <= value <= 65535:
-                raise BackendFieldError(key, "Port must be between 1 and 65535")
+            _check_number(key, value)
     return Settings.model_validate(values)
+
+
+def _check_number(key: str, value: float) -> None:
+    try:
+        finite = math.isfinite(value)
+    except OverflowError:  # An int too large to compare as a float.
+        finite = False
+    if not finite or value < 0:
+        raise BackendFieldError(key, "Numeric settings must be finite and nonnegative")
+    if key.endswith("_port") and not 1 <= value <= 65535:
+        raise BackendFieldError(key, "Port must be between 1 and 65535")
 
 
 # Public projection fields that are not settings: MCP is always `{origin}/mcp`.
