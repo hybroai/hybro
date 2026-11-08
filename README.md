@@ -114,9 +114,8 @@ pass `--build`. In a checkout, use `./scripts/hybro` wherever this README shows
 
 Hybro starts without a model provider. Until one is set up, a banner on the
 Overview and in Chats links to **Settings**, Room Chat is disabled, and the four
-LLM-backed agents stay inactive; Echo Agent and MCP work at once. The
-**Settings** dialog (also under your name at the bottom of the sidebar) opens on
-**Model provider**, which has three steps:
+LLM-backed agents stay inactive; Echo Agent and MCP work at once. **Settings**
+in the sidebar opens on **Model provider**, which has three steps:
 
 1. **Provider**: OpenAI, Anthropic, or DeepSeek.
 2. **Connect**: for OpenAI, sign in with your ChatGPT account or use an API key;
@@ -133,12 +132,12 @@ LLM-backed agents stay inactive; Echo Agent and MCP work at once. The
    key, an optional image model and image size. **Save models** applies them.
 
 The provider and models apply without a restart; a new image size applies after
-`hybro stop` and `hybro`, or a restart through the Settings API. The status at the top of the section shows **Not set
+`hybro stop` and `hybro`, or **Restart now** on the Settings page. The status at the top of the section shows **Not set
 up**, **Waiting for sign-in**, **Connected**, or **ChatGPT sign-in expired**,
 with **Sign in again** for the last.
 
 <p align="center">
-  <img src="assets/screenshots/settings.png" alt="The Settings dialog on Model provider, before a provider is set up" width="800">
+  <img src="assets/screenshots/settings.png" alt="Settings on Model provider, before a provider is set up" width="800">
 </p>
 
 **Run on a server**

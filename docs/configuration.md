@@ -52,8 +52,8 @@ source.
 
 ## Edit configuration
 
-Edit `~/.hybro/config.json` by hand or through the
-[Settings API](#settings-api), then restart:
+Edit `~/.hybro/config.json` by hand, on the Settings page under
+**Configuration**, or through the [Settings API](#settings-api), then restart:
 
 ```json
 {
@@ -104,8 +104,8 @@ the Settings API shows the capped value and a `capped_fields` notice.
 ## Settings API
 
 The backend serves the instance settings under `{api_prefix}/settings`
-(`/api/v1/settings` by default). The frontend Settings page will be its client;
-the response shapes may still change before that page ships.
+(`/api/v1/settings` by default). The Settings page's Configuration and System
+sections are its client.
 
 | Route | Behavior |
 |---|---|

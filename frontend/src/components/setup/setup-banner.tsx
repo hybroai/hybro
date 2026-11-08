@@ -1,12 +1,11 @@
 'use client'
 
 import Link from 'next/link'
-import { usePathname } from 'next/navigation'
 import { useEffect, useSyncExternalStore } from 'react'
 import { Settings, X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { useSetupStatus } from '@/hooks/useSetupStatus'
-import { settingsHref } from '@/lib/settings-url'
+import { routes } from '@/lib/routes'
 import { isDismissed, readDismissed, setupNotice, subscribeDismissed, writeDismissed, type SetupNotice } from '@/lib/setup-notice'
 import { cn } from '@/lib/utils'
 
@@ -16,7 +15,6 @@ const TONES: Record<SetupNotice['tone'], { frame: string; icon: string }> = {
 }
 
 function NoticeBanner({ notice, body, onDismiss }: { notice: SetupNotice; body: string; onDismiss?: () => void }) {
-  const pathname = usePathname()
   const tone = TONES[notice.tone]
   return (
     <div
@@ -31,7 +29,7 @@ function NoticeBanner({ notice, body, onDismiss }: { notice: SetupNotice; body: 
         <span className="text-[13px] leading-[18px] text-muted-foreground">{body}</span>
       </span>
       <Button size="sm" asChild>
-        <Link href={settingsHref(pathname, 'model-provider')}>{notice.action}</Link>
+        <Link href={routes.settingsModelProvider}>{notice.action}</Link>
       </Button>
       {onDismiss ? (
         <Button variant="ghost" size="icon" className="size-8 text-muted-foreground" aria-label="Dismiss" onClick={onDismiss}>

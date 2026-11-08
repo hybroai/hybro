@@ -10,10 +10,10 @@ vi.mock('@/hooks/use-mobile', () => ({ useIsMobile: () => false }))
 afterEach(cleanup)
 
 describe('NavAgent', () => {
-  it('renders the five destinations and marks the current one', () => {
+  it('renders the six destinations and marks the current one', () => {
     render(<SidebarProvider><NavAgent navAgents={CONSUMER_NAV} badges={{ '/chat': 2 }} /></SidebarProvider>)
-    expect(CONSUMER_NAV.map(item => item.name)).toEqual(['Overview', 'Network', 'Chats', 'Inbox', 'Access'])
-    for (const name of ['Overview', 'Network', 'Chats', 'Inbox', 'Access']) {
+    expect(CONSUMER_NAV.map(item => item.name)).toEqual(['Overview', 'Network', 'Chats', 'Inbox', 'Access', 'Settings'])
+    for (const name of ['Overview', 'Network', 'Chats', 'Inbox', 'Access', 'Settings']) {
       expect(screen.getByRole('link', { name: new RegExp(`^${name}`) })).toBeInTheDocument()
     }
     expect(screen.getByRole('link', { name: /^Network/ })).toHaveAttribute('aria-current', 'page')

@@ -1549,7 +1549,7 @@ billable call.
 
 ### Browser setup API
 
-The frontend's Settings dialog ("Model provider" section) and its banners are
+The frontend's Settings page (`/settings/model-provider`) and its banners are
 the client of these routes. `api_gateway/routes/setup_routes.py` is a thin adapter over
 `llm_gateway.setup_api.SetupAccess`, implemented by `BrowserSetup` and bound on
 `app.state.setup_access` by `container.py`. All routes are under

@@ -20,10 +20,6 @@ vi.mock('@/components/settings/sessions-section', () => ({
   SessionsSection: () => <div data-testid="sessions-section">Sessions</div>,
 }))
 
-vi.mock('@/components/settings/model-provider-section', () => ({
-  ModelProviderSection: () => <div data-testid="model-provider-section">Model provider</div>,
-}))
-
 vi.mock('@/components/settings/danger-zone-section', () => ({
   DangerZoneSection: () => <div data-testid="danger-zone-section">Danger Zone</div>,
 }))
@@ -31,7 +27,6 @@ vi.mock('@/components/settings/danger-zone-section', () => ({
 let SettingsDialog: React.ComponentType<{
   open: boolean
   onOpenChange: (open: boolean) => void
-  section?: 'model-provider' | null
 }>
 
 beforeEach(async () => {
@@ -44,32 +39,33 @@ beforeEach(async () => {
 afterEach(cleanup)
 
 describe('SettingsDialog', () => {
-  it('shows account settings without a My Hub entry', () => {
+  it('holds only account settings; instance settings live on the Settings page', () => {
     render(<SettingsDialog open={true} onOpenChange={vi.fn()} />)
 
-    expect(screen.getByTestId('model-provider-section')).toBeInTheDocument()
+    expect(screen.getByRole('dialog', { name: 'Account' })).toBeInTheDocument()
     expect(screen.getByTestId('profile-section')).toBeInTheDocument()
     expect(screen.getByTestId('password-section')).toBeInTheDocument()
     expect(screen.getByTestId('sessions-section')).toBeInTheDocument()
     expect(screen.getByTestId('danger-zone-section')).toBeInTheDocument()
-    expect(screen.queryByText('My Hub')).not.toBeInTheDocument()
+    expect(screen.queryByText('Model provider')).not.toBeInTheDocument()
+    expect(screen.queryByText('About')).not.toBeInTheDocument()
   })
 
-  it('lists the sections with icons and shows one at a time, model provider first', () => {
-    render(<SettingsDialog open={true} onOpenChange={vi.fn()} section="model-provider" />)
+  it('lists the sections with icons and shows one at a time, profile first', () => {
+    render(<SettingsDialog open={true} onOpenChange={vi.fn()} />)
 
-    const nav = screen.getByRole('navigation', { name: 'Settings sections' })
+    const nav = screen.getByRole('navigation', { name: 'Account sections' })
     const items = within(nav).getAllByRole('button')
-    expect(items.map(item => item.textContent)).toEqual(['Model provider', 'Profile', 'Password', 'Sessions', 'About'])
+    expect(items.map(item => item.textContent)).toEqual(['Profile', 'Password', 'Sessions'])
     items.forEach(item => expect(item.querySelector('svg')).not.toBeNull())
     expect(items[0]).toHaveAttribute('aria-current', 'page')
-    expect(screen.getByTestId('model-provider-section')).toBeVisible()
-    expect(screen.getByTestId('profile-section')).not.toBeVisible()
+    expect(screen.getByTestId('profile-section')).toBeVisible()
+    expect(screen.getByTestId('password-section')).not.toBeVisible()
 
-    fireEvent.click(items[4])
-    expect(items[4]).toHaveAttribute('aria-current', 'page')
-    expect(screen.getByText(/^Hybro \d+\.\d+\.\d+/)).toBeVisible()
-    expect(screen.getByTestId('model-provider-section')).not.toBeVisible()
+    fireEvent.click(items[2])
+    expect(items[2]).toHaveAttribute('aria-current', 'page')
+    expect(screen.getByTestId('sessions-section')).toBeVisible()
+    expect(screen.getByTestId('profile-section')).not.toBeVisible()
   })
 
   it('shows loading state when user is not loaded', () => {
@@ -77,6 +73,6 @@ describe('SettingsDialog', () => {
 
     render(<SettingsDialog open={true} onOpenChange={vi.fn()} />)
 
-    expect(screen.getByText('Loading settings...')).toBeInTheDocument()
+    expect(screen.getByText('Loading account...')).toBeInTheDocument()
   })
 })

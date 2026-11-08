@@ -13,6 +13,7 @@ import { LoadingButton } from "@/components/settings/loading-button"
 import { FormGroup } from "@/components/settings/form-group"
 import { setupStatusQueryKey, useSetupStatus } from "@/hooks/useSetupStatus"
 import { AGENT_CATALOG_KEY } from "@/hooks/room/useAgentCatalog"
+import { instanceSettingsQueryKey } from "@/hooks/useInstanceSettings"
 import {
   IMAGE_SIZES,
   cancelOAuth,
@@ -51,7 +52,7 @@ const IMAGE_SIZE_LABELS: Record<ImageSize, string> = {
 }
 const LOGIN_POLL_MS = 2000
 
-const SELECT_CLASS = cn(
+export const SELECT_CLASS = cn(
   "border-input dark:bg-input/30 flex h-9 w-full min-w-0 rounded-md border bg-transparent px-3 py-1 text-base shadow-xs outline-none md:text-sm",
   "focus-visible:border-ring focus-visible:ring-ring/50 focus-visible:ring-[3px] disabled:cursor-not-allowed disabled:opacity-50",
 )
@@ -65,7 +66,7 @@ export function providerPhase(status: SetupStatus, login: OAuthLogin | null): Pr
   return status.state === "configured" ? "connected" : "not_set_up"
 }
 
-/** Text color of each phase, shared with the dot on the Settings menu. */
+/** Text color of each phase, shared with the dot on the Settings tabs. */
 export const PHASE_TEXT: Record<ProviderPhase, string> = {
   not_set_up: "text-status-warning",
   signing_in: "text-icon-action",
@@ -137,7 +138,7 @@ function initialModel(choices: readonly string[], saved: string | null | undefin
   return choices[0] ?? ""
 }
 
-export function ModelProviderSection({ onPhaseChange }: { onPhaseChange?: (phase: ProviderPhase | null) => void }) {
+export function ModelProviderSection() {
   const queryClient = useQueryClient()
   const status = useSetupStatus()
   const current = status.data
@@ -176,9 +177,6 @@ export function ModelProviderSection({ onPhaseChange }: { onPhaseChange?: (phase
   const [error, setError] = useState<{ step: 2 | 3; message: string } | null>(null)
 
   const phase = current ? providerPhase(current, login) : null
-  useEffect(() => {
-    onPhaseChange?.(phase)
-  }, [phase, onPhaseChange])
 
   const loginId = login?.state === "pending" ? login.login_id : null
   useEffect(() => {
@@ -207,6 +205,8 @@ export function ModelProviderSection({ onPhaseChange }: { onPhaseChange?: (phase
     queryClient.setQueryData(setupStatusQueryKey, status)
     // The save re-gated the sample agents, so their status changed.
     void queryClient.invalidateQueries({ queryKey: AGENT_CATALOG_KEY })
+    // An image size change waits for a restart, which the Settings restart banner reports.
+    void queryClient.invalidateQueries({ queryKey: instanceSettingsQueryKey })
     setProviderDraft(null)
     setAuthDraft(null)
     setTextDraft(null)
@@ -299,10 +299,7 @@ export function ModelProviderSection({ onPhaseChange }: { onPhaseChange?: (phase
   }, [authenticatedId, models.data])
 
   const header = (
-    <div>
-      <h2 className="mb-1 text-lg font-semibold">Model provider</h2>
-      <p className="text-sm text-muted-foreground">Room Chat and the model-backed sample agents use this provider. MCP and the Echo agent work without one.</p>
-    </div>
+    <h2 className="text-lg font-semibold">Model provider</h2>
   )
 
   if (status.isPending) {
