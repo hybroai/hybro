@@ -1934,7 +1934,9 @@ from the root.
    - for a new key, rejects the send while a HITL request is pending; otherwise
      claims the room in process (without awaiting) and rejects with
      `409 Room is already processing another message.` when another send holds
-     the claim, then also when the room has a non-terminal Run. The durable check
+     the claim, then also when the room has a non-terminal Run. If the
+     pending-HITL or active-Run lookup itself fails, the send is refused with a
+     body-level `503` asking the user to try again, never admitted unchecked. The durable check
      cannot see a Run the background task has not created yet, so the claim
      closes that window. A concurrent send with the same `client_request_id`
      joins the claim and is deduplicated by persistence. The claim is dropped

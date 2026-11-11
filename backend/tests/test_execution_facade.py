@@ -420,87 +420,65 @@ async def test_execute_concurrent_insert_loser_skips_preflight_and_all_sse():
 
 
 @pytest.mark.asyncio
-async def test_execute_continues_when_hitl_pending_lookup_fails():
+@pytest.mark.parametrize("failing_lookup", ["hitl", "active_runs"])
+async def test_execute_refuses_the_send_when_a_room_state_lookup_fails(
+    failing_lookup,
+):
+    """A database error must not admit a send past a pending question or an
+    active Run; the claim is released so a later send can go through."""
     facade, deps = _make_facade()
     order: list[str] = []
 
     async def get_pending_requests(_conversation_id):
         order.append("hitl")
-        raise RuntimeError("hitl down")
-
-    async def get_runs_for_room(_conversation_id):
-        order.append("active_runs")
-        return []
-
-    async def persist_user_message(*_args, **_kwargs):
-        order.append("persist")
-        return _room_response_with_preflight(
-            conversation_id="room-1",
-            message_id="msg-1",
-            dispatch_root_message_id="msg-1",
-            success=True,
-            preflight_outcome="ready",
-        )
-
-    deps["hitl_manager"].get_pending_requests.side_effect = get_pending_requests
-    deps["run_reader"].get_runs_for_room.side_effect = get_runs_for_room
-    deps["room_center"].persist_user_message.side_effect = persist_user_message
-
-    ack = await facade.execute(
-        ExecutionRequest(
-            conversation_id="room-1", sender_id="user-1", client_request_id="cr-1"
-        )
-    )
-
-    assert ack.success is True
-    assert ack.message_id == "msg-1"
-    assert ack.should_start_orchestration is True
-    assert order == ["hitl", "active_runs", "persist"]
-    deps["hitl_manager"].get_pending_requests.assert_awaited_once_with("room-1")
-    deps["room_center"].persist_user_message.assert_awaited_once()
-    deps["run_reader"].get_runs_for_room.assert_awaited_once_with("room-1")
-
-
-@pytest.mark.asyncio
-async def test_execute_continues_when_active_run_lookup_fails():
-    facade, deps = _make_facade()
-    order: list[str] = []
-
-    async def get_pending_requests(_conversation_id):
-        order.append("hitl")
+        if failing_lookup == "hitl":
+            raise RuntimeError("hitl down")
         return []
 
     async def get_runs_for_room(_conversation_id):
         order.append("active_runs")
-        raise RuntimeError("runs down")
-
-    async def persist_user_message(*_args, **_kwargs):
-        order.append("persist")
-        return _room_response_with_preflight(
-            conversation_id="room-1",
-            message_id="msg-1",
-            dispatch_root_message_id="msg-1",
-            success=True,
-            preflight_outcome="ready",
-        )
+        if failing_lookup == "active_runs":
+            raise RuntimeError("runs down")
+        return []
 
     deps["hitl_manager"].get_pending_requests.side_effect = get_pending_requests
     deps["run_reader"].get_runs_for_room.side_effect = get_runs_for_room
-    deps["room_center"].persist_user_message.side_effect = persist_user_message
-
-    ack = await facade.execute(
-        ExecutionRequest(
-            conversation_id="room-1", sender_id="user-1", client_request_id="cr-1"
-        )
+    deps["room_center"].persist_user_message.side_effect = AssertionError(
+        "room persist should not be called"
+    )
+    request = ExecutionRequest(
+        conversation_id="room-1", sender_id="user-1", client_request_id="cr-1"
     )
 
-    assert ack.success is True
-    assert ack.message_id == "msg-1"
-    assert ack.should_start_orchestration is True
-    assert order == ["hitl", "active_runs", "persist"]
-    deps["hitl_manager"].get_pending_requests.assert_awaited_once_with("room-1")
-    deps["run_reader"].get_runs_for_room.assert_awaited_once_with("room-1")
-    deps["room_center"].persist_user_message.assert_awaited_once()
+    ack = await facade.execute(request)
+
+    assert ack.success is False
+    assert ack.conversation_id == "room-1"
+    assert ack.status_code == 503
+    assert ack.should_start_orchestration is False
+    assert "try again" in ack.error
+    expected = ["hitl"] if failing_lookup == "hitl" else ["hitl", "active_runs"]
+    assert order == expected
+    deps["room_center"].persist_user_message.assert_not_awaited()
+    deps["event_publisher"].emit.assert_not_awaited()
+
+    deps["hitl_manager"].get_pending_requests.side_effect = None
+    deps["run_reader"].get_runs_for_room.side_effect = None
+    deps["room_center"].persist_user_message.side_effect = None
+    deps[
+        "room_center"
+    ].persist_user_message.return_value = _room_response_with_preflight(
+        conversation_id="room-1",
+        message_id="msg-1",
+        dispatch_root_message_id="msg-1",
+        success=True,
+        preflight_outcome="ready",
+    )
+
+    retry = await facade.execute(request)
+
+    assert retry.success is True
+    assert retry.message_id == "msg-1"
 
 
 @pytest.mark.asyncio
