@@ -45,6 +45,9 @@ from models.request import RoomCenterUserMessageRequest
 logger = get_logger(__name__)
 
 _ROOM_BUSY_ERROR = "Room is already processing another message."
+_ROOM_STATE_UNAVAILABLE_ERROR = (
+    "Could not check whether the room is free. Please try again."
+)
 _START_FAILED_DETAILS = "Message processing could not start."
 
 
@@ -242,7 +245,7 @@ class ExecutionFacade:
                 conversation_id=request.conversation_id,
                 client_request_id=request.client_request_id,
             )
-            return None
+            return self._room_state_unavailable_rejection(request)
         if not pending_requests:
             return None
         return ExecutionAck(
@@ -268,10 +271,24 @@ class ExecutionFacade:
                 conversation_id=request.conversation_id,
                 client_request_id=request.client_request_id,
             )
-            return None
+            return self._room_state_unavailable_rejection(request)
         if not active_runs:
             return None
         return self._room_busy_rejection(request)
+
+    @staticmethod
+    def _room_state_unavailable_rejection(request: ExecutionRequest) -> ExecutionAck:
+        """Refuse a send whose pending-HITL or active-Run check could not run.
+
+        Admitting it could start a second Run or answer past a pending question.
+        """
+        return ExecutionAck(
+            conversation_id=request.conversation_id,
+            success=False,
+            error=_ROOM_STATE_UNAVAILABLE_ERROR,
+            status_code=503,
+            should_start_orchestration=False,
+        )
 
     @staticmethod
     def _room_busy_rejection(request: ExecutionRequest) -> ExecutionAck:
