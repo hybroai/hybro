@@ -140,7 +140,6 @@ class MongoSessionRepository:
                 "conversation_id": {"$type": "string"},
             },
             projection={"_id": 0, "session_id": 1, "conversation_id": 1},
-            exhaust=True,
         )
         return {doc["conversation_id"]: doc["session_id"] for doc in docs}
 

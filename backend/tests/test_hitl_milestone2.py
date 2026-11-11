@@ -149,7 +149,6 @@ async def test_deadline_is_part_of_claim_and_pending_queries_without_truncation(
 
     await part.get_pending_hitl_requests("room-1")
     pending_kwargs = collection.find.await_args.kwargs
-    assert pending_kwargs["exhaust"] is True
     assert "limit" not in pending_kwargs
 
 

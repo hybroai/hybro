@@ -65,7 +65,7 @@ class AgentMongoRepository:
         query: dict = {"agent_status": "active"}
         if agent_ids is not None:
             query["agent_id"] = {"$in": agent_ids}
-        return await self._agents.find(query, exhaust=True)
+        return await self._agents.find(query)
 
     async def find_by_normalized_url(
         self, normalized_url: str, provider_id: str | None = None
@@ -83,7 +83,6 @@ class AgentMongoRepository:
         agent_ids: list[str] | None = None,
         query: dict | None = None,
         limit: int = 0,
-        exhaust: bool = False,
     ) -> list[dict]:
         visibility: list[dict] = [{"is_public": True}]
         if user_id is not None:
@@ -100,8 +99,7 @@ class AgentMongoRepository:
 
         final_query = conditions[0] if len(conditions) == 1 else {"$and": conditions}
 
-        kwargs = {"limit": limit} if limit else {"exhaust": exhaust}
-        return await self._agents.find(final_query, **kwargs)
+        return await self._agents.find(final_query, limit=limit or None)
 
     async def text_search(
         self, agent_ids: list[str], query: str, limit: int

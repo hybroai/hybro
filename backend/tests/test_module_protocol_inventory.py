@@ -321,6 +321,6 @@ def test_moved_port_signatures_are_pinned():
 
     _assert_params(
         AgentRepository.list_visible,
-        ["self", "user_id", "active_only", "agent_ids", "query", "limit", "exhaust"],
+        ["self", "user_id", "active_only", "agent_ids", "query", "limit"],
     )
     _assert_params(RoomManagement.create_room, ["self", "request"])

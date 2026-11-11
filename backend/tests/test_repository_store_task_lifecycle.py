@@ -327,7 +327,7 @@ class TestRepositoryStoreHITL:
             "status": "pending",
         }
         assert {"expires_at": None} in query["$and"][1]["$or"]
-        assert options == {"exhaust": True}
+        assert options == {}
 
     @pytest.mark.asyncio
     async def test_persists_and_clears_hitl_request_id_on_display_message(self):

@@ -34,12 +34,14 @@ class MongoCollectionAdapter:
         return await self._collection.find_one(query, **kwargs)
 
     async def find(self, query: dict, **kwargs) -> list[dict]:
+        """Every matching document, or at most ``limit`` when one is given.
+
+        There is no implicit cap: a caller that needs a bound passes ``limit``.
+        """
         projection = kwargs.pop("projection", None)
         limit = kwargs.pop("limit", None)
         skip = kwargs.pop("skip", None)
         sort = kwargs.pop("sort", None)
-        exhaust = kwargs.pop("exhaust", False)
-        length = None if exhaust else (limit if limit is not None else 1000)
 
         if projection is not None:
             cursor = self._collection.find(query, projection=projection, **kwargs)
@@ -53,7 +55,7 @@ class MongoCollectionAdapter:
         if limit is not None:
             cursor = cursor.limit(limit)
 
-        return await cursor.to_list(length=length)
+        return await cursor.to_list(length=limit)
 
     async def find_one_and_update(
         self,
@@ -97,8 +99,9 @@ class MongoCollectionAdapter:
         return await self._collection.count_documents(query)
 
     async def aggregate(self, pipeline: list[dict]) -> list[dict]:
+        """Every result document; bound it with a ``$limit`` stage."""
         cursor = self._collection.aggregate(pipeline)
-        return await cursor.to_list(length=1000)
+        return await cursor.to_list(length=None)
 
     async def create_index(self, keys: list[tuple], **kwargs) -> str:
         return await self._collection.create_index(keys, **kwargs)
