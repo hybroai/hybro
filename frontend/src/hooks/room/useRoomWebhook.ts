@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 
 import {
   useRoomUiStore,
@@ -11,7 +11,8 @@ import { useMessageStore } from '@/stores/message-store'
 import { useAgentCatalog } from './useAgentCatalog'
 import { useRoomData } from './useRoomData'
 import { createProcessingLifecycle, type ProcessingLifecycle } from './processing-lifecycle'
-import { createSSEDispatcher } from './sse-handlers/dispatch'
+import { createSSEDispatcher, type SSEDispatcher } from './sse-handlers/dispatch'
+import type { AnySSEFrame } from '@/lib/types/sse'
 import { useRoomReset } from './useRoomReset'
 import { useRoomHydration } from './useRoomHydration'
 import { useProcessingRestore } from './useProcessingRestore'
@@ -154,15 +155,44 @@ export function useRoomWebhook({ conversationId, userId, userName, getToken }: U
     reconcileWithDb,
   )
 
-  // Handle SSE messages — delegates to pure dispatcher factory
-  const handleSSEMessage = useMemo(
-    () => createSSEDispatcher({
-      conversationId, lifecycle, getAgentName, getAgentSource, getToken,
-      reconcileWithDb, hitlRequestIndex, setCancelling,
+  // Handle SSE messages — delegates to pure dispatcher factory.
+  // The dispatcher's reducer holds the stream's sequence state, so it is
+  // built once per conversation. Callbacks that change identity (e.g. when
+  // the agent catalog loads) are read through a ref instead of rebuilding it.
+  const dispatcherCallbacksRef = useRef({
+    getAgentName, getAgentSource, getToken, reconcileWithDb, setCancelling,
+  })
+  useLayoutEffect(() => {
+    dispatcherCallbacksRef.current = {
+      getAgentName, getAgentSource, getToken, reconcileWithDb, setCancelling,
+    }
+  }, [getAgentName, getAgentSource, getToken, reconcileWithDb, setCancelling])
+
+  // Created in an effect so a disposed dispatcher is never reused: Strict
+  // Mode's remount and a room switch each get a fresh one. The SSE connection
+  // effects run after this one, so no frame arrives before it exists.
+  const dispatcherRef = useRef<SSEDispatcher | null>(null)
+  useEffect(() => {
+    const dispatcher = createSSEDispatcher({
+      conversationId,
+      lifecycle,
+      getAgentName: (agentId) => dispatcherCallbacksRef.current.getAgentName(agentId),
+      getAgentSource: (agentId) => dispatcherCallbacksRef.current.getAgentSource(agentId),
+      getToken: async () => (await dispatcherCallbacksRef.current.getToken?.()) ?? null,
+      reconcileWithDb: (id) => dispatcherCallbacksRef.current.reconcileWithDb(id),
+      setCancelling: (v) => dispatcherCallbacksRef.current.setCancelling(v),
+      hitlRequestIndex,
       requestSnapshotRef,
-    }),
-    [conversationId, lifecycle, getAgentName, getAgentSource, getToken,
-     reconcileWithDb, setCancelling]
+    })
+    dispatcherRef.current = dispatcher
+    return () => {
+      dispatcher.dispose()
+      if (dispatcherRef.current === dispatcher) dispatcherRef.current = null
+    }
+  }, [conversationId, lifecycle, hitlRequestIndex, requestSnapshotRef])
+  const handleSSEMessage = useCallback(
+    (sseMessage: AnySSEFrame) => dispatcherRef.current?.(sseMessage),
+    [],
   )
 
   // SSE connection

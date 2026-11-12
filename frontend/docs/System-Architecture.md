@@ -359,7 +359,7 @@ src/hooks/room/
 5. Resets room-local state when room changes.
 6. Hydrates and reconciles DB messages through `useRoomHydration`.
 7. Restores active processing placeholders with `useProcessingRestore`.
-8. Creates an SSE dispatcher with `createSSEDispatcher`.
+8. Creates one SSE dispatcher per conversation with `createSSEDispatcher`.
 9. Connects SSE with `useRoomSSEConnection`.
 10. Sends messages through `useSendMessage`.
 11. Exposes room actions from `useRoomActions`.
