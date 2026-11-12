@@ -208,9 +208,17 @@ async function foldDelta(deps: SSEHandlerDeps, roomMessage: DeltaMessage): Promi
   }
 }
 
-export function createSSEDispatcher(deps: SSEHandlerDeps) {
+export interface SSEDispatcher {
+  (sseMessage: AnySSEFrame): Promise<void>
+  /** Clear the reducer's pending timers when the dispatcher is discarded. */
+  dispose: () => void
+}
+
+export function createSSEDispatcher(deps: SSEHandlerDeps): SSEDispatcher {
   // The reducer owns ordering: snapshot replace + ordered delta patch with
-  // gap self-heal. The handlers above remain the fold functions.
+  // gap self-heal. The handlers above remain the fold functions. Its sequence
+  // state lives for the dispatcher's lifetime, so callers must keep one
+  // dispatcher per conversation rather than rebuilding it.
   const reducer = new RoomReducer({
     conversationId: deps.conversationId,
     onDelta: (frame: AnySSEFrame) => {
@@ -228,7 +236,7 @@ export function createSSEDispatcher(deps: SSEHandlerDeps) {
     },
   })
 
-  return async (sseMessage: AnySSEFrame) => {
+  const dispatch = async (sseMessage: AnySSEFrame) => {
     if (!isRoomSSEType(sseMessage.type)) {
       log.debug('sse_frame_ignored', {
         conversation_id: sseMessage.conversation_id,
@@ -239,4 +247,5 @@ export function createSSEDispatcher(deps: SSEHandlerDeps) {
     }
     await reducer.handle(sseMessage)
   }
+  return Object.assign(dispatch, { dispose: () => reducer.dispose() })
 }

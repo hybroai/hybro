@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 
 import {
   useRoomUiStore,
@@ -154,16 +154,34 @@ export function useRoomWebhook({ conversationId, userId, userName, getToken }: U
     reconcileWithDb,
   )
 
-  // Handle SSE messages — delegates to pure dispatcher factory
+  // Handle SSE messages — delegates to pure dispatcher factory.
+  // The dispatcher's reducer holds the stream's sequence state, so it is
+  // built once per conversation. Callbacks that change identity (e.g. when
+  // the agent catalog loads) are read through a ref instead of rebuilding it.
+  const dispatcherCallbacksRef = useRef({
+    getAgentName, getAgentSource, getToken, reconcileWithDb, setCancelling,
+  })
+  useLayoutEffect(() => {
+    dispatcherCallbacksRef.current = {
+      getAgentName, getAgentSource, getToken, reconcileWithDb, setCancelling,
+    }
+  }, [getAgentName, getAgentSource, getToken, reconcileWithDb, setCancelling])
+
   const handleSSEMessage = useMemo(
     () => createSSEDispatcher({
-      conversationId, lifecycle, getAgentName, getAgentSource, getToken,
-      reconcileWithDb, hitlRequestIndex, setCancelling,
+      conversationId,
+      lifecycle,
+      getAgentName: (agentId) => dispatcherCallbacksRef.current.getAgentName(agentId),
+      getAgentSource: (agentId) => dispatcherCallbacksRef.current.getAgentSource(agentId),
+      getToken: async () => (await dispatcherCallbacksRef.current.getToken?.()) ?? null,
+      reconcileWithDb: (id) => dispatcherCallbacksRef.current.reconcileWithDb(id),
+      setCancelling: (v) => dispatcherCallbacksRef.current.setCancelling(v),
+      hitlRequestIndex,
       requestSnapshotRef,
     }),
-    [conversationId, lifecycle, getAgentName, getAgentSource, getToken,
-     reconcileWithDb, setCancelling]
+    [conversationId, lifecycle]
   )
+  useEffect(() => () => handleSSEMessage.dispose(), [handleSSEMessage])
 
   // SSE connection
   const { sseConnected: sseConnectedFromSSE, sseConnecting, sseError: sseErrorFromSSE } = useRoomSSEConnection(

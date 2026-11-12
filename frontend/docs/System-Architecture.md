@@ -359,7 +359,7 @@ src/hooks/room/
 5. Resets room-local state when room changes.
 6. Hydrates and reconciles DB messages through `useRoomHydration`.
 7. Restores active processing placeholders with `useProcessingRestore`.
-8. Creates an SSE dispatcher with `createSSEDispatcher`.
+8. Creates one SSE dispatcher per conversation with `createSSEDispatcher`. Its `RoomReducer` keeps the stream's sequence state, so callbacks that change identity, such as the agent-name lookups when the catalog loads, are read through a ref instead of rebuilding it. The dispatcher's `dispose()` clears the reducer's timers when the room changes or unmounts.
 9. Connects SSE with `useRoomSSEConnection`.
 10. Sends messages through `useSendMessage`.
 11. Exposes room actions from `useRoomActions`.

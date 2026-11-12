@@ -104,6 +104,11 @@ export class RoomReducer {
     return this.capabilityEnabled
   }
 
+  /** Cancel pending recovery timers so a discarded reducer requests no snapshot. */
+  dispose(): void {
+    this.clearTimers()
+  }
+
   async handle(frame: AnySSEFrame): Promise<void> {
     if (!isRoomSSEType(frame.type)) return
     switch (frame.type) {
