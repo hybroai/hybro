@@ -33,8 +33,8 @@ class FakeCollection:
     async def find(self, query: dict, **kwargs) -> list[dict]:
         self.find_calls.append((deepcopy(query), deepcopy(kwargs)))
         matches = [deepcopy(doc) for doc in self.docs if _matches(doc, query)]
-        limit = kwargs.get("limit", None if kwargs.get("exhaust") else 1000)
-        return matches[:limit] if limit else matches
+        limit = kwargs.get("limit")
+        return matches if limit is None else matches[:limit]
 
     async def find_one_and_update(
         self, query: dict, update: dict, **kwargs
@@ -209,16 +209,14 @@ async def test_list_visible_combines_query_with_visibility_filters():
 
 
 @pytest.mark.asyncio
-async def test_list_visible_exhaustion_is_opt_in():
+async def test_list_visible_returns_every_agent_without_a_limit():
     docs = [{"agent_id": f"public-{index}", "is_public": True} for index in range(1001)]
-    repo, _ = _repo(docs)
+    repo, collection = _repo(docs)
 
-    bounded = await repo.list_visible()
-    complete = await repo.list_visible(exhaust=True)
+    complete = await repo.list_visible()
 
-    assert len(bounded) == 1000
-    assert {doc["agent_id"] for doc in bounded} <= {doc["agent_id"] for doc in docs}
     assert {doc["agent_id"] for doc in complete} == {doc["agent_id"] for doc in docs}
+    assert collection.find_calls[-1][1] == {"limit": None}
 
 
 @pytest.mark.asyncio
@@ -227,7 +225,7 @@ async def test_list_visible_honors_explicit_finite_limit():
         [{"agent_id": f"public-{index}", "is_public": True} for index in range(3)]
     )
 
-    result = await repo.list_visible(limit=2, exhaust=True)
+    result = await repo.list_visible(limit=2)
 
     assert [doc["agent_id"] for doc in result] == ["public-0", "public-1"]
 

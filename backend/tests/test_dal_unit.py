@@ -136,7 +136,23 @@ async def test_mongo_collection_adapter_materializes_find_and_aggregate():
     find_cursor.skip.assert_called_once_with(5)
     find_cursor.limit.assert_called_once_with(10)
     find_cursor.to_list.assert_awaited_once_with(length=10)
-    aggregate_cursor.to_list.assert_awaited_once_with(length=1000)
+    aggregate_cursor.to_list.assert_awaited_once_with(length=None)
+
+
+@pytest.mark.asyncio
+async def test_mongo_collection_adapter_find_without_limit_returns_every_document():
+    """No implicit cap: a list that grows past 1000 must not be cut off."""
+    from dal.mongo.client import MongoCollectionAdapter
+
+    find_cursor = MagicMock()
+    find_cursor.to_list = AsyncMock(return_value=[])
+    collection = MagicMock()
+    collection.find.return_value = find_cursor
+
+    await MongoCollectionAdapter(collection).find({"a": 1})
+
+    find_cursor.limit.assert_not_called()
+    find_cursor.to_list.assert_awaited_once_with(length=None)
 
 
 @pytest.mark.asyncio

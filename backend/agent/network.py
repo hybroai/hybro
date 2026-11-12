@@ -45,7 +45,6 @@ class AgentNetworkService:
             user_id=self._requesting_user_id,
             active_only=True,
             query={"agent_id": {"$in": agent_ids}} if agent_ids is not None else None,
-            exhaust=True,
         )
         return AgentDiscoveryResponse(
             agents=[
@@ -66,7 +65,6 @@ class AgentNetworkService:
                 user_id=self._requesting_user_id,
                 active_only=True,
                 query={"agent_id": {"$in": member_ids}},
-                exhaust=True,
             )
             active_ids = {agent.agent_id for agent in agents}
         return AgentGroupListResponse(

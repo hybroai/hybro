@@ -81,7 +81,6 @@ class HITLRequestStore:
         try:
             return await self._hitl_requests.find(
                 _pending_actionable_query(user_message_id=user_message_id),
-                exhaust=True,
             )
         except Exception as exc:
             logger.emit(
@@ -107,7 +106,6 @@ class HITLRequestStore:
                     },
                 ]
             },
-            exhaust=True,
         )
 
     async def create_hitl_request(self, request_data: dict) -> bool:
@@ -224,7 +222,6 @@ class HITLRequestStore:
             return await self._hitl_requests.find(
                 _user_visible_interaction_query(room_id=conversation_id),
                 sort=[("created_at", 1), ("request_id", 1)],
-                exhaust=True,
             )
         except Exception as exc:
             logger.emit(
@@ -242,7 +239,6 @@ class HITLRequestStore:
         return await self._hitl_requests.find(
             _user_visible_interaction_query(room_id=conversation_id),
             sort=[("created_at", 1), ("request_id", 1)],
-            exhaust=True,
         )
 
     async def count_hitl_requests_for_message(

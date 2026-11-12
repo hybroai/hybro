@@ -379,7 +379,7 @@ async def test_profile_tolerates_malformed_remote_card_fields():
 
 
 @pytest.mark.asyncio
-async def test_search_ranks_beyond_the_default_inventory_cap():
+async def test_search_ranks_beyond_a_thousand_agents():
     docs = [_doc(f"filler-{index:04d}", "Filler") for index in range(1000)]
     docs.append(_skilled_doc("weather", "Weather Agent", "Weather forecast"))
     network = _network(docs)

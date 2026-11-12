@@ -234,7 +234,7 @@ async def test_list_open_conversations_reads_every_open_session():
         "conversation_id": {"$type": "string"},
     }
     # Not capped: a waiting session must never fall off this read.
-    assert collection.find.await_args.kwargs["exhaust"] is True
+    assert "limit" not in collection.find.await_args.kwargs
 
 
 @pytest.mark.asyncio

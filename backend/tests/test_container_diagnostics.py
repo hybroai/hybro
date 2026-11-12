@@ -248,7 +248,6 @@ async def test_agents_returns_the_raw_visible_records():
     assert records == [{"agent_id": "a1"}]
     assert fakes["agent_repository"].kwargs == {
         "query": {"agent_status": {"$ne": "deleted"}},
-        "exhaust": True,
     }
 
 

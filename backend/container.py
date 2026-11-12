@@ -2439,7 +2439,7 @@ async def _agent_records(
 ) -> list[dict[str, object]]:
     """The agents every user can see, except deleted ones."""
     return await agent_repository.list_visible(
-        query={"agent_status": {"$ne": "deleted"}}, exhaust=True
+        query={"agent_status": {"$ne": "deleted"}}
     )
 
 

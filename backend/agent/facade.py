@@ -67,7 +67,6 @@ class AgentRepository(Protocol):
         agent_ids: list[str] | None = None,
         query: dict | None = None,
         limit: int = 0,
-        exhaust: bool = False,
     ) -> list[dict]: ...
     async def text_search(
         self, agent_ids: list[str], query: str, limit: int
@@ -488,14 +487,12 @@ class AgentFacade:
         active_only: bool = False,
         query: dict[str, Any] | None = None,
         limit: int = 0,
-        exhaust: bool = False,
     ) -> list[AgentInfo]:
         docs = await self._repository.list_visible(
             user_id=user_id,
             active_only=active_only,
             query=query,
             limit=limit,
-            exhaust=exhaust,
         )
         return [agent_info_from_doc(doc) for doc in docs]
 
@@ -538,12 +535,11 @@ class AgentFacade:
         # respect_visibility=False widens matching to public agents across users;
         # private agents remain hidden unless scoped to the requesting owner.
         user_id = requesting_user_id if respect_visibility else None
-        # Rank the complete visible set; the DAL's default cap is unsorted.
+        # Rank the complete visible set.
         candidates = await self._repository.list_visible(
             user_id=user_id,
             active_only=True,
             agent_ids=filter_ids,
-            exhaust=True,
         )
         if not candidates:
             return []
