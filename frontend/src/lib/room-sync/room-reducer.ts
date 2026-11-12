@@ -95,6 +95,7 @@ export class RoomReducer {
   private bootstrapTimer: ReturnType<typeof setTimeout> | null = null
   private heartbeatGapTimer: ReturnType<typeof setTimeout> | null = null
   private bootstrapRequested = false
+  private disposed = false
 
   constructor(deps: RoomReducerDeps) {
     this.deps = deps
@@ -104,13 +105,15 @@ export class RoomReducer {
     return this.capabilityEnabled
   }
 
-  /** Cancel pending recovery timers so a discarded reducer requests no snapshot. */
+  /** Stop the reducer: later frames are ignored, and pending timers and
+   * frames still in flight can no longer request a snapshot. */
   dispose(): void {
+    this.disposed = true
     this.clearTimers()
   }
 
   async handle(frame: AnySSEFrame): Promise<void> {
-    if (!isRoomSSEType(frame.type)) return
+    if (this.disposed || !isRoomSSEType(frame.type)) return
     switch (frame.type) {
       case 'connected':
         await this.onConnected(frame as RoomSSEFrameMap['connected'])
@@ -168,7 +171,7 @@ export class RoomReducer {
     ) {
       // A replacement snapshot is authoritative only when it covers at least
       // the watermark already folded into the stores.
-      this.deps.requestSnapshot()
+      this.requestSnapshot()
       return
     }
     if (!applySnapshotToStores(
@@ -176,7 +179,7 @@ export class RoomReducer {
       frame.data,
       this.deps.hitlRequestIndex,
     )) {
-      this.deps.requestSnapshot()
+      this.requestSnapshot()
       return
     }
     if (hasCanonicalSnapshotCapability(frame.data) && this.deps.processingLifecycle) {
@@ -272,7 +275,7 @@ export class RoomReducer {
       if (!this.reorderTimer) {
         this.reorderTimer = setTimeout(() => {
           this.reorderTimer = null
-          this.deps.requestSnapshot()
+          this.requestSnapshot()
         }, REORDER_WINDOW_MS)
       }
     }
@@ -315,7 +318,7 @@ export class RoomReducer {
         && this.lastRoomSeq !== null
         && this.highestObservedRoomSeq > this.lastRoomSeq
       ) {
-        this.deps.requestSnapshot()
+        this.requestSnapshot()
       }
     }, HEARTBEAT_GAP_SETTLE_MS)
   }
@@ -325,7 +328,7 @@ export class RoomReducer {
     this.bootstrapTimer = setTimeout(() => {
       this.bootstrapTimer = null
       if (!this.snapshotApplied) {
-        this.deps.requestSnapshot()
+        this.requestSnapshot()
       }
     }, BOOTSTRAP_SNAPSHOT_MS)
   }
@@ -334,7 +337,11 @@ export class RoomReducer {
     if (this.bootstrapRequested || this.snapshotApplied) return
     this.bootstrapRequested = true
     // Rule 7: the first delta without a prior snapshot triggers recovery.
-    this.deps.requestSnapshot()
+    this.requestSnapshot()
+  }
+
+  private requestSnapshot(): void {
+    if (!this.disposed) this.deps.requestSnapshot()
   }
 
   private clearTimers(): void {

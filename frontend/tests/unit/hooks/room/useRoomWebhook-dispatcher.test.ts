@@ -68,20 +68,23 @@ function snapshot(roomSeq: number): AnySSEFrame {
   })
 }
 
-function createWrapper() {
+function createWrapper(strict: boolean) {
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false, staleTime: Infinity } },
   })
   return function Wrapper({ children }: { children: React.ReactNode }) {
-    return React.createElement(QueryClientProvider, { client: queryClient }, children)
+    const tree = React.createElement(QueryClientProvider, { client: queryClient }, children)
+    return strict ? React.createElement(React.StrictMode, null, tree) : tree
   }
 }
 
 describe('useRoomWebhook stream dispatcher', () => {
+  let consoleError: ReturnType<typeof vi.spyOn>
+
   beforeEach(() => {
     vi.clearAllMocks()
     onMessageCalls.length = 0
-    vi.spyOn(console, 'error').mockImplementation(() => undefined)
+    consoleError = vi.spyOn(console, 'error').mockImplementation(() => undefined)
     useMessageStore.getState().clearRoom()
     useMessageStore.getState().setRoom('room-1')
     useMessageStore.getState().markDbSynced()
@@ -90,10 +93,10 @@ describe('useRoomWebhook stream dispatcher', () => {
 
   afterEach(() => {
     cleanup()
-    vi.restoreAllMocks()
+    consoleError.mockRestore()
   })
 
-  it('keeps delta ordering after the agent catalog loads', async () => {
+  it.each([false, true])('keeps delta ordering after the agent catalog loads (strict mode: %s)', async (strict) => {
     type AgentsResponse = Awaited<ReturnType<typeof getAllAgents>>
     let resolveAgents: (value: AgentsResponse) => void = () => {}
     vi.mocked(getAllAgents).mockReturnValue(
@@ -108,7 +111,7 @@ describe('useRoomWebhook stream dispatcher', () => {
         userName: 'Test',
         getToken: async () => 'token',
       }),
-      { wrapper: createWrapper() },
+      { wrapper: createWrapper(strict) },
     )
     await waitFor(() => expect(result.current.room).toBeDefined())
 
@@ -149,10 +152,8 @@ describe('createSSEDispatcher dispose', () => {
     vi.useRealTimers()
   })
 
-  it('cancels the pending bootstrap snapshot request', async () => {
-    vi.useFakeTimers()
-    const requestSnapshot = vi.fn()
-    const dispatch = createSSEDispatcher({
+  function dispatcherWith(requestSnapshot: () => void) {
+    return createSSEDispatcher({
       conversationId: 'room-1',
       lifecycle: createProcessingLifecycle(() => {}),
       getAgentName: vi.fn().mockResolvedValue('Agent'),
@@ -162,6 +163,30 @@ describe('createSSEDispatcher dispose', () => {
       setCancelling: vi.fn(),
       requestSnapshotRef: { current: requestSnapshot },
     } as unknown as SSEHandlerDeps)
+  }
+
+  it('ignores a frame that arrives after dispose', async () => {
+    vi.useFakeTimers()
+    vi.mocked(toast.error).mockClear()
+    const requestSnapshot = vi.fn()
+    const dispatch = dispatcherWith(requestSnapshot)
+
+    await dispatch(frame('connected', { connection_id: 'c1', room_seq: 1 }))
+    await dispatch(snapshot(1))
+    dispatch.dispose()
+    // Out of order: a live reducer would hold it and request a snapshot.
+    await dispatch(frame('error', { room_seq: 3, error: 'late' }))
+    await dispatch(frame('error', { room_seq: 2, error: 'late-in-order' }))
+    await vi.advanceTimersByTimeAsync(1000)
+
+    expect(requestSnapshot).not.toHaveBeenCalled()
+    expect(toast.error).not.toHaveBeenCalled()
+  })
+
+  it('cancels the pending bootstrap snapshot request', async () => {
+    vi.useFakeTimers()
+    const requestSnapshot = vi.fn()
+    const dispatch = dispatcherWith(requestSnapshot)
 
     await dispatch(frame('connected', { connection_id: 'c1', room_seq: 1 }))
     dispatch.dispose()

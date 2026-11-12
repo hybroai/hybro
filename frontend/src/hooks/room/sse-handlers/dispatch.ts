@@ -210,7 +210,8 @@ async function foldDelta(deps: SSEHandlerDeps, roomMessage: DeltaMessage): Promi
 
 export interface SSEDispatcher {
   (sseMessage: AnySSEFrame): Promise<void>
-  /** Clear the reducer's pending timers when the dispatcher is discarded. */
+  /** Stop the reducer when the dispatcher is discarded: later frames are
+   *  ignored and no snapshot is requested. */
   dispose: () => void
 }
 

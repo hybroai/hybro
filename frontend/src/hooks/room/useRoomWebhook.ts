@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 
 import {
   useRoomUiStore,
@@ -11,7 +11,8 @@ import { useMessageStore } from '@/stores/message-store'
 import { useAgentCatalog } from './useAgentCatalog'
 import { useRoomData } from './useRoomData'
 import { createProcessingLifecycle, type ProcessingLifecycle } from './processing-lifecycle'
-import { createSSEDispatcher } from './sse-handlers/dispatch'
+import { createSSEDispatcher, type SSEDispatcher } from './sse-handlers/dispatch'
+import type { AnySSEFrame } from '@/lib/types/sse'
 import { useRoomReset } from './useRoomReset'
 import { useRoomHydration } from './useRoomHydration'
 import { useProcessingRestore } from './useProcessingRestore'
@@ -167,8 +168,12 @@ export function useRoomWebhook({ conversationId, userId, userName, getToken }: U
     }
   }, [getAgentName, getAgentSource, getToken, reconcileWithDb, setCancelling])
 
-  const handleSSEMessage = useMemo(
-    () => createSSEDispatcher({
+  // Created in an effect so a disposed dispatcher is never reused: Strict
+  // Mode's remount and a room switch each get a fresh one. The SSE connection
+  // effects run after this one, so no frame arrives before it exists.
+  const dispatcherRef = useRef<SSEDispatcher | null>(null)
+  useEffect(() => {
+    const dispatcher = createSSEDispatcher({
       conversationId,
       lifecycle,
       getAgentName: (agentId) => dispatcherCallbacksRef.current.getAgentName(agentId),
@@ -178,10 +183,17 @@ export function useRoomWebhook({ conversationId, userId, userName, getToken }: U
       setCancelling: (v) => dispatcherCallbacksRef.current.setCancelling(v),
       hitlRequestIndex,
       requestSnapshotRef,
-    }),
-    [conversationId, lifecycle]
+    })
+    dispatcherRef.current = dispatcher
+    return () => {
+      dispatcher.dispose()
+      if (dispatcherRef.current === dispatcher) dispatcherRef.current = null
+    }
+  }, [conversationId, lifecycle, hitlRequestIndex, requestSnapshotRef])
+  const handleSSEMessage = useCallback(
+    (sseMessage: AnySSEFrame) => dispatcherRef.current?.(sseMessage),
+    [],
   )
-  useEffect(() => () => handleSSEMessage.dispose(), [handleSSEMessage])
 
   // SSE connection
   const { sseConnected: sseConnectedFromSSE, sseConnecting, sseError: sseErrorFromSSE } = useRoomSSEConnection(
