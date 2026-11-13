@@ -4,7 +4,10 @@ from __future__ import annotations
 
 import pytest
 
-from a2a_adapter.webhook_payloads import parse_stream_response_payload
+from a2a_adapter.webhook_payloads import (
+    parse_stream_frame,
+    parse_stream_response_payload,
+)
 from common.types import TaskState
 
 
@@ -431,3 +434,32 @@ def test_parse_v1_message_frame():
 def test_parse_rejects_unknown_frame():
     with pytest.raises(ValueError, match="Invalid StreamResponse"):
         parse_stream_response_payload({"jsonrpc": "2.0", "result": {"nope": {}}}, "m")
+
+
+@pytest.mark.parametrize(
+    ("result", "frame"),
+    [
+        ({"task": {"id": "t", "status": {"state": "TASK_STATE_WORKING"}}}, "task"),
+        (
+            {
+                "statusUpdate": {
+                    "taskId": "t",
+                    "status": {"state": "TASK_STATE_WORKING"},
+                }
+            },
+            "status_update",
+        ),
+        (
+            {"artifactUpdate": {"taskId": "t", "artifact": {"artifactId": "a"}}},
+            "artifact_update",
+        ),
+        ({"message": {"messageId": "m", "role": "ROLE_AGENT"}}, "message"),
+        # The internal ``kind`` tag ``client_facade`` sets names the same frames.
+        ({"kind": "status-update", "taskId": "t", "status": {}}, "status_update"),
+    ],
+)
+def test_parse_stream_frame_tells_deltas_from_snapshots(result, frame):
+    kind, task = parse_stream_frame({"jsonrpc": "2.0", "result": result}, "msg-1")
+
+    assert kind == frame
+    assert task.status.state in TaskState

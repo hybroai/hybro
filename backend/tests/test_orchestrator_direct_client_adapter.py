@@ -796,6 +796,218 @@ async def test_open_stream_accumulates_artifact_refs_into_terminal_tool_result()
     assert tool_result.artifact_refs == ["/api/v1/files/stream-file-1/content"]
 
 
+def _text_artifact_update(
+    text: str, *, artifact_id: str = "art-1", append: bool = False
+) -> dict:
+    return {
+        "result": {
+            "kind": "artifact-update",
+            "taskId": "task-1",
+            "contextId": "ctx-1",
+            "append": append,
+            "lastChunk": True,
+            "artifact": {
+                "artifactId": artifact_id,
+                "parts": [{"kind": "text", "text": text}],
+            },
+        }
+    }
+
+
+def _completed_status_update(text: str | None = None) -> dict:
+    status: dict = {"state": "completed"}
+    if text is not None:
+        status["message"] = {
+            "role": "agent",
+            "parts": [{"kind": "text", "text": text}],
+        }
+    return {
+        "result": {
+            "kind": "status-update",
+            "taskId": "task-1",
+            "contextId": "ctx-1",
+            "final": True,
+            "status": status,
+        }
+    }
+
+
+def _task_snapshot(state: str, *, artifact_text: str) -> dict:
+    return {
+        "result": {
+            "kind": "task",
+            "id": "task-1",
+            "contextId": "ctx-1",
+            "status": {"state": state},
+            "artifacts": [
+                {
+                    "artifactId": "art-1",
+                    "parts": [{"kind": "text", "text": artifact_text}],
+                }
+            ],
+        }
+    }
+
+
+async def _stream_observations(frames: list[dict]) -> list[NormalizedA2AObservation]:
+    async def stream(card, message, kwargs):
+        for frame in frames:
+            yield frame
+
+    stream_obj = await _client(FakeSdk(stream=stream)).open_stream(_dispatch_command())
+    observations = [observation async for observation in stream_obj]
+    await stream_obj.close(reason="terminal")
+    return observations
+
+
+def _texts(observation: NormalizedA2AObservation) -> list[str]:
+    return [part.text for part in observation.content]
+
+
+async def test_open_stream_terminal_status_update_keeps_earlier_artifact_text():
+    """A final status update is a delta: the answer came in an artifact update."""
+    observations = await _stream_observations(
+        [_text_artifact_update("TEST-ANSWER"), _completed_status_update()]
+    )
+
+    assert [item.event_kind for item in observations] == ["working", "terminal"]
+    assert _texts(observations[1]) == ["TEST-ANSWER"]
+
+
+@pytest.mark.parametrize(
+    ("frames", "expected"),
+    [
+        pytest.param(
+            [
+                _text_artifact_update("Hel"),
+                _text_artifact_update("lo", append=True),
+                _completed_status_update(),
+            ],
+            "Hello",
+            id="append-extends-the-artifact",
+        ),
+        pytest.param(
+            [
+                _text_artifact_update("draft"),
+                _text_artifact_update("final"),
+                _completed_status_update(),
+            ],
+            "final",
+            id="no-append-replaces-the-artifact",
+        ),
+        pytest.param(
+            [
+                _text_artifact_update("A", artifact_id="a"),
+                _text_artifact_update("B", artifact_id="b"),
+                _text_artifact_update("!", artifact_id="a", append=True),
+                _completed_status_update(),
+            ],
+            "A!B",
+            id="artifacts-keep-their-first-position",
+        ),
+        pytest.param(
+            [_text_artifact_update("answer"), _completed_status_update("answer")],
+            "answer",
+            id="status-repeating-the-answer-keeps-it-once",
+        ),
+        pytest.param(
+            [_text_artifact_update("answer"), _completed_status_update("Done.")],
+            "Done.\nanswer",
+            id="other-status-text-comes-first",
+        ),
+        pytest.param(
+            [
+                _text_artifact_update("draft"),
+                _task_snapshot("working", artifact_text="snapshot"),
+                _completed_status_update(),
+            ],
+            "snapshot",
+            id="task-snapshot-replaces-earlier-artifacts",
+        ),
+        pytest.param(
+            [
+                _text_artifact_update("answer"),
+                _task_snapshot("completed", artifact_text="answer"),
+            ],
+            "answer",
+            id="terminal-task-snapshot-is-not-added-twice",
+        ),
+    ],
+)
+async def test_open_stream_terminal_text_follows_artifact_update_semantics(
+    frames, expected
+):
+    observations = await _stream_observations(frames)
+
+    assert observations[-1].event_kind == "terminal"
+    assert _texts(observations[-1]) == [expected]
+
+
+@pytest.mark.parametrize("state", ["completed", "failed"])
+async def test_open_stream_terminal_content_matches_the_task_snapshot(state):
+    """A stream and a blocking send report the same final task the same way."""
+    status = {
+        "state": state,
+        "message": {"role": "agent", "parts": [{"kind": "text", "text": "status"}]},
+    }
+    artifact = {
+        "artifactId": "art-1",
+        "parts": [{"kind": "text", "text": "artifact"}],
+    }
+    identity = {"taskId": "task-1", "contextId": "ctx-1"}
+
+    streamed = await _stream_observations(
+        [
+            {"result": {"kind": "artifact-update", **identity, "artifact": artifact}},
+            {"result": {"kind": "status-update", **identity, "status": status}},
+        ]
+    )
+
+    async def send(card, message, kwargs):
+        return {
+            "kind": "task",
+            "result": {
+                "id": "task-1",
+                "contextId": "ctx-1",
+                "status": status,
+                "artifacts": [artifact],
+            },
+        }
+
+    receipt = await _client(FakeSdk(send=send)).send(_dispatch_command())
+
+    assert receipt.terminal_observation is not None
+    assert streamed[-1].status == receipt.terminal_observation.status == state
+    assert streamed[-1].content == receipt.terminal_observation.content
+
+
+async def test_open_stream_terminal_status_update_leaves_data_parts_by_reference():
+    """Only text is carried; a data part stays on the frame that owns its ref."""
+    data_update = {
+        "result": {
+            "kind": "artifact-update",
+            "taskId": "task-1",
+            "contextId": "ctx-1",
+            "artifact": {
+                "artifactId": "art-1",
+                "parts": [
+                    {"kind": "data", "data": {"temperature": 21}},
+                    {"kind": "text", "text": "Clear."},
+                ],
+            },
+        }
+    }
+
+    working, terminal = await _stream_observations(
+        [data_update, _completed_status_update()]
+    )
+
+    assert len(working.inline_artifacts) == 1
+    assert _texts(terminal) == ["Clear."]
+    assert terminal.inline_artifacts == []
+    assert terminal.artifact_refs == working.artifact_refs
+
+
 async def test_send_reraises_recoverable_materialization_errors():
     encoded_b64 = base64.b64encode(b"png-bytes").decode()
     task = _file_task_result("cover.png", encoded_b64)

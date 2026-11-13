@@ -2743,6 +2743,16 @@ metadata before durable ingress. A status update keeps its message on
 response becomes a response artifact. Inbound `artifact-update` treats explicit
 `null` `append` and `lastChunk` as omitted.
 
+The direct stream wrapper (`DirectA2AStream`) turns each frame into one
+observation. Status and artifact updates are deltas, so it keeps the text of the
+artifacts the stream has delivered: an artifact update replaces the artifact
+with its `artifactId` or, with `append`, extends it
+(`append_artifact_to_task_dict`), and a `task` or `message` frame is a snapshot
+that replaces them. The observation of a terminal status update includes that
+text, merged with the status message as for a `Task` snapshot, so an answer sent
+only in artifact updates is the call's result. File and data parts are not
+copied; their refs accumulate across frames.
+
 Public A2A task projections (`common.a2a_task_projection`) never expose remote
 `Task.history`. For a completed task, agent-role `TextPart` content of
 `TaskStatus.message` becomes the public `message_text`; completed artifacts stay

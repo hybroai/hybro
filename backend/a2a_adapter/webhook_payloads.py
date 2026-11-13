@@ -51,21 +51,32 @@ def parse_stream_response_payload(payload: dict[str, Any], message_id: str) -> T
     ``message_id`` only supplies a fallback identity when the frame omits one;
     agent-supplied ids always win.
     """
+    return parse_stream_frame(payload, message_id)[1]
+
+
+def parse_stream_frame(payload: dict[str, Any], message_id: str) -> tuple[str, Task]:
+    """Parse one A2A stream frame into its frame kind and an internal task.
+
+    The kind tells a delta (``status_update``, ``artifact_update``) from a full
+    snapshot (``task``, ``message``).
+    """
     frame = _unwrap_result(payload)
     member, event = _resolve_event(frame)
 
     if member == "task":
-        return task_from_task_frame(event)
-    if member == "statusUpdate":
-        return task_from_status_update(event, message_id)
-    if member == "artifactUpdate":
-        return task_from_artifact_update(event)
-    if member == "message":
-        return task_from_message_frame(event, message_id)
-    raise ValueError(
-        "Invalid StreamResponse: expected one of 'task', 'statusUpdate', "
-        "'artifactUpdate', or 'message'"
-    )
+        task = task_from_task_frame(event)
+    elif member == "statusUpdate":
+        task = task_from_status_update(event, message_id)
+    elif member == "artifactUpdate":
+        task = task_from_artifact_update(event)
+    elif member == "message":
+        task = task_from_message_frame(event, message_id)
+    else:
+        raise ValueError(
+            "Invalid StreamResponse: expected one of 'task', 'statusUpdate', "
+            "'artifactUpdate', or 'message'"
+        )
+    return _STREAM_FRAMES[member], task
 
 
 _PUSH_FRAMES = {
@@ -73,6 +84,7 @@ _PUSH_FRAMES = {
     "statusUpdate": "status_update",
     "artifactUpdate": "artifact_update",
 }
+_STREAM_FRAMES = {**_PUSH_FRAMES, "message": "message"}
 
 
 def parse_push_notification_payload(payload: dict[str, Any]) -> tuple[str, Task]:
@@ -314,6 +326,7 @@ def _string(value: Any) -> str | None:
 
 __all__ = [
     "parse_push_notification_payload",
+    "parse_stream_frame",
     "parse_stream_response_payload",
     "task_from_artifact_update",
     "task_from_message_frame",

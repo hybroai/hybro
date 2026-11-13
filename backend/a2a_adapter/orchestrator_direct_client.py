@@ -49,17 +49,18 @@ from common.utils.a2a_artifacts import (
     data_part_digest,
     inline_data_artifact_identity,
 )
-from common.utils.a2a_helpers import extract_parts, get_text_from_message
+from common.utils.a2a_helpers import (
+    append_artifact_to_task_dict,
+    extract_parts,
+    get_text_from_message,
+)
 from common.utils.time import utcnow
 
 from .card_data import agent_card_dict, build_agent_card
 from .client_facade import A2AClientFacadeError
 from .message_factory import to_sdk_message
 from .translators import facade_result_to_model, message_to_completed_task
-from .webhook_payloads import (
-    parse_push_notification_payload,
-    parse_stream_response_payload,
-)
+from .webhook_payloads import parse_push_notification_payload, parse_stream_frame
 
 logger = get_logger(__name__)
 _MAX_INLINE_DATA_ARTIFACTS = 20
@@ -352,6 +353,14 @@ def _artifact_value(artifact: Any, field: str) -> Any:
     return getattr(artifact, field, None)
 
 
+def _artifact_text_entry(artifact: Any) -> dict[str, Any]:
+    """One artifact's id and text parts, as ``append_artifact_to_task_dict`` merges."""
+    return {
+        "artifact_id": artifact.artifact_id,
+        "parts": extract_parts(list(artifact.parts)).text_parts,
+    }
+
+
 def _task_to_observation_kwargs(  # noqa: C901
     task: Any,
     *,
@@ -363,7 +372,14 @@ def _task_to_observation_kwargs(  # noqa: C901
     context_id: str | None,
     observation_id: str | None = None,
     cursor: str | None = None,
+    earlier_artifact_text: Sequence[str] = (),
 ) -> dict[str, Any]:
+    """Normalize ``task`` into observation fields.
+
+    ``earlier_artifact_text`` is artifact text the task does not carry itself:
+    a stream's status update is a delta, so the text that arrived in earlier
+    frames is passed in and treated like the task's own artifact text.
+    """
     event_kind = _event_kind(task)
     status = _terminal_status(task)
     interaction_spec = (
@@ -395,7 +411,7 @@ def _task_to_observation_kwargs(  # noqa: C901
     content: list[dict[str, Any]] = []
     inline_artifacts: list[dict[str, Any]] = []
     artifact_refs: list[str] = []
-    artifact_text_parts: list[str] = []
+    artifact_text_parts: list[str] = list(earlier_artifact_text)
     generated_file_descriptions: list[str] = []
 
     text = get_text_from_message(getattr(task.status, "message", None))
@@ -788,16 +804,37 @@ class DirectA2AStream:
         self._last_task_id: str | None = None
         self._last_context_id: str | None = None
         self._accumulated_artifact_refs: list[str] = []
+        self._artifact_texts: list[dict[str, Any]] = []
 
     def __aiter__(self) -> DirectA2AStream:
         return self
+
+    def _remember_artifact_text(self, frame: str, task: Any) -> None:
+        """Keep the text of the artifacts this stream has delivered so far.
+
+        An artifact update replaces the artifact with its id or, with
+        ``append``, extends it. A task or message frame is a full snapshot and
+        replaces what came before. File and data parts are not kept: their
+        refs already accumulate across frames.
+        """
+        if frame == "artifact_update":
+            for artifact in task.artifacts or []:
+                self._artifact_texts = append_artifact_to_task_dict(
+                    self._artifact_texts,
+                    _artifact_text_entry(artifact),
+                    append=bool(artifact.append),
+                )
+        elif frame != "status_update":
+            self._artifact_texts = [
+                _artifact_text_entry(artifact) for artifact in task.artifacts or []
+            ]
 
     async def __anext__(self) -> Any:
         if self._closed:
             raise StopAsyncIteration
         raw = await self._stream.__anext__()
         try:
-            task = parse_stream_response_payload(raw, self._command.message_id)
+            frame, task = parse_stream_frame(raw, self._command.message_id)
         except ValueError:
             # Ignore malformed stream frames; the caller's deadline still bounds
             # the stream and recovery/inspection can reconcile missing evidence.
@@ -841,11 +878,8 @@ class DirectA2AStream:
         if self._on_frame_identity is not None:
             self._on_frame_identity(task_id or None, context_id or None)
         self._frame_counter += 1
-        cursor = (
-            None
-            if _terminal_status(internal_task) is not None
-            else str(self._frame_counter)
-        )
+        terminal = _terminal_status(internal_task) is not None
+        self._remember_artifact_text(frame, internal_task)
         kwargs = _task_to_observation_kwargs(
             internal_task,
             source_kind="direct",
@@ -854,7 +888,14 @@ class DirectA2AStream:
             agent_id=self._command.agent_id,
             task_id=task_id,
             context_id=context_id,
-            cursor=cursor,
+            cursor=None if terminal else str(self._frame_counter),
+            # A terminal status update is a delta without artifacts, so the
+            # answer that arrived in earlier frames is added back.
+            earlier_artifact_text=(
+                [text for entry in self._artifact_texts for text in entry["parts"]]
+                if terminal and frame == "status_update"
+                else ()
+            ),
         )
 
         current_refs = kwargs.get("artifact_refs", [])
