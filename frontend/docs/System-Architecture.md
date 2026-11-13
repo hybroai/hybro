@@ -376,7 +376,7 @@ src/hooks/room/
 - Consumes pending room handoff data from `room-ui-store`.
 - Persists chat-mode changes lazily before sending.
 - Pre-writes room agent membership for empty rooms when a saved group is selected.
-- Passes a `TimelineAdapter` into `RoomPageShell`.
+- Passes a `TimelineAdapter` into `RoomPageShell`. Its `onSendMessage` returns the `sendUserMessage` result. The composer clears at once, and on `false` it restores the draft text and attachments unless the user has started a new draft.
 
 High-level flow:
 

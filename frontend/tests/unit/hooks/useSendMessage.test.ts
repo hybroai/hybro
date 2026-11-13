@@ -7,6 +7,7 @@ import { MAX_QUOTE_TEXT_LENGTH, type QuoteData } from '@/lib/types/quote'
 import { useMessageStore } from '@/stores/message-store'
 import { useRoomUiStore } from '@/stores/room-ui-store'
 import type { ProcessingLifecycle } from '@/hooks/room/processing-lifecycle'
+import type { PendingAttachment } from '@/lib/types/attachments'
 import { useSendMessage } from '@/hooks/room/useSendMessage'
 
 const { sendMessageMock } = vi.hoisted(() => ({
@@ -29,6 +30,16 @@ vi.mock('@/lib/api/room', async importOriginal => {
 
 vi.mock('sonner', () => ({
   toast: { error: vi.fn(), info: vi.fn(), success: vi.fn(), warning: vi.fn() },
+}))
+
+vi.mock('@/lib/api/files', () => ({
+  uploadFile: vi.fn(async (file: File) => ({
+    file_id: `file-${file.name}`,
+    file_url: `/files/${file.name}`,
+    mime_type: file.type,
+    file_name: file.name,
+    size_bytes: file.size,
+  })),
 }))
 
 vi.mock('@/hooks/room/sse-handlers/pending-turn-buffer', () => ({
@@ -91,7 +102,7 @@ describe('useSendMessage room-history rollback', () => {
     activeQueryClient.clear()
   })
 
-  async function send(overrides: { quoteData?: QuoteData } = {}) {
+  async function send(overrides: { quoteData?: QuoteData; pendingAttachments?: PendingAttachment[] } = {}) {
     const lifecycle = createLifecycle()
     const { result } = renderHook(() => useSendMessage(
       'room-1',
@@ -112,6 +123,7 @@ describe('useSendMessage room-history rollback', () => {
       sent = await result.current.sendUserMessage({
         userInput: 'Hello',
         quoteData: overrides.quoteData,
+        pendingAttachments: overrides.pendingAttachments,
         mode: 'direct',
         agentScope: { source: 'room_default' },
       })
@@ -170,6 +182,27 @@ describe('useSendMessage room-history rollback', () => {
       ...initialHistory.items[0],
       title: 'Renamed concurrently',
     })
+  })
+
+  it('keeps attachment previews on a failed send so the composer can restore them', async () => {
+    sendMessageMock.mockRejectedValueOnce(new Error('network failure'))
+    // jsdom has no revokeObjectURL; install a recorder for this test only.
+    const originalRevoke = URL.revokeObjectURL
+    const revokeSpy = vi.fn()
+    URL.revokeObjectURL = revokeSpy
+    const attachment: PendingAttachment = {
+      id: 'att-1',
+      file: new File(['data'], 'photo.png', { type: 'image/png' }),
+      previewUrl: 'blob:photo',
+      status: 'pending',
+    }
+
+    try {
+      expect(await send({ pendingAttachments: [attachment] })).toBe(false)
+      expect(revokeSpy).not.toHaveBeenCalled()
+    } finally {
+      URL.revokeObjectURL = originalRevoke
+    }
   })
 
   it('restores history when the response has no message id', async () => {

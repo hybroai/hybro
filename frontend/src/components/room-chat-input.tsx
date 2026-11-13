@@ -38,8 +38,19 @@ export interface RoomChatInputAgent {
   iconUrl?: string | null
 }
 
+/** `false` (or a promise resolving to it) means the send failed: the composer
+ * puts the draft back. Any other result keeps the composer cleared. */
+export type RoomChatSubmitResult = boolean | void | Promise<boolean | void>
+
+export type RoomChatSubmit = (
+  message: string,
+  dispatch: MessageDispatchInput,
+  quote?: QuoteData | null,
+  attachments?: PendingAttachment[],
+) => RoomChatSubmitResult
+
 interface RoomChatInputProps {
-  onSubmit: (message: string, dispatch: MessageDispatchInput, quote?: QuoteData | null, attachments?: PendingAttachment[]) => void
+  onSubmit: RoomChatSubmit
   /**
    * When true, the editor itself is disabled (read-only).
    * For normal sending-state control, prefer using disableSend.
@@ -882,7 +893,7 @@ export function RoomChatInput({
         e.preventDefault()
         // Allow typing but block submit
         if (!disableSend && !disabled) {
-          handleSubmit()
+          void handleSubmit()
         }
       }
     }
@@ -899,7 +910,22 @@ export function RoomChatInput({
     return mentions
   }, [message])
 
-  const handleSubmit = () => {
+  // Put a failed send's draft back, unless the user has started a new one.
+  const restoreDraft = (draftMessage: string, draftAttachments: PendingAttachment[]) => {
+    const editor = editorRef.current
+    const startedNewDraft = getEditorText() !== '' || attachmentsRef.current.length > 0
+    if (!editor || startedNewDraft) {
+      draftAttachments.forEach(a => { if (a.previewUrl) URL.revokeObjectURL(a.previewUrl) })
+      return
+    }
+    editor.innerHTML = convertToDisplayHTML(draftMessage)
+    setMessage(draftMessage)
+    setPlainTextLength(getEditorText().length)
+    attachmentsRef.current = draftAttachments
+    setAttachments(draftAttachments)
+  }
+
+  const handleSubmit = async () => {
     const trimmedMessage = message.trim()
     if ((!trimmedMessage && attachments.length === 0) || disableSend || disabled) {
       return
@@ -916,6 +942,7 @@ export function RoomChatInput({
         : selectedGroupDispatch
           ?? resolveSelectedGroupDispatch(selectedGroup ?? BUILTIN_GROUP_ALL_AGENTS)
       const submittedAttachments = attachments.length > 0 ? attachments : undefined
+      const draftMessage = message
 
       setMessage('')
       setPlainTextLength(0)
@@ -929,11 +956,15 @@ export function RoomChatInput({
       setSelectedAgentIndex(0)
       onClearQuote?.()
 
-      // Submitted attachment blob URLs are NOT revoked here — they may
-      // still be needed by the new-room handoff flow.  Instead,
-      // sendUserMessage revokes them after the optimistic swap replaces
-      // blob URLs with server URLs in the message store.
-      onSubmit(trimmedMessage, dispatch, quote, submittedAttachments)
+      // The composer empties at once. Submitted attachment blob URLs are NOT
+      // revoked here — they may still be needed by the new-room handoff flow.
+      // Instead, sendUserMessage revokes them after the optimistic swap
+      // replaces blob URLs with server URLs in the message store, and a failed
+      // send hands them back to the composer with the draft.
+      const result = await onSubmit(trimmedMessage, dispatch, quote, submittedAttachments)
+      if (result === false) {
+        restoreDraft(draftMessage, submittedAttachments ?? [])
+      }
     }
   }
 

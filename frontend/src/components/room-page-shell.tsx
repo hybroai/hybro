@@ -2,10 +2,10 @@
 
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import type { AgentGroup, MessageDispatchInput, TargetModeDispatchInput } from '@/lib/types/agent-group'
+import type { AgentGroup, TargetModeDispatchInput } from '@/lib/types/agent-group'
 import type { QuoteData } from '@/lib/types/quote'
-import type { PendingAttachment } from '@/lib/types/attachments'
 import type { ChatMode } from '@/lib/types/chat-mode'
+import type { RoomChatSubmit } from '@/components/room-chat-input'
 import { ConversationMessageList } from '@/components/conversation/ConversationMessageList'
 import { ComposerShell } from '@/components/composer/ComposerShell'
 import type { HitlBatchAnswer } from '@/components/composer/HitlResponseBar'
@@ -98,7 +98,7 @@ export interface QuoteState {
 export interface TimelineAdapter {
   conversationId: string
   getToken?: () => Promise<string | null>
-  onSendMessage: (message: string, dispatch: MessageDispatchInput, quoteData?: QuoteData | null, attachments?: PendingAttachment[]) => void
+  onSendMessage: RoomChatSubmit
   onCancelProcessing: () => void
   onRespondToHitlBatch: (interactionId: string, answers: HitlBatchAnswer[], clientRequestId?: string) => Promise<void>
   onCancelHitl: (requestId: string, interactionId?: string) => Promise<void>

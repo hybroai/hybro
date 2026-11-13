@@ -8,10 +8,10 @@ import { HitlResponseBar, type HitlBatchAnswer, type HitlPromptView } from './Hi
 import {
   RoomChatInput,
   type RoomChatInputAgent,
+  type RoomChatSubmit,
 } from '@/components/room-chat-input'
-import type { AgentGroup, MessageDispatchInput, TargetModeDispatchInput } from '@/lib/types/agent-group'
+import type { AgentGroup, TargetModeDispatchInput } from '@/lib/types/agent-group'
 import type { QuoteData } from '@/lib/types/quote'
-import type { PendingAttachment } from '@/lib/types/attachments'
 import type { ChatMode } from '@/lib/types/chat-mode'
 import { useCanonicalComposerAuthority } from '@/stores/turn-store'
 import { Badge } from '@/components/ui/badge'
@@ -38,7 +38,7 @@ function toHitlPromptView(hitl: PendingHitl): HitlPromptView {
 
 export interface ComposerShellAdapter {
   conversationId: string
-  onSendMessage: (message: string, dispatch: MessageDispatchInput, quoteData?: QuoteData | null, attachments?: PendingAttachment[]) => void
+  onSendMessage: RoomChatSubmit
   onCancelProcessing: () => void
   onRespondToHitlBatch: (interactionId: string, answers: HitlBatchAnswer[], clientRequestId?: string) => Promise<void>
   onCancelHitl: (requestId: string, interactionId?: string) => Promise<void>
