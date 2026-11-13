@@ -187,16 +187,8 @@ export function useSendMessage(
 
         toast.error('Message sent but server returned no ID. Please try again.')
 
-        // Revoke orphaned blob URLs since attachments have already been cleared
-        // from the input component and are unreachable by its cleanup.
-        if (pendingAttachments) {
-          for (const att of pendingAttachments) {
-            if (att.previewUrl) {
-              try { URL.revokeObjectURL(att.previewUrl) } catch { /* ignore */ }
-            }
-          }
-        }
-
+        // Attachment preview URLs are kept: on false the caller gets the
+        // attachments back (the composer restores its draft).
         lifecycle.stopProcessing()
         useRoomUiStore.getState().setPendingTurnSkeleton(conversationId)
 
@@ -284,15 +276,8 @@ export function useSendMessage(
 
       toast.error(`Failed to send message: ${error instanceof Error ? error.message : 'Unknown error'}`)
 
-      // Revoke orphaned blob URLs since attachments have already been cleared
-      // from the input component and are unreachable by its cleanup.
-      if (pendingAttachments) {
-        for (const att of pendingAttachments) {
-          if (att.previewUrl) {
-            try { URL.revokeObjectURL(att.previewUrl) } catch { /* ignore */ }
-          }
-        }
-      }
+      // Attachment preview URLs are kept: on false the caller gets the
+      // attachments back (the composer restores its draft).
 
       // Reconcile to recover any messages that might have been lost
       try {

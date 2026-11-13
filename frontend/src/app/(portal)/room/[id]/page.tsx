@@ -157,9 +157,10 @@ export default function RoomChatPage() {
     })
   }, [room, loading, conversationId, user?.id, sendUserMessage])
 
-  // This function will be called when user clicks send button
-  const handleSendMessage = async (userInput: string, dispatchInput: MessageDispatchInput, quoteData?: QuoteData | null, attachments?: PendingAttachment[]) => {
-    await sendUserMessage({
+  // Called when the user sends. The result tells the composer whether to
+  // restore the draft after a failed send.
+  const handleSendMessage = (userInput: string, dispatchInput: MessageDispatchInput, quoteData?: QuoteData | null, attachments?: PendingAttachment[]) => {
+    return sendUserMessage({
       userInput,
       quoteData: quoteData ?? undefined,
       pendingAttachments: attachments,

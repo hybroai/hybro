@@ -352,6 +352,84 @@ describe('RoomChatInput', () => {
     })
   })
 
+  describe('failed send', () => {
+    function typeDraft(container: HTMLElement, text: string) {
+      const editor = container.querySelector('[contenteditable]') as HTMLElement
+      editor.textContent = text
+      fireEvent.input(editor)
+      return editor
+    }
+
+    function dropFile(container: HTMLElement, name: string) {
+      const dropZone = container.querySelector('.group\\/input') || container.firstElementChild!
+      fireEvent.drop(dropZone, {
+        dataTransfer: { files: [new File(['data'], name, { type: 'image/png' })], types: ['Files'] },
+      })
+    }
+
+    const revokeSpy = vi.fn()
+    let restoreUrlSpies: () => void = () => {}
+
+    beforeEach(() => {
+      const createSpy = vi.spyOn(globalThis.URL, 'createObjectURL').mockReturnValue('blob:draft')
+      const revoke = vi.spyOn(globalThis.URL, 'revokeObjectURL').mockImplementation(revokeSpy)
+      restoreUrlSpies = () => {
+        createSpy.mockRestore()
+        revoke.mockRestore()
+      }
+    })
+
+    afterEach(() => {
+      restoreUrlSpies()
+    })
+
+    it('restores the text and attachments when the send fails', async () => {
+      const onSubmit = vi.fn().mockResolvedValue(false)
+      const { container } = renderInput({ onSubmit })
+      const editor = typeDraft(container, 'Keep this draft')
+      dropFile(container, 'photo.png')
+
+      fireEvent.click(screen.getAllByTestId('send-button')[0])
+
+      await waitFor(() => expect(editor.textContent).toBe('Keep this draft'))
+      expect(onSubmit).toHaveBeenCalledOnce()
+      expect(screen.getByText('photo.png')).toBeTruthy()
+      expect(revokeSpy).not.toHaveBeenCalled()
+      expect((screen.getAllByTestId('send-button')[0] as HTMLButtonElement).disabled).toBe(false)
+    })
+
+    it('clears at once and stays cleared when the send succeeds', async () => {
+      let resolveSend: (value: boolean) => void = () => {}
+      const onSubmit = vi.fn(() => new Promise<boolean>((resolve) => { resolveSend = resolve }))
+      const { container } = renderInput({ onSubmit })
+      const editor = typeDraft(container, 'Sent message')
+
+      fireEvent.click(screen.getAllByTestId('send-button')[0])
+      expect(editor.textContent).toBe('')
+
+      resolveSend(true)
+      await waitFor(() => expect(onSubmit).toHaveBeenCalledOnce())
+      await Promise.resolve()
+      expect(editor.textContent).toBe('')
+    })
+
+    it('keeps a new draft typed while the failed send was in flight', async () => {
+      let resolveSend: (value: boolean) => void = () => {}
+      const onSubmit = vi.fn(() => new Promise<boolean>((resolve) => { resolveSend = resolve }))
+      const { container } = renderInput({ onSubmit })
+      typeDraft(container, 'First draft')
+      dropFile(container, 'photo.png')
+
+      fireEvent.click(screen.getAllByTestId('send-button')[0])
+      const editor = typeDraft(container, 'Second draft')
+      resolveSend(false)
+
+      await waitFor(() => expect(revokeSpy).toHaveBeenCalledWith('blob:draft'))
+      expect(editor.textContent).toBe('Second draft')
+      expect(screen.queryByText('photo.png')).toBeNull()
+    })
+  })
+
   describe('attachment limits', () => {
     it('should cap attachments at MAX_ATTACHMENTS (10)', () => {
       const createSpy = vi.spyOn(globalThis.URL, 'createObjectURL')
