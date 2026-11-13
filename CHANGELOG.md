@@ -5,6 +5,20 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.10](https://github.com/hybroai/hybro/compare/v0.4.9...v0.4.10) (2026-11-13)
+
+
+### Bug Fixes
+
+* **a2a:** keep streamed artifact text when the final status has no message ([a69fa2e](https://github.com/hybroai/hybro/commit/a69fa2e6cbc29357b610811155677207a4e2142c))
+* **a2a:** keep streamed artifact text when the final status has no message ([a2f2783](https://github.com/hybroai/hybro/commit/a2f278300501a9a006712c625919b865b4ad0cce)), closes [#233](https://github.com/hybroai/hybro/issues/233)
+* **dal:** return every document when find or aggregate has no limit ([60c5270](https://github.com/hybroai/hybro/commit/60c52703de15f7912e2add94b74fe524723b772b))
+* **dal:** return every document when find or aggregate has no limit ([ea12e83](https://github.com/hybroai/hybro/commit/ea12e83b0025f2e7960f06810c721c9e200bade9))
+* **execution:** refuse a send when the pending-HITL or active-run lookup fails ([#234](https://github.com/hybroai/hybro/issues/234)) ([4731583](https://github.com/hybroai/hybro/commit/4731583bd6f727516ab56d17c73286b74483cb75))
+* **frontend:** keep one room stream dispatcher per conversation ([#237](https://github.com/hybroai/hybro/issues/237)) ([ab4f3ec](https://github.com/hybroai/hybro/commit/ab4f3ec9d154a50df8a1dca458c562546295cc34))
+* **frontend:** restore the draft and attachments when a send fails ([f2a80dd](https://github.com/hybroai/hybro/commit/f2a80dd1c48da999efb61ae6f96c4ab87721c304))
+* **frontend:** restore the draft and attachments when a send fails ([966b58a](https://github.com/hybroai/hybro/commit/966b58aa221eceb248a3a6e9db04dccdd70f3abd))
+
 ## [0.4.9](https://github.com/hybroai/hybro/compare/v0.4.8...v0.4.9) (2026-11-08)
 
 
