@@ -283,10 +283,7 @@ async def make_call_due(ledger: InMemoryAgentCallLedgerStore) -> None:
     }
 
 
-def flaky_card_dispatch(
-    failures: list[A2AClientFacadeError],
-) -> tuple[RecordingDirectDispatch, FlakyCardSdk]:
-    sdk = FlakyCardSdk(failures=failures)
+def direct_dispatch(sdk: FlakyCardSdk) -> RecordingDirectDispatch:
     client = OrchestratorDirectA2AClient(
         send_message=sdk.send_message,
         stream_message=sdk.stream_message,
@@ -298,7 +295,80 @@ def flaky_card_dispatch(
         recoverable_transport_error_factory=RecoverableTransportError,
         agent_card_contract_error_factory=AgentCardContractError,
     )
-    return RecordingDirectDispatch(client), sdk
+    return RecordingDirectDispatch(client)
+
+
+def flaky_card_dispatch(
+    failures: list[A2AClientFacadeError],
+) -> tuple[RecordingDirectDispatch, FlakyCardSdk]:
+    sdk = FlakyCardSdk(failures=failures)
+    return direct_dispatch(sdk), sdk
+
+
+class StreamingSdk(FlakyCardSdk):
+    """An Agent that answers a stream with the given frames."""
+
+    def __init__(self, frames: list[dict]):
+        super().__init__(failures=[])
+        self.frames = frames
+
+    def stream_message(self, card, message, **kwargs):
+        async def stream():
+            for frame in self.frames:
+                yield frame
+
+        return stream()
+
+
+async def test_streamed_artifact_text_is_the_tool_result_without_a_final_message():
+    """The standard A2A shape: an artifact update, then a bare completed status."""
+    dispatch = direct_dispatch(
+        StreamingSdk(
+            [
+                {
+                    "result": {
+                        "kind": "artifact-update",
+                        "taskId": "task-1",
+                        "contextId": "context-1",
+                        "append": False,
+                        "lastChunk": True,
+                        "artifact": {
+                            "artifactId": "artifact-1",
+                            "parts": [{"kind": "text", "text": "TEST-ANSWER"}],
+                        },
+                    }
+                },
+                {
+                    "result": {
+                        "kind": "status-update",
+                        "taskId": "task-1",
+                        "contextId": "context-1",
+                        "final": True,
+                        "status": {"state": "completed"},
+                    }
+                },
+            ]
+        )
+    )
+    runtime, ledger, _, _, ingress = await setup(
+        dispatch=dispatch,
+        direct_capabilities=["stream"],
+        binding_endpoint_scope_digest=endpoint_scope_digest(
+            "https://agent.example/a2a"
+        ),
+    )
+    dispatch.observations = ingress
+    tool_invocation = invocation()
+    accepted = await runtime.accept(tool_invocation)
+
+    result = await runtime.execute(tool_invocation, accepted, signal=NeverCancelled())
+    terminal = await ledger.load("run-1", "call-1")
+
+    assert isinstance(result, ToolResult)
+    assert result.status == "completed"
+    assert result.content == [TextPart(text="TEST-ANSWER")]
+    assert terminal is not None
+    assert terminal.terminal_result == result
 
 
 async def test_transient_card_fetch_retries_same_frozen_dispatch_without_false_failure():
