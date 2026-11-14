@@ -22,8 +22,11 @@ frontend/ -> backend/ -> A2A agents, Hub relay, and external services
 
 - `frontend/`: Next.js 16, React 19, and TypeScript UI.
 - `backend/`: Python 3.12 FastAPI platform backend.
+- `MCP/`: the standalone MCP server and its tests.
 - `default_agents/`: bundled A2A agents and their manifest.
 - `scripts/`: the `hybro` CLI (POSIX shell), its tests, and the image, migration, and functional-test helpers.
+- `packaging/`: the frontend public-configuration files and the npm package for the CLI.
+- `docs/`: configuration, the target design, and the roadmap.
 - `install.sh`: installs the released `hybro` script.
 - `Dockerfile`: the single product image (UI, API, MCP, embedded MongoDB, and bundled agents behind Caddy on one port).
 
@@ -51,9 +54,21 @@ Do not inspect or treat paths outside this repository as product source unless t
 - For room, SSE, streaming, HITL, processing-status, message-sending, or agent-response changes, preserve `client_request_id` correlation across frontend and backend.
 - A2A response ingestion and finalization are owned by backend Execution. Do not introduce a second response owner in Room or transport adapters.
 - `default_agents/agents.yaml` is the source of truth for bundled agents. It drives boot registration and the image's agent processes. Keep it, the agent uv workspace, and the root `Dockerfile` in sync; `default_agents/tests/test_manifest_in_sync.py` checks this.
-
 - When changing a public backend `Protocol`, repository port, facade port, or compatibility interface, update exact method inventories and run the contract test documented in `backend/AGENTS.md`.
 - For API contract changes, update route/schema tests, frontend consumers, and the tracked `backend/openapi.json` snapshot together.
+
+## Design Direction
+
+`docs/design.md` describes the target design: the concepts, their names, the target modules, and the status of each of today's modules. `docs/roadmap.md` gives the order of work. The System-Architecture documents describe today's code.
+
+- Read `docs/design.md` before changing module boundaries, public routes, or names.
+- Use the concept names from `docs/design.md` in new code, routes, and documents. Do not rename existing code outside the roadmap phase that migrates its module.
+- Check a module's status before changing it. Do not add features to a Frozen module; fix bugs only. Ask before a larger change to a Changing module.
+- Move toward the target only through the roadmap phase in progress. Do not restructure other modules toward it in passing.
+- Do not add planning or prompt rewriting to the core, and do not give the bundled orchestrator a private path into it.
+- Hybro is open core. Enterprise code lives in folders named `enterprise/`, one inside each part of the code it extends, under a commercial license; everything else is community code under Apache 2.0. Code outside an `enterprise/` folder never imports from one. Put a small hook in the community code and the logic in the `enterprise/` folder. `docs/design.md` lists which features are in which edition.
+- Keep existing public routes and MCP tools working. Add the new path first, mark the old one as deprecated in one release, and remove it in a later release.
+- Update `docs/roadmap.md` when a phase starts or finishes, and `docs/design.md` when the target itself changes.
 
 ## Commands
 
@@ -67,25 +82,25 @@ Run commands from the directory that owns the relevant configuration.
 - If a test file is created or modified, run that test and iterate until it passes.
 - Do not use real provider APIs, keys, paid tokens, or external services unless the user explicitly requests live integration testing.
 - Do not claim a check passed unless it completed successfully. Report skipped checks and why.
-- Never commit unless the user asks.
 
-## Dependency and Configuration Security
+## Dependencies
 
 - Treat dependency manifests and lockfiles as reviewed code. Keep the corresponding lockfile in sync with dependency changes.
 - Before adding or upgrading a dependency, inspect its release notes, compatibility impact, and lifecycle scripts when relevant.
 - Use `npm ci` for clean frontend installs and CI parity. Use `npm install` when intentionally updating frontend dependencies or the lockfile.
 - Use `uv sync --frozen --extra dev` for backend CI parity. Use `uv sync --extra dev` when intentionally updating backend dependencies or `uv.lock`.
-- Never commit secrets or print them in logs, fixtures, screenshots, or command output.
-- The configuration contract is JSON-based: `~/.hybro/config.json` is the single user configuration source for backend, frontend, and bundled agents. `HYBRO_HOME` is the only configuration-directory override; require an absolute path.
-- Keep secrets in the sibling `auth.json`, not in public frontend configuration. Reuse the existing secure credential store and OAuth refresh ownership; do not create a second credential system.
-- `.env`, `.env.example`, and `frontend/.env.local` are not configuration sources. Do not add dotenv loading, template-copy steps, or implicit legacy fallback. The owner will remove existing environment files manually; do not delete or overwrite them on the owner's behalf.
-- Keep defaults, types, and validation in a thin configuration loader. Do not preserve a separate `settings.py` environment-loading path. Business code consumes the validated configuration object, not ad hoc file or environment reads.
-- The Settings page and manually edited JSON must use the same validation rules. Validate JSON syntax, supported fields, types, ranges, and required combinations at startup; report safe field-level errors.
+
+## Configuration and Secrets
+
+`docs/configuration.md` describes the configuration contract, the settings API, and the fields. These rules keep changes inside that contract.
+
+- `config.json` under `~/.hybro` is the single user configuration source for the backend, the frontend, and the bundled agents. `HYBRO_HOME` is the only directory override and must be an absolute path. Do not add dotenv loading, template-copy steps, legacy fallback, project-level overrides, or another configuration source.
+- Environment variables are framework metadata or allowlisted transport, never a user configuration source. The script-to-container transport is `HYBRO_PUBLIC_PORT`, `HYBRO_LISTEN`, and `HYBRO_INSECURE_NO_AUTH`. `HYBRO_NO_UPDATE_CHECK` is a host-side switch for the script and never reaches the container.
+- Never commit secrets or print them in logs, fixtures, screenshots, or command output. Keep them in the sibling `auth.json`, not in public frontend configuration. Reuse the existing secure credential store and OAuth refresh ownership; do not create a second credential system.
+- Keep defaults, types, and validation in the thin configuration loader. Business code consumes the validated configuration object, not ad hoc file or environment reads. The Settings page, the settings API, and manually edited JSON use the same validation rules, and errors name the field without echoing its value.
 - The model provider is optional. Without one, Hybro starts, the provider-free agents work, and the UI directs the user to Settings, Model provider; never select a legacy Provider implicitly.
-- Load a startup snapshot; other changes take effect after restart. Only the provider settings and `backend.log_level` apply live. The browser setup routes own `provider`, `models`, and `image_size`. The settings API is the only API for the curated `backend.*` and `frontend.*` registry fields: admin-only, the same validation as startup, and an in-place service restart owned by the entrypoint. Do not add other hot reload, project-level overrides, configuration APIs, or a separate configuration-service process without a request.
+- Services read a startup snapshot; other changes take effect after restart. Only the provider settings and `backend.log_level` apply live. The browser setup routes own `provider`, `models`, and `image_size`. The admin-only settings API is the only API for the curated `backend.*` and `frontend.*` registry fields, and the entrypoint owns the in-place service restart. Do not add other hot reload, configuration APIs, or a separate configuration-service process without a request.
 - In the image, the entrypoint (`backend/runtime_entrypoint.py`) owns the projections: it reads `config.json` and gives the frontend, MCP, and each agent only its scoped settings and internal credential, never the whole auth store, including during restart; the backend never writes them. Runtime records under `/tmp/hybro` are not configuration sources.
-- Environment variables may remain framework metadata or allowlisted transport; they are not a user configuration source. The allowlisted script-to-container transport is `HYBRO_PUBLIC_PORT`, `HYBRO_LISTEN`, and `HYBRO_INSECURE_NO_AUTH`. `HYBRO_NO_UPDATE_CHECK` is a host-side switch for the script and never reaches the container.
-- Keep README, `docs/configuration.md`, and the architecture documentation explicit about any still-unmigrated runtime paths.
 - Do not broaden environment-variable, secret, workflow-permission, or container exposure without an explicit security reason.
 
 ## Git
@@ -94,8 +109,9 @@ Multiple users or agents may modify this worktree concurrently. Git operations m
 
 Committing:
 
+- Never commit unless the user asks.
 - Commit only files changed for the current task.
-- Stage explicit paths; never use `git add -A` or `git add .`.
+- Stage explicit paths.
 - Before committing, inspect `git status` and the staged diff.
 - Use concise imperative Conventional Commit subjects such as `feat:`, `fix:`, `test:`, `docs:`, `chore:`, or a scoped variant.
 
