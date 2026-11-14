@@ -374,7 +374,7 @@ port:
 - `backend/`: A FastAPI orchestration engine using MongoDB for persistence, plus the image entrypoint (`runtime_entrypoint.py`) that writes each service's configuration and starts the processes.
 - `frontend/`: A Next.js 16 application for chat, local agent discovery, agent management, and inspection.
 - `default_agents/`: Ready-to-use A2A agents, each running as a process in the container. The backend registers them at startup from `default_agents/agents.yaml`.
-- `MCP/`: An adapter exposing two backend agent-network tools over Streamable HTTP at `/mcp`.
+- `MCP/`: An adapter exposing seven backend tools over Streamable HTTP at `/mcp`: four for listing and finding agents, and three for opening, checking, and closing sessions.
 - `scripts/hybro`: The POSIX shell CLI that starts the container; `install.sh` installs it.
 
 For module boundaries, data flow, and streaming, see
