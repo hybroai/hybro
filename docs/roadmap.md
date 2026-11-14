@@ -65,7 +65,6 @@ does not change.
 1. **An inventory of code to remove.** It lists each candidate, why it looks
    unused, and what depends on it. Nothing is deleted until the list is agreed.
    Candidates to check, not decisions:
-   - the empty `backend/extensions/` folder
    - frontend pages that only redirect to a newer address, such as `/agents`,
      `/manage` and `/networks`
    - stored run events of retired kinds, which are skipped when read
@@ -207,8 +206,10 @@ In this order:
    - The Panel gets the Evaluation page.
 3. **Owner check rules.**
    - The owner writes rules that answer allow, deny or ask, such as "ask me
-     before any agent pushes code".
+     before any step goes to the coder agent".
    - The owner can grant one source the right to answer permission questions.
+     This waits for the open question in `design.md` on how a source is
+     identified.
 
 Later, with no fixed place yet: event sources such as CI, chat apps and
 notifications, and timers that start work.
@@ -225,7 +226,9 @@ community edition does.
    license. Everything outside those folders stays under Apache 2.0.
 2. **The license key** that turns the enterprise features on.
 3. **The features**, each behind a small hook in the community code:
-   - access rules and roles: who may use which agent or item
+   - access rules and roles: who may use which agent or item. An access rule
+     that matches on a source waits for the open question in `design.md` on
+     how a source is identified.
    - several approvers, and approval by role
    - saved standards that run on every step, with results over time
    - audit across sessions, and export

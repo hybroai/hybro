@@ -269,7 +269,7 @@ orchestrator plans the work and sends its first step:
 | 1 | The orchestrator sends the prompt "Fix the failing login test on main and open a pull request", with the labels `workflow=fix-test` and `step=fix`. It names no agent. | none yet |
 | 2 | The step is stored as sent. | Session, Step |
 | 3 | No agent is named, so routing looks at the owner's route rules. One says steps with `step=fix` go to the agent "coder". No LLM pick is needed. | Step: the agent, and that a rule chose it |
-| 4 | A check rule says to ask before an agent pushes code. The answer is "ask". | Event |
+| 4 | A check rule says to ask before any step goes to "coder". The answer is "ask". | Event |
 | 5 | The Session waits. The owner approves in the Panel. | Question |
 | 6 | One call to "coder" joins the queue. | Agent call |
 | 7 | The prompt goes to "coder" as it was written. | Event |
@@ -338,7 +338,12 @@ attaches what the step points to. It never rewords the prompt.
 |---|---|---|---|---|
 | Route | Where does this step go? | All CI events go to Agent X. | Inside routing, only when the source names no agent | Community |
 | Access | Who may use what? | This source may not use Agent Y. | Inside routing, as a filter on the agents it may choose | Enterprise |
-| Check | May this call go now? | Ask before an agent pushes code. | After routing. It answers allow, deny or ask, and "ask" pauses the Session. | Community |
+| Check | May this call go now? | Ask before any step goes to Agent Z. | After routing and before the call. It answers allow, deny or ask, and "ask" pauses the Session. | Community |
+
+A check rule runs before the call. It knows the step and the chosen agent, not
+what the agent will do during the call. When an agent wants to do something
+that needs permission, such as pushing code, the agent asks, and that is a
+permission Question (see [Questions and answers](#questions-and-answers)).
 
 Route rules are an ordered list, and the first rule that matches wins. For
 example:
@@ -588,7 +593,11 @@ Nothing is deleted before its replacement has shipped.
 ## Open questions
 
 - How a source is identified. For now a source names itself, as `client_label`
-  does today. We will discuss this in the future.
+  does today. We will discuss this in the future. A feature that limits or
+  trusts a source by its name waits for the answer, because any caller can
+  send another source's name while the name is not verified. Two are planned:
+  an access rule that matches on a source, and the grant that lets a source
+  answer permission questions.
 
 ## Changing this document
 
