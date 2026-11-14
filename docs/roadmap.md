@@ -15,7 +15,7 @@ flowchart LR
 | 0 | Make the direction visible | The design, this roadmap, contributor rules and a quick start. | Now |
 | 1 | Clean up and break down | Remove what is dead, and split `execution` without changing behaviour. | Next |
 | 2 | Move out | The model loop leaves the core and becomes the bundled orchestrator, a source. | Later |
-| 3 | Migrate to the target modules | The remaining modules take their target names, one at a time. | Later |
+| 3 | Migrate to the target modules | The remaining modules and their stored collections take their target names, one at a time, with a data migration. | Later |
 | 4 | Build what does not exist yet | Routing without a named agent, evaluation by hand, owner check rules. | Later |
 
 ## How we move
@@ -161,14 +161,29 @@ safe.
 Code also takes the concept names from `design.md`: Question for HITL, Agent
 call for run and agent call, Session for room.
 
+**Stored data.** The stored collections take the concept names too. For
+example, `hitl_requests` is renamed after Question and
+`orchestrator_agent_calls` after Agent call. This needs a data migration:
+
+- The mapping from each old collection to its new name is written when the
+  phase starts.
+- The migration follows the pattern Hybro already uses: a script that audits
+  first, then migrates, and records a marker in `migration_markers`, so it is
+  safe to run again.
+- It is tested on data in the shape of a real install before it is released.
+- An existing install upgrades without losing data, and the release notes say
+  how to go back.
+- One module's collections move per change.
+
 **Done when.**
 
 - Module names match `design.md`.
+- Collection names match the concept names, and an upgrade from the previous
+  release is tested.
 - The module boundary tests and the System-Architecture documents use the new
   names.
 
-**What stays the same.** Public routes. Whether stored collection names change
-is decided when this phase starts; the default is to leave them.
+**What stays the same.** Public routes, and everything a user has stored.
 
 ## Phase 4: Build what does not exist yet
 
@@ -193,8 +208,8 @@ In this order:
      before any agent pushes code".
    - The owner can grant one source the right to answer permission questions.
 
-After these: event sources such as CI, chat apps and notifications, and timers
-that start work.
+Later, with no fixed place yet: event sources such as CI, chat apps and
+notifications, and timers that start work.
 
 ## Where today's code already fits
 
