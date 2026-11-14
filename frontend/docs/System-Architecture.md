@@ -229,6 +229,11 @@ cycle, and then refreshes the agent inventory. Directly discovered
 3. `Toaster`
 4. `CookieBanner`
 
+`CookieBanner` owns the opt-in Google Analytics script. With an empty
+`analytics_measurement_id` in the public projection it renders nothing. With an
+id, it asks for consent and loads the script only after the user accepts; the
+choice is kept in `localStorage` under `cookie_consent`.
+
 The portal layout composes `SidebarProvider` and `SettingsDialogProvider`
 directly.
 
