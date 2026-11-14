@@ -75,7 +75,7 @@ def _agent_client(
     client = httpx.AsyncClient(transport=transport)
 
     @contextlib.asynccontextmanager
-    async def _bounded(*, timeout: float):
+    async def _bounded(*, timeout: float, **_limits: Any):
         yield client
 
     monkeypatch.setattr(client_facade, "bounded_client", _bounded)

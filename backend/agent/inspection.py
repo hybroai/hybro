@@ -3,8 +3,6 @@ from __future__ import annotations
 from collections.abc import Awaitable, Callable
 from typing import Any
 
-import httpx
-
 from a2a_adapter import inspection as a2a_inspection
 from agent.card_validation import validate_agent_card_data
 from common.observability import events as E
@@ -44,32 +42,29 @@ class AgentInspectionService:
 
         try:
             card = await a2a_inspection.fetch_agent_card_for_inspection(agent_url)
+        except Exception as e:
+            logger.emit(E.AGENT_INSPECTION_FAILED, exc=e, inspection="agent_card")
+            status_code, message = a2a_inspection.card_fetch_failure(e)
+            return InspectionCenterResponse(
+                agent_url=agent_url, result=[message], status_code=status_code
+            )
+        try:
             validation_errors = await self._validate_agent_card(
                 card.model_dump(exclude_none=False)
-            )
-            return InspectionCenterResponse(
-                agent_url=agent_url,
-                agent_card=card,
-                result=validation_errors,
-                status_code=200,
-            )
-        except httpx.RequestError as e:
-            logger.emit(E.AGENT_INSPECTION_FAILED, exc=e, inspection="agent_card")
-            return InspectionCenterResponse(
-                agent_url=agent_url,
-                result=[f"Http RequestError: Failed to connect to agent: {e}"],
-                status_code=502,
             )
         except Exception as e:
             logger.emit(E.AGENT_INSPECTION_FAILED, exc=e, inspection="agent_card")
             return InspectionCenterResponse(
                 agent_url=agent_url,
-                result=[
-                    "InspectionCenter Server Error: "
-                    f"An internal server error occurred: {e}"
-                ],
+                result=["The agent card could not be validated."],
                 status_code=500,
             )
+        return InspectionCenterResponse(
+            agent_url=agent_url,
+            agent_card=card,
+            result=validation_errors,
+            status_code=200,
+        )
 
     async def inspect_a2a_connection(
         self, request: InspectionCenterRequest
@@ -102,11 +97,14 @@ class AgentInspectionService:
             )
         except Exception as e:
             logger.emit(E.AGENT_INSPECTION_FAILED, exc=e, inspection="a2a_connection")
+            # The probe itself reports send failures; an exception here comes
+            # from fetching the card first.
+            status_code, message = a2a_inspection.card_fetch_failure(e)
             return InspectionCenterResponse(
                 agent_url=agent_url,
                 agent_card=None,
-                result=[f"Failed to initialize a2a client: {e}"],
-                status_code=500,
+                result=[message],
+                status_code=status_code,
             )
 
 

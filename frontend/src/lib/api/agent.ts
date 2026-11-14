@@ -83,17 +83,19 @@ export async function deleteAgent(
   )
 }
 
-// ============= PUBLIC ENDPOINTS (No Auth Required) =============
-
-// Get agent card from URL - PUBLIC
+// Get agent card from URL - PROTECTED (the backend fetches the URL)
 export async function getAgentCardFromUrl(
-  request: InspectionCenterRequest
+  request: InspectionCenterRequest,
+  getToken?: () => Promise<string | null>
 ): Promise<AgentRouteResponse> {
   return apiPost<AgentRouteResponse>(
     `${API_BASE_URL}/getAgentCardFromUrl`,
-    request
+    request,
+    getToken
   )
 }
+
+// ============= PUBLIC ENDPOINTS (No Auth Required) =============
 
 // Get agent by ID - PUBLIC
 export async function getAgent(

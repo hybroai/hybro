@@ -8,6 +8,9 @@ MAX_A2A_RESPONSE_BYTES = 139_810_136 + 2 * 1024 * 1024
 # Terminal SSE events may contain several files up to the aggregate response
 # limit. Decoded per-file and aggregate limits remain enforced downstream.
 MAX_A2A_SSE_EVENT_BYTES = MAX_A2A_RESPONSE_BYTES
+# Agent cards are small JSON documents; a card larger than this is refused
+# before it is parsed.
+MAX_AGENT_CARD_BYTES = 1024 * 1024
 
 
 class A2AResponseTooLargeError(httpx.HTTPError):
@@ -75,12 +78,17 @@ class _PerEventBoundedStream(httpx.AsyncByteStream):
         await self._stream.aclose()
 
 
+def _network_transport() -> httpx.AsyncBaseTransport:
+    """The transport that opens real connections; tests replace it."""
+    return httpx.AsyncHTTPTransport()
+
+
 class BoundedAsyncTransport(httpx.AsyncBaseTransport):
     """Reject oversized A2A responses before JSON/model materialization."""
 
     def __init__(self, max_bytes: int = MAX_A2A_RESPONSE_BYTES) -> None:
         self._max_bytes = max_bytes
-        self._transport = httpx.AsyncHTTPTransport()
+        self._transport = _network_transport()
 
     async def handle_async_request(self, request: httpx.Request) -> httpx.Response:
         response = await self._transport.handle_async_request(request)
@@ -108,7 +116,7 @@ class BoundedAsyncTransport(httpx.AsyncBaseTransport):
 class EventBoundedAsyncTransport(httpx.AsyncBaseTransport):
     def __init__(self, max_bytes: int = MAX_A2A_SSE_EVENT_BYTES) -> None:
         self._max_bytes = max_bytes
-        self._transport = httpx.AsyncHTTPTransport()
+        self._transport = _network_transport()
 
     async def handle_async_request(self, request: httpx.Request) -> httpx.Response:
         response = await self._transport.handle_async_request(request)
@@ -123,13 +131,15 @@ class EventBoundedAsyncTransport(httpx.AsyncBaseTransport):
         await self._transport.aclose()
 
 
-def bounded_client(*, timeout: float) -> httpx.AsyncClient:
+def bounded_client(
+    *, timeout: float, max_bytes: int = MAX_A2A_RESPONSE_BYTES
+) -> httpx.AsyncClient:
     parameters = inspect.signature(httpx.AsyncClient).parameters
     if "transport" not in parameters or "trust_env" not in parameters:
         return httpx.AsyncClient(timeout=timeout)
     return httpx.AsyncClient(
         timeout=timeout,
-        transport=BoundedAsyncTransport(),
+        transport=BoundedAsyncTransport(max_bytes=max_bytes),
         trust_env=False,
     )
 

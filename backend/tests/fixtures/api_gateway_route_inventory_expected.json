@@ -136,9 +136,12 @@
     ],
     "status_code": null,
     "dependencies": [
-      "get_agent_catalog"
+      "get_agent_catalog",
+      "get_current_user"
     ],
-    "auth_dependencies": [],
+    "auth_dependencies": [
+      "get_current_user"
+    ],
     "include_in_schema": true
   },
   {

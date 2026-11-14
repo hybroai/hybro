@@ -234,7 +234,7 @@ async def test_inspection_probe_reports_transport_failure(monkeypatch):
 
     result = await inspection.inspect_a2a_connection("https://agent.example")
 
-    assert result["result"] == ["Failed to send message: connection refused"]
+    assert result["result"] == ["Failed to send the probe message to the agent."]
     assert result["status_code"] == 500
 
 

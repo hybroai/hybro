@@ -31,7 +31,7 @@ from google.protobuf.json_format import ParseError
 from common.observability import events as E
 from common.observability import get_logger
 
-from .bounded_http import bounded_client, event_bounded_client
+from .bounded_http import MAX_AGENT_CARD_BYTES, bounded_client, event_bounded_client
 from .card_data import build_agent_card
 from .constants import (
     AGENT_CARD_WELL_KNOWN_PATH,
@@ -106,12 +106,20 @@ async def fetch_agent_card_with_fallback(
     *,
     timeout: float = 30.0,
 ) -> dict[str, Any]:
-    async with bounded_client(timeout=timeout) as client:
-        return await with_docker_host_url_fallback(
-            str(agent_url),
-            lambda candidate_url: _fetch_agent_card_from_url(client, candidate_url),
-        )
-    raise A2AClientFacadeError("Agent card not found at any known path")
+    try:
+        # httpx timeouts bound each read; this bounds the whole fetch.
+        async with asyncio.timeout(timeout):
+            async with bounded_client(
+                timeout=timeout, max_bytes=MAX_AGENT_CARD_BYTES
+            ) as client:
+                return await with_docker_host_url_fallback(
+                    str(agent_url),
+                    lambda candidate_url: _fetch_agent_card_from_url(
+                        client, candidate_url
+                    ),
+                )
+    except TimeoutError as exc:
+        raise A2AClientFacadeError("Agent card request timed out") from exc
 
 
 async def send_message(

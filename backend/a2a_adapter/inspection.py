@@ -2,22 +2,30 @@
 
 from __future__ import annotations
 
+import asyncio
 from typing import Any
 from uuid import uuid4
 
+import httpx
+
 from common.types import AgentCard
 
+from .bounded_http import MAX_AGENT_CARD_BYTES, A2AResponseTooLargeError
 from .client_facade import fetch_agent_card_with_fallback, send_message, stream_message
 from .translators import a2a_card_to_snapshot
 
 _STATUS_OK = 200
 _STATUS_PROBE_FAILED = 500
+# The owner waits on the page for these, so they stay well below the frontend's
+# inspection timeout. The probe allows for an agent that calls a model.
+_CARD_FETCH_TIMEOUT_SECONDS = 10.0
+_PROBE_TIMEOUT_SECONDS = 120.0
 
 
 async def fetch_agent_card_for_inspection(
     agent_url: str,
     *,
-    timeout: float = 30.0,
+    timeout: float = _CARD_FETCH_TIMEOUT_SECONDS,
 ) -> AgentCard:
     """Fetch an agent card for inspection and return the internal card model."""
     payload = await fetch_agent_card_with_fallback(agent_url, timeout=timeout)
@@ -28,10 +36,12 @@ async def inspect_a2a_connection(
     agent_url: str,
     probe_text: str = "Hello, how are you?",
     *,
-    timeout: float = 600.0,
+    timeout: float = _PROBE_TIMEOUT_SECONDS,
 ) -> dict[str, Any]:
     """Fetch an agent card, dry-send a probe message, and return SDK-free data."""
-    card_data = await fetch_agent_card_with_fallback(agent_url, timeout=timeout)
+    card_data = await fetch_agent_card_with_fallback(
+        agent_url, timeout=min(timeout, _CARD_FETCH_TIMEOUT_SECONDS)
+    )
     internal_card = _to_internal_card(card_data, agent_url)
     message = {
         "role": "user",
@@ -41,11 +51,23 @@ async def inspect_a2a_connection(
     }
 
     try:
-        response = await _probe(card_data, message, timeout=timeout)
-    except Exception as exc:
+        # httpx timeouts bound each read; this bounds the whole probe.
+        async with asyncio.timeout(timeout):
+            response = await _probe(card_data, message, timeout=timeout)
+    except TimeoutError:
         return {
             "agent_card": internal_card,
-            "result": [f"Failed to send message: {exc}"],
+            "result": [f"The agent did not reply within {timeout:g} seconds."],
+            "status_code": _STATUS_PROBE_FAILED,
+        }
+    except Exception:
+        # The facade logs the failure; the owner gets a fixed message so
+        # exception text and internal addresses are not echoed back. A JSON-RPC
+        # error the agent itself returns is still reported below: showing the
+        # agent's reply is the point of this check.
+        return {
+            "agent_card": internal_card,
+            "result": ["Failed to send the probe message to the agent."],
             "status_code": _STATUS_PROBE_FAILED,
         }
 
@@ -87,6 +109,30 @@ async def _probe(
         blocking=True,
         timeout=timeout,
     )
+
+
+def card_fetch_failure(exc: BaseException) -> tuple[int, str]:
+    """Map a card fetch failure to a status code and a fixed owner message."""
+    chain = _exception_chain(exc)
+    if any(isinstance(item, A2AResponseTooLargeError) for item in chain):
+        limit = MAX_AGENT_CARD_BYTES // (1024 * 1024)
+        return 502, f"The agent card is larger than the {limit} MiB limit."
+    if any(isinstance(item, (TimeoutError, httpx.TimeoutException)) for item in chain):
+        return 504, "The agent did not return its card in time."
+    if any(getattr(item, "status_code", None) == 404 for item in chain):
+        return 404, "No agent card was found at this URL."
+    if any(isinstance(item, (httpx.TransportError, OSError)) for item in chain):
+        return 502, "Failed to connect to the agent."
+    return 500, "The agent card could not be fetched or read."
+
+
+def _exception_chain(exc: BaseException) -> list[BaseException]:
+    chain: list[BaseException] = []
+    current: BaseException | None = exc
+    while current is not None and current not in chain:
+        chain.append(current)
+        current = current.__cause__ or current.__context__
+    return chain
 
 
 def _to_internal_card(card_data: Any, agent_url: str) -> AgentCard:
@@ -207,6 +253,7 @@ def _capability(card_data: dict[str, Any], name: str) -> Any:
 
 
 __all__ = [
+    "card_fetch_failure",
     "fetch_agent_card_for_inspection",
     "inspect_a2a_connection",
     "validate_message_data",

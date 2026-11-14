@@ -275,6 +275,17 @@ Frontend-facing and agent-network routes use Clerk auth when
 overrides every user-auth dependency, including the dual user/service dependency
 used by agent registration, with the stable local developer identity.
 
+Routes that make the backend fetch an owner-supplied URL require a signed-in
+user and a validated `{"agent_url"}` body (at most 2048 characters):
+`POST /agent/getAgentCardFromUrl` and both `/inspectionCenter` routes. Agent Card
+responses are capped at 1 MiB, the card resolver caches at most 256 cards and
+never caches a failure, and every card fetch, health probe, and inspection probe
+has an overall deadline, not only per-read timeouts (inspection: 10 seconds for
+the card, 120 seconds for the dry-send probe). Inspection results carry fixed
+failure messages (too large, timed out, not found, unreachable) rather than
+exception text; a JSON-RPC error the agent itself returns is still shown. Card
+fetches, like A2A calls, ignore proxy and TLS settings from the environment.
+
 ### `chat`
 
 `chat.service.ChatService` (process singleton `chat_service`) implements the
