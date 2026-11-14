@@ -653,6 +653,10 @@ class FrontendSettings(BaseModel):
     # The backend's message limit, and setTimeout's cap of 2**31 - 1 ms.
     max_message_length: int = Field(default=10000, gt=0, le=_MAX_MESSAGE_LENGTH)
     inspection_timeout_ms: int = Field(default=300000, gt=0, le=2**31 - 1)
+    # Google Analytics 4 measurement id. Empty means no analytics script and no
+    # consent banner; the browser interpolates it into a script, so the format
+    # is strict.
+    analytics_measurement_id: str = Field(default="", pattern=r"^(G-[A-Z0-9]{4,20})?$")
 
     @field_validator("api_base_url", "server_url")
     @classmethod

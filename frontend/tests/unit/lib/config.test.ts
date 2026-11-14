@@ -15,7 +15,11 @@ describe('public JSON configuration', () => {
     expect(result.mcp_disabled).toBe(true)
   })
 
-  it.each([undefined, '', '[]', '{invalid', JSON.stringify({ ...fixture, clerk_secret_key: 'private-marker' }), JSON.stringify({ ...fixture, max_message_length: -1 }), JSON.stringify({ ...fixture, enable_waitlist: 'true' }), JSON.stringify({ ...fixture, api_base_url: 'https://user:private-marker@example.org' }), JSON.stringify({ ...fixture, mcp_url: 'http://127.0.0.1:8001/mcp' }), JSON.stringify({ ...fixture, server_url: '' }), JSON.stringify({ ...fixture, mcp_disabled: 'true' })])('rejects invalid projections without echoing values', value => {
+  it('accepts a Google Analytics measurement id', () => {
+    expect(parsePublicConfig(JSON.stringify({ ...fixture, analytics_measurement_id: 'G-ABC123' })).analytics_measurement_id).toBe('G-ABC123')
+  })
+
+  it.each([undefined, '', '[]', '{invalid', JSON.stringify({ ...fixture, clerk_secret_key: 'private-marker' }), JSON.stringify({ ...fixture, max_message_length: -1 }), JSON.stringify({ ...fixture, enable_waitlist: 'true' }), JSON.stringify({ ...fixture, api_base_url: 'https://user:private-marker@example.org' }), JSON.stringify({ ...fixture, mcp_url: 'http://127.0.0.1:8001/mcp' }), JSON.stringify({ ...fixture, server_url: '' }), JSON.stringify({ ...fixture, mcp_disabled: 'true' }), JSON.stringify({ ...fixture, analytics_measurement_id: "G-1');alert('private-marker" }), JSON.stringify({ ...fixture, analytics_measurement_id: 'UA-12345' })])('rejects invalid projections without echoing values', value => {
     expect(() => parsePublicConfig(value)).toThrow('frontend configuration')
     try { parsePublicConfig(value) } catch (error) {
       expect(String(error)).not.toContain('private-marker')

@@ -11,6 +11,8 @@ export interface PublicConfig {
   enable_waitlist: boolean
   max_message_length: number
   inspection_timeout_ms: number
+  /** Google Analytics 4 id; empty means no analytics script and no consent banner. */
+  analytics_measurement_id: string
   /** True when the listener is public and MCP is not served. */
   mcp_disabled?: boolean
 }
@@ -19,6 +21,7 @@ const stringKeys = [
   'api_base_url', 'api_prefix', 'server_url', 'clerk_publishable_key',
   'clerk_sign_in_url', 'clerk_sign_up_url',
   'clerk_sign_in_fallback_redirect_url', 'clerk_sign_up_fallback_redirect_url',
+  'analytics_measurement_id',
 ] as const
 const numberKeys = ['max_message_length', 'inspection_timeout_ms'] as const
 const allowed = new Set<string>([...stringKeys, ...numberKeys, 'enable_waitlist', 'mcp_disabled'])
@@ -43,6 +46,8 @@ export function parsePublicConfig(serialized: string | undefined): Readonly<Publ
       if (!['http:', 'https:'].includes(url.protocol) || url.username || url.password) throw failure()
     } catch { throw failure() }
   }
+  // Interpolated into a script, so the format is strict (as in the backend schema).
+  if (!/^(G-[A-Z0-9]{4,20})?$/.test(record.analytics_measurement_id as string)) throw failure()
   if (!/^\/[A-Za-z0-9/_-]+$/.test(record.api_prefix as string) || (record.api_prefix as string).endsWith('/')) throw failure()
   // Every field was checked above; no unvalidated JSON escapes this boundary.
   return Object.freeze(record) as unknown as Readonly<PublicConfig>

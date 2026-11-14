@@ -9,12 +9,6 @@ import { QueryProvider } from "@/components/providers/query-provider"
 import { Toaster } from "@/components/ui/sonner"
 import { CookieBanner } from "@/components/cookie-banner"
 
-declare global {
-  interface Window {
-    gtag?: (...args: unknown[]) => void
-  }
-}
-
 const spaceGrotesk = Space_Grotesk({ subsets: ["latin"], weight: ["700"], variable: "--font-space-grotesk" })
 
 // Pages render per request: server code reads the deployment's projection from
@@ -81,24 +75,6 @@ export default function RootLayout({
             }),
           }}
         />
-        <Script id="gtag-consent-default" strategy="afterInteractive">
-          {`
-            window.dataLayer = window.dataLayer || [];
-            function gtag(){dataLayer.push(arguments);}
-            gtag('consent', 'default', { analytics_storage: 'denied' });
-          `}
-        </Script>
-        <Script
-          async
-          src="https://www.googletagmanager.com/gtag/js?id=G-8CX7RWH8R5"
-          strategy="afterInteractive"
-        />
-        <Script id="google-analytics" strategy="afterInteractive">
-          {`
-            gtag('js', new Date());
-            gtag('config', 'G-8CX7RWH8R5');
-          `}
-        </Script>
       </head>
       <body className={`font-sans ${spaceGrotesk.variable}`}>
         <ThemeProvider attribute="class" defaultTheme="dark" enableSystem disableTransitionOnChange>
