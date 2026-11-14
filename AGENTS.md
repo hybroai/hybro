@@ -59,7 +59,7 @@ Do not inspect or treat paths outside this repository as product source unless t
 
 ## Design Direction
 
-`docs/design.md` describes the target design: the concepts, their names, the target modules, and the status of each of today's modules. `docs/roadmap.md` gives the order of work. The System-Architecture documents describe today's code.
+`docs/design.md` describes the target design: the concepts, their names, the target modules, and the status of each of today's modules. `docs/roadmap.md` gives the order of work. The System-Architecture documents describe today's code. The target is a self-hosted control plane for A2A agents: sources plan, and Hybro runs, gates, and records each step.
 
 - Read `docs/design.md` before changing module boundaries, public routes, or names.
 - Use the concept names from `docs/design.md` in new code, routes, and documents. Do not rename existing code outside the roadmap phase that migrates its module.

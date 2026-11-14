@@ -23,7 +23,7 @@
  ⭐ <em>Star this repo to support the growing Hybro open-source community!</em>
 </p>
 
-Hybro AI is an open-source, hybrid multi-agent platform built for seamless agent interoperability. It serves as the core orchestration engine powering the Hybro Agent Network—enabling local and remote AI agents to communicate, collaborate, and execute complex workflows.
+Hybro AI is open-source interoperability infrastructure for AI agents. It lets independently built local and remote agents communicate, collaborate, and execute complex workflows, while you stay in charge of what runs. Hybro is moving toward a self-hosted control plane for agent collaboration; see [docs/design.md](docs/design.md).
 
 <p align="center">
   <img src="assets/screenshots/chat-demo.gif" alt="One Hybro chat request planning a Tokyo trip: the Travel Planner, Weather, and Image Generator Agents run in parallel and return an itinerary, forecast, and poster" width="800">
@@ -428,7 +428,7 @@ How releases are published is covered in [RELEASING.md](RELEASING.md).
 This repository is the source of truth for the product. The root `Dockerfile`
 builds the single image from these components, and Caddy serves them on one
 port:
-- `backend/`: A FastAPI orchestration engine using MongoDB for persistence, plus the image entrypoint (`runtime_entrypoint.py`) that writes each service's configuration and starts the processes.
+- `backend/`: The FastAPI platform backend using MongoDB for persistence, plus the image entrypoint (`runtime_entrypoint.py`) that writes each service's configuration and starts the processes.
 - `frontend/`: A Next.js 16 application for chat, local agent discovery, agent management, and inspection.
 - `default_agents/`: Ready-to-use A2A agents, each running as a process in the container. The backend registers them at startup from `default_agents/agents.yaml`.
 - `MCP/`: An adapter exposing seven backend tools over Streamable HTTP at `/mcp`: four for listing and finding agents, and three for opening, checking, and closing sessions.
@@ -437,6 +437,8 @@ port:
 For module boundaries, data flow, and streaming, see
 [backend/docs/System-Architecture.md](backend/docs/System-Architecture.md) and
 [frontend/docs/System-Architecture.md](frontend/docs/System-Architecture.md).
+For where the design is going and the order of work, see
+[docs/design.md](docs/design.md) and [docs/roadmap.md](docs/roadmap.md).
 
 ## Contributing
 We welcome contributions from the community! Whether you are fixing a bug, adding a feature, or improving documentation, please feel free to open a pull request.

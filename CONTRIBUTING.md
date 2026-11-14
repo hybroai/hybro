@@ -12,7 +12,7 @@ We expect all contributors and participants to be respectful, constructive, and 
 
 ## Where Hybro Is Going
 
-Hybro is moving, one small step at a time, toward a design in which outside sources define each step of a workflow and Hybro runs and evaluates it. Two short documents explain it:
+Hybro is moving, one small step at a time, toward a self-hosted control plane for agent collaboration: outside sources define each step of a workflow, and Hybro runs, gates, records, and evaluates it. Two short documents explain it:
 
 - [docs/design.md](docs/design.md): the concepts and their names, the target architecture, and the status of each module in today's code.
 - [docs/roadmap.md](docs/roadmap.md): the order of work.

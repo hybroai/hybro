@@ -32,8 +32,16 @@ today keep working while it does.
 
 ## The idea
 
-Hybro is infrastructure for multi-agent workflows. It runs steps and never
-plans them.
+Hybro is open interoperability infrastructure for AI agents. The target is a
+self-hosted control plane for A2A agents: it runs, gates and records each step
+of a workflow, and it never plans them.
+
+- **Today:** independently built agents work together.
+- **The target:** Hybro is the control plane for how that collaboration is
+  authorized, approved and audited. It is not a replacement planner.
+
+Hybro complements orchestrators and coding agents. They are sources: they
+plan, and Hybro runs what they send.
 
 A **step** is one prompt from a source, sent to one agent, with its result and
 its score.
