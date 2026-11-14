@@ -26,6 +26,7 @@ today keep working while it does.
 - [How modules talk to each other](#how-modules-talk-to-each-other)
 - [Design rules](#design-rules)
 - [The Panel](#the-panel)
+- [Community and enterprise](#community-and-enterprise)
 - [Today's modules](#todays-modules)
 - [Open questions](#open-questions)
 
@@ -333,11 +334,11 @@ attaches what the step points to. It never rewords the prompt.
 
 ### Rules
 
-| Kind of rule | Question it answers | Example | Where it runs |
-|---|---|---|---|
-| Route | Where does this step go? | All CI events go to Agent X. | Inside routing, only when the source names no agent |
-| Access | Who may use what? | This source may not use Agent Y. | Inside routing, as a filter on the agents it may choose |
-| Check | May this call go now? | Ask before an agent pushes code. | After routing. It answers allow, deny or ask, and "ask" pauses the Session. |
+| Kind of rule | Question it answers | Example | Where it runs | Edition |
+|---|---|---|---|---|
+| Route | Where does this step go? | All CI events go to Agent X. | Inside routing, only when the source names no agent | Community |
+| Access | Who may use what? | This source may not use Agent Y. | Inside routing, as a filter on the agents it may choose | Enterprise |
+| Check | May this call go now? | Ask before an agent pushes code. | After routing. It answers allow, deny or ask, and "ask" pauses the Session. | Community |
 
 Route rules are an ordered list, and the first rule that matches wins. For
 example:
@@ -401,6 +402,8 @@ Evaluation answers one question for a workflow builder: which step went wrong?
 - Scoring happens after the reply and never delays or changes a step.
 - The Panel shows each step's input, output and timing next to its Scores, so a
   failing workflow can be traced to the step that failed.
+- Checking a Standard by hand on the current run is community. Standards that
+  are saved and run on every step, and results kept over time, are enterprise.
 
 ## How modules talk to each other
 
@@ -429,6 +432,8 @@ answer. Storing, routing and checking are direct calls in order.
 8. The Session and its Events are the history. Choosing and shortening what an
    agent should know is the source's job. The core only passes along,
    unchanged, what a step points to.
+9. Code outside an `enterprise/` folder never imports from one. The community
+   edition builds and runs with every `enterprise/` folder deleted.
 
 ## The Panel
 
@@ -445,6 +450,52 @@ work on it starts. This list fixes which pages exist and what belongs on each.
 | Evaluation | Standards, and checking one against a run. | New |
 | Connect | How a source connects, over the API or MCP. | Exists |
 | Settings | Model provider, configuration and system. | Exists |
+
+## Community and enterprise
+
+Hybro is open core. It has a community edition and an enterprise edition in
+this one repository.
+
+- **Community code is under Apache 2.0.** That is everything outside an
+  `enterprise/` folder.
+- **Enterprise code is under a commercial license.** It lives in folders named
+  `enterprise/`. There is not one such folder for the whole repository: each
+  part of the code that has an enterprise side keeps it in its own
+  `enterprise/` folder, next to the implementation it extends. For example,
+  saved standards would sit in `evaluation/enterprise/` and access rules in
+  `policy/enterprise/`, and the frontend follows the same rule.
+- **The dependency goes one way.** Code in an `enterprise/` folder may import
+  the code around it. Code outside never imports from an `enterprise/` folder,
+  and the community edition builds and runs with every `enterprise/` folder
+  deleted.
+- **Community code carries only small hooks,** such as "may this source use
+  this agent?" or "a step finished". The enterprise logic behind a hook lives
+  in an `enterprise/` folder.
+- **A license key turns the enterprise features on.**
+
+No `enterprise/` folder exists yet.
+
+Which features are in which edition:
+
+Running a workflow, steering it with your own rules, and seeing what happened
+is community. Enterprise is what a team or a company adds: control over who may
+use what, evaluation results kept over time, and audit. Where a feature is
+enterprise, the community edition has a manual version of it, done by hand,
+once, on the current run.
+
+| Feature | Community | Enterprise |
+|---|---|---|
+| Sources and the Source API | All of it, including the event sources that come later. | Nothing |
+| Sessions, steps, agent calls, queue | All of it. | Nothing |
+| Routing | Named agent, owner route rules, match, LLM pick. | Nothing |
+| Questions and approvals | The agent's own permission questions, answered by the owner in the Panel. Owner check rules. The grant that lets a source answer. | Several approvers, and approval by role. |
+| Evaluation | Each step's input, output and timing. A standard checked by hand on the current run. | Saved standards that run on every step, results over time, comparison, sharing, alerts. |
+| Event log | The full log of each session, and the live stream. | Audit across sessions, and export. |
+| Access and people | One owner, everything allowed. | Access rules, roles, users, teams, single sign-on. |
+
+Where the enterprise side attaches: access rules and roles to `policy`, saved
+standards and history to `evaluation`, an audit listener to `events`, and
+users and roles as a part of their own.
 
 ## Today's modules
 

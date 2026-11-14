@@ -8,6 +8,7 @@ flowchart LR
     p1 --> p2["2 Move out"]
     p2 --> p3["3 Migrate to the target modules"]
     p3 --> p4["4 Build what does not exist yet"]
+    p4 --> p5["5 The enterprise edition"]
 ```
 
 | # | Phase | In one line | Status |
@@ -17,6 +18,7 @@ flowchart LR
 | 2 | Move out | The model loop leaves the core and becomes the bundled orchestrator, a source. | Later |
 | 3 | Migrate to the target modules | The remaining modules and their stored collections take their target names, one at a time, with a data migration. | Later |
 | 4 | Build what does not exist yet | Routing without a named agent, evaluation by hand, owner check rules. | Later |
+| 5 | The enterprise edition | The `enterprise/` folders, the license key, and the features a team or a company adds. | Later |
 
 ## How we move
 
@@ -210,6 +212,34 @@ In this order:
 
 Later, with no fixed place yet: event sources such as CI, chat apps and
 notifications, and timers that start work.
+
+## Phase 5: The enterprise edition
+
+**Goal.** The features a team or a company adds, without changing what the
+community edition does.
+
+**Work.**
+
+1. **The `enterprise/` folders.** Enterprise code sits in a folder named
+   `enterprise/` inside each part of the code it extends, under a commercial
+   license. Everything outside those folders stays under Apache 2.0.
+2. **The license key** that turns the enterprise features on.
+3. **The features**, each behind a small hook in the community code:
+   - access rules and roles: who may use which agent or item
+   - several approvers, and approval by role
+   - saved standards that run on every step, with results over time
+   - audit across sessions, and export
+   - users, teams and single sign-on
+
+**Done when.**
+
+- A check in CI builds and runs the community edition with every `enterprise/`
+  folder deleted.
+- No code outside an `enterprise/` folder imports from one.
+
+**What stays the same.** Every community feature. See
+[Community and enterprise](design.md#community-and-enterprise) for which
+feature is in which edition.
 
 ## Where today's code already fits
 

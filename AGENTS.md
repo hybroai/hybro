@@ -66,6 +66,7 @@ Do not inspect or treat paths outside this repository as product source unless t
 - Check a module's status before changing it. Do not add features to a Frozen module; fix bugs only. Ask before a larger change to a Changing module.
 - Move toward the target only through the roadmap phase in progress. Do not restructure other modules toward it in passing.
 - Do not add planning or prompt rewriting to the core, and do not give the bundled orchestrator a private path into it.
+- Hybro is open core. Enterprise code lives in folders named `enterprise/`, one inside each part of the code it extends, under a commercial license; everything else is community code under Apache 2.0. Code outside an `enterprise/` folder never imports from one. Put a small hook in the community code and the logic in the `enterprise/` folder. `docs/design.md` lists which features are in which edition.
 - Keep existing public routes and MCP tools working. Add the new path first, mark the old one as deprecated in one release, and remove it in a later release.
 - Update `docs/roadmap.md` when a phase starts or finishes, and `docs/design.md` when the target itself changes.
 

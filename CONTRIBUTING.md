@@ -22,6 +22,7 @@ Before you start a change:
 - Check the status of the module you want to change in `docs/design.md`. Stable modules are open for contributions. For a larger change to a Changing module, open an issue first. Frozen modules take bug fixes only.
 - Use the concept names from `docs/design.md` in new code and documents.
 - Keep existing routes and MCP tools working.
+- Check which edition a feature belongs to. Hybro is open core: community code is under Apache 2.0, and enterprise code will live in folders named `enterprise/` under a commercial license. `docs/design.md` lists which features are community and which are enterprise.
 
 ---
 
