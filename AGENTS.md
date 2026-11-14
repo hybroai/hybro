@@ -57,6 +57,18 @@ Do not inspect or treat paths outside this repository as product source unless t
 - When changing a public backend `Protocol`, repository port, facade port, or compatibility interface, update exact method inventories and run the contract test documented in `backend/AGENTS.md`.
 - For API contract changes, update route/schema tests, frontend consumers, and the tracked `backend/openapi.json` snapshot together.
 
+## Design Direction
+
+`docs/design.md` describes the target design: the concepts, their names, the target modules, and the status of each of today's modules. `docs/roadmap.md` gives the order of work. The System-Architecture documents describe today's code.
+
+- Read `docs/design.md` before changing module boundaries, public routes, or names.
+- Use the concept names from `docs/design.md` in new code, routes, and documents. Do not rename existing code outside the roadmap phase that migrates its module.
+- Check a module's status before changing it. Do not add features to a Frozen module; fix bugs only. Ask before a larger change to a Changing module.
+- Move toward the target only through the roadmap phase in progress. Do not restructure other modules toward it in passing.
+- Do not add planning or prompt rewriting to the core, and do not give the bundled orchestrator a private path into it.
+- Keep existing public routes and MCP tools working. Add the new path first, mark the old one as deprecated in one release, and remove it in a later release.
+- Update `docs/roadmap.md` when a phase starts or finishes, and `docs/design.md` when the target itself changes.
+
 ## Commands
 
 Run commands from the directory that owns the relevant configuration.

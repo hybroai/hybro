@@ -10,6 +10,21 @@ We expect all contributors and participants to be respectful, constructive, and 
 
 ---
 
+## Where Hybro Is Going
+
+Hybro is moving, one small step at a time, toward a design in which outside sources define each step of a workflow and Hybro runs and evaluates it. Two short documents explain it:
+
+- [docs/design.md](docs/design.md): the concepts and their names, the target architecture, and the status of each module in today's code.
+- [docs/roadmap.md](docs/roadmap.md): the order of work.
+
+Before you start a change:
+
+- Check the status of the module you want to change in `docs/design.md`. Stable modules are open for contributions. For a larger change to a Changing module, open an issue first. Frozen modules take bug fixes only.
+- Use the concept names from `docs/design.md` in new code and documents.
+- Keep existing routes and MCP tools working.
+
+---
+
 ## How Can I Contribute?
 
 ### 1. Reporting Bugs
