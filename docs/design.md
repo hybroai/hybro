@@ -138,7 +138,7 @@ module.
 | Group | A named set of agents. | `agent` | agent group (`agent_groups`) |
 | Standard | A requirement a step's result must meet, such as a time limit or a required field. It attaches to a label the source sends, or to an agent. | `evaluation` | new |
 | Rule | One line set by the instance owner. There are three kinds: route, access and check. | `policy` | new |
-| Source | One thing that asks for work. It names itself, and the name is not verified. | Source API | client (`client_label`) |
+| Source | One thing that asks for work. Hybro verifies which source sent a step. Today a source names itself, and the name is not verified. | Source API | client (`client_label`) |
 
 How the records of one piece of work hang together:
 
@@ -490,7 +490,7 @@ once, on the current run.
 
 | Feature | Community | Enterprise |
 |---|---|---|
-| Sources and the Source API | All of it, including the event sources that come later. | Nothing |
+| Sources and the Source API | All of it, including verified source identity, authenticated remote access, and the event sources that come later. | Nothing |
 | Sessions, steps, agent calls, queue | All of it. | Nothing |
 | Routing | Named agent, owner route rules, match, LLM pick. | Nothing |
 | Questions and approvals | The agent's own permission questions, answered by the owner in the Panel. Owner check rules. The grant that lets a source answer. | Several approvers, and approval by role. |
@@ -593,11 +593,12 @@ Nothing is deleted before its replacement has shipped.
 ## Open questions
 
 - How a source is identified. For now a source names itself, as `client_label`
-  does today. We will discuss this in the future. A feature that limits or
-  trusts a source by its name waits for the answer, because any caller can
-  send another source's name while the name is not verified. Two are planned:
-  an access rule that matches on a source, and the grant that lets a source
-  answer permission questions.
+  does today. The answer is decided when roadmap phase 2 starts, and a verified
+  source is part of the community edition. A feature that limits or trusts a
+  source by its name waits for the answer, because any caller can send another
+  source's name while the name is not verified. Two are planned: an access
+  rule that matches on a source, and the grant that lets a source answer
+  permission questions.
 
 ## Changing this document
 

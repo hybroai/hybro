@@ -5,33 +5,40 @@ This is the order in which Hybro moves toward the [design](design.md).
 ```mermaid
 flowchart LR
     p0["0 Make the direction visible"] --> p1["1 Clean up and break down"]
-    p1 --> p2["2 Move out"]
-    p2 --> p3["3 Migrate to the target modules"]
-    p3 --> p4["4 Build what does not exist yet"]
-    p4 --> p5["5 The enterprise edition"]
+    p1 --> p2["2 Source identity and remote access"]
+    p2 --> p3["3 Owner check rules and the step view"]
+    p3 --> p4["4 Move out"]
+    p4 --> p5["5 Migrate to the target modules"]
+    p5 --> p6["6 Build what does not exist yet"]
+    p6 --> p7["7 The enterprise edition"]
 ```
 
 | # | Phase | In one line | Status |
 |---|---|---|---|
 | 0 | Make the direction visible | The design, this roadmap, contributor rules and a quick start. | Now |
 | 1 | Clean up and break down | Remove what is dead, and split `execution` without changing behaviour. | Next |
-| 2 | Move out | The model loop leaves the core and becomes the bundled orchestrator, a source. | Later |
-| 3 | Migrate to the target modules | The remaining modules and their stored collections take their target names, one at a time, with a data migration. | Later |
-| 4 | Build what does not exist yet | Routing without a named agent, evaluation by hand, owner check rules. | Later |
-| 5 | The enterprise edition | The `enterprise/` folders, the license key, and the features a team or a company adds. | Later |
+| 2 | Source identity and remote access | Hybro verifies which source sent a step, and a source on another machine can reach the Source API with authentication. | Later |
+| 3 | Owner check rules and the step view | The owner gates agent calls with rules, and sees each step of a session. | Later |
+| 4 | Move out | The model loop leaves the core and becomes the bundled orchestrator, a source. | Later |
+| 5 | Migrate to the target modules | The remaining modules and their stored collections take their target names, one at a time, with a data migration. | Later |
+| 6 | Build what does not exist yet | Routing without a named agent, and evaluation by hand. | Later |
+| 7 | The enterprise edition | The `enterprise/` folders, the license key, and the features a team or a company adds. | Later |
 
 ## How we move
 
-- Structure first, features after. We make today's code smaller and cleaner,
-  then move parts out of the core, then give the remaining modules their target
-  names, and only then build what does not exist yet.
+- Clean up first. Then come the foundations that an outside source and an
+  owner need: source identity, remote access, and the owner's check rules.
+  Then the model loop moves out of the core, the remaining modules take their
+  target names, and the remaining features are built.
 - One small change at a time. There is no rewrite.
 - Each change ships on its own, and Room chat keeps working throughout.
 - A change adds the new path before it removes the old one. A route or MCP tool
   that exists today is marked as deprecated in one release and removed in a
   later one.
-- Phases 1 to 3 add no user features. The only new behaviour before phase 4 is
-  what the orchestrator needs in order to become a source.
+- Phases 2 and 3 ship features a user can see, before the larger structural
+  work. Phases 1, 4 and 5 are structural and add no user features. The only
+  new behaviour in phase 4 is what the orchestrator needs in order to become a
+  source.
 
 How a phase is run:
 
@@ -89,21 +96,92 @@ does not change.
 
 **What stays the same.** Everything a user or a client can see.
 
-## Phase 2: Move out
+## Phase 2: Source identity and remote access
+
+**Goal.** Hybro knows which source sent a step, and a source on another machine
+can reach the Source API safely.
+
+This phase comes before the larger structural work because it does not depend
+on it. It builds on the `/sessions` routes that exist today, and later features
+build on it.
+
+**Work.**
+
+1. **Source identity.** Today a source names itself with `client_label`, and
+   the name is not verified. This phase gives each source an identity that
+   Hybro verifies. How a source is identified is the open question in
+   `design.md`, and it is decided when this phase starts.
+2. **Authenticated remote access.** A source on another machine can use the
+   Source API with authentication, on a server install as well as on a local
+   one.
+3. **MCP from another machine.** Today the MCP adapter serves clients on the
+   same host and has no authentication. This phase decides between an
+   authenticated remote MCP and the rule that remote sources use the HTTP
+   Source API.
+
+**Done when.**
+
+- Each Step records a verified source.
+- A source on another machine can send a step and read its result with
+  authentication, and a remote request without it is refused.
+- The documents say what an MCP client can do from another machine.
+
+**What stays the same.** The routes and MCP tools that exist today. A change to
+how a client connects follows the deprecation rule above.
+
+## Phase 3: Owner check rules and the step view
+
+**Goal.** The owner decides which agent calls need an answer first, and sees
+what each step did.
+
+**Work.**
+
+1. **Check rules.** The `policy` module starts here. The owner writes rules
+   that answer allow, deny or ask, such as "ask me before any step goes to the
+   coder agent". An "ask" becomes a Question that the owner answers in the
+   Panel.
+2. **One place for the check.** Until phase 4, Room chat calls agents on its
+   own path and not through the Source API. A check rule must still apply to
+   those calls, so the check sits where both paths send an agent call. If that
+   cannot be done, the rules apply to steps from the Source API only, and the
+   Rules page says so until phase 4.
+3. **The grant.** The owner can grant one source the right to answer permission
+   questions. It relies on the verified source of phase 2. It also adds the
+   first way for a source to answer a Question through the Source API, for
+   permission questions only. Information questions follow in phase 4.
+4. **The Rules page** in the Panel, with the check rules.
+5. **The step view.** The Sessions page shows each step's input, output and
+   timing. Until phase 4 it covers sessions from the Source API only, because
+   Room chat's agent calls are not Steps yet.
+
+**Done when.**
+
+- A check rule that answers "ask" stops a call until the owner answers, and a
+  rule that answers "deny" ends the step with a reason.
+- The documents and the Rules page say which calls the rules cover.
+- A source with the grant can answer a permission question, and a source
+  without it is refused.
+- The Sessions page shows the input, output and timing of each step sent
+  through the Source API.
+- With no rules, every call goes as it does today.
+
+**What stays the same.** Sessions and chats on an instance with no rules.
+
+## Phase 4: Move out
 
 **Goal.** The core only runs steps. Room chat uses the same door as every other
 source.
 
 ```mermaid
 flowchart TB
-    subgraph before["Before phase 2"]
+    subgraph before["Before phase 4"]
         b_chat["Room chat"] --> b_exec["execution: model loop and agent calls"]
         b_clients["API and MCP clients"] --> b_sessions["sessions routes"]
         b_sessions --> b_exec
         b_exec --> b_agents["Agents"]
     end
 
-    subgraph after["After phase 2"]
+    subgraph after["After phase 4"]
         a_chat["Room chat"] --> a_orch["Bundled orchestrator"]
         a_orch --> a_api["Source API"]
         a_clients["API and MCP clients"] --> a_api
@@ -136,6 +214,7 @@ flowchart TB
   profile.
 - The core imports nothing from the orchestrator.
 - The old Room chat path is gone.
+- The check rules of phase 3 cover every call through the one path.
 
 **What stays the same.** The chat pages and the rooms API. The `/sessions`
 routes keep working, and new fields are optional.
@@ -144,7 +223,7 @@ routes keep working, and new fields are optional.
 paths side by side, and comparing them on the same messages, is what keeps it
 safe.
 
-## Phase 3: Migrate to the target modules
+## Phase 5: Migrate to the target modules
 
 **Goal.** The code reads like the design.
 
@@ -186,9 +265,9 @@ example, `hitl_requests` is renamed after Question and
 
 **What stays the same.** Public routes, and everything a user has stored.
 
-## Phase 4: Build what does not exist yet
+## Phase 6: Build what does not exist yet
 
-**Goal.** The new features, built once on the final structure.
+**Goal.** The remaining features, built once on the final structure.
 
 In this order:
 
@@ -199,22 +278,15 @@ In this order:
      selection.
    - Steps carry labels, and route rules match on them.
    - Each step records how its agent was chosen.
-   - The Panel gets the Rules page.
+   - The Rules page gains the ordered route rules.
 2. **Evaluation by hand.**
-   - The Sessions page shows each step's input, output and timing.
    - A user writes a Standard and checks it against the current run.
    - The Panel gets the Evaluation page.
-3. **Owner check rules.**
-   - The owner writes rules that answer allow, deny or ask, such as "ask me
-     before any step goes to the coder agent".
-   - The owner can grant one source the right to answer permission questions.
-     This waits for the open question in `design.md` on how a source is
-     identified.
 
 Later, with no fixed place yet: event sources such as CI, chat apps and
 notifications, and timers that start work.
 
-## Phase 5: The enterprise edition
+## Phase 7: The enterprise edition
 
 **Goal.** The features a team or a company adds, without changing what the
 community edition does.
@@ -227,8 +299,7 @@ community edition does.
 2. **The license key** that turns the enterprise features on.
 3. **The features**, each behind a small hook in the community code:
    - access rules and roles: who may use which agent or item. An access rule
-     that matches on a source waits for the open question in `design.md` on
-     how a source is identified.
+     that matches on a source relies on the verified source of phase 2.
    - several approvers, and approval by role
    - saved standards that run on every step, with results over time
    - audit across sessions, and export
@@ -251,9 +322,10 @@ message to one named agent, returns a receipt without waiting, and uses
 `client_request_id` so that a retry is safe. The owner approves in the app, and
 the state is read from the event log.
 
-It has four limits:
+It has five limits:
 
-- A message is text only. Phase 2 removes this.
-- A session runs one request at a time. Phase 2 removes this.
-- The client polls for the result. Phase 2 removes this.
-- The agent must be named. Phase 4 removes this.
+- The source names itself, and the name is not verified. Phase 2 removes this.
+- A message is text only. Phase 4 removes this.
+- A session runs one request at a time. Phase 4 removes this.
+- The client polls for the result. Phase 4 removes this.
+- The agent must be named. Phase 6 removes this.
