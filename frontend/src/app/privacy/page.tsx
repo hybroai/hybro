@@ -14,7 +14,7 @@ export default function PrivacyPage() {
       </Link>
 
       <h1 className="mt-8 text-3xl font-semibold tracking-tight">Privacy Policy</h1>
-      <p className="mt-2 text-muted-foreground">Last updated: February 2026</p>
+      <p className="mt-2 text-muted-foreground">Last updated: November 2026</p>
 
       <Section title="1. Overview">
         <p>
@@ -32,7 +32,7 @@ export default function PrivacyPage() {
           </li>
           <li>
             <strong>Usage data</strong> — pages visited, features used, and interactions with the platform, collected
-            via Google Analytics (only with your consent).
+            via Google Analytics only when this installation has analytics enabled and you accept it.
           </li>
           <li>
             <strong>Agent and conversation data</strong> — messages and task data you create while using the platform.
@@ -49,7 +49,8 @@ export default function PrivacyPage() {
           </li>
           <li>
             <strong>Analytics cookies</strong> — set by Google Analytics to help us understand how visitors use the
-            platform. These are only placed after you give your consent via the cookie banner.
+            platform. These are only placed after you accept them in the cookie banner. Installations without
+            analytics enabled show no banner and place no analytics cookies.
           </li>
         </ul>
         <p className="mt-3">
@@ -60,8 +61,9 @@ export default function PrivacyPage() {
 
       <Section title="4. Google Analytics">
         <p>
-          With your consent, we use Google Analytics 4 to collect anonymized usage statistics. Google may process this
-          data on servers outside your country. For more information, see{" "}
+          Analytics is off by default. It is on only when the operator of this installation sets a Google Analytics 4
+          measurement id. Then, with your consent, Google Analytics 4 collects usage statistics, and Google may process
+          this data on servers outside your country. For more information, see{" "}
           <a
             href="https://policies.google.com/privacy"
             target="_blank"
@@ -73,8 +75,8 @@ export default function PrivacyPage() {
           .
         </p>
         <p className="mt-3">
-          We have configured Google Analytics with consent mode. Analytics data is not collected unless you explicitly
-          accept cookies.
+          The Google Analytics script is not loaded until you accept cookies. If you decline, or analytics is not
+          enabled, no data is sent to Google.
         </p>
       </Section>
 

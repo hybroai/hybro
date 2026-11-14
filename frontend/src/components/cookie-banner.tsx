@@ -1,21 +1,30 @@
 "use client"
 
+import Script from "next/script"
 import { useEffect, useRef, useState } from "react"
+import { publicConfig } from "@/lib/config"
 
 const CONSENT_KEY = "cookie_consent"
 
+/**
+ * Opt-in Google Analytics. Without a configured measurement id there is no
+ * script and no banner. With one, the script loads only after the user accepts.
+ */
 export function CookieBanner() {
+  const measurementId = publicConfig().analytics_measurement_id
   const [show, setShow] = useState(false)
+  const [accepted, setAccepted] = useState(false)
   const bannerRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
+    if (!measurementId) return
     const stored = localStorage.getItem(CONSENT_KEY)
-    if (!stored) {
+    if (stored === "accepted") {
+      setAccepted(true)
+    } else if (stored !== "declined") {
       setShow(true)
-    } else if (stored === "accepted") {
-      window.gtag?.("consent", "update", { analytics_storage: "granted" })
     }
-  }, [])
+  }, [measurementId])
 
   useEffect(() => {
     document.body.dataset.cookieBanner = show ? "visible" : "hidden"
@@ -46,12 +55,31 @@ export function CookieBanner() {
   const accept = () => {
     localStorage.setItem(CONSENT_KEY, "accepted")
     setShow(false)
-    window.gtag?.("consent", "update", { analytics_storage: "granted" })
+    setAccepted(true)
   }
 
   const decline = () => {
     localStorage.setItem(CONSENT_KEY, "declined")
     setShow(false)
+  }
+
+  if (accepted && measurementId) {
+    return (
+      <>
+        <Script
+          src={`https://www.googletagmanager.com/gtag/js?id=${measurementId}`}
+          strategy="afterInteractive"
+        />
+        <Script id="google-analytics" strategy="afterInteractive">
+          {`
+            window.dataLayer = window.dataLayer || [];
+            function gtag(){dataLayer.push(arguments);}
+            gtag('js', new Date());
+            gtag('config', ${JSON.stringify(measurementId)});
+          `}
+        </Script>
+      </>
+    )
   }
 
   if (!show) return null

@@ -9,5 +9,6 @@
   "clerk_sign_up_fallback_redirect_url": "/",
   "enable_waitlist": true,
   "max_message_length": 10000,
-  "inspection_timeout_ms": 300000
+  "inspection_timeout_ms": 300000,
+  "analytics_measurement_id": ""
 }

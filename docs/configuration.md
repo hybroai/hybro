@@ -71,6 +71,12 @@ Use the Settings page for Provider and model changes. Startup generates missing
 internal tokens in `auth.json` without rotating existing values. Backend overrides live under `backend`, public
 frontend overrides under `frontend`, and image output size is `image_size`.
 
+Analytics is off by default. `frontend.analytics_measurement_id` takes a Google
+Analytics 4 id (`G-` and 4 to 20 uppercase letters or digits); empty, the
+default, means the UI loads no analytics script and shows no cookie banner. With
+an id, the banner asks for consent and the script loads only after the user
+accepts. It is not a Settings page field; set it in `config.json` and restart.
+
 Startup rules added with the Settings API (all under `backend` unless named
 `frontend`):
 

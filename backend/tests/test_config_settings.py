@@ -269,6 +269,31 @@ def test_frontend_inspection_timeout_stays_within_what_the_browser_accepts() -> 
     assert getattr(FrontendSettings.model_validate({field: 2**31 - 1}), field)
 
 
+@pytest.mark.parametrize("value", ["", "G-ABC123"])
+def test_frontend_analytics_measurement_id_accepts_empty_or_a_ga4_id(value) -> None:
+    from common.config.loader import FrontendSettings
+
+    settings = FrontendSettings.model_validate({"analytics_measurement_id": value})
+    assert settings.analytics_measurement_id == value
+
+
+def test_frontend_analytics_measurement_id_defaults_to_off() -> None:
+    from common.config.loader import FrontendSettings
+
+    assert FrontendSettings().analytics_measurement_id == ""
+
+
+@pytest.mark.parametrize(
+    "value", ["UA-12345", "g-abc123", "G-1');alert(1);//", " G-ABC123"]
+)
+def test_frontend_analytics_measurement_id_rejects_other_values(value) -> None:
+    from common.config.loader import FrontendSettings
+
+    with pytest.raises(ValidationError) as caught:
+        FrontendSettings.model_validate({"analytics_measurement_id": value})
+    assert caught.value.errors()[0]["loc"] == ("analytics_measurement_id",)
+
+
 def test_frontend_message_length_stays_within_the_backend_limit() -> None:
     from common.config.loader import FrontendSettings
     from models.room import MAX_MESSAGE_LENGTH
