@@ -38,6 +38,7 @@ Hybro AI is an open-source, hybrid multi-agent platform built for seamless agent
   3. [Open the app](#3-open-the-app)
   4. [Take a tour](#4-take-a-tour)
   5. [Connect an MCP client](#5-connect-an-mcp-client)
+  6. [Send work from your own agent or code](#6-send-work-from-your-own-agent-or-code)
 - [Running](#running)
 - [Configuration](#configuration)
 - [Development and released stacks](#development-and-released-stacks)
@@ -226,6 +227,62 @@ open the app remotely, loopback in your client still refers to that client's
 machine, not the Hybro host. MCP has no authentication or user isolation, so a
 non-loopback listener does not serve it. Do not expose it publicly.
 See [MCP tools, health, and native startup](backend/README.md#local-mcp-access).
+
+### 6. Send work from your own agent or code
+
+**Chats** is one way to give agents work. Your own agent or script can do the
+same from outside, and the work shows up in the app. The four moves below work
+right after install, because Echo Agent needs no model provider. They use the
+released install's address; from a checkout, use port 3100.
+
+**Put an agent in the network.** Echo Agent is already there. To use your own
+A2A agent, run it on a port from 9000 to 9999 on the machine running Hybro,
+where Hybro finds it on its next scan, or register its address with **Add
+agent** on the **Network** page.
+
+**Find its id.** Discovery lists every agent you can use, each with an
+`agent_id` and its card.
+
+```bash
+curl 'http://localhost:3000/api/v1/agents/discovery'
+```
+
+**Send it one piece of work.** `client_request_id` makes a retry safe, and
+`client_label` is the name your client appears under in the app.
+
+```bash
+curl --request POST 'http://localhost:3000/api/v1/sessions/messages' \
+  --header 'Content-Type: application/json' \
+  --data '{
+    "agent_id": "<agent_id from discovery>",
+    "text": "Hello from my script",
+    "client_request_id": "quickstart-1",
+    "client_label": "my-script"
+  }'
+```
+
+The answer is a receipt with a `session_id`. It does not wait for the agent.
+
+**Read the result.**
+
+```bash
+curl 'http://localhost:3000/api/v1/sessions/<session_id>'
+```
+
+`state` goes from `working` to `completed`, and `history` holds the agent's
+`reply`. The session also appears under **Inbox** in the app. When an agent
+needs your approval, `state` is `waiting_on_owner` and you answer it there.
+
+To continue a session, send again with its `session_id` and a new
+`client_request_id`. A session takes one message at a time: a send while an
+earlier one is still active returns `busy`.
+
+From an MCP client, the same loop is three tools: `discover_agents`,
+`send_message`, and `check_session`.
+
+These calls need no token in the default local mode. With sign-in turned on
+(`backend.auth_mode` set to `clerk`), they need a session token in an
+`Authorization: Bearer` header.
 
 ## Running
 
