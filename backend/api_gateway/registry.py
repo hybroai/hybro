@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from collections.abc import Iterable
 from typing import Any
 
 from fastapi import APIRouter
@@ -61,11 +60,3 @@ def route_group_for_path(path: str) -> str:
     if matches("/sse"):
         return "sse"
     return "unknown"
-
-
-def expected_owner_for_group(group: str) -> str:
-    return f"api_gateway.routes.{group}_routes"
-
-
-def route_groups_for_paths(paths: Iterable[str]) -> set[str]:
-    return {route_group_for_path(path) for path in paths}

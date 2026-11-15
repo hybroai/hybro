@@ -154,15 +154,6 @@ def validate_command_route_consistency(
         raise HITLAggregateCorruptionError("supervisor command target mismatch")
 
 
-def deterministic_interaction_id(*, event_identity: str, round_identity: str) -> str:
-    """Derive an aggregate ID whose seed includes both event and round identity."""
-
-    if not event_identity.strip() or not round_identity.strip():
-        raise ValueError("event_identity and round_identity must not be blank")
-    digest = hashlib.sha256(f"{event_identity}:{round_identity}".encode()).hexdigest()
-    return f"hitl-interaction-{digest}"
-
-
 def deterministic_request_id(interaction_id: str, question_index: int) -> str:
     digest = hashlib.sha256(
         f"{interaction_id}:question:{question_index}".encode()

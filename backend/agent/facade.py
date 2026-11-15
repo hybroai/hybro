@@ -5,7 +5,6 @@ from collections.abc import Callable
 from datetime import datetime, timedelta
 from typing import Any, Protocol, runtime_checkable
 
-from agent.constants import AGENT_CARD_NO_OVERWRITE
 from agent.matching import (
     accepts_input_modes,
     is_searchable_query,
@@ -363,9 +362,6 @@ class AgentFacade:
         if existing is not None:
             stored_card = dict(existing.get("agent_card") or {})
             merged_card = {**stored_card, **raw_card}
-            for key in AGENT_CARD_NO_OVERWRITE:
-                if stored_card.get(key):
-                    merged_card[key] = stored_card[key]
             was_inactive = (
                 _status_value(existing.get("agent_status"), default=None) != "active"
             )
@@ -610,8 +606,6 @@ class AgentFacade:
         if "agent_card" in updates:
             current_card = dict(current.get("agent_card") or {})
             for key, value in dict(updates["agent_card"]).items():
-                if key in AGENT_CARD_NO_OVERWRITE:
-                    continue
                 current_card[key] = value
             update_doc["agent_card"] = current_card
         return update_doc

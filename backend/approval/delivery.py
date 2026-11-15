@@ -1,8 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
 from enum import StrEnum
-from typing import Any
 
 
 class HITLDeliveryDisposition(StrEnum):
@@ -18,15 +16,6 @@ class HITLDeliveryPhase(StrEnum):
     IN_FLIGHT = "in_flight"
     REMOTE_RESPONSE = "remote_response"
     POST_SEND_PERSISTENCE = "post_send_persistence"
-
-
-@dataclass(frozen=True)
-class HITLDeliveryResult:
-    payload: dict[str, Any]
-    phase: HITLDeliveryPhase = HITLDeliveryPhase.REMOTE_RESPONSE
-
-    def to_dict(self) -> dict[str, Any]:
-        return {**self.payload, "delivery_phase": self.phase.value}
 
 
 class HITLDeliveryError(RuntimeError):
@@ -48,5 +37,4 @@ __all__ = [
     "HITLDeliveryDisposition",
     "HITLDeliveryError",
     "HITLDeliveryPhase",
-    "HITLDeliveryResult",
 ]

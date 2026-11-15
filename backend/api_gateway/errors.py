@@ -26,10 +26,6 @@ def require_chat_room(room: object) -> None:
         raise HTTPException(status_code=409, detail=SESSION_CONVERSATION_READ_ONLY)
 
 
-def internal_server_error(message: str = "Internal server error") -> HTTPException:
-    return HTTPException(status_code=500, detail=message)
-
-
 async def setup_request_error_handler(request: Request, exc: Exception) -> JSONResponse:
     """A coded browser-setup failure; the body never carries credentials."""
     assert isinstance(exc, SetupRequestError)
