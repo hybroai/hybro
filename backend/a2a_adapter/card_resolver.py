@@ -1,5 +1,6 @@
 import asyncio
 import time
+from contextlib import AbstractAsyncContextManager, nullcontext
 
 import httpx
 
@@ -7,7 +8,8 @@ from common.dto import AgentCardSnapshot
 from common.observability import events as E
 from common.observability import get_logger
 
-from .bounded_http import MAX_AGENT_CARD_BYTES, bounded_client
+from .address_policy import DestinationPolicy
+from .bounded_http import card_client
 from .card_data import build_agent_card
 from .constants import AGENT_CARD_WELL_KNOWN_PATH, PREV_AGENT_CARD_WELL_KNOWN_PATH
 from .docker_host_fallback import docker_host_fallback_url_for_error
@@ -28,18 +30,26 @@ class AgentCardResolverImpl:
         timeout: float = 10,
         log_failures: bool = True,
     ) -> None:
-        self._client = client or bounded_client(
-            timeout=timeout, max_bytes=MAX_AGENT_CARD_BYTES
-        )
-        self._owns_client = client is None
+        # Production builds one guarded client per resolution, because the
+        # destination policy depends on the URL being resolved. An injected
+        # client (tests) is used as is and stays owned by the caller.
+        self._client = client
         self._cache_ttl = cache_ttl
         self._timeout = timeout
         self._log_failures = log_failures
         self._cache: dict[str, tuple[float, AgentCardSnapshot]] = {}
 
     async def aclose(self) -> None:
-        if self._owns_client:
-            await self._client.aclose()
+        return None
+
+    def _session(
+        self, normalized_url: str
+    ) -> AbstractAsyncContextManager[httpx.AsyncClient]:
+        if self._client is not None:
+            return nullcontext(self._client)
+        return card_client(
+            timeout=self._timeout, policy=DestinationPolicy(normalized_url)
+        )
 
     async def resolve_card(self, agent_url: str) -> AgentCardSnapshot | None:
         normalized_url = agent_url.rstrip("/")
@@ -53,15 +63,20 @@ class AgentCardResolverImpl:
         try:
             # httpx timeouts bound each read, not the whole fetch; a server that
             # drips bytes must still fail within the resolver timeout.
-            async with asyncio.timeout(self._timeout):
-                snapshot, last_error = await self._resolve_card_from_url(normalized_url)
+            async with (
+                asyncio.timeout(self._timeout),
+                self._session(normalized_url) as client,
+            ):
+                snapshot, last_error = await self._resolve_card_from_url(
+                    client, normalized_url
+                )
                 if snapshot is None and last_error is not None:
                     fallback_url = docker_host_fallback_url_for_error(
                         normalized_url, last_error
                     )
                     if fallback_url is not None:
                         snapshot, last_error = await self._resolve_card_from_url(
-                            fallback_url
+                            client, fallback_url
                         )
         except TimeoutError as exc:
             snapshot, last_error = None, exc
@@ -96,12 +111,13 @@ class AgentCardResolverImpl:
 
     async def _resolve_card_from_url(
         self,
+        client: httpx.AsyncClient,
         normalized_url: str,
     ) -> tuple[AgentCardSnapshot | None, Exception | None]:
         last_error: Exception | None = None
         for path in (AGENT_CARD_WELL_KNOWN_PATH, PREV_AGENT_CARD_WELL_KNOWN_PATH):
             try:
-                response = await self._client.get(f"{normalized_url}{path}")
+                response = await client.get(f"{normalized_url}{path}")
                 response.raise_for_status()
                 card = build_agent_card(response.json())
                 return a2a_card_to_snapshot(card, normalized_url), None

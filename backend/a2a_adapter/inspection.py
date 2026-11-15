@@ -10,6 +10,7 @@ import httpx
 
 from common.types import AgentCard
 
+from .address_policy import AddressRefusedError, DestinationPolicy
 from .bounded_http import MAX_AGENT_CARD_BYTES, A2AResponseTooLargeError
 from .client_facade import fetch_agent_card_with_fallback, send_message, stream_message
 from .translators import a2a_card_to_snapshot
@@ -39,8 +40,11 @@ async def inspect_a2a_connection(
     timeout: float = _PROBE_TIMEOUT_SECONDS,
 ) -> dict[str, Any]:
     """Fetch an agent card, dry-send a probe message, and return SDK-free data."""
+    # One policy for the card fetch and the probe, so the inspected URL is
+    # classified once (see ``address_policy.DestinationPolicy``).
+    policy = DestinationPolicy(agent_url)
     card_data = await fetch_agent_card_with_fallback(
-        agent_url, timeout=min(timeout, _CARD_FETCH_TIMEOUT_SECONDS)
+        agent_url, timeout=min(timeout, _CARD_FETCH_TIMEOUT_SECONDS), policy=policy
     )
     internal_card = _to_internal_card(card_data, agent_url)
     message = {
@@ -53,7 +57,19 @@ async def inspect_a2a_connection(
     try:
         # httpx timeouts bound each read; this bounds the whole probe.
         async with asyncio.timeout(timeout):
-            response = await _probe(card_data, message, timeout=timeout)
+            response = await _probe(
+                card_data,
+                message,
+                registered_url=agent_url,
+                policy=policy,
+                timeout=timeout,
+            )
+    except AddressRefusedError as exc:
+        return {
+            "agent_card": internal_card,
+            "result": [str(exc)],
+            "status_code": _STATUS_PROBE_FAILED,
+        }
     except TimeoutError:
         return {
             "agent_card": internal_card,
@@ -91,6 +107,8 @@ async def _probe(
     card_data: dict[str, Any],
     message: dict[str, Any],
     *,
+    registered_url: str,
+    policy: DestinationPolicy,
     timeout: float,
 ) -> dict[str, Any] | None:
     """Send the probe over whichever transport the agent advertises."""
@@ -98,13 +116,20 @@ async def _probe(
     if _capability(card_data, "streaming"):
         last_frame: dict[str, Any] | None = None
         async for frame in stream_message(
-            card_data, message, accepted_output_modes=accepted_modes, timeout=timeout
+            card_data,
+            message,
+            registered_url=registered_url,
+            policy=policy,
+            accepted_output_modes=accepted_modes,
+            timeout=timeout,
         ):
             last_frame = frame
         return last_frame
     return await send_message(
         card_data,
         message,
+        registered_url=registered_url,
+        policy=policy,
         accepted_output_modes=accepted_modes,
         blocking=True,
         timeout=timeout,
@@ -114,6 +139,12 @@ async def _probe(
 def card_fetch_failure(exc: BaseException) -> tuple[int, str]:
     """Map a card fetch failure to a status code and a fixed owner message."""
     chain = _exception_chain(exc)
+    refused = next(
+        (item for item in chain if isinstance(item, AddressRefusedError)), None
+    )
+    if refused is not None:
+        # The policy's own message: it names the rule, not remote text.
+        return 403, f"This address is not allowed: {refused}."
     if any(isinstance(item, A2AResponseTooLargeError) for item in chain):
         limit = MAX_AGENT_CARD_BYTES // (1024 * 1024)
         return 502, f"The agent card is larger than the {limit} MiB limit."

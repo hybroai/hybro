@@ -128,7 +128,9 @@ async def test_inspection_probe_keeps_card_data_sdk_free(monkeypatch):
         timeout=1,
     )
 
-    fetch_card.assert_awaited_once_with("http://127.0.0.1:9060", timeout=1)
+    fetch_card.assert_awaited_once()
+    assert fetch_card.await_args.args == ("http://127.0.0.1:9060",)
+    assert fetch_card.await_args.kwargs["timeout"] == 1
     sent_card_data, _message = probe.await_args.args
     assert sent_card_data == card_data
     assert result["status_code"] == 200

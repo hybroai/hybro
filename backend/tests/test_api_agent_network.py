@@ -43,6 +43,8 @@ async def network_api(monkeypatch, app):
     )
     doc = _doc("reviewer", "Reviewer", public=False, provider_id="user_local_developer")
     doc["agent_card"] = card
+    # The send fetches the live card from the registered URL.
+    doc["normalized_url"] = "http://agent.test"
     repository, collection = _repo([doc])
     registry = AgentFacade(
         repository=repository,
@@ -72,13 +74,14 @@ async def network_api(monkeypatch, app):
     )
 
     @asynccontextmanager
-    async def bounded_client(*, timeout):
+    async def bounded_client(*, timeout, **_policy):
         async with httpx.AsyncClient(
             transport=httpx.ASGITransport(app=remote.app), timeout=timeout
         ) as client:
             yield client
 
     monkeypatch.setattr(client_facade, "bounded_client", bounded_client)
+    monkeypatch.setattr(client_facade, "card_client", bounded_client)
     async with httpx.AsyncClient(
         transport=httpx.ASGITransport(app=app), base_url="http://hybro.test"
     ) as client:

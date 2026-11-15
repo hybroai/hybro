@@ -24,7 +24,7 @@ from __future__ import annotations
 import base64
 import json
 import re
-from collections.abc import AsyncIterator, Callable, Mapping, Sequence
+from collections.abc import AsyncIterator, Awaitable, Callable, Mapping, Sequence
 from dataclasses import dataclass
 from hashlib import sha256
 from typing import Any, Literal, Protocol
@@ -56,6 +56,7 @@ from common.utils.a2a_helpers import (
 )
 from common.utils.time import utcnow
 
+from .address_policy import AddressRefusedError, DestinationPolicy
 from .card_data import agent_card_dict, build_agent_card
 from .client_facade import A2AClientFacadeError
 from .message_factory import to_sdk_message
@@ -1010,10 +1011,22 @@ class OrchestratorDirectA2AClient:
             agent_id=command_agent_id or resolved.agent_id,
         )
 
-    async def _card(self, endpoint_scope: str) -> dict[str, Any]:
+    async def _card(
+        self, endpoint_scope: str
+    ) -> tuple[dict[str, Any], DestinationPolicy]:
+        """Fetch the call's card and the destination policy for the call.
+
+        The same policy guards the send, so the registered address is
+        classified once per call.
+        """
+        policy = DestinationPolicy(endpoint_scope)
         fetch_error: Literal["transport", "contract"] | None = None
         try:
-            raw_card = await self._fetch_agent_card(endpoint_scope)
+            raw_card = await self._fetch_agent_card(endpoint_scope, policy=policy)
+        except AddressRefusedError as exc:
+            # The card points where this agent's registered address does not
+            # allow; nothing was sent, and retrying cannot change the answer.
+            raise self._agent_card_contract_error(str(exc)) from None
         except A2AClientFacadeError as exc:
             fetch_error = (
                 "transport" if _is_retryable_agent_card_fetch_error(exc) else "contract"
@@ -1039,7 +1052,28 @@ class OrchestratorDirectA2AClient:
             invalid_card = True
         if invalid_card:
             raise self._agent_card_contract_error("Agent Card is invalid.") from None
-        return normalized
+        return normalized, policy
+
+    async def _refusal_is_contract_error[T](self, call: Awaitable[T]) -> T:
+        """A refused destination means nothing was sent; fail the call."""
+        try:
+            return await call
+        except AddressRefusedError as exc:
+            raise self._agent_card_contract_error(str(exc)) from None
+
+    async def _stream_refusal_is_contract_error(
+        self, stream: AsyncIterator[Any]
+    ) -> AsyncIterator[Any]:
+        try:
+            async for item in stream:
+                yield item
+        except AddressRefusedError as exc:
+            raise self._agent_card_contract_error(str(exc)) from None
+        finally:
+            # Closing this wrapper must close the SDK stream it wraps.
+            aclose = getattr(stream, "aclose", None)
+            if aclose is not None:
+                await aclose()
 
     # -- message construction ----------------------------------------------
 
@@ -1192,14 +1226,18 @@ class OrchestratorDirectA2AClient:
     # -- DirectA2AClient methods -------------------------------------------
 
     async def send(self, command: _DispatchCommand) -> Any:
-        card = await self._card(command.endpoint_scope)
-        response = await self._send_message(
-            card,
-            to_sdk_message(self._build_user_message(command)),
-            accepted_output_modes=self._accepted_output_modes,
-            push_notification_config=_push_notification_config(command, card),
-            blocking=True,
-            timeout=self._timeout,
+        card, policy = await self._card(command.endpoint_scope)
+        response = await self._refusal_is_contract_error(
+            self._send_message(
+                card,
+                to_sdk_message(self._build_user_message(command)),
+                registered_url=command.endpoint_scope,
+                policy=policy,
+                accepted_output_modes=self._accepted_output_modes,
+                push_notification_config=_push_notification_config(command, card),
+                blocking=True,
+                timeout=self._timeout,
+            )
         )
         task = _response_to_task(response, command_message_id=command.message_id)
         if task is None:
@@ -1287,14 +1325,18 @@ class OrchestratorDirectA2AClient:
         )
 
     async def start_poll(self, command: _DispatchCommand) -> Any:
-        card = await self._card(command.endpoint_scope)
-        response = await self._send_message(
-            card,
-            to_sdk_message(self._build_user_message(command)),
-            accepted_output_modes=self._accepted_output_modes,
-            push_notification_config=_push_notification_config(command, card),
-            blocking=False,
-            timeout=self._poll_timeout,
+        card, policy = await self._card(command.endpoint_scope)
+        response = await self._refusal_is_contract_error(
+            self._send_message(
+                card,
+                to_sdk_message(self._build_user_message(command)),
+                registered_url=command.endpoint_scope,
+                policy=policy,
+                accepted_output_modes=self._accepted_output_modes,
+                push_notification_config=_push_notification_config(command, card),
+                blocking=False,
+                timeout=self._poll_timeout,
+            )
         )
         task = _response_to_task(response, command_message_id=command.message_id)
         if task is None:
@@ -1305,13 +1347,17 @@ class OrchestratorDirectA2AClient:
         )
 
     async def open_stream(self, command: _DispatchCommand) -> DirectA2AStream:
-        card = await self._card(command.endpoint_scope)
-        generator = self._stream_message(
-            card,
-            to_sdk_message(self._build_user_message(command)),
-            accepted_output_modes=self._accepted_output_modes,
-            push_notification_config=_push_notification_config(command, card),
-            timeout=self._timeout,
+        card, policy = await self._card(command.endpoint_scope)
+        generator = self._stream_refusal_is_contract_error(
+            self._stream_message(
+                card,
+                to_sdk_message(self._build_user_message(command)),
+                registered_url=command.endpoint_scope,
+                policy=policy,
+                accepted_output_modes=self._accepted_output_modes,
+                push_notification_config=_push_notification_config(command, card),
+                timeout=self._timeout,
+            )
         )
         return DirectA2AStream(
             command=command,
@@ -1328,9 +1374,13 @@ class OrchestratorDirectA2AClient:
         address = await self._resolve_call(command)
         if not address.task_id or not address.endpoint_scope:
             return self._receipt(outcome="delivery_uncertain")
-        card = await self._card(address.endpoint_scope)
+        card, policy = await self._card(address.endpoint_scope)
         task = await self._fetch_remote_task(
-            card, address.task_id, timeout=self._poll_timeout
+            card,
+            address.task_id,
+            registered_url=address.endpoint_scope,
+            policy=policy,
+            timeout=self._poll_timeout,
         )
         if task is None:
             return self._receipt(outcome="delivery_uncertain")
@@ -1546,13 +1596,19 @@ class OrchestratorDirectA2AClient:
         address = await self._resolve_call(command)
         if not address.task_id or not address.endpoint_scope:
             return self._receipt(outcome="delivery_uncertain")
-        card = await self._card(address.endpoint_scope)
-        response = await self._send_message(
-            card,
-            to_sdk_message(self._build_continuation_message(command, address=address)),
-            accepted_output_modes=self._accepted_output_modes,
-            blocking=True,
-            timeout=self._timeout,
+        card, policy = await self._card(address.endpoint_scope)
+        response = await self._refusal_is_contract_error(
+            self._send_message(
+                card,
+                to_sdk_message(
+                    self._build_continuation_message(command, address=address)
+                ),
+                registered_url=address.endpoint_scope,
+                policy=policy,
+                accepted_output_modes=self._accepted_output_modes,
+                blocking=True,
+                timeout=self._timeout,
+            )
         )
         task = _response_to_task(response, command_message_id=command.command_id)
         if task is None:
@@ -1607,13 +1663,19 @@ class OrchestratorDirectA2AClient:
         address = await self._resolve_call(command)
         if not address.task_id or not address.endpoint_scope:
             return self._receipt(outcome="delivery_uncertain")
-        card = await self._card(address.endpoint_scope)
-        response = await self._send_message(
-            card,
-            to_sdk_message(self._build_model_reply_message(command, address=address)),
-            accepted_output_modes=self._accepted_output_modes,
-            blocking=True,
-            timeout=self._timeout,
+        card, policy = await self._card(address.endpoint_scope)
+        response = await self._refusal_is_contract_error(
+            self._send_message(
+                card,
+                to_sdk_message(
+                    self._build_model_reply_message(command, address=address)
+                ),
+                registered_url=address.endpoint_scope,
+                policy=policy,
+                accepted_output_modes=self._accepted_output_modes,
+                blocking=True,
+                timeout=self._timeout,
+            )
         )
         task = _response_to_task(response, command_message_id=command.command_id)
         if task is None:
@@ -1668,9 +1730,13 @@ class OrchestratorDirectA2AClient:
         address = await self._resolve_call(command)
         if not address.task_id or not address.endpoint_scope:
             return self._receipt(outcome="delivery_uncertain")
-        card = await self._card(address.endpoint_scope)
+        card, policy = await self._card(address.endpoint_scope)
         task = await self._fetch_remote_task(
-            card, address.task_id, timeout=self._poll_timeout
+            card,
+            address.task_id,
+            registered_url=address.endpoint_scope,
+            policy=policy,
+            timeout=self._poll_timeout,
         )
         if task is None:
             return self._receipt(outcome="delivery_uncertain")
@@ -1723,9 +1789,13 @@ class OrchestratorDirectA2AClient:
         address = await self._resolve_call(command)
         if not address.task_id or not address.endpoint_scope:
             return self._receipt(outcome="delivery_uncertain")
-        card = await self._card(address.endpoint_scope)
+        card, policy = await self._card(address.endpoint_scope)
         acknowledged = await self._cancel_remote_task(
-            card, address.task_id, timeout=self._cancel_timeout
+            card,
+            address.task_id,
+            registered_url=address.endpoint_scope,
+            policy=policy,
+            timeout=self._cancel_timeout,
         )
         if not acknowledged:
             return self._receipt(outcome="delivery_uncertain")
@@ -1739,9 +1809,13 @@ class OrchestratorDirectA2AClient:
         address = await self._resolve_call(command)
         if not address.task_id or not address.endpoint_scope:
             return self._receipt(outcome="delivery_uncertain")
-        card = await self._card(address.endpoint_scope)
+        card, policy = await self._card(address.endpoint_scope)
         task = await self._fetch_remote_task(
-            card, address.task_id, timeout=self._poll_timeout
+            card,
+            address.task_id,
+            registered_url=address.endpoint_scope,
+            policy=policy,
+            timeout=self._poll_timeout,
         )
         if task is None:
             return self._receipt(outcome="delivery_uncertain")

@@ -28,6 +28,7 @@ class _Network:
         self.target = AgentInfo(
             agent_id="private-agent",
             is_public=False,
+            url=url,
             raw_card=MessageToDict(make_agent_card(url=url)),
         )
         self.error: AppError | None = None
@@ -55,17 +56,36 @@ def _request(**message_fields: Any) -> AgentMessageRequest:
     )
 
 
-def _transport(monkeypatch, transport: httpx.AsyncBaseTransport) -> None:
+class _ServesCard(httpx.AsyncBaseTransport):
+    """Serve each origin's Agent Card; pass every other request through."""
+
+    def __init__(self, inner: httpx.AsyncBaseTransport) -> None:
+        self._inner = inner
+
+    async def handle_async_request(self, request: httpx.Request) -> httpx.Response:
+        if request.method == "GET" and request.url.path.startswith("/.well-known/"):
+            origin = f"{request.url.scheme}://{request.url.netloc.decode()}/"
+            return httpx.Response(200, json=MessageToDict(make_agent_card(url=origin)))
+        return await self._inner.handle_async_request(request)
+
+
+def _transport(
+    monkeypatch, transport: httpx.AsyncBaseTransport, *, serve_card: bool = True
+) -> None:
+    if serve_card:
+        transport = _ServesCard(transport)
+
     @asynccontextmanager
-    async def bounded(*, timeout: float):
+    async def bounded(*, timeout: float, **_policy: Any):
         async with httpx.AsyncClient(transport=transport, timeout=timeout) as client:
             yield client
 
     monkeypatch.setattr(client_facade, "bounded_client", bounded)
+    monkeypatch.setattr(client_facade, "card_client", bounded)
 
 
 def _agent(monkeypatch, stub: A2A10AgentStub) -> None:
-    _transport(monkeypatch, httpx.ASGITransport(app=stub.app))
+    _transport(monkeypatch, httpx.ASGITransport(app=stub.app), serve_card=False)
 
 
 @pytest.mark.asyncio
@@ -96,7 +116,8 @@ async def test_completed_task_preserves_raw_artifacts_history_and_metadata(monke
     assert response.agent_id == "private-agent"
     assert stub.last_message()["messageId"] == request.message.message_id
     assert [item["method"] for item in stub.requests] == ["SendMessage"]
-    assert stub.card_requests == []
+    # The send follows the live card, fetched once from the registered URL.
+    assert stub.card_requests == ["/.well-known/agent-card.json"]
 
 
 @pytest.mark.asyncio
@@ -344,3 +365,55 @@ async def test_outbound_conversion_failure_is_validation_not_upstream(
     assert failure.value.details["client_request_id"] == "request-1"
     assert "secret" not in str(failure.value)
     assert stub.requests == []
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "failure,expected_code",
+    [
+        (httpx.ConnectError, "UPSTREAM"),
+        (httpx.ReadTimeout, "UPSTREAM_TIMEOUT"),
+        (404, "UPSTREAM"),
+    ],
+    ids=["connect", "timeout", "not-found"],
+)
+async def test_card_fetch_failure_fails_the_send_without_leaking(
+    monkeypatch, failure, expected_code
+):
+    requests: list[tuple[str, str]] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        requests.append((request.method, request.url.path))
+        if isinstance(failure, int):
+            return httpx.Response(failure, text="secret-token: not here")
+        raise failure("secret-token: card fetch failed", request=request)
+
+    _transport(monkeypatch, httpx.MockTransport(handler), serve_card=False)
+    with pytest.raises(AppError) as error:
+        await DirectAgentExecution(_Network()).send(_request())
+
+    assert error.value.code == expected_code
+    assert error.value.details["client_request_id"] == "request-1"
+    assert error.value.details["agent_id"] == "private-agent"
+    assert "secret" not in str(error.value)
+    assert "secret" not in repr(error.value.details)
+    assert all(method == "GET" for method, _path in requests)
+
+
+@pytest.mark.asyncio
+async def test_target_without_registered_url_fails_before_any_request(monkeypatch):
+    requests: list[httpx.Request] = []
+    _transport(
+        monkeypatch,
+        httpx.MockTransport(lambda request: requests.append(request)),
+        serve_card=False,
+    )
+    network = _Network()
+    network.target = network.target.model_copy(update={"url": None})
+
+    with pytest.raises(UpstreamError) as error:
+        await DirectAgentExecution(network).send(_request())
+
+    assert str(error.value) == "Agent has no registered URL"
+    assert error.value.details["client_request_id"] == "request-1"
+    assert requests == []

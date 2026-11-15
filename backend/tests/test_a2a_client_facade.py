@@ -80,6 +80,7 @@ def _agent_client(
 
     monkeypatch.setattr(client_facade, "bounded_client", _bounded)
     monkeypatch.setattr(client_facade, "event_bounded_client", _bounded)
+    monkeypatch.setattr(client_facade, "card_client", _bounded)
     monkeypatch.setattr(remote_task, "bounded_client", _bounded)
     return transport
 
@@ -170,6 +171,7 @@ async def test_send_message_returns_plain_dict_and_forwards_the_message(
         make_agent_card(url="http://agent.test/"),
         _user_message(parts=[{"kind": "text", "text": "hello"}]),
         timeout=1,
+        registered_url="http://agent.test",
     )
 
     assert result["kind"] == "task"
@@ -200,6 +202,7 @@ async def test_send_message_preserves_identity_and_metadata(monkeypatch):
             },
         ),
         timeout=1,
+        registered_url="http://agent.test",
     )
 
     wire_message = stub.last_message()
@@ -220,6 +223,7 @@ async def test_send_message_surfaces_protocol_errors_as_error_dict(monkeypatch):
         make_agent_card(url="http://agent.test/"),
         _user_message(),
         timeout=1,
+        registered_url="http://agent.test",
     )
 
     assert result["kind"] == "error"
@@ -237,6 +241,7 @@ async def test_send_message_reports_transport_failure(monkeypatch):
             make_agent_card(url="http://agent.test/"),
             _user_message(),
             timeout=1,
+            registered_url="http://agent.test",
         )
 
 
@@ -247,7 +252,9 @@ async def test_send_message_accepts_internal_card_model(monkeypatch):
 
     internal_card = make_agent_card(name="Internal", url="http://agent.test/")
 
-    result = await client_facade.send_message(internal_card, _user_message(), timeout=1)
+    result = await client_facade.send_message(
+        internal_card, _user_message(), timeout=1, registered_url="http://agent.test"
+    )
 
     assert result["kind"] == "task"
 
@@ -262,6 +269,7 @@ async def test_send_message_retries_docker_host_for_loopback_card(monkeypatch, c
             make_agent_card(url="http://127.0.0.1:9060/"),
             _user_message(),
             timeout=1,
+            registered_url="http://127.0.0.1:9060",
         )
 
     assert result["kind"] == "task"
@@ -289,7 +297,10 @@ async def test_stream_message_yields_one_normalized_frame_per_event(monkeypatch)
     frames = [
         frame
         async for frame in client_facade.stream_message(
-            _streaming_card(), _user_message(), timeout=1
+            _streaming_card(),
+            _user_message(),
+            timeout=1,
+            registered_url="http://agent.test",
         )
     ]
 
@@ -317,7 +328,12 @@ async def test_stream_message_early_close_logs_cancelled_completion(
     _agent_client(monkeypatch, stub.app)
     caplog.set_level(logging.INFO, logger=client_facade.__name__)
 
-    stream = client_facade.stream_message(_streaming_card(), _user_message(), timeout=1)
+    stream = client_facade.stream_message(
+        _streaming_card(),
+        _user_message(),
+        timeout=1,
+        registered_url="http://agent.test",
+    )
     assert (await anext(stream))["kind"] == "task"
     await stream.aclose()
 
@@ -342,7 +358,10 @@ async def test_cancel_remote_task_reports_success(monkeypatch):
     _agent_client(monkeypatch, stub.app)
 
     acknowledged = await client_facade.cancel_remote_task(
-        make_agent_card(url="http://agent.test/"), "task-1", timeout=1
+        make_agent_card(url="http://agent.test/"),
+        "task-1",
+        timeout=1,
+        registered_url="http://agent.test",
     )
 
     assert acknowledged is True
@@ -357,7 +376,10 @@ async def test_cancel_remote_task_reports_failure_on_protocol_error(monkeypatch)
     _agent_client(monkeypatch, stub.app)
 
     acknowledged = await client_facade.cancel_remote_task(
-        make_agent_card(url="http://agent.test/"), "task-1", timeout=1
+        make_agent_card(url="http://agent.test/"),
+        "task-1",
+        timeout=1,
+        registered_url="http://agent.test",
     )
 
     assert acknowledged is False
@@ -369,7 +391,10 @@ async def test_fetch_remote_task_returns_internal_task(monkeypatch):
     _agent_client(monkeypatch, stub.app)
 
     task = await remote_task.fetch_remote_task(
-        make_agent_card(url="http://agent.test/"), "task-1", timeout=1
+        make_agent_card(url="http://agent.test/"),
+        "task-1",
+        timeout=1,
+        registered_url="http://agent.test",
     )
 
     assert isinstance(task, Task)
@@ -385,7 +410,10 @@ async def test_fetch_remote_task_returns_none_when_agent_reports_missing(monkeyp
     _agent_client(monkeypatch, stub.app)
 
     task = await remote_task.fetch_remote_task(
-        make_agent_card(url="http://agent.test/"), "task-1", timeout=1
+        make_agent_card(url="http://agent.test/"),
+        "task-1",
+        timeout=1,
+        registered_url="http://agent.test",
     )
 
     assert task is None
@@ -560,6 +588,7 @@ async def test_send_message_to_v03_agent_returns_1_0_shaped_result(monkeypatch):
         make_v03_card_json(url="http://agent.test/a2a"),
         _user_message(parts=[{"kind": "text", "text": "hello"}], context_id="ctx-1"),
         timeout=1,
+        registered_url="http://agent.test",
     )
 
     body, headers = agent.requests[-1]
@@ -590,7 +619,10 @@ async def test_completed_call_is_logged_with_operation_and_outcome(monkeypatch, 
     caplog.set_level(logging.INFO, logger=client_facade.__name__)
 
     await client_facade.send_message(
-        make_agent_card(url="http://agent.test/"), _user_message(), timeout=1
+        make_agent_card(url="http://agent.test/"),
+        _user_message(),
+        timeout=1,
+        registered_url="http://agent.test",
     )
 
     record = next(
@@ -611,7 +643,10 @@ async def test_failed_call_is_logged_with_error_outcome(monkeypatch, caplog):
 
     with pytest.raises(A2AClientError):
         await client_facade.send_message(
-            make_agent_card(url="http://agent.test/"), _user_message(), timeout=1
+            make_agent_card(url="http://agent.test/"),
+            _user_message(),
+            timeout=1,
+            registered_url="http://agent.test",
         )
 
     record = next(
@@ -693,6 +728,7 @@ async def test_jsonrpc_wins_over_card_order_when_both_bindings_are_offered(
         ),
         _user_message(),
         timeout=1,
+        registered_url="http://agent.test",
     )
 
     assert result["kind"] == "task"
@@ -727,7 +763,10 @@ async def test_message_frame_converts_to_internal_message(monkeypatch):
     _agent_client(monkeypatch, stub.app)
 
     response = await client_facade.send_message(
-        make_agent_card(url="http://agent.test/"), _user_message(), timeout=1
+        make_agent_card(url="http://agent.test/"),
+        _user_message(),
+        timeout=1,
+        registered_url="http://agent.test",
     )
     assert response["kind"] == "message"
 

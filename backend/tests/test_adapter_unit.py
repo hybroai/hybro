@@ -333,7 +333,7 @@ async def test_remote_task_returns_none_for_protocol_errors(monkeypatch):
     from a2a_adapter import remote_task
 
     @asynccontextmanager
-    async def _bounded_client(*, timeout: float = 0.0):
+    async def _bounded_client(*, timeout: float = 0.0, **_policy):
         yield SimpleNamespace()
 
     class _Client:
@@ -354,6 +354,7 @@ async def test_remote_task_returns_none_for_protocol_errors(monkeypatch):
     result = await remote_task.fetch_remote_task(
         {"name": "Agent", "url": "https://agent.example", "version": "1"},
         "task-1",
+        registered_url="http://agent.test",
     )
 
     assert result is None
@@ -975,37 +976,41 @@ async def test_card_resolver_failure_log_carries_http_status(caplog):
     assert record.error_type == "HTTPStatusError"
 
 
-def test_card_resolver_owned_client_uses_default_timeout(monkeypatch):
-    from a2a_adapter import card_resolver as resolver_module
-
-    created = {}
-
-    class FakeAsyncClient:
-        def __init__(self, timeout=None):
-            created["timeout"] = timeout
-
-    monkeypatch.setattr(resolver_module.httpx, "AsyncClient", FakeAsyncClient)
-
-    resolver_module.AgentCardResolverImpl()
-
-    assert created["timeout"] == 10
-
-
 @pytest.mark.asyncio
-async def test_card_resolver_aclose_closes_owned_client(monkeypatch):
+async def test_card_resolver_builds_a_guarded_client_per_resolution(monkeypatch):
+    from contextlib import asynccontextmanager
+
     from a2a_adapter import card_resolver as resolver_module
 
-    client = SimpleNamespace(aclose=AsyncMock())
-    monkeypatch.setattr(
-        resolver_module.httpx,
-        "AsyncClient",
-        lambda timeout=None: client,
-    )
-    resolver = resolver_module.AgentCardResolverImpl()
+    created = []
 
+    @asynccontextmanager
+    async def card_client(*, timeout, policy):
+        created.append({"timeout": timeout, "registered": policy._registered})
+        yield _FakeCardClient(
+            [
+                {
+                    "name": "Card Agent",
+                    "version": "1.0.0",
+                    "supportedInterfaces": [
+                        {
+                            "url": "http://agent.example/a2a",
+                            "protocolBinding": "JSONRPC",
+                            "protocolVersion": "1.0",
+                        }
+                    ],
+                }
+            ]
+        )
+
+    monkeypatch.setattr(resolver_module, "card_client", card_client)
+    resolver = resolver_module.AgentCardResolverImpl(cache_ttl=0)
+
+    assert await resolver.resolve_card("http://agent.example/") is not None
     await resolver.aclose()
 
-    client.aclose.assert_awaited_once()
+    # The destination policy is keyed by the URL being resolved.
+    assert created == [{"timeout": 10, "registered": ("agent.example", 80)}]
 
 
 @pytest.mark.asyncio

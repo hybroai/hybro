@@ -78,6 +78,7 @@ async def test_message_is_sent_and_reply_is_received_from_legacy_agent():
         },
         accepted_output_modes=["text/plain"],
         timeout=30,
+        registered_url="http://agent.test",
     )
 
     assert response["kind"] == "task"

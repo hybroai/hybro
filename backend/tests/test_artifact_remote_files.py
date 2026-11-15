@@ -54,8 +54,7 @@ async def test_remote_file_rejects_non_public_dns_results(monkeypatch, address):
         sockaddr = (address, 443, 0, 0) if family == socket.AF_INET6 else (address, 443)
         return [(family, socket.SOCK_STREAM, 0, "", sockaddr)]
 
-    loop = __import__("asyncio").get_running_loop()
-    monkeypatch.setattr(loop, "getaddrinfo", getaddrinfo)
+    monkeypatch.setattr("a2a_adapter.address_policy._getaddrinfo", getaddrinfo)
 
     with pytest.raises(ValueError, match="non-public"):
         await fetch_remote_file("https://example.com/file")

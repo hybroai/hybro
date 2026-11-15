@@ -51,6 +51,55 @@ FROZEN_TIME = datetime(2026, 1, 15, 12, 0, 0)
 # =============================================================================
 
 
+@pytest.fixture(autouse=True)
+def _offline_agent_dns(monkeypatch):
+    """Keep the A2A address policy off real DNS.
+
+    IP literals resolve to themselves, ``localhost`` to loopback,
+    ``host.docker.internal`` to a Docker Desktop host address, and every other
+    name to a public documentation-free address. Tests that need other answers
+    patch ``a2a_adapter.address_policy._getaddrinfo`` themselves.
+    """
+    import ipaddress
+    import socket
+
+    from a2a_adapter import address_policy
+
+    names = {"localhost": "127.0.0.1", "host.docker.internal": "192.168.65.254"}
+
+    async def getaddrinfo(host, port):
+        try:
+            address = str(ipaddress.ip_address(host))
+        except ValueError:
+            address = names.get(host.lower(), "93.184.216.34")
+        if ":" in address:
+            return [(socket.AF_INET6, socket.SOCK_STREAM, 0, "", (address, port, 0, 0))]
+        return [(socket.AF_INET, socket.SOCK_STREAM, 0, "", (address, port))]
+
+    monkeypatch.setattr(address_policy, "_getaddrinfo", getaddrinfo)
+
+
+@pytest.fixture(autouse=True)
+def _offline_agent_network(monkeypatch):
+    """Refuse real connections from guarded A2A clients.
+
+    The fake DNS above answers with a real public address, so a test that
+    forgets to patch the agent's transport would otherwise dial it. Tests that
+    serve an agent patch ``bounded_http._network_transport`` or the client
+    factories themselves.
+    """
+    import httpx
+
+    from a2a_adapter import bounded_http
+
+    def refuse(request: httpx.Request) -> httpx.Response:
+        raise httpx.ConnectError("unit tests do not open connections", request=request)
+
+    monkeypatch.setattr(
+        bounded_http, "_network_transport", lambda: httpx.MockTransport(refuse)
+    )
+
+
 @pytest.fixture(scope="session")
 def event_loop_policy():
     """Use default event loop policy for async tests."""
