@@ -20,11 +20,11 @@ from api_gateway.routes.hitl_routes import _pending_hitl_public_payload
 from approval.exceptions import HITLConflictError
 from common.dto.hitl import A2AInteractionSpec, HITLQuestionAnswer, HITLQuestionSpec
 from delivery.translator import to_sse_frame
-from execution.orchestrator.a2a_runtime.hitl import InMemoryHITLApplicationPort
 from execution.orchestrator.a2a_runtime.interaction_outcome import (
     emit_hitl_request_events,
 )
 from execution.orchestrator_routing import DualRuntimeRouter, _map_interaction_answers
+from tests.orchestrator_harness.a2a_in_memory import InMemoryHITLApplicationPort
 
 from ._orchestrator_a2a_helpers import ledger_record
 

@@ -11,9 +11,9 @@ import pytest
 from execution.orchestrator.a2a_runtime.call_counting import (
     CountingAgentCallLedgerStore,
 )
-from execution.orchestrator.a2a_runtime.in_memory import InMemoryAgentCallLedgerStore
 from execution.orchestrator.a2a_runtime.ledger import transition_call
 from execution.orchestrator.models import TextPart, ToolResult
+from tests.orchestrator_harness.a2a_in_memory import InMemoryAgentCallLedgerStore
 
 from ._orchestrator_a2a_helpers import ledger_record
 

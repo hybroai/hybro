@@ -376,14 +376,6 @@ class MaterializedResourcePart(ContractModel):
     metadata: dict[str, object] | None = None
 
 
-class DurableResourceProjection(A2ADurableModel):
-    projection_id: str
-    source_ref_id: str
-    source_content_digest: str
-    materialized: MaterializedResourcePart
-    created_at: datetime
-
-
 class A2APushNotificationConfig(ContractModel):
     """Per-attempt push registration sent with a dispatch; never persisted."""
 

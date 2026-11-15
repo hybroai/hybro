@@ -12,7 +12,6 @@ from ..models import AgentToolInput, RunResourceManifestSnapshot
 from .errors import RecoverableResourceError
 from .models import (
     AgentToolBindingRecord,
-    DurableResourceProjection,
     FrozenCallResourceManifest,
     FrozenCallResourceRef,
     MaterializedResourcePart,
@@ -135,89 +134,6 @@ class BoundedResourceMaterializer:
                     "artifact owner is temporarily unavailable"
                 ) from exc
         return list(dict.fromkeys(durable))
-
-
-class InMemoryDurableResourceProjectionStore:
-    def __init__(self) -> None:
-        self._records: dict[str, DurableResourceProjection] = {}
-
-    async def insert(self, projection: DurableResourceProjection) -> str:
-        existing = self._records.get(projection.projection_id)
-        if existing is not None:
-            return "replayed" if existing == projection else "conflict"
-        self._records[projection.projection_id] = (
-            DurableResourceProjection.model_validate(
-                projection.model_dump(mode="python")
-            )
-        )
-        return "accepted"
-
-    async def load(self, projection_id: str) -> DurableResourceProjection | None:
-        value = self._records.get(projection_id)
-        return (
-            DurableResourceProjection.model_validate(value.model_dump(mode="python"))
-            if value is not None
-            else None
-        )
-
-
-class DurableProjectionResourceLoader:
-    """Load a frozen projection or deterministically regenerate and persist it."""
-
-    def __init__(
-        self,
-        *,
-        projection_store: InMemoryDurableResourceProjectionStore,
-        regenerate: OutboundLoader,
-    ) -> None:
-        self.projection_store = projection_store
-        self.regenerate = regenerate
-
-    async def __call__(
-        self,
-        ref: FrozenCallResourceRef,
-        allowed_input_modes: list[str],
-        deadline_at: datetime,
-    ) -> MaterializedResourcePart:
-        if ref.projection_id is None:
-            return await self.regenerate(ref, allowed_input_modes, deadline_at)
-        persisted = await self.projection_store.load(ref.projection_id)
-        if persisted is not None:
-            self._validate(ref, persisted)
-            return persisted.materialized
-        part = await self.regenerate(ref, allowed_input_modes, deadline_at)
-        projection = DurableResourceProjection(
-            projection_id=ref.projection_id,
-            source_ref_id=ref.ref_id,
-            source_content_digest=ref.content_digest,
-            materialized=part,
-            created_at=datetime.now(UTC),
-        )
-        self._validate(ref, projection)
-        outcome = await self.projection_store.insert(projection)
-        if outcome not in {"accepted", "replayed"}:
-            raise ResourceSelectionError("durable projection identity conflict")
-        replay = await self.projection_store.load(ref.projection_id)
-        if replay is None:
-            raise ResourceSelectionError("durable projection disappeared")
-        self._validate(ref, replay)
-        return replay.materialized
-
-    @staticmethod
-    def _validate(
-        ref: FrozenCallResourceRef, projection: DurableResourceProjection
-    ) -> None:
-        if (
-            projection.projection_id != ref.projection_id
-            or projection.source_ref_id != ref.ref_id
-            or projection.source_content_digest != ref.content_digest
-            or projection.materialized.ref_id != ref.ref_id
-            or projection.materialized.content_digest
-            != (ref.materialization_digest or ref.content_digest)
-        ):
-            raise ResourceSelectionError(
-                "durable projection does not match frozen source"
-            )
 
 
 def resource_is_compatible(

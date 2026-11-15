@@ -10,10 +10,7 @@ from pydantic import TypeAdapter, ValidationError
 from approval.exceptions import HITLConflictError
 from common.dto.delivery import DeliveryEmitStatus
 from common.dto.hitl import A2AInteractionSpec, HITLQuestionAnswer, HITLRouteSnapshot
-from execution.orchestrator.a2a_runtime.hitl import (
-    A2AContinuationCoordinator,
-    InMemoryHITLApplicationPort,
-)
+from execution.orchestrator.a2a_runtime.hitl import A2AContinuationCoordinator
 from execution.orchestrator.a2a_runtime.interaction_outcome import (
     emit_hitl_request_events,
     emit_hitl_resolved_events,
@@ -24,6 +21,7 @@ from execution.orchestrator.a2a_runtime.models import (
     NormalizedA2AObservation,
 )
 from execution.orchestrator_routing import DualRuntimeRouter, _map_interaction_answers
+from tests.orchestrator_harness.a2a_in_memory import InMemoryHITLApplicationPort
 
 from ._orchestrator_a2a_helpers import ledger_record
 

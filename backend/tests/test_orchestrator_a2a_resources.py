@@ -7,7 +7,6 @@ from uuid import uuid4
 import pytest
 
 from execution.orchestrator.a2a_runtime.errors import StaleRoomEpochError
-from execution.orchestrator.a2a_runtime.in_memory import InMemoryRoomEpochStore
 from execution.orchestrator.a2a_runtime.models import (
     FrozenCallResourceManifest,
     FrozenCallResourceRef,
@@ -15,8 +14,6 @@ from execution.orchestrator.a2a_runtime.models import (
 )
 from execution.orchestrator.a2a_runtime.resources import (
     BoundedResourceMaterializer,
-    DurableProjectionResourceLoader,
-    InMemoryDurableResourceProjectionStore,
     ResourceSelectionError,
     freeze_call_manifest,
     verify_materialized_digests,
@@ -26,7 +23,9 @@ from execution.orchestrator.models import (
     RunResourceManifestSnapshot,
 )
 from execution.repository.orchestrator.artifacts import GuardedRoomFileArtifactWriter
-from room_files import MemoryFileContentStore, RoomFiles
+from room_files import RoomFiles
+from tests.fakes.room_files import MemoryFileContentStore
+from tests.orchestrator_harness.a2a_in_memory import InMemoryRoomEpochStore
 
 from ._orchestrator_a2a_helpers import binding, ledger_record
 from .test_room_files import AlwaysValidLeases, InMemoryCollection, room_lifecycle
@@ -358,46 +357,6 @@ async def test_default_guarded_fetch_primitive_rejects_path_before_owner_write()
     )
     with pytest.raises(ValueError, match="unsupported remote URI"):
         await writer(ledger_record(), "/etc/passwd", "observation-1")
-
-
-async def test_durable_projection_regenerates_once_and_replays_after_restart():
-    calls = 0
-
-    async def regenerate(ref, allowed_input_modes, deadline_at):
-        nonlocal calls
-        calls += 1
-        return MaterializedResourcePart(
-            ref_id=ref.ref_id,
-            kind="text",
-            content_digest="projection-digest",
-            payload="bounded projection",
-            mime_type="text/plain",
-        )
-
-    store = InMemoryDurableResourceProjectionStore()
-    ref = FrozenCallResourceRef(
-        ref_id="context-1",
-        kind="context",
-        conversation_id="room-1",
-        room_epoch=1,
-        source_message_id="message-1",
-        mime_type="application/pdf",
-        size_bytes=100,
-        content_digest="source-digest",
-        projection_id="projection-1",
-        materialization_digest="projection-digest",
-    )
-    loader = DurableProjectionResourceLoader(
-        projection_store=store, regenerate=regenerate
-    )
-    deadline = datetime.now(UTC) + timedelta(minutes=1)
-    first = await loader(ref, ["text"], deadline)
-    restarted = DurableProjectionResourceLoader(
-        projection_store=store, regenerate=regenerate
-    )
-    second = await restarted(ref, ["text"], deadline)
-    assert first == second
-    assert calls == 1
 
 
 async def test_raw_and_encoded_limits_are_enforced_separately():

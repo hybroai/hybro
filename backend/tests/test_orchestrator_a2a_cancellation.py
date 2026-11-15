@@ -5,13 +5,6 @@ from datetime import UTC, datetime
 import pytest
 
 from execution.orchestrator.a2a_runtime.cancellation import A2ACancellationCoordinator
-from execution.orchestrator.a2a_runtime.hitl import InMemoryHITLApplicationPort
-from execution.orchestrator.a2a_runtime.in_memory import (
-    InMemoryAgentCallLedgerStore,
-    InMemoryObservationConflictStore,
-    InMemoryObservationInboxStore,
-    InMemoryRoomEpochStore,
-)
 from execution.orchestrator.a2a_runtime.ingress import (
     A2AObservationIngress,
     RejectExternalIngressAuthenticator,
@@ -20,6 +13,13 @@ from execution.orchestrator.a2a_runtime.ledger import apply_observation, transit
 from execution.orchestrator.a2a_runtime.models import (
     A2ADispatchReceipt,
     NormalizedA2AObservation,
+)
+from tests.orchestrator_harness.a2a_in_memory import (
+    InMemoryAgentCallLedgerStore,
+    InMemoryHITLApplicationPort,
+    InMemoryObservationConflictStore,
+    InMemoryObservationInboxStore,
+    InMemoryRoomEpochStore,
 )
 
 from ._orchestrator_a2a_helpers import ledger_record

@@ -1,7 +1,6 @@
 from room_files.content_store import (
     FileContentStore,
     LocalFileContentStore,
-    MemoryFileContentStore,
     normalize_file_id,
 )
 from room_files.errors import (
@@ -25,7 +24,6 @@ __all__ = [
     "FileTooLargeError",
     "FileUnavailableError",
     "LocalFileContentStore",
-    "MemoryFileContentStore",
     "RoomFiles",
     "RoomLifecycleStore",
     "RoomWriteLeases",

@@ -42,7 +42,6 @@ from .models import (
     AgentCallLedgerRecord,
     DurableHITLAnswerRecord,
     HITLAnswerAppliedMarker,
-    HITLRouteSnapshotV2,
     NormalizedA2AObservation,
     VerifiedAuthReferenceBinding,
 )
@@ -51,11 +50,9 @@ from .ports import (
     AgentCallLedgerStore,
     AgentToolBindingStore,
     AuthorizationRefreshPort,
-    HITLAbandonOutcome,
     HITLApplicationPort,
     NormalizedObservationRecorder,
     RoomEpochStore,
-    StoreOutcome,
 )
 from .terminal_interactions import TerminalInteractionFinalizer
 
@@ -81,259 +78,6 @@ class AuthReferenceVerificationPort(Protocol):
         challenge_digest: str,
         answer_digest: str,
     ) -> str: ...
-
-
-class InMemoryHITLApplicationPort:
-    def __init__(self) -> None:
-        self._interactions: dict[
-            str, tuple[A2AInteractionSpec, HITLRouteSnapshotV2, str]
-        ] = {}
-        self._answer_records: dict[tuple[str, int], DurableHITLAnswerRecord] = {}
-        self._eligible_interactions: set[str] = set()
-        self._published_interactions: set[str] = set()
-        self._abandoned_interactions: dict[str, tuple[str, str]] = {}
-
-    async def create_or_replay(
-        self,
-        *,
-        call: AgentCallLedgerRecord,
-        interaction: A2AInteractionSpec,
-        interaction_fingerprint: str,
-    ) -> str:
-        route = HITLRouteSnapshotV2(
-            orchestration_run_id=call.run_id,
-            call_record_id=call.call_record_id,
-            invocation_id=call.invocation_id,
-            conversation_id=call.conversation_id,
-            room_epoch=call.room_epoch,
-            binding_id=call.binding_id,
-            agent_id=call.agent_id,
-            task_id=call.a2a_task_id,
-            context_id=call.a2a_context_id,
-            interaction_revision=1,
-            interaction_fingerprint=interaction_fingerprint,
-        )
-        interaction_id = interaction.interaction_id
-        desired = (
-            A2AInteractionSpec.model_validate(interaction.model_dump(mode="python")),
-            HITLRouteSnapshotV2.model_validate(route.model_dump(mode="python")),
-            interaction_fingerprint,
-        )
-        existing = self._interactions.get(interaction_id)
-        if existing is not None and existing != desired:
-            raise ValueError("HITL interaction identity conflict")
-        self._interactions.setdefault(interaction_id, desired)
-        if (
-            call.state in {"input_required", "auth_required"}
-            and call.pending_interaction_id == interaction_id
-            and call.interaction_fingerprint == interaction_fingerprint
-        ):
-            self._eligible_interactions.add(interaction_id)
-        return interaction_id
-
-    async def activate(
-        self,
-        interaction_id: str,
-        *,
-        call_record_id: str,
-        interaction_fingerprint: str,
-    ) -> StoreOutcome:
-        stored = self._interactions.get(interaction_id)
-        if stored is None:
-            return "error"
-        if (
-            stored[1].call_record_id != call_record_id
-            or stored[2] != interaction_fingerprint
-            or interaction_id in self._abandoned_interactions
-        ):
-            return "conflict"
-        if interaction_id in self._eligible_interactions:
-            return "replayed"
-        self._eligible_interactions.add(interaction_id)
-        return "accepted"
-
-    async def abandon(
-        self,
-        interaction_id: str,
-        *,
-        call_record_id: str,
-        reason: str,
-    ) -> HITLAbandonOutcome:
-        stored = self._interactions.get(interaction_id)
-        if stored is None:
-            return "absent"
-        _spec, route, _fingerprint = stored
-        if route.call_record_id != call_record_id:
-            return "conflict"
-        desired = (call_record_id, reason)
-        existing = self._abandoned_interactions.get(interaction_id)
-        if existing is not None:
-            return "replayed" if existing[0] == call_record_id else "conflict"
-        lifecycle_close = reason.startswith("terminal_winner:") or (
-            reason == "superseded_by_new_interaction"
-        )
-        if not lifecycle_close and interaction_id not in self._eligible_interactions:
-            return "conflict"
-        if (
-            not lifecycle_close
-            and (interaction_id, route.interaction_revision) in self._answer_records
-        ):
-            return "conflict"
-        # No await occurs between the answer fence and mutation, so this has
-        # the same single-winner semantics as the Mongo conditional update.
-        self._eligible_interactions.discard(interaction_id)
-        self._abandoned_interactions[interaction_id] = desired
-        return "accepted"
-
-    def is_abandoned_for_test(self, interaction_id: str) -> bool:
-        return interaction_id in self._abandoned_interactions
-
-    def read_interaction_for_test(
-        self, interaction_id: str
-    ) -> tuple[A2AInteractionSpec, HITLRouteSnapshotV2, str] | None:
-        stored = self._interactions.get(interaction_id)
-        if (
-            stored is None
-            or interaction_id not in self._eligible_interactions
-            or interaction_id in self._abandoned_interactions
-        ):
-            return None
-        spec, route, fingerprint = stored
-        return (
-            A2AInteractionSpec.model_validate(spec.model_dump(mode="python")),
-            HITLRouteSnapshotV2.model_validate(route.model_dump(mode="python")),
-            fingerprint,
-        )
-
-    async def read_interaction(
-        self, interaction_id: str
-    ) -> tuple[A2AInteractionSpec, HITLRouteSnapshotV2, str] | None:
-        return self.read_interaction_for_test(interaction_id)
-
-    async def get_eligible_interactions(
-        self, conversation_id: str
-    ) -> list[tuple[A2AInteractionSpec, HITLRouteSnapshotV2, str]]:
-        interactions = []
-        for interaction_id, stored in self._interactions.items():
-            if interaction_id not in self._eligible_interactions:
-                continue
-            if interaction_id in self._abandoned_interactions:
-                continue
-            spec, route, fingerprint = stored
-            if route.conversation_id != conversation_id:
-                continue
-            interactions.append(
-                (
-                    A2AInteractionSpec.model_validate(spec.model_dump(mode="python")),
-                    HITLRouteSnapshotV2.model_validate(route.model_dump(mode="python")),
-                    fingerprint,
-                )
-            )
-        return interactions
-
-    async def get_published_interactions(
-        self, conversation_id: str
-    ) -> list[tuple[A2AInteractionSpec, HITLRouteSnapshotV2, str]]:
-        interactions = []
-        for interaction_id, stored in self._interactions.items():
-            if interaction_id not in self._eligible_interactions:
-                continue
-            if interaction_id not in self._published_interactions:
-                continue
-            if interaction_id in self._abandoned_interactions:
-                continue
-            spec, route, fingerprint = stored
-            if route.conversation_id != conversation_id:
-                continue
-            if (interaction_id, route.interaction_revision) in self._answer_records:
-                continue
-            interactions.append(
-                (
-                    A2AInteractionSpec.model_validate(spec.model_dump(mode="python")),
-                    HITLRouteSnapshotV2.model_validate(route.model_dump(mode="python")),
-                    fingerprint,
-                )
-            )
-        return interactions
-
-    async def publish(self, interaction_id: str, *, call_record_id: str) -> str:
-        stored = self._interactions.get(interaction_id)
-        if stored is None:
-            return "error"
-        if stored[1].call_record_id != call_record_id:
-            return "conflict"
-        if interaction_id in self._abandoned_interactions:
-            return "conflict"
-        if interaction_id in self._published_interactions:
-            return "replayed"
-        self._published_interactions.add(interaction_id)
-        return "accepted"
-
-    async def read_answers(
-        self, interaction_id: str, interaction_revision: int
-    ) -> list[HITLQuestionAnswer] | None:
-        if (
-            interaction_id not in self._eligible_interactions
-            or interaction_id in self._abandoned_interactions
-        ):
-            return None
-        record = await self.read_answer_record(interaction_id, interaction_revision)
-        return list(record.answers) if record is not None else None
-
-    async def read_answer_record(
-        self, interaction_id: str, interaction_revision: int
-    ) -> DurableHITLAnswerRecord | None:
-        record = self._answer_records.get((interaction_id, interaction_revision))
-        return _clone_answer_record(record) if record is not None else None
-
-    async def answer(
-        self,
-        *,
-        interaction_id: str,
-        interaction_revision: int,
-        route_fingerprint: str,
-        answers: list[HITLQuestionAnswer],
-        authenticated_answerer_id: str,
-        verified_auth_reference_digests: list[str],
-        verified_auth_references: list[VerifiedAuthReferenceBinding],
-    ) -> str:
-        stored = self._interactions.get(interaction_id)
-        if (
-            stored is None
-            or interaction_id not in self._eligible_interactions
-            or interaction_id in self._abandoned_interactions
-        ):
-            raise KeyError(interaction_id)
-        spec, route, _ = stored
-        if (
-            interaction_revision != route.interaction_revision
-            or route.fingerprint != route_fingerprint
-        ):
-            raise ValueError("HITL route fingerprint or revision changed")
-        spec.validate_answers(answers)
-        answer_digest = _digest_json(
-            [answer.model_dump(mode="json") for answer in answers]
-        )
-        desired = DurableHITLAnswerRecord(
-            interaction_id=interaction_id,
-            interaction_revision=interaction_revision,
-            route_fingerprint=route_fingerprint,
-            authenticated_answerer_id=authenticated_answerer_id,
-            answer_digest=answer_digest,
-            answers=answers,
-            verified_auth_reference_digests=verified_auth_reference_digests,
-            verified_auth_references=verified_auth_references,
-            applied_at=datetime.now(UTC),
-        )
-        key = (interaction_id, interaction_revision)
-        existing = self._answer_records.get(key)
-        if existing is not None and _answer_identity(existing) != _answer_identity(
-            desired
-        ):
-            raise ValueError("HITL answer identity conflict")
-        if existing is None:
-            self._answer_records[key] = _clone_answer_record(desired)
-        return answer_digest
 
 
 class A2AContinuationCoordinator:
@@ -1698,23 +1442,6 @@ def _answer_marker(record: DurableHITLAnswerRecord) -> HITLAnswerAppliedMarker:
         verified_auth_references=record.verified_auth_references,
         applied_at=record.applied_at,
     )
-
-
-def _answer_identity(record: DurableHITLAnswerRecord) -> tuple[object, ...]:
-    return (
-        record.interaction_id,
-        record.interaction_revision,
-        record.route_fingerprint,
-        record.authenticated_answerer_id,
-        record.answer_digest,
-        tuple(record.answers),
-        tuple(record.verified_auth_reference_digests),
-        tuple(record.verified_auth_references),
-    )
-
-
-def _clone_answer_record(record: DurableHITLAnswerRecord) -> DurableHITLAnswerRecord:
-    return DurableHITLAnswerRecord.model_validate(record.model_dump(mode="python"))
 
 
 def _stable(parts: list[str]) -> str:

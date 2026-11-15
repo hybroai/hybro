@@ -6,9 +6,8 @@ The orchestrator's ``HITLApplicationPort`` (see
 records. This module provides:
 
 * ``HITLApplicationStore`` — the durable store contract;
-* ``InMemoryHITLApplicationStore`` — the unit-test double;
 * ``DurableHITLApplicationPort`` — the production adapter that mirrors the
-  ``InMemoryHITLApplicationPort`` semantics exactly (route fingerprint,
+  semantics of the in-memory test double exactly (route fingerprint,
   authenticated answerer, verified auth references, answer idempotency).
 
 The Mongo-backed store lives in ``execution/repository/orchestrator/hitl.py`` so step 5b only has
@@ -84,168 +83,6 @@ class StoredHITLInteraction:
     eligible: bool
     abandoned: tuple[str, str] | None = None
     published: bool = False
-
-
-class InMemoryHITLApplicationStore:
-    def __init__(self) -> None:
-        self._interactions: dict[str, StoredHITLInteraction] = {}
-        self._answers: dict[tuple[str, int], DurableHITLAnswerRecord] = {}
-
-    async def ensure_interaction(
-        self,
-        *,
-        interaction_id: str,
-        spec: A2AInteractionSpec,
-        route: HITLRouteSnapshotV2,
-        fingerprint: str,
-    ) -> str:
-        existing = self._interactions.get(interaction_id)
-        if existing is not None:
-            if (
-                existing.spec == spec
-                and existing.route == route
-                and existing.fingerprint == fingerprint
-            ):
-                return "replayed"
-            return "conflict"
-        self._interactions[interaction_id] = StoredHITLInteraction(
-            interaction_id=interaction_id,
-            spec=_clone_spec(spec),
-            route=_clone_route(route),
-            fingerprint=fingerprint,
-            eligible=False,
-            published=False,
-        )
-        return "accepted"
-
-    async def load_interaction(
-        self, interaction_id: str
-    ) -> StoredHITLInteraction | None:
-        return self._interactions.get(interaction_id)
-
-    async def get_eligible_interactions(
-        self, conversation_id: str
-    ) -> list[StoredHITLInteraction]:
-        return [
-            i
-            for i in self._interactions.values()
-            if i.route.conversation_id == conversation_id
-            and i.eligible
-            and i.abandoned is None
-        ]
-
-    async def get_published_interactions(
-        self, conversation_id: str
-    ) -> list[StoredHITLInteraction]:
-        return [
-            i
-            for i in self._interactions.values()
-            if i.route.conversation_id == conversation_id
-            and i.eligible
-            and i.abandoned is None
-            and i.published
-            and (i.interaction_id, i.route.interaction_revision) not in self._answers
-        ]
-
-    async def mark_eligible(self, interaction_id: str) -> str:
-        stored = self._interactions.get(interaction_id)
-        if stored is None:
-            return "error"
-        if stored.eligible:
-            return "replayed"
-        self._interactions[interaction_id] = StoredHITLInteraction(
-            interaction_id=stored.interaction_id,
-            spec=stored.spec,
-            route=stored.route,
-            fingerprint=stored.fingerprint,
-            eligible=True,
-            abandoned=stored.abandoned,
-            published=stored.published,
-        )
-        return "accepted"
-
-    async def mark_published(self, interaction_id: str) -> str:
-        stored = self._interactions.get(interaction_id)
-        if stored is None:
-            return "error"
-        if stored.published:
-            return "replayed"
-        self._interactions[interaction_id] = StoredHITLInteraction(
-            interaction_id=stored.interaction_id,
-            spec=stored.spec,
-            route=stored.route,
-            fingerprint=stored.fingerprint,
-            eligible=stored.eligible,
-            abandoned=stored.abandoned,
-            published=True,
-        )
-        return "accepted"
-
-    async def abandon(
-        self, interaction_id: str, *, call_record_id: str, reason: str
-    ) -> str:
-        stored = self._interactions.get(interaction_id)
-        if stored is None:
-            return "absent"
-        if stored.abandoned is not None:
-            return "replayed" if stored.abandoned[0] == call_record_id else "conflict"
-        lifecycle_close = reason.startswith("terminal_winner:") or (
-            reason == "superseded_by_new_interaction"
-        )
-        if stored.route.call_record_id != call_record_id or (
-            not lifecycle_close and not stored.eligible
-        ):
-            return "conflict"
-        if (
-            not lifecycle_close
-            and (interaction_id, stored.route.interaction_revision) in self._answers
-        ):
-            return "conflict"
-        self._interactions[interaction_id] = StoredHITLInteraction(
-            interaction_id=stored.interaction_id,
-            spec=stored.spec,
-            route=stored.route,
-            fingerprint=stored.fingerprint,
-            eligible=False,
-            abandoned=(call_record_id, reason),
-            published=stored.published,
-        )
-        return "accepted"
-
-    async def load_answer(
-        self, interaction_id: str, interaction_revision: int
-    ) -> DurableHITLAnswerRecord | None:
-        record = self._answers.get((interaction_id, interaction_revision))
-        return _clone_answer(record) if record is not None else None
-
-    async def ensure_answer(
-        self,
-        *,
-        interaction_id: str,
-        interaction_revision: int,
-        record: DurableHITLAnswerRecord,
-    ) -> str:
-        stored = self._interactions.get(interaction_id)
-        if (
-            stored is None
-            or not stored.eligible
-            or stored.abandoned is not None
-            or stored.route.interaction_revision != interaction_revision
-            or record.interaction_id != interaction_id
-            or record.interaction_revision != interaction_revision
-            or record.route_fingerprint != stored.route.fingerprint
-        ):
-            return "conflict"
-        key = (interaction_id, interaction_revision)
-        existing = self._answers.get(key)
-        if existing is not None:
-            return (
-                "replayed"
-                if _answer_identity(existing) == _answer_identity(record)
-                else "conflict"
-            )
-        self._answers[key] = _clone_answer(record)
-        return "accepted"
 
 
 class DurableHITLApplicationPort:
@@ -440,10 +277,6 @@ def _clone_route(route: HITLRouteSnapshotV2) -> HITLRouteSnapshotV2:
     return HITLRouteSnapshotV2.model_validate(route.model_dump(mode="python"))
 
 
-def _clone_answer(record: DurableHITLAnswerRecord) -> DurableHITLAnswerRecord:
-    return DurableHITLAnswerRecord.model_validate(record.model_dump(mode="python"))
-
-
 def _answer_identity(record: DurableHITLAnswerRecord) -> tuple[object, ...]:
     return (
         record.interaction_id,
@@ -485,7 +318,6 @@ __all__ = [
     "DurableHITLApplicationPort",
     "HITLApplicationStore",
     "HITLMessageCancellationAdapter",
-    "InMemoryHITLApplicationStore",
     "StoredHITLInteraction",
     "answers_identical",
 ]

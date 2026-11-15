@@ -8,9 +8,6 @@ import pytest
 
 from common.utils.a2a_artifacts import canonical_data_part_bytes
 from execution.adapters.resources import RoomFilesResourceMaterializer
-from execution.orchestrator.a2a_runtime.in_memory import (
-    InMemoryObservationInboxStore,
-)
 from execution.orchestrator.a2a_runtime.models import (
     A2AObservationInboxRecord,
     FrozenCallResourceManifest,
@@ -23,6 +20,7 @@ from execution.orchestrator.a2a_runtime.resources import (
     ResourceSelectionError,
 )
 from execution.orchestrator.models import DataPart
+from tests.orchestrator_harness.a2a_in_memory import InMemoryObservationInboxStore
 
 
 def _future_deadline() -> datetime:

@@ -6,10 +6,6 @@ from execution.orchestrator.a2a_runtime.catalog_assembler import (
     agent_tool_input_schema,
     deterministic_tool_name,
 )
-from execution.orchestrator.a2a_runtime.in_memory import (
-    InMemoryAgentToolBindingStore,
-    InMemoryRoomEpochStore,
-)
 from execution.orchestrator.a2a_runtime.models import AgentToolCandidate
 from execution.orchestrator.a2a_runtime.preparation import (
     RunPreparedInvocationSnapshotReader,
@@ -19,6 +15,10 @@ from execution.orchestrator.models import (
     CandidateScopeSnapshot,
     PreparedResourceRef,
     RunResourceManifestSnapshot,
+)
+from tests.orchestrator_harness.a2a_in_memory import (
+    InMemoryAgentToolBindingStore,
+    InMemoryRoomEpochStore,
 )
 from tests.orchestrator_harness.in_memory import InMemoryOrchestratorRunStore
 

@@ -7,7 +7,6 @@ from container import (
     _canonical_final_message_end_parent_id,
     _latest_canonical_parent_id,
 )
-from delivery.room_events import InMemoryRoomEventStore
 from delivery.snapshot import SnapshotService
 from execution.orchestrator.lifecycle import SessionEvent
 from execution.orchestrator.models import AssistantMessage
@@ -20,6 +19,7 @@ from tests._orchestrator_helpers import (
     make_run,
     tool_events,
 )
+from tests.fakes.room_events import InMemoryRoomEventStore
 from tests.test_delivery_event_publisher import FakeTransport, make_publisher
 
 

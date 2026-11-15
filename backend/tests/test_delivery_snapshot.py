@@ -6,8 +6,8 @@ from datetime import UTC, datetime
 
 import pytest
 
-from delivery.room_events import InMemoryRoomEventStore
 from delivery.snapshot import RoomEventFold, SnapshotService
+from tests.fakes.room_events import InMemoryRoomEventStore
 
 NOW = datetime(2026, 5, 17, 12, 0, tzinfo=UTC)
 

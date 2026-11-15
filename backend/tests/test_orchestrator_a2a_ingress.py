@@ -12,14 +12,7 @@ from execution.orchestrator.a2a_runtime.errors import (
     RecoverableAdapterError,
     RecoverableCheckpointError,
 )
-from execution.orchestrator.a2a_runtime.hitl import InMemoryHITLApplicationPort
-from execution.orchestrator.a2a_runtime.in_memory import (
-    InMemoryAgentCallLedgerStore,
-    InMemoryObservationConflictStore,
-    InMemoryObservationInboxStore,
-    InMemoryRoomEpochStore,
-    RunCheckpointReader,
-)
+from execution.orchestrator.a2a_runtime.in_memory import RunCheckpointReader
 from execution.orchestrator.a2a_runtime.ingress import (
     A2AObservationIngress,
     A2AObservationProcessor,
@@ -43,6 +36,13 @@ from execution.orchestrator.a2a_runtime.recovery import (
 )
 from execution.orchestrator.kernel import KernelConflict
 from execution.orchestrator.models import TextPart, ToolResult
+from tests.orchestrator_harness.a2a_in_memory import (
+    InMemoryAgentCallLedgerStore,
+    InMemoryHITLApplicationPort,
+    InMemoryObservationConflictStore,
+    InMemoryObservationInboxStore,
+    InMemoryRoomEpochStore,
+)
 from tests.orchestrator_harness.in_memory import InMemoryOrchestratorRunStore
 
 from ._orchestrator_a2a_helpers import ledger_record

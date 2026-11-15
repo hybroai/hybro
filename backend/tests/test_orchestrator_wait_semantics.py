@@ -12,7 +12,6 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from execution.orchestrator.a2a_runtime.in_memory import InMemoryRoomEpochStore
 from execution.orchestrator.a2a_runtime.ledger import transition_call
 from execution.orchestrator.budget import BudgetPolicy, resumed_deadline_at
 from execution.orchestrator.context import ContextCompiler
@@ -32,6 +31,7 @@ from execution.orchestrator.session import (
     DefaultRunFactory,
     schedule_run_recovery,
 )
+from tests.orchestrator_harness.a2a_in_memory import InMemoryRoomEpochStore
 from tests.orchestrator_harness.fake_tools import (
     RecordingFakeToolRuntime,
     StaticFakeToolCatalog,

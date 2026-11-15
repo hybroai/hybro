@@ -7,12 +7,12 @@ from datetime import UTC, datetime
 import pytest
 
 from common.dto import RunEventNotification
-from delivery.room_events import InMemoryRoomEventStore
 from execution.orchestrator.lifecycle import SessionEvent
 from execution.orchestrator.public_projection import (
     PUBLIC_RUN_EVENT_KINDS,
     PublicProjectionTranslator,
 )
+from tests.fakes.room_events import InMemoryRoomEventStore
 from tests.test_delivery_event_publisher import FakeTransport, make_publisher
 
 

@@ -3,15 +3,15 @@ from __future__ import annotations
 import pytest
 
 from common.dto.hitl import A2AInteractionSpec, HITLQuestionAnswer
-from execution.orchestrator.a2a_runtime.hitl import InMemoryHITLApplicationPort
-from execution.orchestrator.a2a_runtime.in_memory import (
-    InMemoryAgentCallLedgerStore,
-    InMemoryObservationInboxStore,
-    InMemoryPreparedInvocationSnapshotReader,
-)
 from execution.orchestrator.a2a_runtime.models import (
     A2AObservationInboxRecord,
     NormalizedA2AObservation,
+)
+from tests.orchestrator_harness.a2a_in_memory import (
+    InMemoryAgentCallLedgerStore,
+    InMemoryHITLApplicationPort,
+    InMemoryObservationInboxStore,
+    InMemoryPreparedInvocationSnapshotReader,
 )
 
 from ._orchestrator_a2a_helpers import ledger_record, prepared
