@@ -6,7 +6,6 @@ import type { PluggableList } from 'unified'
 import rehypeHighlight from 'rehype-highlight'
 import { AlertCircle, Check, ChevronRight, Code2, Copy } from 'lucide-react'
 import { cn, formatIfJson } from '@/lib/utils'
-import { routes } from '@/lib/routes'
 import { getPlainTextFromRange } from '@/lib/selection-plain-text'
 import { preprocessConversationMarkdown } from '@/lib/markdown/normalize-conversation'
 import { conversationRemarkPlugins } from '@/lib/markdown/conversation-remark-plugins'
@@ -508,75 +507,4 @@ export function MarkdownContent({
       </Streamdown>
     </div>
   )
-}
-
-/**
- * Lightweight renderer for user messages.
- *
- * Renders plain text with:
- * - @mentions as clickable links
- * - Bare URLs auto-linked and opened in new tabs
- *
- * Does NOT render full markdown (no headings, bold, images, etc.) to avoid
- * surprising formatting of user input and to keep the user bubble styling clean.
- */
-export function LinkifiedContent({ content }: { content: string }) {
-  const parts: (string | React.JSX.Element)[] = []
-  let lastIndex = 0
-  let keyIndex = 0
-
-  const pushTextWithLineBreaks = (text: string) => {
-    const lines = text.split('\n')
-    lines.forEach((line, i) => {
-      if (i > 0) parts.push(<br key={`br-${keyIndex++}`} />)
-      if (line) parts.push(line)
-    })
-  }
-
-  const combinedRegex = /<@([^|]+)\|([^>]+)>|(https?:\/\/[^\s<>)"'\]]+)/g
-  let match
-
-  while ((match = combinedRegex.exec(content)) !== null) {
-    if (match.index > lastIndex) {
-      pushTextWithLineBreaks(content.slice(lastIndex, match.index))
-    }
-
-    if (match[1] && match[2]) {
-      const agentId = match[1]
-      const agentName = match[2]
-      parts.push(
-        <a
-          key={`link-${keyIndex++}`}
-          href={routes.networkAgent(agentId)}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="room-mention mx-1 select-text hover:underline underline-offset-2 transition-opacity hover:opacity-80"
-          title={`Agent: ${agentName}`}
-        >
-          @{agentName}
-        </a>
-      )
-    } else if (match[3]) {
-      const url = match[3]
-      parts.push(
-        <a
-          key={`link-${keyIndex++}`}
-          href={url}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="underline underline-offset-2 hover:opacity-80 transition-opacity"
-        >
-          {url}
-        </a>
-      )
-    }
-
-    lastIndex = match.index + match[0].length
-  }
-
-  if (lastIndex < content.length) {
-    pushTextWithLineBreaks(content.slice(lastIndex))
-  }
-
-  return <>{parts.length > 0 ? parts : content}</>
 }

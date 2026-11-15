@@ -4,7 +4,6 @@ export const routes = {
   overview: '/',
   about: '/about',
   pricing: '/pricing',
-  privacy: '/privacy',
   chat: '/chat',
   room: (id: string) => withId('/room', id),
   sessions: '/sessions',

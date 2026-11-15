@@ -81,28 +81,3 @@ export function isStale(
 
   return Date.now() - parsed.getTime() > thresholdMs
 }
-
-/**
- * Format a timestamp for display using locale-aware formatting.
- * Returns a fallback string if the timestamp is invalid.
- *
- * @param timestamp - The timestamp string to format
- * @param options - Intl.DateTimeFormat options
- * @param fallback - Fallback string for invalid timestamps (default: "Unknown")
- * @returns Formatted date string
- */
-export function formatTimestamp(
-  timestamp?: string | null,
-  options: Intl.DateTimeFormatOptions = {
-    month: 'short',
-    day: 'numeric',
-    hour: 'numeric',
-    minute: '2-digit',
-  },
-  fallback: string = 'Unknown'
-): string {
-  const parsed = parseTimestamp(timestamp)
-  if (!parsed) return fallback
-
-  return parsed.toLocaleString('en-US', options)
-}

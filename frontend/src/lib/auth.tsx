@@ -1,4 +1,3 @@
-import type { ReactNode } from "react";
 import { log } from "@/lib/log";
 
 /** Local identity adapter used by the self-hosted frontend. */
@@ -96,22 +95,6 @@ export function SignIn(_props: Record<string, unknown>) {
 
 export function SignUp(_props: Record<string, unknown>) {
   return <div>Sign up disabled in Local Developer Mode</div>;
-}
-
-export function SignedIn({ children }: { children: ReactNode }) {
-  return <>{children}</>;
-}
-
-export function SignedOut({ children }: { children: ReactNode }) {
-  return null;
-}
-
-export function UserButton() {
-  return (
-    <div className="h-8 w-8 rounded-full bg-primary/20 flex items-center justify-center text-primary font-semibold text-xs border border-primary/30">
-      DEV
-    </div>
-  );
 }
 
 export function useSession() {

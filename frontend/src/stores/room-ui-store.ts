@@ -46,11 +46,6 @@ interface PendingRoomData {
   handoffMode?: "autosend" | "prefill"
 }
 
-export interface PendingTurnSkeleton {
-  text: string
-  attachments?: PendingAttachment[]
-}
-
 export interface RoomFlags {
   sending: boolean
   processing: boolean
@@ -58,7 +53,6 @@ export interface RoomFlags {
   sseEnabled: boolean
   sseConnected: boolean
   sseError: string | null
-  turnBasedTimeline: boolean
   /** User message ids that still have an open backend room run. */
   activeRunTriggerMessageIds: string[]
 }
@@ -70,7 +64,6 @@ export const DEFAULT_ROOM_FLAGS: RoomFlags = {
   sseEnabled: true,
   sseConnected: false,
   sseError: null,
-  turnBasedTimeline: false,
   activeRunTriggerMessageIds: [],
 }
 
@@ -84,7 +77,6 @@ interface RoomUiState {
   pendingRoomData: Record<ConversationId, PendingRoomData>
   /** One-shot handoff from an Agent detail page to the new-chat composer. */
   pendingChatHandoff: PendingChatHandoff | null
-  pendingTurnSkeletons: Record<ConversationId, PendingTurnSkeleton | undefined>
   localSendSeqByRoom: Record<ConversationId, number>
   initialHydrationSeqByRoom: Record<ConversationId, number>
   conversationScrollByRoom: Record<ConversationId, ConversationScrollSnapshot>
@@ -98,7 +90,6 @@ interface RoomUiState {
   setSseEnabled: (conversationId: ConversationId, v: boolean) => void
   setSseConnected: (conversationId: ConversationId, v: boolean) => void
   setSseError: (conversationId: ConversationId, v: string | null) => void
-  setTurnBasedTimeline: (conversationId: ConversationId, v: boolean) => void
   setActiveRunTriggerMessageIds: (conversationId: ConversationId, ids: string[]) => void
 
   // Non-reactive getter for getState() callers
@@ -113,7 +104,6 @@ interface RoomUiState {
   consumePendingRoomData: (conversationId: ConversationId) => PendingRoomData | null
   setPendingChatHandoff: (handoff: PendingChatHandoff) => void
   clearPendingChatHandoff: () => void
-  setPendingTurnSkeleton: (conversationId: ConversationId, value?: PendingTurnSkeleton) => void
   markLocalSend: (conversationId: ConversationId) => void
   markInitialHydrated: (conversationId: ConversationId) => void
   saveConversationScroll: (conversationId: ConversationId, snapshot: ConversationScrollSnapshot) => void
@@ -128,7 +118,6 @@ export const useRoomUiStore = create<RoomUiState>((set, get) => ({
   rooms: {},
   pendingRoomData: {},
   pendingChatHandoff: null,
-  pendingTurnSkeletons: {},
   localSendSeqByRoom: {},
   initialHydrationSeqByRoom: {},
   conversationScrollByRoom: {},
@@ -145,7 +134,6 @@ export const useRoomUiStore = create<RoomUiState>((set, get) => ({
   setSseEnabled: (conversationId, v) => set(s => ({ rooms: patchRoom(s.rooms, conversationId, { sseEnabled: v }) })),
   setSseConnected: (conversationId, v) => set(s => ({ rooms: patchRoom(s.rooms, conversationId, { sseConnected: v }) })),
   setSseError: (conversationId, v) => set(s => ({ rooms: patchRoom(s.rooms, conversationId, { sseError: v }) })),
-  setTurnBasedTimeline: (conversationId, v) => set(s => ({ rooms: patchRoom(s.rooms, conversationId, { turnBasedTimeline: v }) })),
   setActiveRunTriggerMessageIds: (conversationId, ids) => set(s => ({
     rooms: patchRoom(s.rooms, conversationId, { activeRunTriggerMessageIds: ids }),
   })),
@@ -170,7 +158,6 @@ export const useRoomUiStore = create<RoomUiState>((set, get) => ({
       rooms: {},
       pendingRoomData: {},
       pendingChatHandoff: null,
-      pendingTurnSkeletons: {},
       localSendSeqByRoom: {},
       initialHydrationSeqByRoom: {},
       conversationScrollByRoom: {},
@@ -198,13 +185,6 @@ export const useRoomUiStore = create<RoomUiState>((set, get) => ({
   },
   setPendingChatHandoff: (handoff) => set({ pendingChatHandoff: handoff }),
   clearPendingChatHandoff: () => set({ pendingChatHandoff: null }),
-  setPendingTurnSkeleton: (conversationId, value) =>
-    set((state) => {
-      const copy = { ...state.pendingTurnSkeletons }
-      if (!value) delete copy[conversationId]
-      else copy[conversationId] = value
-      return { pendingTurnSkeletons: copy }
-    }),
   markLocalSend: (conversationId) =>
     set((state) => ({
       localSendSeqByRoom: {

@@ -36,7 +36,6 @@ interface MessageStoreState {
   ) => void
   removeMessage: (id: string) => void
   cancelAllNonTerminal: (conversationId: string) => void
-  nudgeSyncBridge: () => void
   setRoom: (conversationId: string) => void
   clearRoom: () => void
   markDbSynced: () => void
@@ -275,10 +274,6 @@ export const useMessageStore = create<MessageStoreState>()(
         ? { entities: newEntities, version: state.version + 1 }
         : state
     }),
-
-    nudgeSyncBridge: () => set((state) => ({
-      version: state.version + 1,
-    })),
 
     setRoom: (conversationId) => set({
       ...INITIAL_STATE,
