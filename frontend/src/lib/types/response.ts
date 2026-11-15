@@ -6,148 +6,15 @@
  * and orchestration types are defined here.
  */
 
-// ── Re-export A2A protocol types from the SDK ────────────────────────────
-// These were previously duplicated via pydantic2ts code-gen.
-export type {
-  // Core domain
-  TaskState,
-  Part,
-  TextPart,
-  FilePart,
-  DataPart,
-  FileWithBytes,
-  FileWithUri,
-  Message,
-  Task,
-  TaskStatus,
-  Artifact,
-
-  // Agent card & related
-  AgentCard,
-  AgentCapabilities,
-  AgentExtension,
-  AgentInterface,
-  AgentProvider,
-  AgentSkill,
-  AgentCardSignature,
-
-  // Security schemes
-  SecurityScheme,
-  APIKeySecurityScheme,
-  HTTPAuthSecurityScheme,
-  OAuth2SecurityScheme,
-  OpenIdConnectSecurityScheme,
-  MutualTLSSecurityScheme,
-
-  // OAuth flows
-  OAuthFlows,
-  AuthorizationCodeOAuthFlow,
-  ClientCredentialsOAuthFlow,
-  ImplicitOAuthFlow,
-  PasswordOAuthFlow,
-
-  // JSON-RPC error types
-  JSONRPCErrorResponse,
-  JSONRPCError,
-  JSONParseError,
-  InvalidRequestError,
-  MethodNotFoundError,
-  InvalidParamsError,
-  InternalError,
-  TaskNotFoundError,
-  TaskNotCancelableError,
-  PushNotificationNotSupportedError,
-  UnsupportedOperationError,
-  ContentTypeNotSupportedError,
-  InvalidAgentResponseError,
-
-  // Streaming event types
-  TaskStatusUpdateEvent,
-  TaskArtifactUpdateEvent,
-
-  // Response union types
-  SendMessageResponse,
-  SendStreamingMessageResponse,
-  SendMessageSuccessResponse,
-  SendStreamingMessageSuccessResponse,
-} from '@a2a-js/sdk'
-
 import type {
   AgentCard,
   Task,
-  SendMessageResponse,
-  SendStreamingMessageResponse,
 } from '@a2a-js/sdk'
 
 // ── Types NOT in SDK: kept here as they originate from the backend ────────
 
-/**
- * The location of the API key.
- * (Not exported from @a2a-js/sdk as a standalone type.)
- */
-export type In = "cookie" | "header" | "query";
-
-/**
- * Identifies the sender of the message. `user` for the client, `agent` for the service.
- * (Not exported from @a2a-js/sdk as a standalone type.)
- */
-export type Role = "agent" | "user";
-
-export type AgentStatus = "active" | "inactive" | "deleted";
-
 export type { Agent, AgentRouteResponse } from './agent';
 
-export interface APIKeyItemResponse {
-  key_id: string;
-  name: string;
-  created_at: string;
-  last_used_at?: string | null;
-  is_active: boolean;
-  usage_count: number;
-}
-export interface APIKeyListResponse {
-  keys: APIKeyItemResponse[];
-  count: number;
-}
-export interface APIKeyCreateResponse {
-  key_id: string;
-  name: string;
-  created_at: string;
-  api_key: string;
-}
-export interface APIKeyOperationResponse {
-  success: boolean;
-  message: string;
-}
-/**
- * A BaseTask represents a complete user request and serves as the top-level container.
- * It wraps a Task object and includes session/user metadata for tracking purposes.
- * This is the main task that gets decomposed into MetaTasks for multi-agent processing.
- */
-export interface BaseTask {
-  task_id: string;
-  session_id: string;
-  user_name: string;
-  task: Task;
-  extend_info?: unknown;
-}
-export interface ChatResponse {
-  user_name: string;
-  user_input: string;
-  session_id?: string | null;
-  task_id?: string | null;
-  success: boolean;
-  error?: string | null;
-  status_code?: number;
-}
-export interface DebatationCenterResponse {
-  task_id: string;
-  agent_id: string;
-  step_id: string;
-  result?: unknown;
-  error?: string | null;
-  status_code?: number;
-}
 export interface InsepectionCenterConnectionValidationResponse {
   agent_url: string;
   agent_card?: AgentCard | null;
@@ -160,46 +27,6 @@ export interface InspectionCenterResponse {
   agent_card?: AgentCard | null;
   result: string[];
   status_code?: number;
-}
-/**
- * A MetaTask represents an atomic subtask created from decomposing a larger user request(BaseTask).
- * These are the individual work units assigned to specific agents in the multi-agent system.
- * Each MetaTask contains a Task object with the actual agent communication data.
- */
-export interface MetaTask {
-  task_id: string;
-  parent_task_id: string;
-  agent_id?: string;
-  task_description?: string | null;
-  task?: Task | null;
-  execution_order?: number;
-  depends_on_tasks?: string[] | null;
-  context_from_previous?: {
-    [k: string]: unknown;
-  } | null;
-  extend_info?: unknown;
-}
-export interface OrchestrationResponse {
-  task_id?: string | null;
-  conversation_id?: string | null;
-  meta_task_ids?: string[] | null;
-  room_agent_message_list?: RoomAgentMessage[] | null;
-  agent_id?: string | null;
-  success: boolean;
-  error?: string | null;
-  status_code?: number;
-}
-export interface RoomAgentMessage {
-  conversation_id: string;
-  message_id: string;
-  client_request_id?: string | null;
-  message_created_at?: string;
-  message_type?: string;
-  user_id?: string | null;
-  agent_id?: string | null;
-  related_message_id?: string | null;
-  message_content: MessageContent;
-  extend_info?: unknown;
 }
 export interface MessageContent {
   message_text?: string | null;
@@ -222,18 +49,6 @@ export interface Room {
   membership_origin_status?: "seeded_never_edited" | "seeded_edited" | "manual";
   source_group_id?: string | null;
   source_group_name?: string | null;
-}
-export interface RoomCenterAgentMessageResponse {
-  conversation_id?: string | null;
-  message_id?: string | null;
-  agent_id?: string | null;
-  agent_name?: string | null;
-  message?: RoomAgentMessage | null;
-  a2a_response?: SendMessageResponse | SendStreamingMessageResponse | null;
-  message_list?: RoomAgentMessage[] | null;
-  success: boolean;
-  error?: string | null;
-  status_code?: number;
 }
 export interface RoomCenterRoomMessageResponse {
   conversation_id?: string | null;
@@ -328,60 +143,4 @@ export interface RoomUserMessage {
   quote_id?: string | null;
   message_content: MessageContent;
   extend_info?: unknown;
-}
-export interface Step {
-  step_id: string;
-  description: string;
-  agent_id?: string | null;
-  status?: string;
-  input_data?: unknown;
-  output_data?: unknown;
-  priority?: number;
-  dependencies?: string[];
-  error?: string | null;
-  result?: unknown;
-  agent_name?: string | null;
-  is_remote_agent?: boolean | null;
-}
-export interface TaskCenterResponse {
-  task_id?: string | null;
-  user_name?: string | null;
-  parent_task_id?: string | null;
-  session_id?: string | null;
-  task?: Task | null;
-  meta_task?: MetaTask | null;
-  base_task?: BaseTask | null;
-  task_session?: TaskSession | null;
-  meta_tasks?: MetaTask[] | null;
-  base_tasks?: BaseTask[] | null;
-  task_sessions?: TaskSession[] | null;
-  success: boolean;
-  error?: string | null;
-  status_code?: number;
-}
-/**
- * A TaskSession represents a chat conversation between a user and the multi-agent system.
- * It tracks session metadata like creation time, user info, and session description.
- * Multiple BaseTask objects can belong to one TaskSession during a conversation.
- */
-export interface TaskSession {
-  session_id: string;
-  user_name: string;
-  session_name: string;
-  session_description?: string | null;
-  session_created_at?: string;
-  session_updated_at?: string;
-  extend_info?: unknown;
-}
-export interface TaskResponse {
-  task_id: string;
-  status?: string;
-  steps?: Step[];
-  result?: unknown;
-  error?: string | null;
-}
-export interface UserResponse {
-  session_id: string;
-  task_id: string;
-  result: string;
 }
