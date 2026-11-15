@@ -231,6 +231,8 @@ so a third-party agent may move between public addresses, but:
   address counts as private; one public answer, a resolution failure, or a
   missing URL counts as public.
 - Link-local addresses (`169.254.0.0/16`, `fe80::/10`) are always refused.
+  A registration that is or resolves to a link-local address does not count
+  as private.
   IPv6 addresses that carry an IPv4 address (IPv4-mapped, NAT64 `64:ff9b::/96`
   and `64:ff9b:1::/48`, IPv4-compatible, 6to4, and Teredo) are classified as
   the IPv4 address they carry.

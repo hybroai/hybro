@@ -214,6 +214,50 @@ async def test_registered_host_match_ignores_case_and_trailing_dot(monkeypatch):
     assert await policy.allow_private() is True
 
 
+@pytest.mark.parametrize(
+    "registered_url",
+    [
+        "http://169.254.169.254/",
+        "http://[fe80::1]:9000/",
+        # 6to4 carrying 169.254.169.254.
+        "http://[2002:a9fe:a9fe::1]/",
+    ],
+)
+async def test_link_local_ip_registration_does_not_unlock_private_targets(
+    monkeypatch, registered_url
+):
+    # Link-local can never be dialed, so it is not a private registration.
+    _install_dns(monkeypatch)
+    policy = address_policy.DestinationPolicy(registered_url)
+
+    assert await policy.allow_private() is False
+    with pytest.raises(address_policy.AddressRefusedError):
+        await policy.resolve("10.0.0.1", 80)
+
+
+@pytest.mark.parametrize(
+    "answers",
+    [
+        ["169.254.169.254"],
+        ["fe80::1"],
+        # A link-local answer beside a private one still fails closed.
+        ["192.168.1.40", "169.254.169.254"],
+    ],
+)
+async def test_link_local_dns_answer_does_not_unlock_private_targets(
+    monkeypatch, answers
+):
+    _install_dns(monkeypatch, {**DNS, "metadata.example": answers})
+    policy = address_policy.DestinationPolicy("http://metadata.example/")
+
+    with pytest.raises(address_policy.AddressRefusedError):
+        await policy.resolve("metadata.example", 80)
+
+    assert await policy.allow_private() is False
+    with pytest.raises(address_policy.AddressRefusedError):
+        await policy.resolve("10.0.0.1", 80)
+
+
 # ---------------------------------------------------------------------------
 # Send path
 # ---------------------------------------------------------------------------

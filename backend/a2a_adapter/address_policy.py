@@ -119,9 +119,22 @@ def _allowed_addresses(
     return addresses
 
 
+def _is_private_registration(
+    addresses: list[ipaddress.IPv4Address | ipaddress.IPv6Address],
+) -> bool:
+    """Whether a registered host's addresses make it a private registration.
+
+    Every address must be private or loopback. A public address makes the
+    registration public, and so does a link-local one: link-local can never be
+    dialed, so it must not unlock private targets either.
+    """
+    return bool(addresses) and not any(
+        address.is_global or address.is_link_local for address in addresses
+    )
+
+
 def _is_private_answer(infos: list[Any]) -> bool:
-    addresses = [_ip(str(info[4][0])) for info in infos]
-    return bool(addresses) and not any(address.is_global for address in addresses)
+    return _is_private_registration([_ip(str(info[4][0])) for info in infos])
 
 
 def _host_port(url: str) -> tuple[str, int]:
@@ -166,7 +179,7 @@ class DestinationPolicy:
             except ValueError:
                 pass
             else:
-                self._decide(not literal.is_global)
+                self._decide(_is_private_registration([literal]))
 
     def _decide(self, allow_private: bool) -> bool:
         if self._allow_private is None:
