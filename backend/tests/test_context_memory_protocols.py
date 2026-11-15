@@ -167,6 +167,7 @@ def test_retired_context_memory_residue_does_not_return():
             or "tests" in path.parts
             or "docs" in path.parts
             or ".venv" in path.parts
+            or "build" in path.parts
         ):
             continue
         source = path.read_text(errors="ignore")
@@ -430,6 +431,7 @@ def test_non_protocol_helper_call_boundary():
             or path in {Path("container.py"), Path("main.py")}
             or ".venv" in path.parts
             or ".worktrees" in path.parts
+            or "build" in path.parts
         ):
             continue
         tree = ast.parse(path.read_text())

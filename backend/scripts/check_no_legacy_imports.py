@@ -5,12 +5,12 @@ import argparse
 import ast
 from pathlib import Path
 
-EXCLUDED_DIRS = {".git", ".venv", "__pycache__"}
+EXCLUDED_DIRS = {".git", ".venv", "__pycache__", "build"}
 
 
 def _iter_python_files(root: Path):
     for path in root.rglob("*.py"):
-        if EXCLUDED_DIRS & set(path.parts):
+        if EXCLUDED_DIRS & set(path.relative_to(root).parts):
             continue
         yield path
 

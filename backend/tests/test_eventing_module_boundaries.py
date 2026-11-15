@@ -68,7 +68,7 @@ def test_production_has_no_retired_internal_delivery_publisher_calls():
     retired = ("emit_internal", "register_internal_handler")
     offenders = []
     for path in BACKEND.rglob("*.py"):
-        if "tests" in path.parts:
+        if {"tests", "build"} & set(path.relative_to(BACKEND).parts):
             continue
         text = path.read_text()
         for name in retired:
@@ -80,7 +80,7 @@ def test_production_has_no_retired_internal_delivery_publisher_calls():
 def test_redis_internal_eventing_concrete_lives_only_in_dal_redis():
     matches = []
     for path in BACKEND.rglob("*.py"):
-        if "tests" in path.parts:
+        if {"tests", "build"} & set(path.relative_to(BACKEND).parts):
             continue
         if "class RedisInternalEventTransport" in path.read_text():
             matches.append(path.relative_to(BACKEND).as_posix())

@@ -6,6 +6,7 @@
         "runtime_entrypoint.py"
     ],
     "excluded_dirs": [
+        "build",
         ".git",
         ".venv",
         "__pycache__",

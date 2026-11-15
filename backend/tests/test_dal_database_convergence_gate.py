@@ -10,6 +10,7 @@ ROOT = Path(__file__).resolve().parents[1]
 REMOVED_RUNTIME_PACKAGE = "app_" + "shell"
 MANIFEST = ROOT / "tests/fixtures/dal_database_convergence_manifest.json"
 DEFAULT_EXCLUDE_DIRS = {
+    "build",
     "tests",
     "docs",
     "scripts",
