@@ -416,14 +416,6 @@ export const TERMINAL_STATES: TaskState[] = [
   TASK_STATE.EXPIRED,
 ]
 
-// States that indicate task ended unsuccessfully
-export const FAILURE_STATES: TaskState[] = [
-  TASK_STATE.FAILED,
-  TASK_STATE.REJECTED,
-  TASK_STATE.CANCELED,
-  TASK_STATE.EXPIRED,
-]
-
 export function isTerminalState(state: TaskState): boolean {
   return TERMINAL_STATES.includes(state)
 }
