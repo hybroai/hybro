@@ -9,6 +9,10 @@ from hashlib import sha256
 import pytest
 from google.protobuf.json_format import MessageToDict
 
+from a2a_adapter.address_policy import (
+    REFUSED_DESTINATION_MESSAGE,
+    AddressRefusedError,
+)
 from a2a_adapter.client_facade import A2AClientFacadeError
 from a2a_adapter.orchestrator_direct_client import (
     FREE_TEXT_INTERACTION_PREFIX,
@@ -245,6 +249,53 @@ async def test_card_fetch_retryable_status_is_sanitized_transport_error(status_c
     assert caught.value.__cause__ is None
     assert caught.value.__context__ is None
     assert sdk.send_calls == []
+
+
+async def test_refused_card_destination_fails_the_call_without_sending():
+    async def fetch_card(url, kwargs):
+        raise AddressRefusedError(REFUSED_DESTINATION_MESSAGE)
+
+    sdk = FakeSdk(fetch_card=fetch_card)
+    with pytest.raises(AgentCardContractError) as caught:
+        await _client(sdk).send(_dispatch_command())
+
+    assert str(caught.value) == REFUSED_DESTINATION_MESSAGE
+    assert sdk.send_calls == []
+
+
+async def test_send_is_guarded_by_the_registered_endpoint():
+    task = build_completed_text_task(task_id="task-1", text="done", context_id="ctx-1")
+
+    async def send(card, message, kwargs):
+        return {"kind": "task", "result": _task_dict(task)}
+
+    sdk = FakeSdk(send=send)
+    await _client(sdk).send(_dispatch_command())
+
+    assert sdk.card_calls[0][0] == "https://agent.example/a2a"
+    assert sdk.send_calls[0][2]["registered_url"] == "https://agent.example/a2a"
+    # The card fetch and the send share one policy: one classification.
+    assert sdk.send_calls[0][2]["policy"] is sdk.card_calls[0][1]["policy"]
+
+
+async def test_refusal_during_send_fails_the_call():
+    async def send(card, message, kwargs):
+        raise AddressRefusedError("host resolves to a non-public address")
+
+    with pytest.raises(AgentCardContractError, match="non-public"):
+        await _client(FakeSdk(send=send)).send(_dispatch_command())
+
+
+async def test_refusal_during_stream_fails_the_call():
+    async def refused(card, message, kwargs):
+        raise AddressRefusedError("host resolves to a non-public address")
+        yield  # pragma: no cover
+
+    stream = await _client(FakeSdk(stream=refused)).open_stream(
+        _dispatch_command(direct_mode="stream")
+    )
+    with pytest.raises(AgentCardContractError, match="non-public"):
+        await stream.__anext__()
 
 
 async def test_card_fetch_no_status_network_signature_is_retryable():

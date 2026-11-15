@@ -31,7 +31,8 @@ from google.protobuf.json_format import ParseError
 from common.observability import events as E
 from common.observability import get_logger
 
-from .bounded_http import bounded_client, event_bounded_client
+from .address_policy import DestinationPolicy, ensure_card_destinations_allowed
+from .bounded_http import bounded_client, card_client, event_bounded_client
 from .card_data import build_agent_card
 from .constants import (
     AGENT_CARD_WELL_KNOWN_PATH,
@@ -105,26 +106,62 @@ async def fetch_agent_card_with_fallback(
     agent_url: str,
     *,
     timeout: float = 30.0,
+    policy: DestinationPolicy | None = None,
 ) -> dict[str, Any]:
-    async with bounded_client(timeout=timeout) as client:
-        return await with_docker_host_url_fallback(
-            str(agent_url),
-            lambda candidate_url: _fetch_agent_card_from_url(client, candidate_url),
-        )
-    raise A2AClientFacadeError("Agent card not found at any known path")
+    """Fetch the card at ``agent_url``; ``policy`` defaults to one for that URL."""
+    policy = policy or DestinationPolicy(str(agent_url))
+    try:
+        # httpx timeouts bound each read; this bounds the whole fetch.
+        async with asyncio.timeout(timeout):
+            async with card_client(timeout=timeout, policy=policy) as client:
+                return await with_docker_host_url_fallback(
+                    str(agent_url),
+                    lambda candidate_url: _fetch_agent_card_from_url(
+                        client, candidate_url
+                    ),
+                )
+    except TimeoutError as exc:
+        raise A2AClientFacadeError("Agent card request timed out") from exc
+
+
+async def fetch_dispatch_card(
+    registered_url: str,
+    *,
+    timeout: float = 30.0,
+    policy: DestinationPolicy | None = None,
+) -> dict[str, Any]:
+    """Fetch the live card for a call and refuse it if it points somewhere
+    the agent's registered address does not allow.
+
+    Raises ``AddressRefusedError`` before anything is sent, so the caller can
+    fail the call with a clear reason.
+    """
+    policy = policy or DestinationPolicy(registered_url)
+    card = await fetch_agent_card_with_fallback(
+        registered_url, timeout=timeout, policy=policy
+    )
+    await ensure_card_destinations_allowed(card, policy=policy)
+    return card
 
 
 async def send_message(
     agent_card_data: Any,
     message_data: Any,
     *,
+    registered_url: str | None,
+    policy: DestinationPolicy | None = None,
     accepted_output_modes: list[str] | None = None,
     push_notification_config: dict[str, Any] | None = None,
     blocking: bool = True,
     timeout: float = 600.0,
     allow_docker_host_fallback: bool = True,
 ) -> dict[str, Any]:
-    """Send once, optionally retrying through the Docker-host URL fallback."""
+    """Send once, optionally retrying through the Docker-host URL fallback.
+
+    ``registered_url`` is the address the agent was registered at; it decides
+    which card destinations may be dialed (see ``address_policy``). Pass the
+    ``policy`` the call's card fetch used so both share one classification.
+    """
     started_at = time.perf_counter()
     card: AgentCard | None = None
     try:
@@ -141,7 +178,9 @@ async def send_message(
             push_notification_config=push_notification_config,
             blocking=blocking,
         )
-        async with bounded_client(timeout=timeout) as client:
+        policy = policy or DestinationPolicy(registered_url)
+        await ensure_card_destinations_allowed(card, policy=policy)
+        async with bounded_client(timeout=timeout, policy=policy) as client:
             config = _client_config(
                 client=client,
                 streaming=False,
@@ -203,6 +242,8 @@ async def stream_message(
     agent_card_data: Any,
     message_data: Any,
     *,
+    registered_url: str | None,
+    policy: DestinationPolicy | None = None,
     accepted_output_modes: list[str] | None = None,
     push_notification_config: dict[str, Any] | None = None,
     timeout: float = 600.0,
@@ -220,7 +261,9 @@ async def stream_message(
             push_notification_config=push_notification_config,
             blocking=False,
         )
-        async with event_bounded_client(timeout=timeout) as client:
+        policy = policy or DestinationPolicy(registered_url)
+        await ensure_card_destinations_allowed(card, policy=policy)
+        async with event_bounded_client(timeout=timeout, policy=policy) as client:
             config = _client_config(
                 client=client,
                 streaming=True,
@@ -303,13 +346,17 @@ async def cancel_remote_task(
     agent_card_data: Any,
     task_id: str,
     *,
+    registered_url: str | None,
+    policy: DestinationPolicy | None = None,
     timeout: float = 5.0,
 ) -> bool:
     started_at = time.perf_counter()
     card: AgentCard | None = None
     try:
         card = _build_card(agent_card_data)
-        async with bounded_client(timeout=timeout) as client:
+        policy = policy or DestinationPolicy(registered_url)
+        await ensure_card_destinations_allowed(card, policy=policy)
+        async with bounded_client(timeout=timeout, policy=policy) as client:
             config = _client_config(client=client, streaming=False)
             await with_docker_host_fallback(
                 card,
@@ -495,6 +542,7 @@ __all__ = [
     "A2AMessageValidationError",
     "cancel_remote_task",
     "fetch_agent_card_with_fallback",
+    "fetch_dispatch_card",
     "is_protocol_error",
     "is_timeout_error",
     "send_message",

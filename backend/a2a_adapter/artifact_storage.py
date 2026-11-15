@@ -6,7 +6,6 @@ import asyncio
 import base64
 import binascii
 import hashlib
-import ipaddress
 import json
 import socket
 from typing import Any
@@ -24,6 +23,8 @@ from common.utils.artifact_delivery import (
     record_materialization_success,
 )
 from common.utils.logger import get_logger
+
+from .address_policy import address_allowed, resolve_allowed
 
 logger = get_logger(__name__)
 
@@ -763,26 +764,13 @@ class _PinnedResolver(AbstractResolver):
 
 
 def _public_address(value: str) -> bool:
-    return ipaddress.ip_address(value).is_global
+    return address_allowed(value, allow_private=False)
 
 
 async def _resolve_public(hostname: str, port: int) -> list[tuple[int, str]]:
-    infos = await asyncio.get_running_loop().getaddrinfo(
-        hostname,
-        port,
-        type=socket.SOCK_STREAM,
-    )
-    addresses: list[tuple[int, str]] = []
-    for family, _type, _proto, _canonname, sockaddr in infos:
-        address = sockaddr[0]
-        if not _public_address(address):
-            raise ValueError("remote URI resolves to a non-public address")
-        pair = (family, address)
-        if pair not in addresses:
-            addresses.append(pair)
-    if not addresses:
-        raise ValueError("remote URI has no usable address")
-    return addresses
+    # Artifact URIs come from the agent, never the owner, so only public
+    # addresses are allowed whatever the agent's registered address.
+    return await resolve_allowed(hostname, port, allow_private=False)
 
 
 async def fetch_remote_file(uri: str) -> tuple[bytes, str]:

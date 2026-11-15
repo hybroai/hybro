@@ -13,6 +13,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 from fastapi import HTTPException
+from pydantic import ValidationError
 
 from api_gateway.routes.agent_routes import (
     delete_agent,
@@ -25,6 +26,7 @@ from api_gateway.routes.agent_routes import (
 )
 from common.dto import AgentRouteResponse, AgentView
 from local_agents.models import DiscoveryTrigger, LocalAgentDiscoveryResult
+from models.request import InspectionCenterRequest
 
 # =============================================================================
 # Local Agent Discovery Tests
@@ -228,11 +230,13 @@ class TestDeleteAgent:
 
 class TestGetAgentCardFromUrl:
     @pytest.mark.asyncio
-    async def test_returns_agent_card(self, patch_agent_deps):
+    async def test_returns_agent_card(self, patch_agent_deps, mock_user):
         patch_agent_deps.resolve_card.return_value = AgentRouteResponse(success=True)
 
         response = await get_agent_card_from_url(
-            _request({"agent_url": "https://agent.example"}), catalog=patch_agent_deps
+            InspectionCenterRequest(agent_url="https://agent.example"),
+            user=mock_user,
+            catalog=patch_agent_deps,
         )
 
         assert response.success is True
@@ -240,9 +244,6 @@ class TestGetAgentCardFromUrl:
             agent_url="https://agent.example"
         )
 
-    @pytest.mark.asyncio
-    async def test_raises_400_when_url_missing(self, patch_agent_deps):
-        with pytest.raises(HTTPException) as exc_info:
-            await get_agent_card_from_url(_request({}), catalog=patch_agent_deps)
-
-        assert exc_info.value.status_code == 400
+    def test_body_requires_agent_url(self):
+        with pytest.raises(ValidationError):
+            InspectionCenterRequest.model_validate({})

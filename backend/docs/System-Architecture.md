@@ -206,6 +206,8 @@ Isolates the A2A protocol and SDK:
 - `artifact_storage` materializes inline or remote file artifacts into
   room-owned storage through the `A2AArtifactFiles` contract.
 - `docker_host_fallback` owns the request-local Docker host fallback (below).
+- `address_policy` owns the destination rule (below); `bounded_http` applies it
+  to every outbound agent connection.
 
 Writes no collections directly. Exposes: implements `AgentCardResolver`,
 `A2AArtifactFiles`, and Execution's `DirectA2AClient` / `DirectA2AStream`.
@@ -215,8 +217,46 @@ Owner modules never open `httpx` or SDK clients against agent URLs; they call
 adapter helpers. For backend-initiated calls the adapter may retry `localhost`,
 `127.0.0.1`, `::1`, or `0.0.0.0` URLs through `host.docker.internal` after a
 connection-style failure. The rewrite is request-local: registered card URLs are
-never changed. The direct agent-network send disables this fallback to keep its
-one-attempt contract.
+never changed. The direct agent-network send disables this fallback for the send
+to keep its one-attempt contract; its Card fetch may still use it.
+
+**Destination rule.** The owner who registers an agent is trusted; the agent's
+card is not. Hybro still sends to whatever interface the live card advertises,
+so a third-party agent may move between public addresses, but:
+
+- A card, a redirect hop, or a Docker-host retry may reach a private, loopback,
+  shared (`100.64.0.0/10`), or Docker-host address only when the agent's
+  registered URL is private or loopback. The registered URL is classified by
+  what its host resolves to: an internal hostname that resolves to a private
+  address counts as private; one public answer, a resolution failure, or a
+  missing URL counts as public.
+- Link-local addresses (`169.254.0.0/16`, `fe80::/10`) are always refused.
+  A registration that is or resolves to a link-local address does not count
+  as private.
+  IPv6 addresses that carry an IPv4 address (IPv4-mapped, NAT64 `64:ff9b::/96`
+  and `64:ff9b:1::/48`, IPv4-compatible, 6to4, and Teredo) are classified as
+  the IPv4 address they carry.
+
+The registered URL is the agent's stored `url` (the address its card was
+fetched from), which the orchestrator carries as the call's `endpoint_scope`.
+The orchestrator and the agent-network send both fetch the live card from that
+URL before sending, so the card fetch is the call's first request; card fetches, health probes, and inspection use the URL being fetched. One
+`DestinationPolicy` serves a whole call (card fetch, card check, and send) and
+classifies the registered host once: an IP literal when the policy is built, a
+hostname only from the DNS answer a request to it dials (until then the call is
+treated as public, and the policy never looks the host up on its own), so a third party controlling that host's DNS cannot answer "public" for
+the card and "private" for the classification. Every connection goes through
+`bounded_http.GuardedAsyncTransport`, which resolves the host, checks every
+answer, and dials the checked IP while keeping the `Host` header and TLS server
+name, so DNS rebinding cannot swap the address after the check; each hostname
+gets its own connection pool so a TLS connection is never reused for another
+hostname at the same IP. Before a send, `ensure_card_destinations_allowed` checks the card's
+JSON-RPC and HTTP+JSON interfaces so a refused card fails with a clear reason:
+the orchestrator records `agent_card_contract_error` without retrying (also
+when the refusal happens at connect time during a send or stream), the agent-network send returns an `UPSTREAM` error, and inspection
+reports the reason. Artifact file URIs stay public-only through the same
+resolver. Card fetches request identity encoding and refuse compressed bodies,
+so the 1 MiB card cap also bounds the decoded card.
 
 ### `api_gateway`
 
@@ -274,6 +314,17 @@ Frontend-facing and agent-network routes use Clerk auth when
 `backend.auth_mode="clerk"`. In local `backend.auth_mode="mock"`, `main.py`
 overrides every user-auth dependency, including the dual user/service dependency
 used by agent registration, with the stable local developer identity.
+
+Routes that make the backend fetch an owner-supplied URL require a signed-in
+user and a validated `{"agent_url"}` body (at most 2048 characters):
+`POST /agent/getAgentCardFromUrl` and both `/inspectionCenter` routes. Agent Card
+responses are capped at 1 MiB, the card resolver caches at most 256 cards and
+never caches a failure, and every card fetch, health probe, and inspection probe
+has an overall deadline, not only per-read timeouts (inspection: 10 seconds for
+the card, 120 seconds for the dry-send probe). Inspection results carry fixed
+failure messages (too large, timed out, not found, unreachable) rather than
+exception text; a JSON-RPC error the agent itself returns is still shown. Card
+fetches, like A2A calls, ignore proxy and TLS settings from the environment.
 
 ### `chat`
 
@@ -1814,8 +1865,12 @@ Domain errors use `{"detail":{"code":"...","message":"...",...}}`; send errors
 include `agent_id` and `client_request_id`. Authentication and middleware errors
 use a string `detail`; schema failures use FastAPI's validation format.
 
-Each call has a 600-second deadline covering target resolution and the single
-blocking send. There are no retries (including Docker-host fallback) and no
+Each call has a 600-second deadline covering target resolution, a fetch of the
+target's live Card from its registered URL, and the single blocking send to the
+interface that Card advertises (see the destination rule under `a2a_adapter`).
+A target without a registered URL fails with `502` before any request. The Card
+fetch may take the Docker-host fallback; the send never does. A Card fetch that
+fails returns `502`, or `504` when it timed out. There are no send retries and no
 idempotency: `client_request_id` is correlation only, and repeating IDs may repeat
 remote effects. Timeout or client cancellation ends the local wait without a
 remote cancellation. Middleware caps the body at 6 MiB before parsing, including

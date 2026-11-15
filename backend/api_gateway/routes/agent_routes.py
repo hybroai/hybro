@@ -21,6 +21,7 @@ from common.protocols import AgentRegistry
 from local_agents.models import DiscoveryTrigger, LocalAgentDiscoveryResult
 from local_agents.protocols import LocalAgentDiscovery
 from models.agent import IssueStatus
+from models.request import InspectionCenterRequest
 
 router = APIRouter()
 
@@ -201,21 +202,21 @@ async def resolve_capability_issue(
     return {"issue": result.model_dump(mode="json")}
 
 
-# ============= PUBLIC ENDPOINTS (No Auth Required) =============
-
-
 @router.post("/agent/getAgentCardFromUrl")
 async def get_agent_card_from_url(
-    request: Request,
+    body: InspectionCenterRequest,
+    user: ClerkUser = Depends(get_current_user),
     catalog: AgentCatalog = Depends(get_agent_catalog),
 ) -> AgentRouteResponse:
-    """Get agent card from URL - PUBLIC (no authentication required)"""
-    request_data = await request.json()
-    agent_url = request_data.get("agent_url")
+    """Get the agent card at an owner-supplied URL - PROTECTED.
 
-    if not agent_url:
-        raise HTTPException(status_code=400, detail="agent_url is required")
-    return await catalog.resolve_card(agent_url=agent_url)
+    The backend fetches the URL, so only a signed-in owner may ask for it.
+    """
+    del user
+    return await catalog.resolve_card(agent_url=body.agent_url)
+
+
+# ============= PUBLIC ENDPOINTS (No Auth Required) =============
 
 
 @router.get("/agent/getAgent/{agent_id}")

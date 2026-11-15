@@ -1,8 +1,8 @@
 from datetime import datetime
-from typing import Any
+from typing import Annotated, Any
 from uuid import uuid4
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, StringConstraints
 
 from common.idempotency import MAX_CLIENT_REQUEST_ID_LENGTH
 from common.types import Message, MessageRole, Part, Task, TextPart
@@ -113,9 +113,21 @@ class UserInput(BaseModel):
     session_id: str | None = None
 
 
+MAX_AGENT_URL_LENGTH = 2048
+
+AgentUrl = Annotated[
+    str,
+    StringConstraints(
+        strip_whitespace=True, min_length=1, max_length=MAX_AGENT_URL_LENGTH
+    ),
+]
+
+
 class InspectionCenterRequest(BaseModel):
+    """An owner-supplied agent URL to fetch a card from or inspect."""
+
     agent_id: str | None = None
-    agent_url: str
+    agent_url: AgentUrl
 
 
 class DebatationCenterRequest(BaseModel):

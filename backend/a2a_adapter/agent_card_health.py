@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from dataclasses import dataclass
 from typing import Any
 
@@ -11,6 +12,8 @@ from common.observability import events as E
 from common.observability import get_logger
 from common.types import AgentCard
 
+from .address_policy import DestinationPolicy
+from .bounded_http import card_client
 from .card_data import build_agent_card
 from .constants import AGENT_CARD_WELL_KNOWN_PATH, PREV_AGENT_CARD_WELL_KNOWN_PATH
 from .docker_host_fallback import with_docker_host_url_fallback
@@ -67,15 +70,19 @@ async def probe_agent_card_for_health(
 ) -> AgentCardHealthResult:
     """Fetch an agent card with Docker host fallback and normalized failures."""
     try:
-        async with httpx.AsyncClient(timeout=timeout) as client:
-            return await with_docker_host_url_fallback(
-                str(agent_url),
-                lambda candidate_url: fetch_agent_card_for_health(
-                    candidate_url,
-                    client,
-                ),
-            )
-    except httpx.TimeoutException as exc:
+        # httpx timeouts bound each read; this bounds the whole probe.
+        async with asyncio.timeout(timeout):
+            async with card_client(
+                timeout=timeout, policy=DestinationPolicy(str(agent_url))
+            ) as client:
+                return await with_docker_host_url_fallback(
+                    str(agent_url),
+                    lambda candidate_url: fetch_agent_card_for_health(
+                        candidate_url,
+                        client,
+                    ),
+                )
+    except (httpx.TimeoutException, TimeoutError) as exc:
         logger.emit(
             E.AGENT_CARD_HEALTH_PROBE_TIMED_OUT,
             exc=exc,

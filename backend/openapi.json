@@ -283,7 +283,7 @@
           "agent"
         ],
         "summary": "Get Agent Card From Url",
-        "description": "Get agent card from URL - PUBLIC (no authentication required)",
+        "description": "Get the agent card at an owner-supplied URL - PROTECTED.\n\nThe backend fetches the URL, so only a signed-in owner may ask for it.",
         "operationId": "get_agent_card_from_url_api_v1_agent_getAgentCardFromUrl_post",
         "responses": {
           "200": {
@@ -295,7 +295,27 @@
                 }
               }
             }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
           }
+        },
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/InspectionCenterRequest"
+              }
+            }
+          },
+          "required": true
         }
       }
     },
@@ -760,7 +780,27 @@
                 "schema": {}
               }
             }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
           }
+        },
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/InspectionCenterRequest"
+              }
+            }
+          },
+          "required": true
         }
       }
     },
@@ -779,7 +819,27 @@
                 "schema": {}
               }
             }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
           }
+        },
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/InspectionCenterRequest"
+              }
+            }
+          },
+          "required": true
         }
       }
     },
@@ -9341,6 +9401,33 @@
           "ring_capacity"
         ],
         "title": "StoreSection"
+      },
+      "InspectionCenterRequest": {
+        "properties": {
+          "agent_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Agent Id"
+          },
+          "agent_url": {
+            "type": "string",
+            "maxLength": 2048,
+            "minLength": 1,
+            "title": "Agent Url"
+          }
+        },
+        "type": "object",
+        "required": [
+          "agent_url"
+        ],
+        "title": "InspectionCenterRequest",
+        "description": "An owner-supplied agent URL to fetch a card from or inspect."
       }
     },
     "securitySchemes": {

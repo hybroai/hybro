@@ -25,7 +25,7 @@ from a2a_adapter.client_facade import (
     cancel_remote_task as sdk_cancel_remote_task,
 )
 from a2a_adapter.client_facade import (
-    fetch_agent_card_with_fallback as sdk_fetch_agent_card,
+    fetch_dispatch_card as sdk_fetch_agent_card,
 )
 from a2a_adapter.client_facade import send_message as sdk_send_message
 from a2a_adapter.client_facade import stream_message as sdk_stream_message

@@ -11,6 +11,7 @@ from common.observability import events as E
 from common.observability import get_logger
 from common.types import Task
 
+from .address_policy import DestinationPolicy, ensure_card_destinations_allowed
 from .bounded_http import bounded_client
 from .card_data import build_agent_card
 from .constants import SUPPORTED_BINDINGS
@@ -24,6 +25,8 @@ async def fetch_remote_task(
     agent_card_data: Any,
     task_id: str,
     *,
+    registered_url: str | None,
+    policy: DestinationPolicy | None = None,
     timeout: float = 30.0,
 ) -> Task | None:
     """Fetch a task from a remote A2A agent and return an internal task.
@@ -33,7 +36,9 @@ async def fetch_remote_task(
     """
     try:
         card = build_agent_card(agent_card_data)
-        async with bounded_client(timeout=timeout) as client:
+        policy = policy or DestinationPolicy(registered_url)
+        await ensure_card_destinations_allowed(card, policy=policy)
+        async with bounded_client(timeout=timeout, policy=policy) as client:
             config = ClientConfig(
                 streaming=False,
                 httpx_client=client,
