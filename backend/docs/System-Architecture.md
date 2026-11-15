@@ -231,16 +231,18 @@ so a third-party agent may move between public addresses, but:
   address counts as private; one public answer, a resolution failure, or a
   missing URL counts as public.
 - Link-local addresses (`169.254.0.0/16`, `fe80::/10`) are always refused.
-  IPv4-mapped and NAT64 (`64:ff9b::/96`) addresses are classified as the IPv4
-  address they carry.
+  IPv6 addresses that carry an IPv4 address (IPv4-mapped, NAT64 `64:ff9b::/96`
+  and `64:ff9b:1::/48`, IPv4-compatible, 6to4, and Teredo) are classified as
+  the IPv4 address they carry.
 
 The registered URL is the agent's stored `url` (the address its card was
 fetched from), which the orchestrator carries as the call's `endpoint_scope`.
 The orchestrator and the agent-network send both fetch the live card from that
 URL before sending, so the card fetch is the call's first request; card fetches, health probes, and inspection use the URL being fetched. One
 `DestinationPolicy` serves a whole call (card fetch, card check, and send) and
-classifies the registered host once, from the same DNS answer the card fetch
-dials, so a third party controlling that host's DNS cannot answer "public" for
+classifies the registered host once: an IP literal when the policy is built, a
+hostname only from the DNS answer a request to it dials (until then the call is
+treated as public, and the policy never looks the host up on its own), so a third party controlling that host's DNS cannot answer "public" for
 the card and "private" for the classification. Every connection goes through
 `bounded_http.GuardedAsyncTransport`, which resolves the host, checks every
 answer, and dials the checked IP while keeping the `Host` header and TLS server

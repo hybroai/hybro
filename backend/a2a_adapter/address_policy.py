@@ -40,21 +40,34 @@ class AddressRefusedError(ValueError):
     """A destination the address policy does not allow."""
 
 
-_NAT64 = ipaddress.IPv6Network("64:ff9b::/96")
+# IPv6 prefixes that carry an IPv4 address in their low 32 bits.
+_EMBEDDED_IPV4_LOW_BITS = (
+    ipaddress.IPv6Network("64:ff9b::/96"),  # NAT64 well-known prefix
+    ipaddress.IPv6Network("64:ff9b:1::/48"),  # NAT64 local-use prefix
+    ipaddress.IPv6Network("::/96"),  # IPv4-compatible (deprecated)
+)
+_UNSPECIFIED_AND_LOOPBACK = (ipaddress.IPv6Address("::"), ipaddress.IPv6Address("::1"))
 
 
 def _ip(value: str) -> ipaddress.IPv4Address | ipaddress.IPv6Address:
     """Parse an address, unwrapping IPv4 carried inside IPv6.
 
-    IPv4-mapped (``::ffff:a.b.c.d``) and NAT64 (``64:ff9b::/96``) addresses
-    reach the embedded IPv4 address, so they are classified as that address.
+    IPv4-mapped, NAT64, IPv4-compatible, 6to4, and Teredo addresses can reach
+    the IPv4 address they carry, so they are classified as that address.
     """
     address = ipaddress.ip_address(value.split("%", 1)[0])
-    if isinstance(address, ipaddress.IPv6Address):
-        if address.ipv4_mapped:
-            return address.ipv4_mapped
-        if address in _NAT64:
-            return ipaddress.IPv4Address(int(address) & 0xFFFFFFFF)
+    if not isinstance(address, ipaddress.IPv6Address):
+        return address
+    if address.ipv4_mapped:
+        return address.ipv4_mapped
+    if address.sixtofour:
+        return address.sixtofour
+    if address.teredo:
+        return address.teredo[1]
+    if address not in _UNSPECIFIED_AND_LOOPBACK and any(
+        address in prefix for prefix in _EMBEDDED_IPV4_LOW_BITS
+    ):
+        return ipaddress.IPv4Address(int(address) & 0xFFFFFFFF)
     return address
 
 
@@ -119,24 +132,21 @@ def _host_port(url: str) -> tuple[str, int]:
     return parsed.hostname, port
 
 
-async def registered_address_is_private(registered_url: str | None) -> bool:
-    """True when every address the registered host resolves to is non-public.
-
-    A missing, malformed, or unresolvable registration is treated as public,
-    so the card cannot gain private access through it.
-    """
-    return await DestinationPolicy(registered_url).allow_private()
+def _normalized_host(hostname: str) -> str:
+    return hostname.rstrip(".").lower()
 
 
 class DestinationPolicy:
     """The destination rule for one call to one agent.
 
     Use one policy for every request of a call (card fetch, card check, send).
-    The registered host is classified once and the decision is kept: when the
-    first lookup is of the registered host itself, the answer that is dialed
-    is the answer that classifies it. A third party controlling the registered
-    host's DNS therefore cannot answer "public" to serve the card and
-    "private" to unlock the card's private target.
+    The registered host is classified only by an answer a request to it
+    dials, once, and the decision is kept. Until then the call is treated as
+    public, so a private target is refused rather than unlocked by a separate
+    lookup. A third party controlling the registered host's DNS therefore
+    cannot answer "public" to serve the card and "private" to unlock the
+    card's private target. A missing, malformed, or unresolvable registration
+    stays public.
     """
 
     def __init__(self, registered_url: str | None) -> None:
@@ -147,8 +157,16 @@ class DestinationPolicy:
             except ValueError:
                 pass
             else:
-                self._registered = (host.lower(), port)
+                self._registered = (_normalized_host(host), port)
         self._allow_private: bool | None = None
+        if self._registered is not None:
+            # An IP literal involves no DNS, so nothing can rebind it.
+            try:
+                literal = _ip(self._registered[0].strip("[]"))
+            except ValueError:
+                pass
+            else:
+                self._decide(not literal.is_global)
 
     def _decide(self, allow_private: bool) -> bool:
         if self._allow_private is None:
@@ -158,26 +176,16 @@ class DestinationPolicy:
     async def allow_private(self) -> bool:
         """Whether this call may reach private and loopback targets.
 
-        When nothing has dialed the registered host yet, this looks it up on
-        its own, and that answer is not the one any request dials. The
-        rebinding guarantee therefore holds only for a call whose first
-        request goes to the registered host (the card fetch).
+        False until a request to the registered host has resolved it; this
+        never looks the host up on its own.
         """
-        if self._allow_private is not None:
-            return self._allow_private
-        if self._registered is None:
-            return self._decide(False)
-        try:
-            infos = await _getaddrinfo(*self._registered)
-        except OSError:
-            return self._decide(False)
-        return self._decide(_is_private_answer(infos))
+        return bool(self._allow_private)
 
     async def resolve(self, hostname: str, port: int) -> list[tuple[int, str]]:
         if (
             self._allow_private is None
             and self._registered is not None
-            and hostname.lower() == self._registered[0]
+            and _normalized_host(hostname) == self._registered[0]
         ):
             infos = await _getaddrinfo(hostname, port)
             allow_private = self._decide(_is_private_answer(infos))
@@ -218,6 +226,5 @@ __all__ = [
     "DestinationPolicy",
     "address_allowed",
     "ensure_card_destinations_allowed",
-    "registered_address_is_private",
     "resolve_allowed",
 ]

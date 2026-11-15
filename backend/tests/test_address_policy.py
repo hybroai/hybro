@@ -176,10 +176,42 @@ async def test_registered_address_is_classified_by_resolution(
     monkeypatch, registered_url, expected
 ):
     _install_dns(monkeypatch)
+    policy = address_policy.DestinationPolicy(registered_url)
+    try:
+        await policy.resolve(*address_policy._host_port(registered_url or ""))
+    except (OSError, ValueError):
+        pass
 
-    assert (
-        await address_policy.registered_address_is_private(registered_url) is expected
-    )
+    assert await policy.allow_private() is expected
+
+
+async def test_policy_refuses_private_targets_until_the_registered_host_is_dialed(
+    monkeypatch,
+):
+    # The classification comes only from a lookup the call dials. Before the
+    # registered host has been resolved for a request, a private target is
+    # refused rather than unlocked by a separate lookup.
+    calls: list[str] = []
+    _install_dns(monkeypatch, calls=calls)
+    policy = address_policy.DestinationPolicy("http://lan-agent.internal:9000")
+
+    with pytest.raises(address_policy.AddressRefusedError):
+        await policy.resolve("192.168.1.40", 9000)
+    assert calls == ["192.168.1.40"]
+
+    await policy.resolve("lan-agent.internal", 9000)
+    assert await policy.resolve("192.168.1.40", 9000) == [
+        (socket.AF_INET, "192.168.1.40")
+    ]
+
+
+async def test_registered_host_match_ignores_case_and_trailing_dot(monkeypatch):
+    _install_dns(monkeypatch, {**DNS, "lan-agent.internal.": ["192.168.1.40"]})
+    policy = address_policy.DestinationPolicy("http://LAN-Agent.Internal.:9000")
+
+    await policy.resolve("lan-agent.internal", 9000)
+
+    assert await policy.allow_private() is True
 
 
 # ---------------------------------------------------------------------------
@@ -268,35 +300,84 @@ async def test_stream_and_cancel_and_task_fetch_apply_the_rule(monkeypatch):
 
 
 @pytest.mark.parametrize(
-    ("registered_url", "interface_url", "dialed"),
+    ("registered_url", "registered_ip", "interface_url", "dialed"),
     [
-        ("http://127.0.0.1:9001", "http://127.0.0.1:9001/", "127.0.0.1"),
-        ("http://localhost:9001", "http://localhost:9001/", "127.0.0.1"),
-        ("http://192.168.1.40:9000", "http://192.168.1.41:9000/", "192.168.1.41"),
-        ("http://lan-agent.internal:9000", "http://10.0.0.8/", "10.0.0.8"),
-        ("https://agent.example", "https://other.example/a2a", OTHER_PUBLIC),
+        ("http://127.0.0.1:9001", "127.0.0.1", "http://127.0.0.1:9001/", "127.0.0.1"),
+        ("http://localhost:9001", "127.0.0.1", "http://localhost:9001/", "127.0.0.1"),
+        (
+            "http://192.168.1.40:9000",
+            "192.168.1.40",
+            "http://192.168.1.41:9000/",
+            "192.168.1.41",
+        ),
+        (
+            "http://lan-agent.internal:9000",
+            "192.168.1.40",
+            "http://10.0.0.8/",
+            "10.0.0.8",
+        ),
+        (
+            "https://agent.example",
+            PUBLIC_AGENT,
+            "https://other.example/a2a",
+            OTHER_PUBLIC,
+        ),
     ],
 )
 async def test_allowed_destinations_are_sent_to_the_checked_address(
-    monkeypatch, registered_url, interface_url, dialed
+    monkeypatch, registered_url, registered_ip, interface_url, dialed
+):
+    _install_dns(monkeypatch)
+    stub = A2A10AgentStub(
+        card=_card(interface_url), send_result={"task": completed_task_payload()}
+    )
+    network = _install_network(monkeypatch, _Network(app=stub.app))
+    policy = address_policy.DestinationPolicy(registered_url)
+
+    card = await client_facade.fetch_dispatch_card(registered_url, policy=policy)
+    result = await client_facade.send_message(
+        card,
+        _message(),
+        registered_url=registered_url,
+        policy=policy,
+        timeout=1,
+    )
+
+    assert result["kind"] == "task"
+    assert network.dialed == [registered_ip, dialed]
+    request = network.requests[-1]
+    assert request.headers["host"] == httpx.URL(interface_url).netloc.decode()
+    if interface_url.startswith("https://"):
+        assert request.extensions["sni_hostname"] == httpx.URL(interface_url).host
+
+
+@pytest.mark.parametrize(
+    ("registered_url", "interface_url", "allowed"),
+    [
+        # An IP literal needs no DNS, so it is classified up front.
+        ("http://192.168.1.40:9000", "http://192.168.1.41:9000/", True),
+        ("http://127.0.0.1:9001", "http://127.0.0.1:9002/", True),
+        # A hostname is classified only by a request that dials it.
+        ("http://lan-agent.internal:9000", "http://10.0.0.8/", False),
+        ("http://localhost:9001", "http://127.0.0.1:9001/", False),
+    ],
+)
+async def test_send_without_a_card_fetch_classifies_only_ip_registrations(
+    monkeypatch, registered_url, interface_url, allowed
 ):
     _install_dns(monkeypatch)
     stub = A2A10AgentStub(send_result={"task": completed_task_payload()})
     network = _install_network(monkeypatch, _Network(app=stub.app))
 
-    result = await client_facade.send_message(
-        _card(interface_url),
-        _message(),
-        registered_url=registered_url,
-        timeout=1,
+    send = client_facade.send_message(
+        _card(interface_url), _message(), registered_url=registered_url, timeout=1
     )
-
-    assert result["kind"] == "task"
-    assert network.dialed == [dialed]
-    request = network.requests[0]
-    assert request.headers["host"] == httpx.URL(interface_url).netloc.decode()
-    if interface_url.startswith("https://"):
-        assert request.extensions["sni_hostname"] == httpx.URL(interface_url).host
+    if allowed:
+        assert (await send)["kind"] == "task"
+    else:
+        with pytest.raises(address_policy.AddressRefusedError):
+            await send
+        assert network.requests == []
 
 
 async def test_loopback_agent_keeps_its_docker_host_fallback(monkeypatch):
@@ -649,6 +730,39 @@ async def test_one_policy_classifies_the_registered_host_once(monkeypatch):
 @pytest.mark.parametrize("address", ["64:ff9b::a9fe:a9fe", "64:ff9b::7f00:1"])
 def test_nat64_addresses_are_classified_by_the_embedded_ipv4(address):
     assert not address_policy.address_allowed(address, allow_private=False)
+
+
+@pytest.mark.parametrize(
+    "address",
+    [
+        "::7f00:1",  # IPv4-compatible 127.0.0.1
+        "::a9fe:a9fe",  # IPv4-compatible 169.254.169.254
+        "64:ff9b:1::7f00:1",  # local-use NAT64 127.0.0.1
+        "2002:7f00:1::",  # 6to4 127.0.0.1
+        "2001:0:4136:e378:8000:63bf:80ff:fffe",  # Teredo client 127.0.0.1
+    ],
+)
+def test_ipv6_transition_addresses_are_classified_by_the_embedded_ipv4(address):
+    assert not address_policy.address_allowed(address, allow_private=False)
+
+
+@pytest.mark.parametrize(
+    "address",
+    [
+        "::a9fe:a9fe",
+        "64:ff9b:1::a9fe:a9fe",
+        "2002:a9fe:a9fe::",
+        "2001:0:4136:e378:8000:63bf:5601:5601",  # Teredo client 169.254.169.254
+    ],
+)
+def test_ipv6_transition_link_local_is_refused_for_private_agents(address):
+    assert not address_policy.address_allowed(address, allow_private=True)
+
+
+@pytest.mark.parametrize("address", ["::1", "2606:4700::1111"])
+def test_plain_ipv6_addresses_keep_their_own_class(address):
+    expected = address == "2606:4700::1111"
+    assert address_policy.address_allowed(address, allow_private=False) is expected
 
 
 def test_nat64_link_local_is_refused_even_for_private_agents():
