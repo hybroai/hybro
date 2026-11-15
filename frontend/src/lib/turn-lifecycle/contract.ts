@@ -1,4 +1,3 @@
-import type { TaskSubmittedData, TaskUpdateData } from '@/lib/types/sse'
 import {
   CANONICAL_RUN_EVENT_TYPES,
   type CanonicalHITLRequestData,
@@ -248,51 +247,6 @@ function validatePayload(type: CanonicalRunEventType, value: unknown): boolean {
         && (value.error_summary === undefined || value.error_summary === null)
     }
   }
-}
-
-export function isCanonicalTaskSubmittedData(value: unknown): value is TaskSubmittedData & {
-  run_id: string
-  opaque_public_call_id: string
-} {
-  if (!record(value) || !Object.prototype.hasOwnProperty.call(value, 'run_id')) return false
-  return exactKeys(value, [
-    'run_id', 'opaque_public_call_id', 'message_id', 'task_id', 'agent_name',
-    'status', 'related_message_id', 'client_request_id', 'room_seq',
-  ], [...META_KEYS, 'created_at'])
-    && id(value.run_id)
-    && typeof value.opaque_public_call_id === 'string'
-    && TOOL_CALL_ID.test(value.opaque_public_call_id)
-    && value.message_id === `orchestrator:${value.run_id}:${value.opaque_public_call_id}`
-    && id(value.task_id)
-    && text(value.agent_name, 160)
-    && typeof value.status === 'string'
-    && id(value.related_message_id)
-    && id(value.client_request_id)
-    && integer(value.room_seq)
-    && (value.created_at === undefined || timestamp(value.created_at))
-}
-
-export function isCanonicalTaskUpdateData(value: unknown): value is TaskUpdateData & {
-  run_id: string
-  opaque_public_call_id: string
-} {
-  if (!record(value) || !Object.prototype.hasOwnProperty.call(value, 'run_id')) return false
-  return exactKeys(value, [
-    'run_id', 'opaque_public_call_id', 'message_id', 'status',
-    'related_message_id', 'client_request_id', 'room_seq',
-  ], [...META_KEYS, 'requires_input', 'requires_auth', 'agent_name', 'created_at', 'delivery_id'])
-    && id(value.run_id)
-    && typeof value.opaque_public_call_id === 'string'
-    && TOOL_CALL_ID.test(value.opaque_public_call_id)
-    && value.message_id === `orchestrator:${value.run_id}:${value.opaque_public_call_id}`
-    && typeof value.status === 'string'
-    && id(value.related_message_id)
-    && id(value.client_request_id)
-    && integer(value.room_seq)
-    && (value.agent_name === undefined || value.agent_name === null || text(value.agent_name, 160))
-    && (value.requires_input === undefined || typeof value.requires_input === 'boolean')
-    && (value.requires_auth === undefined || typeof value.requires_auth === 'boolean')
-    && (value.created_at === undefined || timestamp(value.created_at))
 }
 
 export function isCanonicalRunEventType(value: unknown): value is CanonicalRunEventType {

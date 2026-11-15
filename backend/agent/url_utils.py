@@ -9,16 +9,6 @@ DOCKER_HOST_ALIAS = "host.docker.internal"
 _NORMALIZED_LOCAL_HOST_ALIASES = LOCAL_HOST_ALIASES | {DOCKER_HOST_ALIAS}
 
 
-def is_local_agent_url(url: str | None) -> bool:
-    if not url:
-        return False
-    try:
-        hostname = (urlparse(url).hostname or "").lower()
-    except ValueError:
-        return False
-    return hostname in _NORMALIZED_LOCAL_HOST_ALIASES
-
-
 def normalize_agent_url(url: str | None) -> str | None:
     if not url:
         return url

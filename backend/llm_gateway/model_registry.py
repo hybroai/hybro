@@ -117,20 +117,6 @@ class ModelRegistryImpl:
                 f"No orchestrator model route configured for {logical_name!r}"
             ) from exc
 
-    def supports_capability(self, model: str, capability: str) -> bool:
-        try:
-            model_info = self.get_model(model)
-        except KeyError:
-            return False
-        return capability in model_info.capabilities
-
-    def list_models(self, capability: str | None = None) -> list[ModelInfo]:
-        unique = {model.logical_name: model for model in self._models.values()}
-        models = sorted(unique.values(), key=lambda item: item.logical_name)
-        if capability is None:
-            return models
-        return [model for model in models if capability in model.capabilities]
-
     def _register_defaults(
         self,
         generation_provider: Literal["openai", "deepseek"],

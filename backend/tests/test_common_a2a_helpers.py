@@ -4,9 +4,7 @@ Unit tests for A2A helper utilities (common/utils/a2a_helpers.py).
 Tests cover:
 - get_text_from_message: text extraction from Message
 - get_message_from_task: message extraction priority (artifacts > status > history)
-- get_text_from_a2a_response: message vs task dispatching
 - extract_text_from_artifacts: robust part-type handling
-- extract_error_message: error text extraction from task status
 """
 
 from unittest.mock import MagicMock
@@ -21,7 +19,6 @@ from common.types import (
     TextPart,
 )
 from common.utils.a2a_helpers import (
-    extract_error_message,
     get_message_from_task,
     get_text_from_message,
 )
@@ -116,28 +113,3 @@ class TestGetMessageFromTask:
             status=TaskStatus(state=TaskState.completed),
         )
         assert get_message_from_task(task) is None
-
-
-# =============================================================================
-# extract_error_message Tests
-# =============================================================================
-
-
-class TestExtractErrorMessage:
-    def test_returns_text_from_status_message(self):
-        task = MagicMock()
-        part = MagicMock()
-        part.text = "Something failed"
-        del part.root
-        task.status.message.parts = [part]
-        assert extract_error_message(task) == "Something failed"
-
-    def test_returns_none_when_no_message(self):
-        task = MagicMock()
-        task.status.message = None
-        assert extract_error_message(task) is None
-
-    def test_returns_none_when_no_parts(self):
-        task = MagicMock()
-        task.status.message.parts = None
-        assert extract_error_message(task) is None

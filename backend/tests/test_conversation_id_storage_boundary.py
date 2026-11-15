@@ -15,10 +15,10 @@ from agent.capability_issue import AgentCapabilityIssueService
 from agent.repository.capability_issue_mongo import (
     AgentCapabilityIssueMongoRepository,
 )
-from common.dto import MessageCommitted, RunStateChanged
+from common.dto import MessageCommitted, RunStateChanged, UserMessageInput
 from conversation.repository import MessageMongoRepository, RoomMongoRepository
 from conversation.repository.quote_mongo import RoomQuoteMongoRepository
-from conversation.translators import create_room_doc
+from conversation.translators import create_room_doc, user_message_doc_from_input
 from execution.orchestrator.a2a_runtime.models import (
     AgentCallLedgerRecord,
     HITLRouteSnapshotV2,
@@ -90,13 +90,14 @@ async def test_conversation_writes_store_room_id_key() -> None:
             membership_origin_status="manual",
         )
     )
-    assert await stores.add_room_user_message(
-        RoomUserMessage(
+    await MessageMongoRepository(mongo).save_user_message(
+        user_message_doc_from_input(
             conversation_id="room-1",
             message_id="user-1",
-            message_type="user",
-            message_created_at=NOW,
-            message_content=MessageContent(message_text="hello"),
+            message=UserMessageInput(
+                conversation_id="room-1", message_text="hello", sender_id="user-1"
+            ),
+            created_at=NOW,
         )
     )
     assert await stores.update_room_user_message_by_message_id(
@@ -117,9 +118,6 @@ async def test_conversation_writes_store_room_id_key() -> None:
         message_content=MessageContent(message_text="hi"),
     )
     assert await stores.add_room_agent_message(agent_message)
-    await stores.upsert_room_agent_message(
-        agent_message.model_copy(update={"message_id": "agent-2"})
-    )
     await RoomQuoteMongoRepository(mongo).insert(
         QuotedSnippet(
             conversation_id="room-1",

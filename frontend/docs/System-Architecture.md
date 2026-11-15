@@ -909,8 +909,8 @@ src/lib/api/
 Type definitions live in `src/lib/types/`:
 
 ```text
-agent.ts, agent-group.ts, attachments.ts, chat-mode.ts, error.ts, index.ts,
-quote.ts, request.ts, response.ts, sse.ts
+agent.ts, agent-group.ts, attachments.ts, chat-mode.ts, index.ts, quote.ts,
+request.ts, response.ts, sse.ts
 ```
 
 Other library modules:

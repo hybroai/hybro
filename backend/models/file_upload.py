@@ -20,9 +20,6 @@ DOCUMENT_MIME_TYPES = {
     "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
     "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
 }
-ALLOWED_MIME_TYPES = (
-    IMAGE_MIME_TYPES | AUDIO_MIME_TYPES | VIDEO_MIME_TYPES | DOCUMENT_MIME_TYPES
-)
 
 MAX_ATTACHMENTS_PER_MESSAGE = 10
 MAX_ATTACHMENT_REFS_PER_REQUEST = 50  # DoS guard on raw (pre-dedup) ref count

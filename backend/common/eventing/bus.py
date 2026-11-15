@@ -562,10 +562,6 @@ class BoundedInternalEventBus:
             self._accepting = accepting
             self._admission_condition.notify_all()
 
-    async def _is_accepting(self) -> bool:
-        async with self._admission_condition:
-            return self._started and self._accepting and not self._stopping
-
     async def _complete_start(self, *, success: bool) -> None:
         async with self._admission_condition:
             self._starting = False

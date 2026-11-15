@@ -61,10 +61,6 @@ export function useSendMessage(
     const clientRequestId = existingClientRequestId ?? crypto.randomUUID()
     const optimisticUserMessageId = `cr:${clientRequestId}`
     const currentTime = new Date().toISOString()
-    useRoomUiStore.getState().setPendingTurnSkeleton(conversationId, {
-      text: userInput,
-      attachments: pendingAttachments,
-    })
 
     // Reset the transient processing lifecycle so SSE processing_status events
     // can manage the current live turn.
@@ -135,7 +131,6 @@ export function useSendMessage(
       if (quoteData?.content && quoteData.content.length > MAX_QUOTE_TEXT_LENGTH) {
         toast.error(`Quote is too long (max ${MAX_QUOTE_TEXT_LENGTH} characters).`)
         lifecycle.stopProcessing()
-        useRoomUiStore.getState().setPendingTurnSkeleton(conversationId)
         const msgStoreTooLong = useMessageStore.getState()
         msgStoreTooLong.removeMessage(optimisticUserMessageId)
         msgStoreTooLong.removeMessage(lifecycle.placeholderId(conversationId))
@@ -190,7 +185,6 @@ export function useSendMessage(
         // Attachment preview URLs are kept: on false the caller gets the
         // attachments back (the composer restores its draft).
         lifecycle.stopProcessing()
-        useRoomUiStore.getState().setPendingTurnSkeleton(conversationId)
 
         return false
       }
@@ -223,8 +217,6 @@ export function useSendMessage(
           }
         }),
       })
-
-      useRoomUiStore.getState().setPendingTurnSkeleton(conversationId)
 
       // Set correlation state before any post-send SSE flows in. A fast
       // terminal event can clear this state; do not rewrite it afterward.
@@ -287,7 +279,6 @@ export function useSendMessage(
       }
 
       lifecycle.stopProcessing()
-      useRoomUiStore.getState().setPendingTurnSkeleton(conversationId)
 
       return false
     } finally {

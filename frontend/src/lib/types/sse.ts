@@ -416,20 +416,8 @@ export const TERMINAL_STATES: TaskState[] = [
   TASK_STATE.EXPIRED,
 ]
 
-// States that indicate task ended unsuccessfully
-export const FAILURE_STATES: TaskState[] = [
-  TASK_STATE.FAILED,
-  TASK_STATE.REJECTED,
-  TASK_STATE.CANCELED,
-  TASK_STATE.EXPIRED,
-]
-
 export function isTerminalState(state: TaskState): boolean {
   return TERMINAL_STATES.includes(state)
-}
-
-export function isFailureState(state: TaskState): boolean {
-  return FAILURE_STATES.includes(state)
 }
 
 export function isInteractiveState(state: TaskState): boolean {
@@ -438,35 +426,6 @@ export function isInteractiveState(state: TaskState): boolean {
 
 export function isPendingState(state: TaskState): boolean {
   return PENDING_STATES.includes(state)
-}
-
-// Task submitted event data
-export interface TaskSubmittedEvent {
-  type: "task_submitted"
-  data: {
-    message_id: string
-    task_id: string
-    agent_name: string
-    agent_id?: string
-    status: "submitted" | "working"
-  }
-}
-
-// Task update event data
-export interface TaskUpdateEvent {
-  type: "task_update"
-  data: {
-    message_id: string
-    status: TaskState
-    content?: string          // Present if completed
-    error?: string            // Present if failed/rejected/canceled
-    requires_input?: boolean  // True if input-required
-    requires_auth?: boolean   // True if auth-required
-    status_message?: string   // Human-readable status from agent
-    agent_name?: string
-    agent_id?: string
-    task_content?: string     // The task description being processed
-  }
 }
 
 // --- HITL (Human-in-the-Loop) Types ---

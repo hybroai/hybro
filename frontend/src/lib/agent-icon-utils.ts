@@ -25,19 +25,6 @@ export function getModeIcon(mime: string): LucideIcon {
   return SquareCode
 }
 
-export function deduplicateIcons(modes: string[]): LucideIcon[] {
-  const seen = new Set<LucideIcon>()
-  const result: LucideIcon[] = []
-  for (const mode of modes) {
-    const icon = getModeIcon(mode)
-    if (!seen.has(icon)) {
-      seen.add(icon)
-      result.push(icon)
-    }
-  }
-  return result
-}
-
 const MIME_LABEL_MAP: [RegExp, string][] = [
   [/^text\/plain$/, "Text"],
   [/^text\/html$/, "HTML"],

@@ -40,9 +40,6 @@ from a2a.types import (
     Role as SDKRole,
 )
 from a2a.types import (
-    Task as SDKTask,
-)
-from a2a.types import (
     TaskState as SDKTaskState,
 )
 from a2a.types import (
@@ -422,24 +419,6 @@ def _internal_artifact(artifact: Any) -> internal.Artifact:
     )
 
 
-def to_sdk_task(value: Any) -> SDKTask:
-    """Map an internal task or internal task dict onto a 1.0 SDK task."""
-    if isinstance(value, SDKTask):
-        return value
-
-    task = SDKTask(
-        id=str(_field(value, "id") or ""),
-        context_id=_string(_field(value, "context_id", "contextId")) or "",
-    )
-    task.status.CopyFrom(to_sdk_status(_field(value, "status")))
-    for artifact in _field(value, "artifacts") or []:
-        task.artifacts.append(to_sdk_artifact(artifact))
-    for message in _field(value, "history") or []:
-        task.history.append(to_sdk_message(message))
-    _assign_struct(task.metadata, _field(value, "metadata"))
-    return task
-
-
 def to_internal_task(value: Any) -> internal.Task:
     """Map a 1.0 SDK task (or wire dict) onto the internal task model."""
     if isinstance(value, internal.Task):
@@ -522,5 +501,4 @@ __all__ = [
     "to_sdk_part",
     "to_sdk_parts",
     "to_sdk_status",
-    "to_sdk_task",
 ]

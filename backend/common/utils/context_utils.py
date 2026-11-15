@@ -104,20 +104,6 @@ def clean_mention_format(
 _AGENT_MENTION_PATTERN = re.compile(r"<@([^|]+)\|([^>]+)>")
 
 
-def extract_mentioned_agent_ids(text: str) -> list[str]:
-    """
-    Extract agent IDs from mention format in text.
-
-    Args:
-        text: Message text with mentions like "<@uuid|name>"
-
-    Returns:
-        List of agent IDs found in mentions
-    """
-    pattern = r"<@([^|]+)\|[^>]+>"
-    return re.findall(pattern, text)
-
-
 def split_agent_mentions(text: str) -> tuple[str, list[tuple[str, str]]]:
     """Split a user message into clean text and its explicit Agent mentions.
 

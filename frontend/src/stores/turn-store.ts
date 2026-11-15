@@ -120,10 +120,6 @@ export function useCanonicalComposerAuthority(conversationId: string): Canonical
   return useTurnStore(useShallow((state) => selectCanonicalComposerAuthority(state.rooms[conversationId])))
 }
 
-export function hasCanonicalRoomAuthority(conversationId: string): boolean {
-  return Object.prototype.hasOwnProperty.call(useTurnStore.getState().rooms, conversationId)
-}
-
 export function isCanonicalRoot(
   conversationId: string,
   clientRequestId: string | null | undefined,

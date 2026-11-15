@@ -18,7 +18,6 @@ from agent.matcher import (
     MatchedAgent,
     MatchResult,
     accepts_input_modes,
-    select_top_agents,
 )
 from agent.selection_service import AgentSelectionService, RoutingStrategy
 from common.dto import AgentInfo
@@ -277,32 +276,3 @@ def test_no_file_penalty_without_attachments():
 
     assert accepts_input_modes(agent_file, None) is True
     assert accepts_input_modes(agent_text, None) is True
-
-
-def test_select_top_agents_preserves_valid_lexical_candidates():
-    """Non-debate selection does not apply legacy score-gap thresholds."""
-    agents = [
-        MatchedAgent(
-            _make_info("agent1", "Winner", "Top agent"),
-            lexical_score=0.9,
-            final_score=0.92,
-        ),
-        MatchedAgent(
-            _make_info("agent2", "Runner-up", "Second agent"),
-            lexical_score=0.5,
-            final_score=0.58,
-        ),
-        MatchedAgent(
-            _make_info("agent3", "Third", "Third agent"),
-            lexical_score=0.4,
-            final_score=0.49,
-        ),
-    ]
-
-    selected = select_top_agents(agents)
-
-    assert [item.agent.agent_id for item in selected] == [
-        "agent1",
-        "agent2",
-        "agent3",
-    ]

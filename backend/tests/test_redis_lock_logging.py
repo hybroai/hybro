@@ -8,7 +8,6 @@ from typing import Any
 import pytest
 
 from dal.redis.lock import (
-    DistributedLockImpl,
     LeaderElectorImpl,
     RoomRedisDistributedLock,
 )
@@ -56,24 +55,6 @@ async def _leader_release() -> Any:
     )
 
 
-async def _lock_acquire() -> Any:
-    return await DistributedLockImpl(client=_FailingClient()).acquire(
-        "upload-42", "owner-a", ttl=10
-    )
-
-
-async def _lock_renew() -> Any:
-    return await DistributedLockImpl(client=_FailingClient()).renew(
-        "upload-42", "owner-a", ttl=10
-    )
-
-
-async def _lock_release() -> Any:
-    return await DistributedLockImpl(client=_FailingClient()).release(
-        "upload-42", "owner-a"
-    )
-
-
 async def _room_acquire() -> Any:
     return await RoomRedisDistributedLock(_FailingClient()).acquire(
         "room-7", "owner-a", 10
@@ -94,9 +75,6 @@ CASES = [
     (_leader_try_acquire, "try_acquire", "leader", "stale_task_checker", False),
     (_leader_renew, "renew", "leader", "stale_task_checker", False),
     (_leader_release, "release", "leader", "stale_task_checker", None),
-    (_lock_acquire, "acquire", "lock", "upload-42", False),
-    (_lock_renew, "renew", "lock", "upload-42", False),
-    (_lock_release, "release", "lock", "upload-42", False),
     (_room_acquire, "acquire", "room", "room-7", None),
     (_room_renew, "renew", "room", "room-7", None),
     (_room_release, "release", "room", "room-7", None),
@@ -129,7 +107,7 @@ async def test_lock_operation_failure_is_logged_and_return_value_unchanged(
 @pytest.mark.asyncio
 async def test_close_failure_is_logged_without_a_lock_name(caplog):
     caplog.set_level(logging.DEBUG)
-    lock = DistributedLockImpl(client=_FailingClient())
+    lock = RoomRedisDistributedLock(client=_FailingClient())
 
     await lock.close()
 

@@ -3,7 +3,7 @@
 import pytest
 
 from agent.card_validation import validate_agent_card_data
-from agent.url_utils import is_local_agent_url, normalize_agent_url
+from agent.url_utils import normalize_agent_url
 
 # =============================================================================
 # URL Normalization Tests
@@ -72,51 +72,6 @@ class TestNormalizeAgentUrl:
         invalid_url = "not-a-valid-url"
         result = normalize_agent_url(invalid_url)
         assert result == invalid_url
-
-
-# =============================================================================
-# is_local_agent_url Tests
-# =============================================================================
-
-
-class TestIsLocalAgentUrl:
-    """Tests for the is_local_agent_url helper."""
-
-    @pytest.mark.parametrize(
-        "url",
-        [
-            "http://localhost:8000",
-            "http://localhost:8000/agent",
-            "http://127.0.0.1:9000",
-            "http://0.0.0.0:10020",
-            "http://[::1]:8080",
-            "http://LOCALHOST:8000",  # case-insensitive
-        ],
-    )
-    def test_local_urls_return_true(self, url):
-        assert is_local_agent_url(url) is True, f"Expected True for {url!r}"
-
-    @pytest.mark.parametrize(
-        "url",
-        [
-            "http://agent.example.com:8000",
-            "https://api.hybro.ai/v1/agent",
-            "http://192.168.1.10:10020",  # private IP but not loopback
-            "http://10.0.0.1:10020",  # RFC-1918, not loopback
-            "http://172.16.0.1:10020",  # RFC-1918, not loopback
-        ],
-    )
-    def test_non_local_urls_return_false(self, url):
-        assert is_local_agent_url(url) is False, f"Expected False for {url!r}"
-
-    def test_empty_string_returns_false(self):
-        assert is_local_agent_url("") is False
-
-    def test_none_returns_false(self):
-        assert is_local_agent_url(None) is False
-
-    def test_invalid_url_returns_false(self):
-        assert is_local_agent_url("not-a-valid-url") is False
 
 
 # =============================================================================

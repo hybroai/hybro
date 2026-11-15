@@ -9,17 +9,6 @@ export const AGENT_PALETTE_DARK = [
   { name: 'calm-sky',    hsl: '195 28% 75%' },
 ] as const
 
-export const AGENT_PALETTE_LIGHT = [
-  { name: 'slate-blue',  hsl: '215 40% 45%' },
-  { name: 'soft-purple', hsl: '265 35% 48%' },
-  { name: 'dusty-rose',  hsl: '340 38% 47%' },
-  { name: 'warm-peach',  hsl: '25 45% 44%' },
-  { name: 'muted-gold',  hsl: '45 40% 40%' },
-  { name: 'sage-teal',   hsl: '170 35% 38%' },
-  { name: 'soft-mint',   hsl: '145 32% 40%' },
-  { name: 'calm-sky',    hsl: '195 38% 43%' },
-] as const
-
 export const AGENT_PALETTE = AGENT_PALETTE_DARK
 
 export function agentColorIndex(id: string): number {

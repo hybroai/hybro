@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 
 from .models import BudgetState, OrchestratorProfile, UsageRecord
@@ -12,26 +11,6 @@ class BudgetExceeded(RuntimeError):
     def __init__(self, reason: str) -> None:
         super().__init__(reason)
         self.reason = reason
-
-
-@dataclass(slots=True)
-class AttemptUsageLedger:
-    _usage: dict[tuple[int, int], UsageRecord] = field(default_factory=dict)
-
-    def record(self, turn: int, attempt: int, usage: UsageRecord) -> None:
-        self._usage[(turn, attempt)] = usage
-
-    def totals(self) -> UsageRecord:
-        return UsageRecord(
-            input_tokens=sum(item.input_tokens for item in self._usage.values()),
-            output_tokens=sum(item.output_tokens for item in self._usage.values()),
-            cache_read_tokens=sum(
-                item.cache_read_tokens for item in self._usage.values()
-            ),
-            cache_write_tokens=sum(
-                item.cache_write_tokens for item in self._usage.values()
-            ),
-        )
 
 
 class BudgetPolicy:
@@ -123,30 +102,6 @@ class BudgetPolicy:
         field = "grace_turns_used" if grace else "model_turns_used"
         return budget.model_copy(update={field: getattr(budget, field) + 1})
 
-    def record_model_turn(
-        self,
-        budget: BudgetState,
-        profile: OrchestratorProfile,
-        *,
-        provider_attempts: int,
-        usage: UsageRecord | None,
-        grace: bool = False,
-    ) -> BudgetState:
-        updates = {
-            "provider_retries_used": budget.provider_retries_used
-            + max(0, provider_attempts - 1),
-            "input_tokens": budget.input_tokens + (usage.input_tokens if usage else 0),
-            "output_tokens": budget.output_tokens
-            + (usage.output_tokens if usage else 0),
-        }
-        if grace:
-            updates["grace_turns_used"] = budget.grace_turns_used + 1
-        else:
-            updates["model_turns_used"] = budget.model_turns_used + 1
-        updated = budget.model_copy(update=updates)
-        self.before_token_side_effect(updated, profile)
-        return updated
-
     def before_tool_call(
         self, budget: BudgetState, profile: OrchestratorProfile, *, now: datetime
     ) -> None:
@@ -233,7 +188,6 @@ def apply_suspension_clock(
 
 
 __all__ = [
-    "AttemptUsageLedger",
     "BudgetExceeded",
     "BudgetPolicy",
     "apply_suspension_clock",

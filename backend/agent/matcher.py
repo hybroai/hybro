@@ -6,10 +6,6 @@ from typing import Any, Protocol, runtime_checkable
 from agent.matching import (
     accepts_input_modes as _accepts_input_modes,
 )
-from agent.matching import (
-    select_top_matches,
-    supports_files,
-)
 from common.dto import AgentInfo
 
 
@@ -28,10 +24,6 @@ class AgentMessageMatcher(Protocol):
 
 def _agent_to_dict(agent: AgentInfo) -> dict:
     return {"agent_id": agent.agent_id, "agent_card": dict(agent.raw_card)}
-
-
-def _agent_supports_files(agent: AgentInfo) -> bool:
-    return supports_files(_agent_to_dict(agent))
 
 
 def accepts_input_modes(
@@ -53,18 +45,6 @@ class MatchResult:
     agents: list[MatchedAgent]
     total_candidates: int
     filtered_count: int
-
-
-def select_top_agents(ranked: list[MatchedAgent]) -> list[MatchedAgent]:
-    converted = [
-        {
-            "index": index,
-            "final_score": match.final_score,
-        }
-        for index, match in enumerate(ranked)
-    ]
-    selected = select_top_matches(converted)
-    return [ranked[item["index"]] for item in selected]
 
 
 class AgentMatcher:

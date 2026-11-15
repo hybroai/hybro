@@ -1,15 +1,5 @@
 from __future__ import annotations
 
-from typing import Any
-
-
-class HITLPersistenceAdapter:
-    def __init__(self, persistence) -> None:
-        self._persistence = persistence
-
-    def __getattr__(self, name: str) -> Any:
-        return getattr(self._persistence, name)
-
 
 class HITLDeliveryAdapter:
     def __init__(self, event_publisher) -> None:
@@ -43,7 +33,6 @@ class HITLTerminalLifecycleAdapter:
 
 
 __all__ = [
-    "HITLPersistenceAdapter",
     "HITLTerminalLifecycleAdapter",
     "HITLDeliveryAdapter",
 ]

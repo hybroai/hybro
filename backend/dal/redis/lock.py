@@ -89,41 +89,6 @@ class _RedisOwnerClient:
         self._client = None
 
 
-class DistributedLockImpl(_RedisOwnerClient):
-    """Short-lived Redis lock with owner-checked release and renew."""
-
-    async def acquire(self, key: str, owner: str, ttl: int = 60) -> bool:
-        client = self._ensure_client()
-        if client is None:
-            return False
-        try:
-            return bool(await client.set(f"lock:{key}", owner, nx=True, ex=ttl))
-        except Exception as exc:
-            self._log_failure("acquire", "lock", exc, key)
-            return False
-
-    async def release(self, key: str, owner: str) -> bool:
-        return await self._owner_eval(
-            _RELEASE_SCRIPT,
-            f"lock:{key}",
-            owner,
-            operation="release",
-            lock_kind="lock",
-            lock_name=key,
-        )
-
-    async def renew(self, key: str, owner: str, ttl: int = 60) -> bool:
-        return await self._owner_eval(
-            _RENEW_SCRIPT,
-            f"lock:{key}",
-            owner,
-            str(ttl),
-            operation="renew",
-            lock_kind="lock",
-            lock_name=key,
-        )
-
-
 class RoomRedisDistributedLock(_RedisOwnerClient):
     """Room-scoped Redis lock with tri-state acquire for graceful fallback."""
 

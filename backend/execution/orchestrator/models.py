@@ -474,11 +474,6 @@ class ModelTurnRequest(ContractModel):
     absolute_deadline_at: datetime | None = None
 
 
-class ModelTurnResult(ContractModel):
-    assistant: AssistantMessage
-    provider_request_id: str | None = None
-
-
 class CompactionResult(ContractModel):
     summary: str
     provider_attempts: int = Field(default=0, ge=0)

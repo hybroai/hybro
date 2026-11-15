@@ -31,17 +31,6 @@ from common.types import (
 
 from .message_factory import to_internal_part, to_internal_status
 
-# 1.0 ProtoJSON state names -> internal spelling.
-_PROTO_STATE_MAP: dict[str, str] = {
-    "TASK_STATE_SUBMITTED": "submitted",
-    "TASK_STATE_WORKING": "working",
-    "TASK_STATE_INPUT_REQUIRED": "input-required",
-    "TASK_STATE_AUTH_REQUIRED": "auth-required",
-    "TASK_STATE_COMPLETED": "completed",
-    "TASK_STATE_FAILED": "failed",
-    "TASK_STATE_CANCELED": "canceled",
-    "TASK_STATE_REJECTED": "rejected",
-}
 _STREAM_MEMBERS = ("task", "statusUpdate", "artifactUpdate", "message")
 
 

@@ -12,7 +12,6 @@ from conversation.dto import SavedAgentGroupSnapshot
 from conversation.membership import normalize_room_agent_set, resolve_membership_seed
 from conversation.membership_source import RepositoryRoomMembershipSeedSource
 from conversation.message_graph import (
-    select_thread,
     sort_messages,
     status_update_payload,
 )
@@ -205,7 +204,7 @@ def test_membership_source_default_constructor_does_not_import_database_service(
     assert source._store is not None
 
 
-def test_message_graph_sort_thread_and_status_payload_helpers():
+def test_message_graph_sort_and_status_payload_helpers():
     older = datetime(2026, 5, 10, tzinfo=UTC)
     newer = datetime(2026, 5, 11, tzinfo=UTC)
     rows = [
@@ -220,21 +219,6 @@ def test_message_graph_sort_thread_and_status_payload_helpers():
         "a2",
         "u2",
         "missing",
-    ]
-    assert [row["message_id"] for row in select_thread(rows, "a1")] == []
-    thread_rows = [
-        {"message_id": "a1", "related_message_id": "u1"},
-        {"message_id": "a2", "parent_message_id": "a1"},
-        {
-            "message_id": "cycle",
-            "related_message_id": "a2",
-            "parent_message_id": "cycle",
-        },
-    ]
-    assert [row["message_id"] for row in select_thread(thread_rows, "u1")] == [
-        "a1",
-        "a2",
-        "cycle",
     ]
     now = newer
     assert status_update_payload("completed", {"task_updated_at": now}) == {

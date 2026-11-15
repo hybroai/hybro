@@ -2,7 +2,6 @@
 
 from conversation.candidate_scope import (
     SUPPORTED_CANDIDATE_SCOPE_SOURCES,
-    candidate_scope_from_envelope,
     normalize_candidate_scope,
 )
 from conversation.deletion import RoomDeletionService
@@ -26,7 +25,6 @@ __all__ = [
     "RoomDeletionService",
     "RoomMongoRepository",
     "RoomQuoteMongoRepository",
-    "candidate_scope_from_envelope",
     "normalize_candidate_scope",
     "normalize_timeline_document",
     "room_info_from_doc",

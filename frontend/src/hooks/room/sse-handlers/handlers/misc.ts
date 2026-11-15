@@ -59,13 +59,6 @@ export function handleError(_ctx: SSEHandlerDeps, sseMessage: RoomSSEFrameMap['e
   }
 }
 
-export function handleConnected(sseMessage: RoomSSEFrameMap['connected']): void {
-  log.debug('sse_room_connected', { conversation_id: sseMessage.conversation_id, connection_id: sseMessage.data.connection_id })
-}
-
-export function handleHeartbeat(): void {
-}
-
 export function handleCancellation(
   _ctx: SSEHandlerDeps,
   sseMessage: RoomSSEFrameMap['cancellation'],

@@ -6,7 +6,6 @@ from conversation.candidate_scope import (
     AuthorizationBasis,
     CandidateAgentSnapshot,
     CandidateScopeSnapshot,
-    candidate_scope_from_envelope,
     normalize_candidate_scope,
 )
 
@@ -166,59 +165,10 @@ def test_normalize_candidate_scope_agent_object_preserves_metadata():
     assert scope.agents[0].success_rate == 0.8
 
 
-def test_candidate_scope_from_envelope_uses_candidate_agent_ids():
-    scope = candidate_scope_from_envelope(
-        conversation_id="room-1",
-        envelope={
-            "candidate_scope_snapshot_id": "scope-snapshot-1",
-            "candidate_scope_mode": "explicit_selection",
-            "candidate_agent_ids": ["agent-2", "agent-1"],
-            "candidate_scope_snapshot_version": 1,
-        },
-    )
-
-    assert scope.snapshot_id == "scope-snapshot-1"
-    assert scope.source == "explicit_selection"
-    assert scope.agent_ids == ["agent-2", "agent-1"]
-    assert scope.revision == 1
-    assert scope.authorization_basis.kind == "explicit_selection"
-
-
-def test_candidate_scope_from_envelope_filters_registry_to_candidate_ids():
-    scope = candidate_scope_from_envelope(
-        conversation_id="room-1",
-        envelope={
-            "candidate_scope_mode": "saved_group",
-            "candidate_agent_ids": ["agent-2", "agent-1"],
-            "candidate_scope_group_id": "group-1",
-        },
-        selected_agent_set=[
-            {"agent_id": "agent-1", "name": "Broker", "role": "broker"},
-            {"agent_id": "agent-2", "name": "Insurer", "role": "insurer"},
-            {"agent_id": "agent-3", "name": "Auditor", "role": "audit"},
-        ],
-    )
-
-    assert scope.agent_ids == ["agent-2", "agent-1"]
-    assert [agent.name for agent in scope.agents] == ["Insurer", "Broker"]
-    assert scope.group_id == "group-1"
-
-
 def test_normalize_candidate_scope_rejects_unknown_source():
     with pytest.raises(ValueError, match="unsupported candidate scope source"):
         normalize_candidate_scope(
             conversation_id="room-1",
             source="saved_groups",
             selected_agent_set=["agent-1"],
-        )
-
-
-def test_candidate_scope_envelope_rejects_unknown_source():
-    with pytest.raises(ValueError, match="unsupported candidate scope source"):
-        candidate_scope_from_envelope(
-            conversation_id="room-1",
-            envelope={
-                "candidate_scope_mode": "saved_groups",
-                "candidate_agent_ids": ["agent-1"],
-            },
         )

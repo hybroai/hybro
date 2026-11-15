@@ -97,19 +97,6 @@ def _public_part_payload(payload: dict[str, Any]) -> dict[str, Any] | None:
     return public_payload
 
 
-def public_message_data(message: Any) -> dict[str, Any] | None:
-    if message is None:
-        return None
-    message_data = _plain_model_data(message)
-    if message_data.get("role") != Role.AGENT.value:
-        return None
-    message_data["metadata"] = None
-    message_data["parts"] = _public_parts_data(message_data.get("parts"))
-    if not message_data["parts"]:
-        return None
-    return message_data
-
-
 def public_artifact_data(artifact: Any) -> dict[str, Any]:
     artifact_data = _plain_model_data(artifact)
     artifact_data["metadata"] = None
@@ -296,7 +283,6 @@ def resolve_public_agent_response_text(
 __all__ = [
     "extract_public_completed_status_text",
     "public_artifact_data",
-    "public_message_data",
     "public_part_data",
     "public_persisted_task_data",
     "resolve_public_agent_response_text",

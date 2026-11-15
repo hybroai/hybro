@@ -593,8 +593,9 @@ preflight, quotes, deletion, and candidate scope.
   [Room stream](#room-stream-and-delivery)).
 - Repositories: `conversation.repository.mongo` (`RoomMongoRepository`,
   `MessageMongoRepository`), `quote_mongo.RoomQuoteMongoRepository`,
-  `messages.ConversationMessageStore` (agent/user message writes, artifact
-  accumulation, descendant cancellation), `rooms.ConversationRoomStore`, and
+  `messages.ConversationMessageStore` (message reads, agent message writes,
+  HITL task-state projection, and final agent messages),
+  `rooms.ConversationRoomStore`, and
   `client_request_ids.ClientRequestIdStore`.
 - Writes: `rooms` (sole writer, including the write-lease and deletion-fencing
   fields that `room_files` changes through `RoomLifecycleStore`),

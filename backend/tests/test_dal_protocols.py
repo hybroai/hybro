@@ -107,7 +107,6 @@ def test_dal_top_level_exports_are_explicit():
     import dal
 
     assert set(dal.__all__) == {
-        "DistributedLockImpl",
         "LeaderElectorImpl",
         "MongoCollectionAdapter",
         "MongoDALImpl",
