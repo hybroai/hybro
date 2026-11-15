@@ -814,7 +814,7 @@ def configure_for(*, image: bool) -> None:
 
 
 async def serve(app: Starlette) -> None:
-    """Run uvicorn without its own logging config, as backend/__main__.py does.
+    """Run uvicorn without its own logging config, as backend/main.py does.
 
     MCPServer.run_streamable_http_async would let uvicorn's dictConfig attach
     plain-text handlers next to the structured one.

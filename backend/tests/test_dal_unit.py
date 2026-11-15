@@ -1145,55 +1145,6 @@ async def test_redis_pubsub_impl_gracefully_degrades_without_url(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_distributed_lock_impl_uses_owner_checked_lua():
-    from dal.redis.lock import DistributedLockImpl
-
-    client = MagicMock()
-    client.set = AsyncMock(return_value=True)
-    client.eval = AsyncMock(return_value=1)
-
-    lock = DistributedLockImpl(client=client)
-
-    assert await lock.acquire("resource", "owner", ttl=30) is True
-    assert await lock.release("resource", "owner") is True
-    assert await lock.renew("resource", "owner", ttl=45) is True
-
-    client.set.assert_awaited_once_with("lock:resource", "owner", nx=True, ex=30)
-    assert client.eval.await_count == 2
-    release_args = client.eval.await_args_list[0].args
-    renew_args = client.eval.await_args_list[1].args
-    assert release_args[1:] == (1, "lock:resource", "owner")
-    assert renew_args[1:] == (1, "lock:resource", "owner", "45")
-
-
-@pytest.mark.asyncio
-async def test_distributed_lock_impl_gracefully_degrades_without_url(monkeypatch):
-    from dal.redis import lock as lock_module
-
-    monkeypatch.setattr(lock_module.settings, "redis_url", "")
-
-    lock = lock_module.DistributedLockImpl()
-
-    assert await lock.acquire("resource", "owner") is False
-    assert await lock.release("resource", "owner") is False
-    assert await lock.renew("resource", "owner") is False
-
-
-@pytest.mark.asyncio
-async def test_distributed_lock_impl_close_closes_client():
-    from dal.redis.lock import DistributedLockImpl
-
-    client = MagicMock()
-    client.aclose = AsyncMock()
-
-    lock = DistributedLockImpl(client=client)
-
-    await lock.close()
-
-    client.aclose.assert_awaited_once()
-
-
-@pytest.mark.asyncio
 async def test_leader_elector_impl_uses_instance_id_owner_checks():
     from dal.redis.lock import LeaderElectorImpl
 

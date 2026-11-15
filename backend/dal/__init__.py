@@ -1,6 +1,5 @@
 from dal.mongo import MongoCollectionAdapter, MongoDALImpl
 from dal.redis import (
-    DistributedLockImpl,
     LeaderElectorImpl,
     RedisKVImpl,
     RedisPubSubImpl,
@@ -8,7 +7,6 @@ from dal.redis import (
 )
 
 __all__ = [
-    "DistributedLockImpl",
     "LeaderElectorImpl",
     "MongoCollectionAdapter",
     "MongoDALImpl",

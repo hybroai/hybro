@@ -1,13 +1,12 @@
 import asyncio
 import json
 import logging
-import runpy
 import shlex
 import sys
 from datetime import UTC, datetime
 from enum import StrEnum
 from pathlib import Path
-from types import ModuleType, SimpleNamespace
+from types import SimpleNamespace
 
 import pytest
 
@@ -355,28 +354,6 @@ def test_console_entrypoint_does_not_replace_structured_logging(monkeypatch):
     )
 
     main.main()
-
-    assert captured["kwargs"]["log_config"] is None
-    assert captured["kwargs"]["access_log"] is False
-
-
-def test_python_module_entrypoint_owns_uvicorn_logging(monkeypatch):
-    import uvicorn
-
-    captured: dict = {}
-    bootstrap = ModuleType("common.observability.bootstrap")
-    bootstrap.settings = SimpleNamespace()
-    monkeypatch.setitem(sys.modules, "common.observability.bootstrap", bootstrap)
-    monkeypatch.setattr(
-        uvicorn,
-        "run",
-        lambda *args, **kwargs: captured.update(args=args, kwargs=kwargs),
-    )
-
-    runpy.run_path(
-        str(Path(__file__).parents[1] / "__main__.py"),
-        run_name="__main__",
-    )
 
     assert captured["kwargs"]["log_config"] is None
     assert captured["kwargs"]["access_log"] is False
