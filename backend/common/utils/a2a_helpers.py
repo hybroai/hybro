@@ -166,23 +166,6 @@ def extract_parts_from_artifacts(artifacts: list) -> ExtractedParts:
     return result
 
 
-def get_text_from_a2a_response(result: Any) -> str:
-    """Extract text content from an A2A response (Task or Message).
-
-    Args:
-        result: A Task or Message object from A2A response
-
-    Returns:
-        Extracted text as a string, or empty string if no text found
-    """
-    if result.kind == "message" and hasattr(result, "parts") and result.parts:
-        return get_text_from_message(result)
-    elif result.kind == "task":
-        message = get_message_from_task(result)
-        return get_text_from_message(message) if message else ""
-    return ""
-
-
 def get_message_from_task(task: Any) -> Any | None:
     """Extract message from a Task object.
 
@@ -241,91 +224,6 @@ def extract_text_from_artifacts(artifacts: list) -> str | None:
     """Extract text content from A2A artifacts via ``extract_parts``."""
     text = extract_parts_from_artifacts(artifacts).text
     return text if text else None
-
-
-def extract_agent_text_from_room_message(msg: object) -> str | None:
-    """Safely extract the agent's latest response text from a RoomAgentMessage.
-
-    Checks storage locations in canonical-output priority order:
-    1. ``message_content.message_task.artifacts`` (A2A-compliant task output).
-    2. ``message_content.message_text`` (the backend's canonical display text).
-    3. ``message_content.message_task.status.message`` (fallback for agents
-       that put completed output in status.message).
-    4. Agent-role entries in ``message_content.message_task.history`` (last
-       fallback; history can contain intermediate status/progress messages).
-
-    All parts of the latest agent-role message are joined so that multi-part
-    responses are preserved (e.g. reasoning part + answer part).
-
-    Returns ``None`` when no text can be found; never raises.
-    """
-    try:
-        mc = getattr(msg, "message_content", None)
-        if mc is None:
-            return None
-
-        task = getattr(mc, "message_task", None)
-        if task is not None:
-            artifacts = getattr(task, "artifacts", None)
-            if isinstance(artifacts, list) and artifacts:
-                text = extract_text_from_artifacts(artifacts)
-                if text:
-                    return text
-
-        message_text = getattr(mc, "message_text", None)
-        if isinstance(message_text, str) and message_text:
-            return message_text
-
-        if task is not None:
-            status = getattr(task, "status", None)
-            status_message = getattr(status, "message", None)
-            status_parts = getattr(status_message, "parts", None)
-            if isinstance(status_parts, list) and status_parts:
-                text = extract_parts(status_parts).text
-                if text:
-                    return text
-
-            history = getattr(task, "history", None)
-            if history:
-                for entry in reversed(history):
-                    role = getattr(entry, "role", None)
-                    if getattr(role, "value", role) == "agent":
-                        parts = getattr(entry, "parts", None)
-                        if parts:
-                            text = extract_parts(parts).text
-                            if text:
-                                return text
-
-        return None
-    except (AttributeError, IndexError, TypeError):
-        return None
-
-
-def extract_error_message(task: Any) -> str | None:
-    """Extract error message from task status."""
-    if not task.status.message:
-        return None
-    if not task.status.message.parts:
-        return None
-    for part in task.status.message.parts:
-        if hasattr(part, "text") and part.text:
-            return part.text
-        if hasattr(part, "root") and hasattr(part.root, "text"):
-            return part.root.text
-    return None
-
-
-def extract_status_message(task: Any) -> str | None:
-    """Extract human-readable status message."""
-    return extract_error_message(task)  # Same extraction logic
-
-
-def task_has_visible_content(task: Any) -> bool:
-    """Return True when task has user-visible output (text or non-text parts)."""
-    if not task.artifacts:
-        return False
-    extracted = extract_parts_from_artifacts(task.artifacts)
-    return bool(extracted.text or extracted.has_non_text)
 
 
 def _normalize_part_root(root: dict) -> dict | None:
@@ -613,14 +511,6 @@ def _state_value(state: Any) -> str:
     return str(value)
 
 
-def is_terminal_task_state_value(state: Any) -> bool:
-    from common.a2a_constants import TERMINAL_STATES
-
-    if state is None:
-        return False
-    return _state_value(state) in {item.value for item in TERMINAL_STATES}
-
-
 def _part_dict_is_text(part: dict) -> bool:
     root = part.get("root", part)
     if isinstance(root, dict):
@@ -635,14 +525,6 @@ def _part_dict_is_text(part: dict) -> bool:
     if isinstance(part, dict) and "text" in part and kind not in ("file", "data"):
         return True
     return False
-
-
-def filter_non_text_parts(parts: list[dict] | None) -> list[dict] | None:
-    """Drop text parts so SSE ``parts`` carries only file/data payloads."""
-    if not parts:
-        return parts
-    kept = [part for part in parts if not _part_dict_is_text(part)]
-    return kept or None
 
 
 def prepare_terminal_agent_content(
@@ -675,19 +557,6 @@ def prepare_terminal_agent_content(
         resolved_task["artifacts"] = resolved_artifacts
 
     return resolved_text, resolved_artifacts, resolved_task
-
-
-def artifacts_to_dicts(artifacts: list | None) -> list[dict]:
-    """Convert persisted A2A artifact models to plain dicts."""
-    if not artifacts:
-        return []
-    result: list[dict] = []
-    for artifact in artifacts:
-        if isinstance(artifact, dict):
-            result.append(artifact)
-        elif hasattr(artifact, "model_dump"):
-            result.append(artifact.model_dump(mode="json", by_alias=True))
-    return result
 
 
 def extract_text_from_artifact_dicts(artifacts: list[dict] | None) -> str | None:

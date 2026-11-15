@@ -1,13 +1,6 @@
-import json
 from typing import Any
 
-from common.dto import (
-    AgentCardInterface,
-    AgentCardSnapshot,
-    AgentStreamEvent,
-    AgentTaskResult,
-    InternalAgentMessage,
-)
+from common.dto import AgentCardInterface, AgentCardSnapshot
 from common.types import Artifact, Message, Part, Task, TaskState, TaskStatus
 
 from .message_factory import from_sdk_message, to_internal_part
@@ -16,113 +9,6 @@ from .webhook_payloads import (
     task_from_status_update,
     task_from_task_frame,
 )
-
-TERMINAL_STATES = {"completed", "failed", "canceled", "cancelled", "rejected"}
-PLATFORM_SUPPORTED_MODES = {
-    "text/plain",
-    "text/markdown",
-    "text/html",
-    "text/csv",
-    "image/png",
-    "image/jpeg",
-    "image/gif",
-    "image/webp",
-    "audio/wav",
-    "audio/mpeg",
-    "audio/mp4",
-    "audio/webm",
-    "video/mp4",
-    "video/webm",
-    "application/json",
-    "application/pdf",
-    "application/xml",
-    "application/zip",
-}
-MODE_TO_MIMES: dict[str, set[str]] = {
-    "text": {"text/plain"},
-    "image": {"image/png", "image/jpeg", "image/gif", "image/webp"},
-    "audio": {"audio/wav", "audio/mpeg", "audio/mp4", "audio/webm"},
-    "video": {"video/mp4", "video/webm"},
-    "json": {"application/json"},
-    "form": {"text/plain"},
-    "markdown": {"text/markdown", "text/plain"},
-}
-
-
-def internal_message_to_a2a(msg: InternalAgentMessage) -> dict[str, Any]:
-    return {
-        "role": msg.role,
-        "parts": _jsonable(msg.parts),
-        "metadata": {"agent_id": msg.agent_id, **_jsonable(msg.metadata)},
-    }
-
-
-def a2a_task_to_result(task_data: dict[str, Any], agent_id: str) -> AgentTaskResult:
-    task_source = _jsonrpc_result(task_data) or task_data
-    status_data = _read(task_source, "status")
-    status = _normalize_status(status_data)
-    error = _extract_error_text(
-        _read(task_source, "error") or _read(task_data, "error")
-    )
-    if error is None and status in {"failed", "canceled", "cancelled"}:
-        error = _stringify_message(_read(status_data, "message"))
-
-    result: dict[str, Any] = {"raw": task_data}
-    for key in ("artifacts", "message", "result"):
-        value = _read(task_source, key)
-        if value is not None:
-            result[key] = value
-
-    return AgentTaskResult(
-        task_id=_first_non_empty(
-            _read(task_source, "id"),
-            _read(task_source, "taskId"),
-            _read(task_source, "task_id"),
-            "",
-        ),
-        agent_id=agent_id,
-        status=status,
-        result=result,
-        error=error,
-    )
-
-
-def a2a_event_to_stream_event(
-    event_data: dict[str, Any],
-    agent_id: str,
-) -> AgentStreamEvent:
-    event_source = _jsonrpc_result(event_data) or event_data
-    nested_task = _read(event_source, "task") or {}
-    status_data = _read(event_source, "status")
-    status = _normalize_status(status_data)
-    payload: dict[str, Any] = {"raw": event_data}
-    for key in ("status", "artifact", "message"):
-        value = _read(event_source, key)
-        if value is not None:
-            payload[key] = value
-
-    is_error = _read(event_source, "error") is not None
-    final = bool(_read(event_source, "final")) or status in TERMINAL_STATES or is_error
-
-    return AgentStreamEvent(
-        task_id=_first_non_empty(
-            _read(event_source, "task_id"),
-            _read(event_source, "taskId"),
-            _read(event_source, "id"),
-            _read(nested_task, "id"),
-            "",
-        ),
-        agent_id=agent_id,
-        event_type=_first_non_empty(
-            _read(event_source, "event_type"),
-            _read(event_source, "type"),
-            _read(event_source, "kind"),
-            "error" if is_error else "",
-            "message",
-        ),
-        payload=payload,
-        final=final,
-    )
 
 
 def a2a_card_to_snapshot(card: Any, agent_url: str) -> AgentCardSnapshot:
@@ -228,28 +114,6 @@ def _as_sequence(value: Any) -> list[Any]:
         return []
 
 
-def resolve_accepted_output_modes(agent_card: Any) -> list[str]:
-    """Intersect an agent's declared output modes with platform capabilities."""
-    raw_modes = getattr(agent_card, "default_output_modes", None)
-    agent_modes = set(raw_modes if raw_modes is not None else ["text"])
-    if not agent_modes:
-        agent_modes = {"text"}
-
-    agent_mime_modes: set[str] = set()
-    for mode in agent_modes:
-        if "/" in mode:
-            agent_mime_modes.add(mode)
-        elif mode in MODE_TO_MIMES:
-            agent_mime_modes.update(MODE_TO_MIMES[mode])
-        else:
-            agent_mime_modes.add("text/plain")
-
-    accepted = agent_mime_modes & PLATFORM_SUPPORTED_MODES
-    if not accepted:
-        accepted = {"text/plain"}
-    return sorted(accepted)
-
-
 def coerce_parts(parts: list[Any] | None) -> list[Part]:
     """Map SDK parts, wire dicts, or internal parts onto internal parts."""
     return [to_internal_part(part) for part in parts or []]
@@ -300,48 +164,6 @@ def facade_result_to_model(response: dict[str, Any]) -> Message | Task:
     if kind == "artifact-update":
         return task_from_artifact_update(result)
     raise ValueError(str(response.get("error") or "Unknown A2A response"))
-
-
-def _normalize_status(status_data: Any) -> str:
-    state = _read(status_data, "state")
-    if state is not None:
-        return _string_value(state)
-    if status_data is not None:
-        return _string_value(status_data)
-    return "unknown"
-
-
-def _extract_error_text(error_data: Any) -> str | None:
-    if error_data is None:
-        return None
-    message = _read(error_data, "message")
-    if message is not None:
-        return _stringify_message(message)
-    return _stringify_message(error_data)
-
-
-def _stringify_message(value: Any) -> str | None:
-    if value is None:
-        return None
-    if isinstance(value, str):
-        return value
-    text = _read(value, "text")
-    if text is not None:
-        return _string_value(text)
-    parts = _read(value, "parts")
-    if isinstance(parts, list):
-        texts = [_stringify_message(part) for part in parts]
-        return "\n".join(text for text in texts if text)
-    root = _read(value, "root")
-    if root is not None:
-        return _stringify_message(root)
-    message = _read(value, "message")
-    if message is not None:
-        return _stringify_message(message)
-    try:
-        return json.dumps(_jsonable(value), sort_keys=True)
-    except TypeError:
-        return str(value)
 
 
 def _normalize_capabilities(
@@ -418,15 +240,6 @@ def _read(value: Any, *names: str) -> Any:
     return None
 
 
-def _jsonrpc_result(value: Any) -> dict[str, Any] | None:
-    if not isinstance(value, dict):
-        return None
-    if "jsonrpc" not in value:
-        return None
-    result = value.get("result")
-    return result if isinstance(result, dict) else None
-
-
 def _first_non_empty(*values: Any) -> str:
     for value in values:
         if value is not None and value != "":
@@ -455,9 +268,4 @@ def _jsonable(value: Any) -> Any:
     return value
 
 
-__all__ = [
-    "a2a_card_to_snapshot",
-    "a2a_event_to_stream_event",
-    "a2a_task_to_result",
-    "internal_message_to_a2a",
-]
+__all__ = ["a2a_card_to_snapshot"]

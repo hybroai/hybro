@@ -9,12 +9,10 @@ import httpx
 import pytest
 
 from common.dto import (
-    InternalAgentMessage,
     LLMResponse,
     LLMStructuredResponse,
     LLMUsage,
 )
-from common.types import MessageRole
 from llm_gateway.model_registry import ModelInfo
 
 
@@ -23,25 +21,6 @@ def isolate_adapter_configuration(monkeypatch):
     # Injected adapter units do not exercise startup/config-file policy.
     monkeypatch.setattr("llm_gateway.config.load_saved_provider", lambda: None)
     monkeypatch.setattr("llm_gateway.gateway.load_provider_runtime", lambda: None)
-
-
-def test_translator_internal_message_to_a2a_preserves_message_fields():
-    from a2a_adapter.translators import internal_message_to_a2a
-
-    message = InternalAgentMessage(
-        agent_id="agent-1",
-        role=MessageRole.USER,
-        parts=[{"kind": "text", "text": "hello"}],
-        metadata={"trace_id": "trace-1"},
-    )
-
-    payload = internal_message_to_a2a(message)
-
-    assert payload == {
-        "role": "user",
-        "parts": [{"kind": "text", "text": "hello"}],
-        "metadata": {"agent_id": "agent-1", "trace_id": "trace-1"},
-    }
 
 
 def test_agent_card_data_normalizes_nested_agent_skill_models():
@@ -518,48 +497,6 @@ def test_to_sdk_message_preserves_inline_file_bytes():
     assert part.filename == "report.pdf"
 
 
-def test_translator_a2a_task_to_result_normalizes_task_status_result_and_error_text():
-    from a2a_adapter.translators import a2a_task_to_result
-
-    task_data = {
-        "taskId": "task-1",
-        "status": {"state": "failed", "message": {"parts": [{"text": "bad"}]}},
-        "artifacts": [{"name": "artifact"}],
-        "message": {"parts": [{"text": "answer"}]},
-    }
-
-    result = a2a_task_to_result(task_data, agent_id="agent-1")
-
-    assert result.task_id == "task-1"
-    assert result.agent_id == "agent-1"
-    assert result.status == "failed"
-    assert result.result["artifacts"] == [{"name": "artifact"}]
-    assert result.result["message"] == {"parts": [{"text": "answer"}]}
-    assert result.result["raw"] == task_data
-    assert result.error == "bad"
-
-
-def test_translator_a2a_event_to_stream_event_normalizes_payload_and_terminal_state():
-    from a2a_adapter.translators import a2a_event_to_stream_event
-
-    event_data = {
-        "type": "status-update",
-        "task": {"id": "task-1"},
-        "status": {"state": "completed"},
-        "message": {"parts": [{"text": "done"}]},
-    }
-
-    event = a2a_event_to_stream_event(event_data, agent_id="agent-1")
-
-    assert event.task_id == "task-1"
-    assert event.agent_id == "agent-1"
-    assert event.event_type == "status-update"
-    assert event.payload["raw"] == event_data
-    assert event.payload["status"] == {"state": "completed"}
-    assert event.payload["message"] == {"parts": [{"text": "done"}]}
-    assert event.final is True
-
-
 def test_card_snapshot_url_is_the_discovery_base_not_an_interface_endpoint():
     """A card's base URL must be where the card is discovered.
 
@@ -1026,31 +963,6 @@ async def test_card_resolver_aclose_leaves_injected_client_open():
 
 
 @pytest.mark.asyncio
-async def test_stream_with_docker_host_url_fallback_does_not_retry_after_yield():
-    from a2a_adapter.docker_host_fallback import (
-        stream_with_docker_host_url_fallback,
-    )
-
-    attempted_urls = []
-    yielded_items = []
-
-    async def _operation(url: str):
-        attempted_urls.append(url)
-        yield "first-event"
-        raise httpx.ConnectError("All connection attempts failed")
-
-    with pytest.raises(httpx.ConnectError):
-        async for item in stream_with_docker_host_url_fallback(
-            "http://127.0.0.1:9060/a2a",
-            _operation,
-        ):
-            yielded_items.append(item)
-
-    assert yielded_items == ["first-event"]
-    assert attempted_urls == ["http://127.0.0.1:9060/a2a"]
-
-
-@pytest.mark.asyncio
 async def test_stream_with_docker_host_fallback_closes_nested_stream():
     from a2a_adapter.docker_host_fallback import stream_with_docker_host_fallback
 
@@ -1074,9 +986,7 @@ async def test_stream_with_docker_host_fallback_closes_nested_stream():
     assert closed is True
 
 
-def test_model_registry_looks_up_models_capabilities_and_lists_unique_models(
-    monkeypatch,
-):
+def test_model_registry_looks_up_models_by_logical_name_and_model_id(monkeypatch):
     from llm_gateway import model_registry as registry_module
 
     monkeypatch.setattr(registry_module.settings, "lead_ai_model", "gpt-lead")
@@ -1086,12 +996,6 @@ def test_model_registry_looks_up_models_capabilities_and_lists_unique_models(
 
     assert registry.get_model("lead_ai_model").model_id == "gpt-lead"
     assert registry.get_model("gpt-lead").logical_name == "lead_ai_model"
-    assert registry.supports_capability("embedding_model", "embedding")
-    assert not registry.supports_capability("lead_ai_model", "embedding")
-    assert [m.logical_name for m in registry.list_models("embedding")] == [
-        "embedding_model"
-    ]
-    assert len(registry.list_models()) == 4
     assert registry.get_model("supervisor_model").logical_name == "supervisor_model"
 
 
@@ -1445,12 +1349,3 @@ class _FakeModelRegistry:
 
     def get_model(self, logical_name):
         return self.models[logical_name]
-
-    def supports_capability(self, model, capability):
-        return capability in self.models[model].capabilities
-
-    def list_models(self, capability=None):
-        models = list(self.models.values())
-        if capability is None:
-            return models
-        return [model for model in models if capability in model.capabilities]

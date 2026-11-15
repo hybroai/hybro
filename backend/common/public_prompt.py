@@ -62,8 +62,3 @@ def concrete_agent_input_prompt(prompt: str | None) -> str | None:
     if safe_prompt.casefold() == GENERIC_AGENT_INPUT_PROMPT.casefold():
         return None
     return safe_prompt
-
-
-def public_agent_input_prompt(prompt: str | None) -> str:
-    """Return a bounded public question or a non-actionable safe fallback."""
-    return concrete_agent_input_prompt(prompt) or GENERIC_AGENT_INPUT_PROMPT

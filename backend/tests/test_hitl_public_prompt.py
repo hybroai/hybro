@@ -1,7 +1,6 @@
 from common.public_prompt import (
     concrete_agent_input_prompt,
     is_internal_agent_contract_prompt,
-    public_agent_input_prompt,
 )
 
 
@@ -26,9 +25,6 @@ def test_internal_agent_contract_prompt_is_not_public_hitl():
     ):
         assert is_internal_agent_contract_prompt(prompt)
         assert concrete_agent_input_prompt(prompt) is None
-        assert public_agent_input_prompt(prompt) == (
-            "The agent needs additional information."
-        )
 
 
 def test_friendly_agent_question_remains_public_hitl():

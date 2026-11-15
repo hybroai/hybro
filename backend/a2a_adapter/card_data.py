@@ -16,10 +16,6 @@ from typing import Any
 from a2a.client.card_resolver import parse_agent_card
 from a2a.types import AgentCard
 
-# A card reached through Hybro always speaks JSON-RPC until the wire says
-# otherwise, so an unspecified binding gets the JSON-RPC default.
-_DEFAULT_BINDING = "JSONRPC"
-
 
 def agent_card_dict(agent_card_data: Any) -> dict[str, Any]:
     """Return plain camelCase card data from an internal model or dict."""

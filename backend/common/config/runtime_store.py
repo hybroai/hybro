@@ -94,59 +94,6 @@ def runtime_home(environment: Mapping[str, str]) -> Path:
     return home
 
 
-def prepare_setup_directory(home: Path) -> bool:
-    """Setup-only permission repair; never create a directory or inspect contents.
-
-    lstat gives actionable diagnostics; only the no-follow directory FD authorizes
-    repair, so a path replacement cannot redirect chmod through a symlink.
-    Runtime readers/writers retain their strict validation without automatic repair.
-    """
-    try:
-        metadata = home.lstat()
-    except FileNotFoundError:
-        return False
-    if stat.S_ISLNK(metadata.st_mode):
-        raise RuntimeConfigurationError(
-            "Runtime directory is a symlink; set HYBRO_HOME to a real directory."
-        )
-    if not stat.S_ISDIR(metadata.st_mode):
-        raise RuntimeConfigurationError(
-            "Runtime path is not a directory; set HYBRO_HOME to a private directory."
-        )
-    ownership_error = (
-        "Runtime directory is owned by another user; choose a HYBRO_HOME "
-        "you own or ask its administrator to correct ownership."
-    )
-    if metadata.st_uid != os.geteuid():
-        raise RuntimeConfigurationError(ownership_error)
-    identity = (metadata.st_dev, metadata.st_ino)
-    try:
-        fd = os.open(home, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_NONBLOCK)
-        try:
-            metadata = os.fstat(fd)
-            if not stat.S_ISDIR(metadata.st_mode):
-                raise RuntimeConfigurationError(
-                    "Runtime path is not a directory; choose a real HYBRO_HOME directory."
-                )
-            if metadata.st_uid != os.geteuid():
-                raise RuntimeConfigurationError(ownership_error)
-            if (metadata.st_dev, metadata.st_ino) != identity:
-                raise RuntimeConfigurationError(
-                    "Runtime directory changed during setup; rerun setup."
-                )
-            if stat.S_IMODE(metadata.st_mode) == 0o700:
-                return False
-            os.fchmod(fd, 0o700)
-            return True
-        finally:
-            os.close(fd)
-    except OSError:
-        raise RuntimeConfigurationError(
-            "Cannot secure runtime directory; check access and ensure HYBRO_HOME "
-            "is a real directory you own, then rerun setup."
-        ) from None
-
-
 def current_store() -> RuntimeConfigStore:
     """Central process-location boundary shared by loaders and OAuth refresh."""
     return RuntimeConfigStore(runtime_home(os.environ))
