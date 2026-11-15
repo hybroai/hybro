@@ -1,6 +1,5 @@
 from datetime import datetime
 from enum import Enum
-from typing import ClassVar
 
 from pydantic import BaseModel, field_serializer
 
@@ -10,22 +9,11 @@ from common.types import AgentCard
 # ---------------------------------------------------------------------------
 # Agent-card field protection constants
 #
-# These frozensets define which AgentCard fields Hybro manages directly and
-# must therefore never be overwritten by data arriving from external sources
-# (hub syncs, health-check fetches, etc.).
-#
-# Two distinct sets exist because the semantics differ:
-#
-#   AGENT_CARD_HUB_NO_OVERWRITE — used when syncing data from a hub.
-#     Hub agents own their complete card, including iconUrl.
-#
-#   AGENT_CARD_HEALTH_NO_SYNC — used when syncing from a live health-check.
-#     The registered `url` is Hybro's source of truth (the live card may
-#     advertise a different address), so only url is protected.
+# AGENT_CARD_HEALTH_NO_SYNC defines which AgentCard fields Hybro manages
+# directly and must therefore never be overwritten when syncing from a live
+# health-check. The registered `url` is Hybro's source of truth (the live card
+# may advertise a different address), so only url is protected.
 # ---------------------------------------------------------------------------
-
-# Hub-sourced card fields are authoritative.
-AGENT_CARD_HUB_NO_OVERWRITE: frozenset[str] = frozenset()
 
 # Fields Hybro manages for health-check syncs; all others come from the live card.
 AGENT_CARD_HEALTH_NO_SYNC: frozenset[str] = frozenset({"url"})
@@ -95,16 +83,6 @@ class Agent(BaseModel):
 
     # Derived at read time from Clerk — not persisted in MongoDB.
     provider_name: str | None = None
-
-    # Fields excluded from DB serialization (populated at read time).
-    _DB_EXCLUDE_FIELDS: ClassVar[set[str]] = {
-        "provider_name",
-    }
-
-    def db_dump(self, **kwargs) -> dict:
-        """Serialize for MongoDB, excluding derived fields."""
-        kwargs.setdefault("mode", "json")
-        return self.model_dump(exclude=self._DB_EXCLUDE_FIELDS, **kwargs)
 
     @field_serializer("agent_status")
     def serialize_status(self, value: AgentStatus) -> str:

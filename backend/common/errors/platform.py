@@ -6,10 +6,6 @@ class PlatformRouteError(Exception):
         super().__init__(message)
 
 
-class GatewayPlatformError(PlatformRouteError):
-    pass
-
-
 class FileStoragePlatformError(PlatformRouteError):
     pass
 
@@ -20,7 +16,6 @@ class RetryableFileStoragePlatformError(FileStoragePlatformError):
 
 __all__ = [
     "FileStoragePlatformError",
-    "GatewayPlatformError",
     "RetryableFileStoragePlatformError",
     "PlatformRouteError",
 ]

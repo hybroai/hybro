@@ -23,32 +23,10 @@ class Step(BaseModel):
     is_remote_agent: bool | None = False
 
 
-class TaskResponse(BaseModel):
-    task_id: str
-    status: str = CommonTaskState.SUBMITTED.value
-    steps: list[Step] = Field(default_factory=list)
-    result: Any | None = None
-    error: str | None = None
-
-
-class UserResponse(BaseModel):
-    session_id: str
-    task_id: str
-    result: str
-
-
 class InspectionCenterResponse(BaseModel):
     agent_url: str
     agent_card: AgentCard | None = None
     result: list[str]
-    status_code: int = 200
-
-
-class InsepectionCenterConnectionValidationResponse(BaseModel):
-    agent_url: str
-    agent_card: AgentCard | None = None
-    is_valid: bool
-    result: list[str] | None = None
     status_code: int = 200
 
 
@@ -58,25 +36,6 @@ class OrchestrationResponse(BaseModel):
     meta_task_ids: list[str] | None = None
     room_agent_message_list: list[RoomAgentMessage] | None = None
     agent_id: str | None = None
-    success: bool
-    error: str | None = None
-    status_code: int = 200
-
-
-class DebatationCenterResponse(BaseModel):
-    task_id: str
-    agent_id: str
-    step_id: str
-    result: Any | None = None
-    error: str | None = None
-    status_code: int = 200
-
-
-class ChatResponse(BaseModel):
-    user_name: str
-    user_input: str
-    session_id: str | None = None
-    task_id: str | None = None
     success: bool
     error: str | None = None
     status_code: int = 200
@@ -153,20 +112,6 @@ class RoomCenterUserMessageResponse(BaseModel):
     scope_resolution_error: ScopeResolutionError | None = None
     preflight_outcome: Literal["ready", "completed", "failed", "canceled"] | None = None
     preflight_details: dict[str, Any] | str | None = None
-    success: bool
-    error: str | None = None
-    status_code: int = 200
-
-
-class RoomCenterAgentMessageResponse(BaseModel):
-    conversation_id: str | None = None
-    message_id: str | None = None
-    agent_id: str | None = None
-    agent_name: str | None = None
-    message: RoomAgentMessage | None = None
-    a2a_response: Any | None = None
-    a2a_message: Any | None = None
-    message_list: list[RoomAgentMessage] | None = None
     success: bool
     error: str | None = None
     status_code: int = 200

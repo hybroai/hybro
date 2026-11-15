@@ -32,15 +32,6 @@ class ValidationError(AppError):
         super().__init__(message, code="VALIDATION", details=details)
 
 
-class AuthorizationError(AppError):
-    def __init__(
-        self,
-        message: str = "Not authorized",
-        details: dict[str, Any] | None = None,
-    ):
-        super().__init__(message, code="AUTHORIZATION", details=details)
-
-
 class ExternalServiceError(AppError):
     def __init__(
         self,
@@ -52,9 +43,6 @@ class ExternalServiceError(AppError):
         if service is not None:
             error_details["service"] = service
         super().__init__(message, code="EXTERNAL_SERVICE", details=error_details)
-
-
-HybroError = AppError
 
 
 class ConflictError(AppError):
@@ -91,10 +79,8 @@ class UpstreamError(ExternalServiceError):
 
 __all__ = [
     "AppError",
-    "AuthorizationError",
     "ConflictError",
     "ExternalServiceError",
-    "HybroError",
     "NotFoundError",
     "TransientError",
     "UpstreamError",
