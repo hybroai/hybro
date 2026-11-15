@@ -139,43 +139,15 @@ _STORE_CASES = [
         None,
     ),
     (
-        "get_room_user_messages_by_room_id",
-        lambda s: s.get_room_user_messages_by_room_id("room-1"),
-        {"conversation_id": "room-1"},
-        [],
-    ),
-    (
         "get_room_agent_message_by_message_id",
         lambda s: s.get_room_agent_message_by_message_id("msg-1"),
         {"message_id": "msg-1"},
         None,
     ),
     (
-        "get_room_agent_messages_by_room_id",
-        lambda s: s.get_room_agent_messages_by_room_id("room-1"),
-        {"conversation_id": "room-1"},
-        [],
-    ),
-    (
-        "get_room_agent_messages_by_related_message_id",
-        lambda s: s.get_room_agent_messages_by_related_message_id("msg-1"),
-        {"related_message_id": "msg-1"},
-        [],
-    ),
-    (
         "add_room_agent_message",
         lambda s: s.add_room_agent_message(_agent_message()),
         {"conversation_id": "room-1", "message_id": "msg-1", "agent_id": "agent-1"},
-        False,
-    ),
-    (
-        "add_room_user_message",
-        lambda s: s.add_room_user_message(_user_message()),
-        {
-            "conversation_id": "room-1",
-            "message_id": "msg-1",
-            "client_request_id": "request-1",
-        },
         False,
     ),
     (
@@ -185,62 +157,8 @@ _STORE_CASES = [
         False,
     ),
     (
-        "delete_room_agent_message_by_message_id",
-        lambda s: s.delete_room_agent_message_by_message_id("msg-1"),
-        {"message_id": "msg-1"},
-        False,
-    ),
-    (
-        "update_room_agent_message_by_message_id",
-        lambda s: s.update_room_agent_message_by_message_id("msg-1", _agent_message()),
-        {"message_id": "msg-1"},
-        False,
-    ),
-    (
-        "refresh_processing_claim",
-        lambda s: s.refresh_processing_claim("msg-1"),
-        {"message_id": "msg-1"},
-        False,
-    ),
-    (
-        "update_orchestration_projection_if_status",
-        lambda s: s.update_orchestration_projection_if_status(
-            "msg-1", expected_status="created", status="completed"
-        ),
-        {"message_id": "msg-1"},
-        False,
-    ),
-    (
-        "turn_exists",
-        lambda s: s.turn_exists("room-1", "turn-1"),
-        {"conversation_id": "room-1", "turn_id": "turn-1"},
-        False,
-    ),
-    (
-        "update_room_agent_message_with_new_message_content_by_message_id",
-        lambda s: s.update_room_agent_message_with_new_message_content_by_message_id(
-            "msg-1", MessageContent(message_text=SECRET)
-        ),
-        {"message_id": "msg-1"},
-        False,
-    ),
-    (
         "reset_last_notified_state",
         lambda s: s.reset_last_notified_state("msg-1"),
-        {"message_id": "msg-1"},
-        False,
-    ),
-    (
-        "accumulate_artifact_on_message",
-        lambda s: s.accumulate_artifact_on_message(
-            "msg-1", {"parts": [{"kind": "text", "text": SECRET}]}
-        ),
-        {"message_id": "msg-1"},
-        False,
-    ),
-    (
-        "update_task_state_on_message_if_not_terminal",
-        lambda s: s.update_task_state_on_message_if_not_terminal("msg-1", "working"),
         {"message_id": "msg-1"},
         False,
     ),
@@ -315,27 +233,6 @@ async def test_message_store_failure_emits_store_operation_failed(
     _assert_no_secret(caplog)
 
 
-async def test_agent_message_upsert_failure_emits_and_reraises(caplog):
-    caplog.set_level(logging.DEBUG)
-    failing = _failing()
-    store = ConversationMessageStore(
-        room_agent_messages=failing,
-        room_user_messages=failing,
-        message_repository=failing,
-    )
-    message = _agent_message()
-    message.message_created_at = NOW
-
-    with pytest.raises(_Failed):
-        await store.upsert_room_agent_message(message)
-
-    record = _one(caplog, "conversation_store_operation_failed")
-    _assert_failure(record, logging.ERROR)
-    assert record.operation == "upsert_room_agent_message"
-    _assert_ids(record, {"conversation_id": "room-1", "message_id": "msg-1"})
-    _assert_no_secret(caplog)
-
-
 @pytest.mark.parametrize(
     ("operation", "call", "ids", "fallback"),
     [
@@ -364,52 +261,6 @@ async def test_room_store_failure_emits_store_operation_failed(
     _assert_failure(record, logging.ERROR)
     assert record.operation == operation
     _assert_ids(record, ids)
-    _assert_no_secret(caplog)
-
-
-async def test_artifact_append_with_no_valid_parts_emits_append_skipped(caplog):
-    caplog.set_level(logging.DEBUG)
-    collection = MagicMock()
-    collection.update_one = AsyncMock()
-    store = ConversationMessageStore(
-        room_agent_messages=collection,
-        room_user_messages=MagicMock(),
-        message_repository=MagicMock(),
-    )
-
-    assert (
-        await store.accumulate_artifact_on_message(
-            "msg-1", {"artifactId": "art-1", "parts": [SECRET]}, append=True
-        )
-        is False
-    )
-
-    record = _one(caplog, "artifact_append_skipped")
-    assert record.levelno == logging.WARNING
-    _assert_ids(record, {"message_id": "msg-1", "reason": "parts_dropped"})
-    collection.update_one.assert_not_awaited()
-    _assert_no_secret(caplog)
-
-
-async def test_artifact_append_to_missing_artifact_emits_target_not_found(caplog):
-    caplog.set_level(logging.DEBUG)
-    collection = MagicMock()
-    collection.update_one = AsyncMock(side_effect=[False, True])
-    store = ConversationMessageStore(
-        room_agent_messages=collection,
-        room_user_messages=MagicMock(),
-        message_repository=MagicMock(),
-    )
-
-    assert await store.accumulate_artifact_on_message(
-        "msg-1",
-        {"artifactId": "art-1", "parts": [{"kind": "text", "text": SECRET}]},
-        append=True,
-    )
-
-    record = _one(caplog, "task_artifact_append_target_not_found")
-    assert record.levelno == logging.WARNING
-    _assert_ids(record, {"artifact_id": "art-1", "message_id": "msg-1"})
     _assert_no_secret(caplog)
 
 

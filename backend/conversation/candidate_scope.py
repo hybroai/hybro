@@ -105,93 +105,10 @@ def normalize_candidate_scope(
     )
 
 
-def candidate_scope_from_envelope(
-    *,
-    conversation_id: str,
-    envelope: Mapping[str, Any] | None,
-    selected_agent_set: Mapping[str, Any] | Sequence[Any] | None = None,
-) -> CandidateScopeSnapshot:
-    """Build a candidate scope snapshot from orchestration envelope fields."""
-
-    raw_envelope = envelope or {}
-    source = (
-        _optional_str(raw_envelope.get("candidate_scope_mode")) or "explicit_selection"
-    )
-    group_id = _optional_str(raw_envelope.get("candidate_scope_group_id"))
-    snapshot_id = _optional_str(raw_envelope.get("candidate_scope_snapshot_id"))
-    revision = _positive_int(raw_envelope.get("candidate_scope_snapshot_version")) or 1
-    candidate_ids = _string_list(raw_envelope.get("candidate_agent_ids"))
-
-    if candidate_ids:
-        selected = _selected_items_for_candidate_ids(
-            candidate_ids=candidate_ids,
-            selected_agent_set=selected_agent_set,
-        )
-    elif selected_agent_set is not None:
-        selected = selected_agent_set
-    else:
-        selected = []
-
-    scope = normalize_candidate_scope(
-        conversation_id=conversation_id,
-        source=source,
-        group_id=group_id,
-        selected_agent_set=selected,
-    )
-    updates: dict[str, Any] = {"revision": revision}
-    if snapshot_id is not None:
-        updates["snapshot_id"] = snapshot_id
-    return scope.model_copy(update=updates)
-
-
 def candidate_scope_items(candidate_scope: Any) -> list[Any]:
     """Return canonical candidate items from envelope or snapshot scope shapes."""
 
     return _raw_candidate_items(candidate_scope)
-
-
-def enrich_candidate_scope_snapshot(
-    scope: CandidateScopeSnapshot,
-    selected_agent_set: Mapping[str, Any] | Sequence[Any],
-) -> CandidateScopeSnapshot:
-    """Overlay live profile metadata without changing authoritative scope ids."""
-
-    persisted_by_id = {agent.agent_id: agent for agent in scope.agents}
-    live_by_id = {
-        agent.agent_id: agent
-        for item in candidate_scope_items(selected_agent_set)
-        if (agent := _candidate_agent_snapshot(item)) is not None
-    }
-    agents = [
-        live_by_id.get(agent_id)
-        or persisted_by_id.get(agent_id)
-        or CandidateAgentSnapshot(agent_id=agent_id)
-        for agent_id in scope.agent_ids
-    ]
-    return scope.model_copy(update={"agents": agents})
-
-
-def _selected_items_for_candidate_ids(
-    *,
-    candidate_ids: list[str],
-    selected_agent_set: Mapping[str, Any] | Sequence[Any] | None,
-) -> list[Any]:
-    if selected_agent_set is None:
-        return candidate_ids
-
-    registry = _registry_by_agent_id(selected_agent_set)
-    return [registry.get(agent_id) or agent_id for agent_id in candidate_ids]
-
-
-def _registry_by_agent_id(
-    selected_agent_set: Mapping[str, Any] | Sequence[Any],
-) -> dict[str, Any]:
-    registry: dict[str, Any] = {}
-    for item in _raw_candidate_items(selected_agent_set):
-        agent = _candidate_agent_snapshot(item)
-        if agent is not None and agent.agent_id not in registry:
-            registry[agent.agent_id] = item
-    return registry
 
 
 def _candidate_agents_from_selected_set(
@@ -579,14 +496,6 @@ def _skill_list(value: Any) -> list[str]:
         if skill is not None:
             result.append(skill)
     return result
-
-
-def _positive_int(value: Any) -> int | None:
-    if isinstance(value, bool):
-        return None
-    if isinstance(value, int) and value > 0:
-        return value
-    return None
 
 
 def _optional_float(value: Any) -> float | None:
