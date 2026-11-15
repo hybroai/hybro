@@ -419,24 +419,6 @@ class ExecutionFacade:
             details=ack.preflight_details or ack.error,
         )
 
-    async def _emit_room_preflight_statuses(
-        self,
-        request: ExecutionRequest,
-        ack: ExecutionAck,
-    ) -> None:
-        try:
-            await self._emit_room_preflight_processing_status(request, ack)
-            await self._emit_room_preflight_terminal_status(request, ack)
-        except Exception as exc:
-            logger.emit(
-                E.PREFLIGHT_STATUS_EMISSION_FAILED,
-                exc=exc,
-                conversation_id=request.conversation_id,
-                client_request_id=request.client_request_id,
-                message_id=ack.message_id,
-                status_stage="processing_and_terminal",
-            )
-
     @staticmethod
     def _room_request_extend_info(request: ExecutionRequest) -> dict[str, Any]:
         return {

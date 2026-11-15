@@ -21,10 +21,6 @@ from .models import (
 _OWNED_ROOM_FILE_URL_PATTERN = re.compile(r"^/api/v1/files/([a-zA-Z0-9_-]+)/content$")
 
 
-def _is_owned_room_file_url(ref: str) -> bool:
-    return bool(_OWNED_ROOM_FILE_URL_PATTERN.match(ref))
-
-
 OutboundLoader = Callable[
     [FrozenCallResourceRef, list[str], datetime],
     Awaitable[MaterializedResourcePart],

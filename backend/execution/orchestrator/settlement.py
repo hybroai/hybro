@@ -563,42 +563,6 @@ def _has_mandatory_terminal_intents(run: OrchestratorRunState) -> bool:
     return len(matching_groups) == 1
 
 
-class TerminalEvaluationTransitionResult(ContractModel):
-    outcome: StoreOutcome
-    run: OrchestratorRunState
-
-
-def transition_after_terminal_evaluation(
-    run: OrchestratorRunState,
-    *,
-    evaluation: TerminalDecisionEvaluation,
-    expected_state_version: int,
-    updated_at: datetime,
-) -> TerminalEvaluationTransitionResult:
-    """Persist the non-terminal wait selected by the operational truth table."""
-
-    if expected_state_version != run.state_version:
-        return TerminalEvaluationTransitionResult(outcome="conflict", run=run)
-    if run.status in {"canceling", *TERMINAL_RUN_STATUSES}:
-        return TerminalEvaluationTransitionResult(outcome="conflict", run=run)
-    target = {
-        "waiting_external": "waiting_external",
-        "awaiting_user": "awaiting_user",
-    }.get(evaluation.decision)
-    if target is None:
-        return TerminalEvaluationTransitionResult(outcome="conflict", run=run)
-    if run.status == target:
-        return TerminalEvaluationTransitionResult(outcome="replayed", run=run)
-    transitioned = run.model_copy(
-        update={
-            "status": target,
-            "state_version": run.state_version + 1,
-            "updated_at": updated_at,
-        }
-    )
-    return TerminalEvaluationTransitionResult(outcome="accepted", run=transitioned)
-
-
 class ProjectionSettlementResult(ContractModel):
     outcome: StoreOutcome
     run: OrchestratorRunState

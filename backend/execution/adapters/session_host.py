@@ -216,42 +216,6 @@ class RoomSessionHost:
             lifecycle=emit,
         )
 
-    async def abort_run(self, run) -> None:
-        """Signal a durably canceling Run, then reconcile terminal settlement."""
-
-        session = self._sessions.get(run.conversation_id)
-        if session is not None and session.owns_run(run.run_id):
-            await session.abort()
-            await self.reconcile_cancellation(run)
-            return
-        if run.tool_catalog is None:
-            raise SessionConflict("Run has no frozen tool catalog")
-        emitter = self._new_lifecycle_emitter()
-
-        async def emit(event_type, current, payload):
-            await emitter.emit(
-                SessionEvent(
-                    event_type=event_type,
-                    session_id=f"cancel:{current.run_id}",
-                    run_id=current.run_id,
-                    causation_id=current.request.user_message_id,
-                    sequence=current.state_version,
-                    timestamp=self._clock.now(),
-                    payload=payload,
-                    conversation_id=current.conversation_id,
-                    user_message_id=current.request.user_message_id,
-                    client_request_id=current.client_request_id,
-                )
-            )
-
-        await self._kernel_factory(run.tool_catalog).terminalize(
-            run.run_id,
-            status="canceled",
-            reason="cancellation requested",
-            cancellation_cause="user_requested",
-            lifecycle=emit,
-        )
-
     def observation_sink(self) -> RunAddressedToolObservationSink:
         """Re-entry surface for observations with or without a live session."""
 

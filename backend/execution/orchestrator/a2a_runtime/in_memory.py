@@ -183,17 +183,6 @@ class InMemoryAgentCallLedgerStore:
                 matches.append(record)
         return _clone(matches[0]) if len(matches) == 1 else None
 
-    async def find_by_task_id(self, task_id: str) -> AgentCallLedgerRecord | None:
-        matches = [
-            record
-            for record in self._records.values()
-            if any(
-                alias.kind == "task" and alias.value == task_id
-                for alias in record.ownership_aliases
-            )
-        ]
-        return _clone(matches[0]) if len(matches) == 1 else None
-
     async def cas(
         self,
         record: AgentCallLedgerRecord,

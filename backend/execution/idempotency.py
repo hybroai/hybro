@@ -136,13 +136,6 @@ def _normalized_id_set(
     return None if empty_as_none and not normalized else normalized
 
 
-def _normalized_optional_id(value: Any) -> str | None:
-    if not isinstance(value, str):
-        return None
-    normalized = value.strip()
-    return normalized or None
-
-
 def _as_mapping(value: Any) -> Mapping[str, Any]:
     return value if isinstance(value, Mapping) else {}
 

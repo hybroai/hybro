@@ -2440,30 +2440,6 @@ class OrchestratorKernel:
                 return label or None
         return None
 
-    def _tool_completed_payload(
-        self,
-        run: OrchestratorRunState,
-        call: ToolCall,
-        outcome: ToolResult | ToolSuspension,
-        *,
-        started_at: datetime,
-    ) -> dict[str, object]:
-        payload: dict[str, object] = {
-            "call_id": call.call_id,
-            "public_call_id": _opaque_public_call_id(run.run_id, call.call_id),
-            "internal_turn_id": run.active_internal_turn_id or call.call_id,
-            "status": outcome.status,
-            "tool_name": call.tool_name,
-            "agent_label": self._tool_label(run, call.tool_name),
-            "duration_ms": _elapsed_ms(self.clock.now(), started_at),
-        }
-        if isinstance(outcome, ToolResult):
-            payload["result_status"] = outcome.status
-            payload["result_error_code"] = outcome.error_code
-            payload["result_error_message"] = outcome.error_message
-            payload["result_text"] = _result_text(outcome)
-        return payload
-
     async def _present_interactions(
         self,
         run: OrchestratorRunState,

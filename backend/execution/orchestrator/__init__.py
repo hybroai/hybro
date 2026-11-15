@@ -1,6 +1,6 @@
 """Version-neutral orchestrator runtime: bounded agent kernel, room session facade, profile contracts, and injected ports."""
 
-from .budget import AttemptUsageLedger, BudgetExceeded, BudgetPolicy
+from .budget import BudgetExceeded, BudgetPolicy
 from .compaction import (
     CompactionError,
     DeterministicFakeCompactor,
@@ -38,7 +38,6 @@ from .models import (
     ModelToolCallPart,
     ModelToolResultPart,
     ModelTurnRequest,
-    ModelTurnResult,
     OrchestratorEvent,
     OrchestratorProfile,
     OrchestratorRunState,
@@ -119,14 +118,12 @@ from .settlement import (
     TerminalCommitResult,
     TerminalDecisionEvaluation,
     TerminalDecisionFacts,
-    TerminalEvaluationTransitionResult,
     TerminalStatusCommitRequest,
     TerminalStatusCommitResult,
     commit_terminal_decision,
     commit_terminal_status,
     evaluate_projection_settlement,
     evaluate_terminal_decision,
-    transition_after_terminal_evaluation,
     transition_projection_intent,
     transition_projection_settlement,
 )
@@ -146,7 +143,6 @@ from .transcript import (
 )
 
 __all__ = [
-    "AttemptUsageLedger",
     "BudgetExceeded",
     "BudgetPolicy",
     "CompactionError",
@@ -212,7 +208,6 @@ __all__ = [
     "ModelToolCallPart",
     "ModelToolResultPart",
     "ModelTurnRequest",
-    "ModelTurnResult",
     "MongoCollectionDefinition",
     "MongoIndexDefinition",
     "OrchestratorEvent",
@@ -239,7 +234,6 @@ __all__ = [
     "TerminalCommitResult",
     "TerminalDecisionEvaluation",
     "TerminalDecisionFacts",
-    "TerminalEvaluationTransitionResult",
     "TerminalStatusCommitRequest",
     "TerminalStatusCommitResult",
     "TextPart",
@@ -271,7 +265,6 @@ __all__ = [
     "resolve_model_snapshot",
     "resolve_profile_snapshot",
     "resolve_prompt_snapshot",
-    "transition_after_terminal_evaluation",
     "transition_projection_intent",
     "transition_projection_settlement",
     "unresolved_call_ids",

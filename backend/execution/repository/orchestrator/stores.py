@@ -320,24 +320,6 @@ class MongoAgentCallLedgerStore:
             else None
         )
 
-    async def find_by_task_id(self, task_id: str) -> AgentCallLedgerRecord | None:
-        """Correlate a call by its A2A task alias across binding scopes."""
-        values = await _to_list(
-            self.collection.find(
-                {
-                    "ownership_aliases": {
-                        "$elemMatch": {"kind": "task", "value": task_id}
-                    }
-                }
-            ),
-            length=2,
-        )
-        return (
-            _from_document(AgentCallLedgerRecord, values[0])
-            if len(values) == 1
-            else None
-        )
-
     async def cas(
         self,
         record: AgentCallLedgerRecord,
