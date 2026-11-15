@@ -42,11 +42,6 @@ vi.mock('@/lib/api/files', () => ({
   })),
 }))
 
-vi.mock('@/hooks/room/sse-handlers/pending-turn-buffer', () => ({
-  clearPendingSseForClientRequest: vi.fn(),
-  resolveClientRequestMessageId: vi.fn(),
-}))
-
 function createLifecycle(): ProcessingLifecycle {
   return {
     isSendGuardActive: vi.fn(() => false),
