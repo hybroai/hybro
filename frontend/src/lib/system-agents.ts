@@ -26,10 +26,6 @@ export function isSystemAgent(agentId: string | undefined): boolean {
   return !!agentId && (agentId.startsWith('system:') || agentId in SYSTEM_AGENTS)
 }
 
-export function isSupervisorSystemAgent(agentId: string | undefined): boolean {
-  return !!agentId && agentId.startsWith('system:')
-}
-
 export function isSummarySystemAgent(agentId: string | undefined): boolean {
   return agentId === 'system:hybro' || agentId === 'summary' || agentId === 'debate_summary'
 }

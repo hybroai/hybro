@@ -76,5 +76,3 @@ export function sessionStateView(state: SessionState): StatusView {
     case 'closed': return view('Closed', 'offline', 'hollow')
   }
 }
-
-export const LOAD_ERROR_STATUS: StatusView = view("Couldn't load", 'error', 'filled')

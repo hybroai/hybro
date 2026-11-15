@@ -529,20 +529,6 @@ export function mergeArtifacts(
 }
 
 /**
- * Extract display text from text-only artifacts for persisted entity state.
- * Returns the last text-only artifact so thinking + answer agents surface
- * only the most recent stream (the answer artifact).
- */
-export function extractTextFromArtifacts(artifacts: ArtifactData[]): string {
-  let last = ''
-  for (const a of artifacts) {
-    if (!isTextOnlyArtifact(a)) continue
-    last = a.parts.map(p => p.text || '').join('')
-  }
-  return last
-}
-
-/**
  * Extract live streaming display text by concatenating all text-only artifacts
  * in emission order. Matches backend extract_parts_from_artifacts ("" join).
  */

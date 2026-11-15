@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { applyUpsert, isNoOpUpdate, buildSortedIds, mergeArtifacts, extractTextFromArtifacts, extractStreamTextFromArtifacts } from '../upsert'
+import { applyUpsert, isNoOpUpdate, buildSortedIds, mergeArtifacts, extractStreamTextFromArtifacts } from '../upsert'
 import type { MessageEntity, IncomingMessage } from '../types'
 
 // ── Helpers ──────────────────────────────────────────────────
@@ -731,30 +731,6 @@ describe('mergeArtifacts — same-name text-only dedup', () => {
     const result = mergeArtifacts(existing, incoming, false)
     expect(result).toHaveLength(1)
     expect(result[0].parts[0].text).toBe('new')
-  })
-})
-
-describe('extractTextFromArtifacts', () => {
-  it('returns the last text-only artifact', () => {
-    const artifacts = [
-      { artifactId: 'a1', parts: [{ kind: 'text' as const, text: 'short' }] },
-      { artifactId: 'a2', parts: [{ kind: 'text' as const, text: 'this is much longer text' }] },
-    ]
-    expect(extractTextFromArtifacts(artifacts as any)).toBe('this is much longer text')
-  })
-
-  it('returns empty string when no text-only artifacts exist', () => {
-    const artifacts = [
-      { artifactId: 'a1', parts: [{ kind: 'file' as const, file: { uri: 'x' } }] },
-    ]
-    expect(extractTextFromArtifacts(artifacts as any)).toBe('')
-  })
-
-  it('skips mixed artifacts (not all-text)', () => {
-    const artifacts = [
-      { artifactId: 'a1', parts: [{ kind: 'text' as const, text: 'text' }, { kind: 'file' as const, file: { uri: 'x' } }] },
-    ]
-    expect(extractTextFromArtifacts(artifacts as any)).toBe('')
   })
 })
 

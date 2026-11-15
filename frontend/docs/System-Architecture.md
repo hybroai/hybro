@@ -640,7 +640,7 @@ message.
 
 The streaming store contains transient live artifact/text buffers. It is intentionally separate from `message-store`: streaming artifacts are displayed live, then cleared after DB reconcile or task checkpoint persistence.
 
-Live buffer text is derived via `extractStreamTextFromArtifacts`, which concatenates all text-only artifacts in emission order (matching backend final assembly). Persisted entity text uses `extractTextFromArtifacts` (last text-only artifact) for thinking + answer agents; this asymmetry is intentional.
+Live buffer text is derived via `extractStreamTextFromArtifacts`, which concatenates all text-only artifacts in emission order (matching backend final assembly).
 
 **Streaming invariants:**
 

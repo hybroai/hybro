@@ -1,9 +1,8 @@
 import { describe, it, expect } from "vitest"
-import { Palmtree } from "lucide-react"
-import { buildTemplateDemoMessage, resolveTemplateAgents, templateUnavailableReason, useCaseTemplates } from "@/lib/use-case-templates"
+import { resolveTemplateAgents, templateUnavailableReason, useCaseTemplates } from "@/lib/use-case-templates"
 import { createAgent } from "../../fixtures"
 import type { Agent } from "@/lib/types/agent"
-import type { UseCaseAgent, UseCaseTemplate } from "@/lib/use-case-templates"
+import type { UseCaseAgent } from "@/lib/use-case-templates"
 
 function makeAgent(id: string, name: string): Agent {
   return createAgent({ agent_id: id, name })
@@ -56,29 +55,6 @@ describe("resolveTemplateAgents", () => {
       { agentId: "agent-001", agentName: "YouTube Creator Finder Agent" },
     ]
     expect(() => resolveTemplateAgents(templateAgents, [])).toThrow()
-  })
-})
-
-describe("buildTemplateDemoMessage", () => {
-  const template: UseCaseTemplate = {
-    id: "travel-planner",
-    icon: Palmtree,
-    title: "Travel Planner",
-    description: "Plan a trip",
-    agents: [
-      { agentId: "Weather Agent", agentName: "Weather Agent" },
-      { agentId: "Travel Planner Agent", agentName: "Travel Planner Agent" },
-    ],
-    prefillMessage: "Generate a travel plan",
-  }
-
-  it("prefixes mentions and slices the typed prompt", () => {
-    expect(buildTemplateDemoMessage(template, 0)).toBe(
-      "<@Weather Agent|Weather Agent><@Travel Planner Agent|Travel Planner Agent>",
-    )
-    expect(buildTemplateDemoMessage(template, 8)).toBe(
-      "<@Weather Agent|Weather Agent><@Travel Planner Agent|Travel Planner Agent> Generate",
-    )
   })
 })
 

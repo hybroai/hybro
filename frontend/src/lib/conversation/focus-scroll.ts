@@ -6,18 +6,6 @@ export const FOCUS_SCROLL_TOP_OFFSET_PX = 50
 
 /** Keep in sync with --conversation-focus-scroll-top in conversation-tokens.css */
 
-export function computeFocusSpacerHeight(
-  container: HTMLElement,
-  anchorEl: HTMLElement,
-  contentEndEl: HTMLElement,
-  minHeight = FOCUS_SCROLL_MIN_SPACER_PX,
-): number {
-  const anchorTop = anchorEl.getBoundingClientRect().top
-  const endTop = contentEndEl.getBoundingClientRect().top
-  const heightFromAnchorToEnd = endTop - anchorTop
-  return Math.max(minHeight, container.clientHeight - heightFromAnchorToEnd)
-}
-
 export function scrollUserMessageToFocus(
   container: HTMLElement,
   userMessageEl: HTMLElement,

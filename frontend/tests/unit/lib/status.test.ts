@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { agentStatusRank, agentStatusView, gatewayStatusView, inactiveReasonText, LOAD_ERROR_STATUS, roomStatusView } from '@/lib/status'
+import { agentStatusRank, agentStatusView, gatewayStatusView, inactiveReasonText, roomStatusView } from '@/lib/status'
 
 describe('status mapping (spec 7.2)', () => {
   it('maps agent states', () => {
@@ -39,8 +39,7 @@ describe('status mapping (spec 7.2)', () => {
     expect(roomStatusView('awaiting_input')).toEqual({ label: 'Needs input', tone: 'warning', dot: 'filled', colorLabel: true })
   })
 
-  it('exposes the load error view and a status sort rank', () => {
-    expect(LOAD_ERROR_STATUS).toMatchObject({ label: "Couldn't load", tone: 'error' })
+  it('exposes a status sort rank', () => {
     expect(agentStatusRank('active')).toBeLessThan(agentStatusRank('unknown'))
     expect(agentStatusRank('unknown')).toBeLessThan(agentStatusRank('inactive'))
     expect(agentStatusRank('inactive')).toBeLessThan(agentStatusRank('deleted'))
