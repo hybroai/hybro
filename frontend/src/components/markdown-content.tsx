@@ -4,7 +4,7 @@ import React, { useCallback, useRef, useState } from 'react'
 import { Streamdown, defaultRehypePlugins } from 'streamdown'
 import type { PluggableList } from 'unified'
 import rehypeHighlight from 'rehype-highlight'
-import { AlertCircle, Check, ChevronRight, Code2, Copy } from 'lucide-react'
+import { AlertCircle, Check, ChevronRight, Code2, Copy, ImageIcon } from 'lucide-react'
 import { cn, formatIfJson } from '@/lib/utils'
 import { getPlainTextFromRange } from '@/lib/selection-plain-text'
 import { preprocessConversationMarkdown } from '@/lib/markdown/normalize-conversation'
@@ -269,6 +269,20 @@ function MarkdownImage({
     )
   }
 
+  const externalHost = externalImageHost(src)
+  if (externalHost) {
+    return (
+      <ExternalImage
+        src={src as string}
+        host={externalHost}
+        alt={alt}
+        className={className}
+        conversationTypography={conversationTypography}
+        {...props}
+      />
+    )
+  }
+
   return (
     // eslint-disable-next-line @next/next/no-img-element
     <img
@@ -277,6 +291,69 @@ function MarkdownImage({
       className={cn('max-w-full h-auto rounded-md', !conversationTypography && 'my-2', className)}
       {...props}
     />
+  )
+}
+
+/**
+ * Host of an image URL on another origin, or null for same-origin paths and
+ * inline data/blob URLs. Loading a remote image tells its server the viewer's
+ * IP address and when the message was read, so those wait for a click.
+ */
+function externalImageHost(src: unknown): string | null {
+  if (typeof src !== 'string' || typeof window === 'undefined') return null
+  try {
+    const url = new URL(src, window.location.href)
+    if (url.protocol === 'data:' || url.protocol === 'blob:') return null
+    return url.origin === window.location.origin ? null : url.host
+  } catch {
+    return null
+  }
+}
+
+function ExternalImage({
+  src,
+  host,
+  alt,
+  className,
+  conversationTypography,
+  ...props
+}: React.ImgHTMLAttributes<HTMLImageElement> & {
+  src: string
+  host: string
+  conversationTypography: boolean
+}) {
+  const [loaded, setLoaded] = useState(false)
+
+  if (loaded) {
+    return (
+      // eslint-disable-next-line @next/next/no-img-element
+      <img
+        {...props}
+        src={src}
+        alt={alt ?? ''}
+        referrerPolicy="no-referrer"
+        className={cn('max-w-full h-auto rounded-md', !conversationTypography && 'my-2', className)}
+      />
+    )
+  }
+
+  return (
+    <button
+      type="button"
+      onClick={(event) => {
+        // A linked image puts this button inside an <a>; load instead of navigating.
+        event.preventDefault()
+        event.stopPropagation()
+        setLoaded(true)
+      }}
+      title={src}
+      className="my-1 inline-flex max-w-full items-center gap-2 rounded-md border border-dashed border-border bg-muted/50 px-3 py-2 text-left text-sm text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+    >
+      <ImageIcon className="h-3.5 w-3.5 shrink-0" />
+      <span className="min-w-0 break-all">
+        {alt ? `${alt} · ` : ''}Load image from {host}
+      </span>
+    </button>
   )
 }
 
