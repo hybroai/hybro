@@ -16,13 +16,6 @@ from common.dto.hitl import (
     HITLQuestionSpec,
     HITLTextAnswer,
 )
-from execution.adapters.hitl import InMemoryHITLApplicationStore
-from execution.orchestrator.a2a_runtime.in_memory import (
-    InMemoryAgentCallLedgerStore,
-    InMemoryObservationConflictStore,
-    InMemoryObservationInboxStore,
-    InMemoryRoomEpochStore,
-)
 from execution.orchestrator.a2a_runtime.models import (
     A2AObservationConflictRecord,
     A2AObservationInboxRecord,
@@ -43,6 +36,13 @@ from execution.repository.orchestrator.stores import (
     MongoObservationConflictStore,
     MongoObservationInboxStore,
     MongoRoomEpochStore,
+)
+from tests.orchestrator_harness.a2a_in_memory import (
+    InMemoryAgentCallLedgerStore,
+    InMemoryHITLApplicationStore,
+    InMemoryObservationConflictStore,
+    InMemoryObservationInboxStore,
+    InMemoryRoomEpochStore,
 )
 from tests.orchestrator_harness.in_memory import InMemoryOrchestratorRunStore
 

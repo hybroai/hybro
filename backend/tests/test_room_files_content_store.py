@@ -5,12 +5,8 @@ from uuid import uuid4
 
 import pytest
 
-from room_files import (
-    FileConflictError,
-    FileTooLargeError,
-    LocalFileContentStore,
-    MemoryFileContentStore,
-)
+from room_files import FileConflictError, FileTooLargeError, LocalFileContentStore
+from tests.fakes.room_files import MemoryFileContentStore
 
 
 @pytest.fixture(params=["memory", "local"])

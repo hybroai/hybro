@@ -10,10 +10,8 @@ from unittest.mock import AsyncMock
 import pytest
 
 from common.dto import CancellationAck
-from delivery.room_events import InMemoryRoomEventStore
 from delivery.snapshot import SnapshotService
 from execution.adapters.session_host import RoomSessionHost
-from execution.orchestrator.a2a_runtime.in_memory import InMemoryRoomEpochStore
 from execution.orchestrator.a2a_runtime.observations import (
     RunAddressedToolObservationSink,
 )
@@ -29,6 +27,8 @@ from execution.orchestrator.models import (
 from execution.orchestrator.public_projection import PublicProjectionTranslator
 from execution.orchestrator.session import DefaultRunFactory, SessionConflict
 from execution.orchestrator_routing import DualRuntimeRouter
+from tests.fakes.room_events import InMemoryRoomEventStore
+from tests.orchestrator_harness.a2a_in_memory import InMemoryRoomEpochStore
 from tests.orchestrator_harness.fake_tools import (
     RecordingFakeToolRuntime,
     StaticFakeToolCatalog,

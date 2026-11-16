@@ -312,19 +312,3 @@ describe('upsert HITL fields', () => {
     })
   })
 })
-
-describe('HITLStatus type conformance', () => {
-  it('includes all statuses handled at runtime', () => {
-    // Keep this list in sync with the hitl_response handler
-    // in useRoomWebhook.ts. If the handler gains a new branch, add it here.
-    const runtimeStatuses: import('@/lib/types/sse').HITLStatus[] = [
-      'pending', 'responded', 'expired', 'canceled', 'error',
-    ]
-    expect(runtimeStatuses).toContain('error')
-    expect(runtimeStatuses).toContain('expired')
-    expect(runtimeStatuses).toContain('canceled')
-    expect(runtimeStatuses).toContain('responded')
-    expect(runtimeStatuses).toContain('pending')
-    expect(runtimeStatuses).toHaveLength(5)
-  })
-})

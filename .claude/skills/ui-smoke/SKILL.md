@@ -1,6 +1,6 @@
 ---
 name: ui-smoke
-description: Walk the Hybro UI like a first-time user after a change - overview, agents, chat and rooms, HITL, networks, sessions, settings, responsive and console checks - using the built-in browser, then turn every finding into a Playwright spec. Use after frontend or cross-service changes, or when asked to verify the experience.
+description: Walk the Hybro UI like a first-time user after a change - overview, network and agents, chat and rooms, HITL, sessions, settings, responsive and console checks - using the built-in browser, then turn every finding into a Playwright spec. Use after frontend or cross-service changes, or when asked to verify the experience.
 argument-hint: "[base URL, default http://localhost:3100] [focus: area or flow]"
 disable-model-invocation: true
 ---
@@ -17,14 +17,13 @@ Use the built-in browser (`mcp__Claude_Browser__*`). Prefer `read_page` and `get
 
 ## 1. Flows (skip ones outside the focus area, say which)
 - **Overview `/`**: loads without errors; provider banner present only when no provider is configured; banner is dismissible here.
-- **Agents `/agents`**: sample agents listed (Echo always; LLM-backed ones show "needs model" when unconfigured); health state visible; agent detail opens.
+- **Network `/network`**: sample agents listed (Echo always; LLM-backed ones show "needs model" when unconfigured); health state visible; agent detail `/network/agents/<id>` opens; graph renders registered and discovered agents; search, scope and selection survive reload.
 - **Chat `/chat`**: quick-start templates render; submitting creates a room and navigates without a sign-in redirect. If no provider is configured: permanent banner and disabled composer.
 - **Room**: send a message, a turn appears; multi-agent reply grouped in one turn; activity strip collapses and expands; agent details open with history column still visible; no internal dispatch prompt ever shown in the stream; cancel in-flight works.
 - **HITL**: when an agent asks for input, the reply control appears, the answer is accepted, and the resolved interaction stays visible after reload.
 - **Files**: attach a small file and send; artifact shows a download control.
-- **Networks `/networks`**: graph renders registered and discovered agents; search, scope and selection survive reload.
 - **Sessions `/sessions`**: list renders; owner can approve a client session.
-- **Manage `/manage` and MCP connect page**: readable and copyable at 1280px and 375px; legacy management routes redirect.
+- **Connect `/connect/mcp` and `/connect/api`**: readable and copyable at 1280px and 375px; legacy addresses (`/agents`, `/networks`, `/manage`, `/access/*`) redirect.
 - **Model provider settings**: banner opens settings; saving a key clears the banner (use a dummy key only if the UI validates format, not a live call).
 - **Errors**: unknown route gives a 404 page; `/rooms/<id>/anything` returns 404, not a settings route.
 - **Responsive**: repeat Overview, Chat and a Room at 375x812 and 1280x800; no horizontal scroll, controls reachable.

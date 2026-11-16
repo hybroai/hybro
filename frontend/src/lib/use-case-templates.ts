@@ -66,18 +66,6 @@ export function resolveTemplateAgents(
   return resolved
 }
 
-/** Storage-format message with template agent mentions + a typed prefix of prefillMessage. */
-export function buildTemplateDemoMessage(
-  template: UseCaseTemplate,
-  textLength: number,
-): string {
-  const mentionPrefix = template.agents
-    .map((a) => `<@${a.agentId}|${a.agentName}>`)
-    .join('')
-  const text = template.prefillMessage.slice(0, textLength)
-  return text ? `${mentionPrefix} ${text}` : mentionPrefix
-}
-
 // TODO: Replace agentId placeholders with actual production agent IDs.
 // Currently using agent names; the name-fallback ensures they resolve in dev.
 export const useCaseTemplates: UseCaseTemplate[] = [

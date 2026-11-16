@@ -9,14 +9,14 @@ from execution.orchestrator.a2a_runtime.catalog_assembler import (
     AgentToolCatalogAssembler,
     deterministic_tool_name,
 )
-from execution.orchestrator.a2a_runtime.in_memory import (
-    InMemoryAgentToolBindingStore,
-    InMemoryRoomEpochStore,
-)
 from execution.orchestrator.models import (
     AuthorizationBasis,
     CandidateScopeSnapshot,
     RunResourceManifestSnapshot,
+)
+from tests.orchestrator_harness.a2a_in_memory import (
+    InMemoryAgentToolBindingStore,
+    InMemoryRoomEpochStore,
 )
 
 from ._orchestrator_helpers import NOW, make_run

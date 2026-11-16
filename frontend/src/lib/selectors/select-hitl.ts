@@ -1,5 +1,5 @@
 import type { MessageEntity } from '@/stores/message-store/types'
-import type { HitlLifecycleState, PendingHitl, HitlState } from './conversation-types'
+import type { HitlLifecycleState, PendingHitl } from './conversation-types'
 
 const GENERIC_PROMPT = /^the agent needs additional information\.?$/i
 
@@ -95,14 +95,4 @@ export function selectPendingHitls(
       if (a.interactionId !== b.interactionId) return a.messageId.localeCompare(b.messageId)
       return (a.groupIndex ?? 0) - (b.groupIndex ?? 0) || a.hitlId.localeCompare(b.hitlId)
     })
-}
-
-export function selectAgentHitlState(entity: MessageEntity): HitlState | null {
-  if (!entity.hitlRequestId) return null
-  return {
-    hitlId: entity.hitlRequestId,
-    resolved: entity.hitlResolved === true,
-    question: entity.hitlPrompt ?? entity.content ?? entity.taskStatusMessage ?? '',
-    answer: entity.hitlUserAnswer ?? null,
-  }
 }

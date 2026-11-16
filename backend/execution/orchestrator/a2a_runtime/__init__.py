@@ -24,16 +24,8 @@ from .errors import (
     RecoverableTransportError,
     StaleRoomEpochError,
 )
-from .hitl import A2AContinuationCoordinator, InMemoryHITLApplicationPort
-from .in_memory import (
-    InMemoryAgentCallLedgerStore,
-    InMemoryAgentToolBindingStore,
-    InMemoryObservationConflictStore,
-    InMemoryObservationInboxStore,
-    InMemoryPreparedInvocationSnapshotReader,
-    InMemoryRoomEpochStore,
-    RunCheckpointReader,
-)
+from .hitl import A2AContinuationCoordinator
+from .in_memory import RunCheckpointReader
 from .ingress import (
     A2AObservationIngress,
     A2AObservationProcessor,
@@ -64,8 +56,6 @@ from .recovery import (
 )
 from .resources import (
     BoundedResourceMaterializer,
-    DurableProjectionResourceLoader,
-    InMemoryDurableResourceProjectionStore,
     ResourceSelectionError,
     freeze_call_manifest,
 )
@@ -92,20 +82,11 @@ __all__ = [
     "A2ARecoveryCycle",
     "AgentToolCatalogAssembler",
     "BoundedResourceMaterializer",
-    "DurableProjectionResourceLoader",
     "DirectA2AClient",
     "DirectA2ADispatchAdapter",
     "DirectA2AStream",
     "FrozenToolCatalog",
     "IllegalAgentCallTransition",
-    "InMemoryAgentCallLedgerStore",
-    "InMemoryAgentToolBindingStore",
-    "InMemoryDurableResourceProjectionStore",
-    "InMemoryHITLApplicationPort",
-    "InMemoryObservationConflictStore",
-    "InMemoryObservationInboxStore",
-    "InMemoryPreparedInvocationSnapshotReader",
-    "InMemoryRoomEpochStore",
     "PreparedAgentCatalog",
     "AgentCardContractError",
     "AmbiguousRemoteEffectError",

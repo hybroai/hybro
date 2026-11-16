@@ -4,7 +4,6 @@ from datetime import timedelta
 
 import pytest
 
-from execution.orchestrator.a2a_runtime.in_memory import InMemoryAgentCallLedgerStore
 from execution.orchestrator.a2a_runtime.ledger import (
     AGENT_CALL_STATES,
     AGENT_CALL_TRANSITIONS,
@@ -19,6 +18,7 @@ from execution.orchestrator.a2a_runtime.models import (
     A2AOwnershipAlias,
     NormalizedA2AObservation,
 )
+from tests.orchestrator_harness.a2a_in_memory import InMemoryAgentCallLedgerStore
 
 from ._orchestrator_a2a_helpers import ledger_record
 from ._orchestrator_helpers import NOW

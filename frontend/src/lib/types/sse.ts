@@ -344,15 +344,6 @@ export function isRoomSSEType(value: string): value is RoomSSEType {
   return ROOM_SSE_TYPE_SET.has(value)
 }
 
-export function isConnectedData(value: unknown): value is ConnectedData {
-  return Boolean(
-    value &&
-    typeof value === 'object' &&
-    typeof (value as { connection_id?: unknown }).connection_id === 'string' &&
-    (value as { connection_id: string }).connection_id.length > 0
-  )
-}
-
 export function hasSSEFrameEnvelope(value: unknown): value is AnySSEFrame {
   if (!value || typeof value !== 'object') return false
   const frame = value as Record<string, unknown>
@@ -440,7 +431,6 @@ export type HITLPromptType =
   | 'approval'
   | 'authentication'
   | 'date'
-export type HITLStatus = 'pending' | 'responded' | 'expired' | 'canceled' | 'error'
 
 // --- Internal Processing Status (SSE processing_status events) ---
 

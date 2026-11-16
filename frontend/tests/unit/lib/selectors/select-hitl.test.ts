@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from 'vitest'
-import { selectPendingHitls, selectAgentHitlState } from '@/lib/selectors/select-hitl'
+import { selectPendingHitls } from '@/lib/selectors/select-hitl'
 import { useMessageStore } from '@/stores/message-store'
 import { createAgentMessage, resetCounters } from '../../../fixtures'
 import { TASK_STATE } from '@/lib/types/sse'
@@ -122,53 +122,5 @@ describe('selectPendingHitls', () => {
     ])
     const result = selectPendingHitls('room-1', entities, orderedIds)
     expect(result).toHaveLength(0)
-  })
-})
-
-describe('selectAgentHitlState', () => {
-  beforeEach(() => resetCounters())
-
-  it('returns null for entity without hitlRequestId', () => {
-    const entity = {
-      ...createAgentMessage({ id: 'a1', conversationId: 'room-1' }),
-      source: 'db' as const, sourceVersion: 1,
-      displayType: 'agent-bubble' as const,
-      isEphemeral: false, createdAt: Date.now(), updatedAt: Date.now(),
-    }
-    expect(selectAgentHitlState(entity as any)).toBeNull()
-  })
-
-  it('returns HitlState with question from hitlPrompt', () => {
-    const entity = {
-      ...createAgentMessage({
-        id: 'a1', conversationId: 'room-1',
-        hitlRequestId: 'req-1', hitlPrompt: 'How?', hitlUserAnswer: 'Like this',
-        hitlResolved: true,
-      }),
-      source: 'db' as const, sourceVersion: 1,
-      displayType: 'agent-bubble' as const,
-      isEphemeral: false, createdAt: Date.now(), updatedAt: Date.now(),
-    }
-    const result = selectAgentHitlState(entity as any)
-    expect(result).toEqual({
-      hitlId: 'req-1',
-      resolved: true,
-      question: 'How?',
-      answer: 'Like this',
-    })
-  })
-
-  it('falls back to content when hitlPrompt is missing', () => {
-    const entity = {
-      ...createAgentMessage({
-        id: 'a1', conversationId: 'room-1',
-        hitlRequestId: 'req-1', content: 'Agent needs input',
-      }),
-      source: 'db' as const, sourceVersion: 1,
-      displayType: 'agent-bubble' as const,
-      isEphemeral: false, createdAt: Date.now(), updatedAt: Date.now(),
-    }
-    const result = selectAgentHitlState(entity as any)
-    expect(result!.question).toBe('Agent needs input')
   })
 })

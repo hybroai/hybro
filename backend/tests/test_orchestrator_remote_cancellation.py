@@ -8,13 +8,6 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
 from execution.orchestrator.a2a_runtime.cancellation import A2ACancellationCoordinator
-from execution.orchestrator.a2a_runtime.hitl import InMemoryHITLApplicationPort
-from execution.orchestrator.a2a_runtime.in_memory import (
-    InMemoryAgentCallLedgerStore,
-    InMemoryObservationConflictStore,
-    InMemoryObservationInboxStore,
-    InMemoryRoomEpochStore,
-)
 from execution.orchestrator.a2a_runtime.ingress import (
     A2AObservationIngress,
     RejectExternalIngressAuthenticator,
@@ -22,6 +15,13 @@ from execution.orchestrator.a2a_runtime.ingress import (
 from execution.orchestrator.a2a_runtime.ledger import transition_call
 from execution.orchestrator.a2a_runtime.models import A2ADispatchReceipt
 from execution.orchestrator_routing import DualRuntimeRouter
+from tests.orchestrator_harness.a2a_in_memory import (
+    InMemoryAgentCallLedgerStore,
+    InMemoryHITLApplicationPort,
+    InMemoryObservationConflictStore,
+    InMemoryObservationInboxStore,
+    InMemoryRoomEpochStore,
+)
 
 from ._orchestrator_a2a_helpers import ledger_record
 from ._orchestrator_helpers import NOW

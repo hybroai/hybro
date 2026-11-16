@@ -14,7 +14,7 @@ from conversation.deletion import (
     RoomDeletionService,
     RoomFileDeletionLifecycle,
 )
-from execution.orchestrator.a2a_runtime.in_memory import InMemoryRoomEpochStore
+from tests.orchestrator_harness.a2a_in_memory import InMemoryRoomEpochStore
 
 from ._orchestrator_helpers import NOW
 

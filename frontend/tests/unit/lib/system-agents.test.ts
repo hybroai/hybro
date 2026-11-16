@@ -2,27 +2,8 @@
 import { describe, it, expect } from 'vitest'
 import {
   isSystemAgent,
-  isSupervisorSystemAgent,
   isSummarySystemAgent,
 } from '@/lib/system-agents'
-
-describe('isSupervisorSystemAgent', () => {
-  it('returns true for system:clarifier', () => {
-    expect(isSupervisorSystemAgent('system:clarifier')).toBe(true)
-  })
-
-  it('returns true for system:hybro', () => {
-    expect(isSupervisorSystemAgent('system:hybro')).toBe(true)
-  })
-
-  it('returns false for undefined', () => {
-    expect(isSupervisorSystemAgent(undefined)).toBe(false)
-  })
-
-  it('returns false for random agent id', () => {
-    expect(isSupervisorSystemAgent('agent-123')).toBe(false)
-  })
-})
 
 describe('isSummarySystemAgent', () => {
   it('returns true for system:hybro', () => {

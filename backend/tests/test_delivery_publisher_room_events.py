@@ -10,7 +10,7 @@ from common.dto import (
     ProcessingStatusEvent,
     RunEventNotification,
 )
-from delivery.room_events import InMemoryRoomEventStore
+from tests.fakes.room_events import InMemoryRoomEventStore
 from tests.test_delivery_event_publisher import (
     FakeDeduplicator,
     FakeTransport,

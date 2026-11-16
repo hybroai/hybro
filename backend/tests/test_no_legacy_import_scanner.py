@@ -38,3 +38,20 @@ def test_scanner_ignores_excluded_directories(tmp_path):
 
     assert result.returncode == 0
     assert result.stdout == ""
+
+
+def test_scanner_ignores_local_build_output(tmp_path):
+    ignored = tmp_path / "build" / "lib"
+    ignored.mkdir(parents=True)
+    (ignored / "bad.py").write_text("import services\n")
+
+    result = subprocess.run(
+        [sys.executable, str(SCRIPT), "services"],
+        cwd=tmp_path,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+
+    assert result.returncode == 0
+    assert result.stdout == ""

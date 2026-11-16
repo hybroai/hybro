@@ -76,13 +76,6 @@ export interface PendingHitl {
   answer?: string
 }
 
-export interface HitlState {
-  hitlId: string
-  resolved: boolean
-  question: string
-  answer: string | null
-}
-
 // ── Composer ────────────────────────────────────────────────
 
 export interface ComposerState {

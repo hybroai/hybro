@@ -7,13 +7,13 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from execution.orchestrator.a2a_runtime.in_memory import InMemoryRoomEpochStore
 from llm_gateway.model_registry import ModelRouteInfo
 from orchestrator_composition import (
     OrchestratorCompositionError,
     create_orchestrator_runtime,
     validate_orchestrator_runtime,
 )
+from tests.orchestrator_harness.a2a_in_memory import InMemoryRoomEpochStore
 
 
 def _route_info() -> ModelRouteInfo:

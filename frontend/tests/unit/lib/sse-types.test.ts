@@ -1,7 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
   hasSSEFrameEnvelope,
-  isConnectedData,
   isRoomSSEType,
   PROCESSING_STATUS,
 } from '@/lib/types/sse'
@@ -77,12 +76,6 @@ describe('final room SSE types', () => {
 
   it('includes queued in processing statuses', () => {
     expect(PROCESSING_STATUS.QUEUED).toBe('queued')
-  })
-
-  it('requires connected.data.connection_id', () => {
-    expect(isConnectedData({ connection_id: 'conn-1' })).toBe(true)
-    expect(isConnectedData({})).toBe(false)
-    expect(isConnectedData({ connection_id: '' })).toBe(false)
   })
 
   it('carries the room_seq handshake on connected and heartbeat data', () => {

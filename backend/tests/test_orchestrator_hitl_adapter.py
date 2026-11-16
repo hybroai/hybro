@@ -9,11 +9,9 @@ from common.dto.hitl import (
     HITLQuestionSpec,
     HITLTextAnswer,
 )
-from execution.adapters.hitl import (
-    DurableHITLApplicationPort,
-    InMemoryHITLApplicationStore,
-)
+from execution.adapters.hitl import DurableHITLApplicationPort
 from execution.orchestrator.a2a_runtime.models import DurableHITLAnswerRecord
+from tests.orchestrator_harness.a2a_in_memory import InMemoryHITLApplicationStore
 
 from ._orchestrator_a2a_helpers import ledger_record
 

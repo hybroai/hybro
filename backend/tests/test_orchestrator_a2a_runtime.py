@@ -23,14 +23,6 @@ from execution.orchestrator.a2a_runtime.errors import (
     RecoverableResourceError,
     RecoverableTransportError,
 )
-from execution.orchestrator.a2a_runtime.hitl import InMemoryHITLApplicationPort
-from execution.orchestrator.a2a_runtime.in_memory import (
-    InMemoryAgentCallLedgerStore,
-    InMemoryObservationConflictStore,
-    InMemoryObservationInboxStore,
-    InMemoryPreparedInvocationSnapshotReader,
-    InMemoryRoomEpochStore,
-)
 from execution.orchestrator.a2a_runtime.ingress import (
     A2AObservationIngress,
     RejectExternalIngressAuthenticator,
@@ -62,6 +54,14 @@ from execution.orchestrator.a2a_runtime.terminal_interactions import (
 from execution.orchestrator.models import TextPart, ToolResult, ToolSuspension
 from execution.orchestrator.ports import InvalidParkedInteractionTarget
 from tests._a2a_task_builders import build_completed_text_task
+from tests.orchestrator_harness.a2a_in_memory import (
+    InMemoryAgentCallLedgerStore,
+    InMemoryHITLApplicationPort,
+    InMemoryObservationConflictStore,
+    InMemoryObservationInboxStore,
+    InMemoryPreparedInvocationSnapshotReader,
+    InMemoryRoomEpochStore,
+)
 
 from ._orchestrator_a2a_helpers import invocation, ledger_record, prepared
 from ._orchestrator_helpers import NOW, NeverCancelled

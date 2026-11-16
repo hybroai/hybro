@@ -4,8 +4,6 @@ import { createAgent } from '../fixtures'
 
 const rooms = getApiUrl('rooms')
 const agent = getApiUrl('agent')
-const orchestrationCenter = getApiUrl('orchestrationCenter')
-const task = getApiUrl('task')
 const sseBase = getApiUrl('sse')
 const sessions = getApiUrl('sessions')
 
@@ -189,64 +187,6 @@ export const handlers = [
 
   http.get(`${agent}/getAllAgents`, async () => {
     return HttpResponse.json({ success: true, agents: [] })
-  }),
-
-  // Orchestration Center API handlers
-  http.post(`${orchestrationCenter}/decomposeTask`, async () => {
-    return HttpResponse.json({ success: true })
-  }),
-
-  http.post(`${orchestrationCenter}/assignAgentsToMetaTasks`, async () => {
-    return HttpResponse.json({ success: true })
-  }),
-
-  http.post(`${orchestrationCenter}/assignAgentToMetaTask`, async () => {
-    return HttpResponse.json({ success: true })
-  }),
-
-  http.post(`${orchestrationCenter}/runWorkflow`, async () => {
-    return HttpResponse.json({ success: true })
-  }),
-
-  http.post(`${orchestrationCenter}/retryMetaTask`, async () => {
-    return HttpResponse.json({ success: true })
-  }),
-
-  http.post(`${orchestrationCenter}/summarizeMetaTaskForBaseTask`, async () => {
-    return HttpResponse.json({ success: true })
-  }),
-
-  http.post(`${orchestrationCenter}/processRoomUserMessage`, async () => {
-    return HttpResponse.json({ success: true })
-  }),
-
-  // Task Center API handlers
-  http.get(`${task}/queryTask/:taskId`, async () => {
-    return HttpResponse.json({ success: true, task: {} })
-  }),
-
-  http.get(`${task}/queryBaseTask/:taskId`, async () => {
-    return HttpResponse.json({ success: true, task: {} })
-  }),
-
-  http.get(`${task}/getAllSessions/:userName`, async () => {
-    return HttpResponse.json({ success: true, sessions: [] })
-  }),
-
-  http.get(`${task}/getBaseTasksBySessionId/:sessionId`, async () => {
-    return HttpResponse.json({ success: true, tasks: [] })
-  }),
-
-  http.get(`${task}/getMetaTasksByParentTaskId/:parentTaskId`, async () => {
-    return HttpResponse.json({ success: true, tasks: [] })
-  }),
-
-  // Health check
-  http.get(`${getApiUrl('health')}`, async () => {
-    return HttpResponse.json({
-      status: 'healthy',
-      timestamp: new Date().toISOString(),
-    })
   }),
 ]
 

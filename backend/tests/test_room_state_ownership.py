@@ -122,7 +122,8 @@ class _Owner:
 
 @pytest.mark.asyncio
 async def test_room_files_calls_every_bound_owner_and_combines_results():
-    from room_files import MemoryFileContentStore, RoomFiles
+    from room_files import RoomFiles
+    from tests.fakes.room_files import MemoryFileContentStore
 
     files = RoomFiles(metadata=object(), content=MemoryFileContentStore())
     first, failing, last = _Owner(True), _Owner(False), _Owner(True)
@@ -162,7 +163,8 @@ def test_orchestrator_collections_are_left_to_epoch_cleanup():
 
 @pytest.mark.asyncio
 async def test_room_files_refuses_room_state_deletion_without_owners():
-    from room_files import MemoryFileContentStore, RoomFiles
+    from room_files import RoomFiles
+    from tests.fakes.room_files import MemoryFileContentStore
 
     files = RoomFiles(metadata=object(), content=MemoryFileContentStore())
 

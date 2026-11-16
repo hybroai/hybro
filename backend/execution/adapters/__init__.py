@@ -11,7 +11,6 @@ from .authorization import MembershipAuthorizationRefresh
 from .hitl import (
     DurableHITLApplicationPort,
     HITLApplicationStore,
-    InMemoryHITLApplicationStore,
     StoredHITLInteraction,
 )
 from .resources import RoomFilesResourceMaterializer
@@ -20,7 +19,6 @@ __all__ = [
     "AgentServiceCandidateSource",
     "DurableHITLApplicationPort",
     "HITLApplicationStore",
-    "InMemoryHITLApplicationStore",
     "MembershipAuthorizationRefresh",
     "RoomFilesResourceMaterializer",
     "StoredHITLInteraction",

@@ -875,8 +875,6 @@ Operator tools, run from `backend/` as `uv run python -m scripts.<name>`:
 - `check_no_legacy_imports`: fails when Python files import any of the root
   packages passed as arguments.
 - `report_orphan_modules`: lists production modules no entry point reaches.
-- `create_room_file_indexes.sh`: shell helper that creates the `room_files`
-  indexes.
 
 ### Composition roots
 
@@ -1081,7 +1079,7 @@ port, or facade port, update the exact method inventory in
 | `LLMTextGateway` | `common.protocols.llm_protocols` | `llm_gateway.gateway.LLMGatewayImpl` | crosses to `llm_gateway` |
 | `FileStorage` | `common.protocols.platform_protocols` | `room_files.service.RoomFiles` | crosses to `api_gateway`; composition root; `room_files` |
 | `HealthCheck` | `common.protocols.platform_protocols` | `common.health_check.RuntimeHealthCheck` | crosses to composition root |
-| `PreparedFileStream` | `common.protocols.platform_protocols` | `room_files.content_store._LocalPreparedStream`, `room_files.content_store._MemoryPreparedStream` | crosses to `api_gateway`; `room_files` |
+| `PreparedFileStream` | `common.protocols.platform_protocols` | `room_files.content_store._LocalPreparedStream` | crosses to `api_gateway`; `room_files` |
 | `RoomRepository` | `common.protocols.repository_protocols` | `conversation.repository.mongo.RoomMongoRepository` | crosses to `chat`; `conversation` |
 | `RoomHistoryReader` | `common.protocols.room_protocols` | `conversation.facade.ConversationFacade` | crosses to composition root; `context_memory`; `conversation`; `session` |
 | `RoomOwnershipReader` | `common.protocols.room_protocols` | `conversation.facade.ConversationFacade` | crosses to `api_gateway`; composition root; `conversation`; `execution` |

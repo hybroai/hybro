@@ -14,13 +14,6 @@ from execution.orchestrator.a2a_runtime.errors import (
     RecoverableCheckpointError,
     RecoverableTransportError,
 )
-from execution.orchestrator.a2a_runtime.hitl import InMemoryHITLApplicationPort
-from execution.orchestrator.a2a_runtime.in_memory import (
-    InMemoryAgentCallLedgerStore,
-    InMemoryObservationConflictStore,
-    InMemoryObservationInboxStore,
-    InMemoryRoomEpochStore,
-)
 from execution.orchestrator.a2a_runtime.ingress import (
     A2AObservationIngress,
     RejectExternalIngressAuthenticator,
@@ -41,6 +34,13 @@ from execution.orchestrator.a2a_runtime.recovery import (
     A2AContinuationRecoveryService,
     A2AInboxRecoveryService,
     A2ARecoveryCycle,
+)
+from tests.orchestrator_harness.a2a_in_memory import (
+    InMemoryAgentCallLedgerStore,
+    InMemoryHITLApplicationPort,
+    InMemoryObservationConflictStore,
+    InMemoryObservationInboxStore,
+    InMemoryRoomEpochStore,
 )
 
 from ._orchestrator_a2a_helpers import ledger_record

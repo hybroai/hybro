@@ -38,13 +38,6 @@ from execution.orchestrator.a2a_runtime.errors import (
     RecoverableAdapterError,
     RecoverableTransportError,
 )
-from execution.orchestrator.a2a_runtime.hitl import InMemoryHITLApplicationPort
-from execution.orchestrator.a2a_runtime.in_memory import (
-    InMemoryAgentCallLedgerStore,
-    InMemoryObservationConflictStore,
-    InMemoryObservationInboxStore,
-    InMemoryRoomEpochStore,
-)
 from execution.orchestrator.a2a_runtime.ingress import (
     A2AObservationIngress,
     A2AObservationProcessor,
@@ -73,6 +66,13 @@ from execution.ports import A2APushReceipt
 from tests._a2a_task_builders import build_completed_text_task
 from tests._orchestrator_a2a_helpers import invocation, ledger_record
 from tests._orchestrator_helpers import NOW, NeverCancelled
+from tests.orchestrator_harness.a2a_in_memory import (
+    InMemoryAgentCallLedgerStore,
+    InMemoryHITLApplicationPort,
+    InMemoryObservationConflictStore,
+    InMemoryObservationInboxStore,
+    InMemoryRoomEpochStore,
+)
 from tests.test_orchestrator_a2a_ingress import Artifacts, Checkpoints, Outcomes, Sink
 from tests.test_orchestrator_a2a_runtime import Dispatch, setup
 

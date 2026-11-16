@@ -14,8 +14,9 @@ from common.errors import (
     RetryableFileStoragePlatformError,
 )
 from conversation.repository import RoomMongoRepository
-from room_files import MemoryFileContentStore, RoomFiles
+from room_files import RoomFiles
 from room_files.errors import FileOperationError
+from tests.fakes.room_files import MemoryFileContentStore
 
 
 class InMemoryCollection:

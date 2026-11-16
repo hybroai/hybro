@@ -4,11 +4,9 @@ import type { SSEMessage } from '@/lib/types/sse'
 import { TASK_STATE } from '@/lib/types/sse'
 
 let messageCounter = 0
-let roomCounter = 0
 
 export function resetCounters() {
   messageCounter = 0
-  roomCounter = 0
 }
 
 export function createMessage(overrides: Partial<IncomingMessage> = {}): IncomingMessage {
@@ -63,45 +61,11 @@ export function createCompletedTask(overrides: Partial<IncomingMessage> = {}): I
   })
 }
 
-export function createFailedTask(overrides: Partial<IncomingMessage> = {}): IncomingMessage {
-  return createTaskMessage(TASK_STATE.FAILED, {
-    content: 'Task failed',
-    ...overrides,
-  })
-}
-
-export function createCanceledTask(overrides: Partial<IncomingMessage> = {}): IncomingMessage {
-  return createTaskMessage(TASK_STATE.CANCELED, {
-    content: 'Task was canceled',
-    ...overrides,
-  })
-}
-
 export function createEphemeralMessage(overrides: Partial<IncomingMessage> = {}): IncomingMessage {
   return createMessage({
     isEphemeral: true,
     ...overrides,
   })
-}
-
-export function createRoom(overrides: Partial<{
-  conversation_id: string
-  room_name: string
-  room_owner_id: string
-  room_owner_name: string
-  room_agent_set: Record<string, string>
-  room_created_at: string
-}> = {}) {
-  roomCounter++
-  return {
-    conversation_id: `room-${roomCounter}`,
-    room_name: `Test Room ${roomCounter}`,
-    room_owner_id: 'test-user',
-    room_owner_name: 'Test User',
-    room_agent_set: {},
-    room_created_at: new Date().toISOString(),
-    ...overrides,
-  }
 }
 
 export function createAgent(overrides: Partial<Agent> = {}): Agent {
@@ -143,45 +107,6 @@ export function createSSEMessage(
     timestamp: new Date().toISOString(),
     data,
   } as SSEMessage
-}
-
-export function createTaskSubmittedSSE(
-  messageId: string,
-  agentName: string = 'Test Agent'
-): SSEMessage {
-  return createSSEMessage('task_submitted', {
-    message_id: messageId,
-    task_id: `task-${messageId}`,
-    agent_name: agentName,
-    agent_id: 'agent-1',
-    status: 'submitted',
-    related_message_id: null,
-    client_request_id: 'req-1',
-  })
-}
-
-export function createTaskUpdateSSE(
-  messageId: string,
-  status: string,
-  content?: string
-): SSEMessage {
-  return createSSEMessage('task_update', {
-    message_id: messageId,
-    status,
-    content,
-    client_request_id: 'req-1',
-  })
-}
-
-export function createProcessingStatusSSE(
-  status: 'processing' | 'completed' | 'canceled' | 'failed'
-): SSEMessage {
-  return createSSEMessage('processing_status', {
-    status,
-    message_id: `msg-${status}`,
-    client_request_id: 'req-1',
-    details: { message: status },
-  })
 }
 
 export function createMessageBatch(count: number, baseOverrides: Partial<IncomingMessage> = {}): IncomingMessage[] {

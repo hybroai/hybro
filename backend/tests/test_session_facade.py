@@ -27,11 +27,11 @@ from common.dto import (
     RunState,
 )
 from common.errors import AppError, ConflictError, NotFoundError
-from delivery.room_events import InMemoryRoomEventStore
 from models.session import SessionMessageRequest
 from session.facade import SessionFacade, SessionOwner
 from session.models import SessionRecord, SessionRequest
 from session.waiter import SessionWaiter
+from tests.fakes.room_events import InMemoryRoomEventStore
 
 NOW = datetime(2026, 10, 14, 9, 0, tzinfo=UTC)
 OWNER = SessionOwner(user_id="owner-1", name="Estate Agent")

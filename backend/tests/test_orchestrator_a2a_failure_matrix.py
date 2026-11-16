@@ -9,18 +9,7 @@ import pytest
 from common.dto.hitl import HITLQuestionAnswer
 from execution.orchestrator.a2a_runtime.cancellation import A2ACancellationCoordinator
 from execution.orchestrator.a2a_runtime.errors import AmbiguousRemoteEffectError
-from execution.orchestrator.a2a_runtime.hitl import (
-    A2AContinuationCoordinator,
-    InMemoryHITLApplicationPort,
-)
-from execution.orchestrator.a2a_runtime.in_memory import (
-    InMemoryAgentCallLedgerStore,
-    InMemoryAgentToolBindingStore,
-    InMemoryObservationConflictStore,
-    InMemoryObservationInboxStore,
-    InMemoryPreparedInvocationSnapshotReader,
-    InMemoryRoomEpochStore,
-)
+from execution.orchestrator.a2a_runtime.hitl import A2AContinuationCoordinator
 from execution.orchestrator.a2a_runtime.ingress import (
     A2AObservationIngress,
     A2AObservationProcessor,
@@ -45,6 +34,15 @@ from execution.orchestrator.a2a_runtime.terminal_interactions import (
     TerminalInteractionFinalizer,
 )
 from execution.orchestrator.models import TextPart, ToolResult, ToolSuspension
+from tests.orchestrator_harness.a2a_in_memory import (
+    InMemoryAgentCallLedgerStore,
+    InMemoryAgentToolBindingStore,
+    InMemoryHITLApplicationPort,
+    InMemoryObservationConflictStore,
+    InMemoryObservationInboxStore,
+    InMemoryPreparedInvocationSnapshotReader,
+    InMemoryRoomEpochStore,
+)
 
 from ._orchestrator_a2a_helpers import (
     binding,

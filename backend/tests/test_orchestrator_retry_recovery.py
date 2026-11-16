@@ -1603,10 +1603,7 @@ async def test_host_schedules_partial_publication_and_drivers_apply_queued_answe
     import orchestrator_composition as composition
     from approval.exceptions import HITLDeliveryUncertainError
     from delivery.translator import to_sse_frame
-    from execution.adapters.hitl import (
-        DurableHITLApplicationPort,
-        InMemoryHITLApplicationStore,
-    )
+    from execution.adapters.hitl import DurableHITLApplicationPort
     from execution.adapters.session_host import RoomSessionHost
     from execution.orchestrator.a2a_runtime.errors import RecoverableCheckpointError
     from execution.orchestrator.a2a_runtime.models import NormalizedA2AObservation
@@ -1620,6 +1617,7 @@ async def test_host_schedules_partial_publication_and_drivers_apply_queued_answe
     from execution.orchestrator_routing import DualRuntimeRouter
     from execution.repository.orchestrator.run_store import MongoOrchestratorRunStore
     from tests._orchestrator_helpers import FixedIDs, ScriptedModelRuntime, user_message
+    from tests.orchestrator_harness.a2a_in_memory import InMemoryHITLApplicationStore
     from tests.orchestrator_harness.fake_tools import StaticFakeToolCatalog
     from tests.orchestrator_harness.in_memory import InMemoryOrchestratorRunStore
     from tests.test_orchestrator_a2a_hitl_recovery_auth import (

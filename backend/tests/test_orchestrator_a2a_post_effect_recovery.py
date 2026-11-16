@@ -6,14 +6,6 @@ import pytest
 from pymongo.errors import AutoReconnect, ServerSelectionTimeoutError
 
 from execution.orchestrator.a2a_runtime.errors import RecoverableAdapterError
-from execution.orchestrator.a2a_runtime.hitl import InMemoryHITLApplicationPort
-from execution.orchestrator.a2a_runtime.in_memory import (
-    InMemoryAgentCallLedgerStore,
-    InMemoryObservationConflictStore,
-    InMemoryObservationInboxStore,
-    InMemoryPreparedInvocationSnapshotReader,
-    InMemoryRoomEpochStore,
-)
 from execution.orchestrator.a2a_runtime.ingress import (
     A2AObservationIngress,
     RejectExternalIngressAuthenticator,
@@ -28,6 +20,14 @@ from execution.orchestrator.a2a_runtime.terminal_interactions import (
     TerminalInteractionFinalizer,
 )
 from execution.orchestrator.models import ToolSuspension
+from tests.orchestrator_harness.a2a_in_memory import (
+    InMemoryAgentCallLedgerStore,
+    InMemoryHITLApplicationPort,
+    InMemoryObservationConflictStore,
+    InMemoryObservationInboxStore,
+    InMemoryPreparedInvocationSnapshotReader,
+    InMemoryRoomEpochStore,
+)
 
 from ._orchestrator_a2a_helpers import invocation, prepared
 from ._orchestrator_helpers import NOW, NeverCancelled
