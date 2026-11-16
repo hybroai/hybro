@@ -294,17 +294,23 @@ function MarkdownImage({
   )
 }
 
+/** Stands in for the page origin during server rendering, where there is no window. */
+const SERVER_RENDER_BASE = 'https://server-render.invalid/'
+
 /**
  * Host of an image URL on another origin, or null for same-origin paths and
  * inline data/blob URLs. Loading a remote image tells its server the viewer's
  * IP address and when the message was read, so those wait for a click.
+ * Without a window (server rendering) every absolute or protocol-relative URL
+ * counts as external, so the server HTML never contains a remote <img>.
  */
 function externalImageHost(src: unknown): string | null {
-  if (typeof src !== 'string' || typeof window === 'undefined') return null
+  if (typeof src !== 'string') return null
+  const base = typeof window === 'undefined' ? SERVER_RENDER_BASE : window.location.href
   try {
-    const url = new URL(src, window.location.href)
+    const url = new URL(src, base)
     if (url.protocol === 'data:' || url.protocol === 'blob:') return null
-    return url.origin === window.location.origin ? null : url.host
+    return url.origin === new URL(base).origin ? null : url.host
   } catch {
     return null
   }
