@@ -40,6 +40,7 @@ dependencies = [
     # Utilities
     "cachetools>=5.5.2",
     "pypdf>=5.0.0,<7",
+    "gunicorn>=25.3.0",
 ]
 
 [project.scripts]
