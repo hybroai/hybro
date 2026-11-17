@@ -9,7 +9,6 @@ from typing import TYPE_CHECKING, Annotated, Literal
 from urllib.parse import urlsplit
 
 from pydantic import (
-    AliasChoices,
     AnyHttpUrl,
     BaseModel,
     ConfigDict,
@@ -50,12 +49,7 @@ class Settings(BaseModel):
     mongodb_db_name: str = "hybro"
 
     openai_api_key: str = ""
-    openai_base_url: str = Field(
-        default="",
-        validation_alias=AliasChoices(
-            "OPENAI_BASE_URL", "OPENAI_API_BASE", "openai_base_url"
-        ),
-    )
+    openai_base_url: str = ""
     lead_ai_model: str = "gpt-5-mini"
     classifier_ai_model: str = "gpt-4o-mini"
     embedding_model: str = "text-embedding-3-small"
@@ -193,7 +187,7 @@ class Settings(BaseModel):
     local_agent_discovery_excluded_ports: frozenset[int] = frozenset()
 
     # Compaction
-    compaction_concurrency: int = 5
+    compaction_concurrency: int = Field(default=5, gt=0)
 
     # Clerk Authentication
     clerk_secret_key: str = ""  # Clerk Secret Key for backend API
@@ -241,15 +235,8 @@ class Settings(BaseModel):
     redis_dead_letter_channel: str = "delivery:dead_letter"
     dead_letter_memory_maxlen: int = 1000
 
-    # Internal eventing (separate Redis client and lifecycle). The legacy
-    # REDIS_INTERNAL_CHANNEL name remains accepted; the new name wins if both exist.
-    eventing_redis_channel: str = Field(
-        default="internal:global",
-        validation_alias=AliasChoices(
-            "eventing_redis_channel",
-            "redis_internal_channel",
-        ),
-    )
+    # Internal eventing (separate Redis client and lifecycle).
+    eventing_redis_channel: str = "internal:global"
     eventing_redis_dead_letter_channel: str = "eventing:dead_letter"
     eventing_redis_io_timeout_seconds: float = 5.0
     eventing_handler_queue_maxsize: int = 1000
@@ -299,10 +286,7 @@ class Settings(BaseModel):
     compaction_content_ttl_days: int = Field(default=0, ge=0, le=36500)
 
     # Local room file storage
-    hybro_file_dir: str = Field(
-        default="",
-        validation_alias=AliasChoices("HYBRO_FILE_DIR", "hybro_file_dir"),
-    )
+    hybro_file_dir: str = ""
 
     # Graceful Shutdown Settings
     shutdown_drain_seconds: float = (
@@ -433,26 +417,6 @@ class Settings(BaseModel):
         if agent_calls is not None and value > agent_calls:
             return agent_calls
         return value
-
-    @field_validator("compaction_concurrency", mode="before")
-    @classmethod
-    def normalize_compaction_concurrency(cls, value):
-        try:
-            return max(1, int(value))
-        except (TypeError, ValueError):
-            return 5
-
-    @field_validator(
-        "orchestrator_canary_enabled",
-        mode="before",
-    )
-    @classmethod
-    def normalize_orchestrator_worker_switch(cls, value):
-        if value is None or str(value).strip() == "":
-            return False
-        if isinstance(value, bool):
-            return value
-        return str(value).strip().lower() in {"1", "true", "yes", "on"}
 
     @property
     def is_gunicorn(self) -> bool:
