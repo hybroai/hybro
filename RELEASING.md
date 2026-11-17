@@ -48,6 +48,11 @@ Release Please updates it through the `generic` entry in
 line. Keep the value and the comment on one line, or the release stops updating
 it.
 
+The `backend/uv.lock` entry must filter with `@.name.value`, not `@.name`.
+Release Please's TOML parser wraps every scalar as `{start, end, value}`, so
+`@.name == 'hybro-backend'` never matches
+([googleapis/release-please#2455](https://github.com/googleapis/release-please/issues/2455)).
+
 ## Minor versions
 
 `release-please-config.json` sets `bump-patch-for-minor-pre-major`, so `feat:`
