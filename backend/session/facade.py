@@ -179,19 +179,21 @@ class SessionFacade:
         if earlier is not None:
             # The engine replays a recorded request; no run starts.
             return await self._earlier_receipt(record, earlier, request.agent_id)
+        # Only the engine call that created the message may start its run. It
+        # starts before the session write, so a failed write cannot leave the
+        # stored message without a run.
+        if ack.should_start_orchestration:
+            self._engine.schedule_orchestration(execution_request, ack)
+            record = await self._accept_agent(record, request.agent_id)
         lost_to: SessionRequest | None = None
         if is_retry:
             after = record.last_send_event_seq
         else:
             after = seq_before
+            # This call can still lose the record to a faster replay.
             record, lost_to = await self._record_send(
                 record, client_request_id, ack.message_id, seq_before
             )
-        # Only the engine call that created the message may start its run, and
-        # it can still lose the record to a faster replay of the same request.
-        if ack.should_start_orchestration:
-            self._engine.schedule_orchestration(execution_request, ack)
-            record = await self._accept_agent(record, request.agent_id)
         if lost_to is not None:
             # Report the recorded request, not this send's view of the log.
             return await self._earlier_receipt(record, lost_to, request.agent_id)

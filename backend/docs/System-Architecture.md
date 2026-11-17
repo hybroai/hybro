@@ -3114,7 +3114,8 @@ requests; it returns the receipt without waiting for the run. Errors use
   room event sequence read before execute, and appends `{client_request_id,
   user_message_id, sent_at}` to `requests` in one guarded update; if a concurrent
   send of the same id already recorded it, nothing is written. The send whose
-  engine call created the message always schedules its run. A send that finds the
+  engine call created the message always schedules its run, before this session
+  write, so a failed write cannot leave the stored message without a run. A send that finds the
   record already moved past its own send returns the recorded request's receipt;
   a duplicate that meets the other send's active run at the busy check re-reads
   the session and replays instead of reporting busy. The facade calls

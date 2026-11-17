@@ -570,6 +570,24 @@ async def test_member_and_last_accepted_agent_recorded_after_accepted_ack():
 
 
 @pytest.mark.asyncio
+async def test_failed_session_write_still_starts_the_run():
+    h = make_harness(on_schedule=[STARTED, settled("completed", final_message_id="f1")])
+
+    async def failing_record_send(*args: Any, **kwargs: Any) -> None:
+        raise RuntimeError("session store unavailable")
+
+    h.store.record_send = failing_record_send  # type: ignore[method-assign]
+
+    with pytest.raises(RuntimeError, match="session store unavailable"):
+        await h.send()
+
+    # The engine stored the message, so its run must start even though the
+    # session record was not updated; otherwise it stays processing forever.
+    assert len(h.engine.scheduled) == 1
+    assert h.engine.scheduled[0][1].message_id == "msg-1"
+
+
+@pytest.mark.asyncio
 async def test_rejected_ack_does_not_add_member_or_record_agent():
     h = make_harness()
     h.engine.ack = ExecutionAck(
