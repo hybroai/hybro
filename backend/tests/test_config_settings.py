@@ -99,7 +99,8 @@ def test_orchestrator_canary_enabled_requires_a_boolean(raw: object) -> None:
 
 
 def test_orchestrator_canary_enabled_accepts_booleans() -> None:
-    assert Settings.model_validate({"orchestrator_canary_enabled": True})
+    settings = Settings.model_validate({"orchestrator_canary_enabled": True})
+    assert settings.orchestrator_canary_enabled is True
     assert Settings().orchestrator_canary_enabled is False
 
 
