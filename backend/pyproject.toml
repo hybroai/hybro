@@ -29,23 +29,17 @@ dependencies = [
     "aiohttp>=3.12.13",
     "httpx>=0.28.1",
     "httpx-sse>=0.4.0",
-    "requests>=2.32.4",
     # Auth
     "clerk-backend-api>=1.0.0",
-    "jwcrypto>=1.5.6",
     "pyjwt>=2.8,<3",
     # Config / data validation
     "pydantic>=2.11.7",
-    "pydantic-settings>=2.9.1",
     "jsonschema>=4.23.0",
-    "python-dotenv>=1.1.0",
     "pyyaml>=6.0.2,<7",
     "platformdirs>=4.3.8",
     # Utilities
     "cachetools>=5.5.2",
-    "python-dateutil>=2.9.0.post0",
     "pypdf>=5.0.0,<7",
-    "gunicorn>=25.3.0",
 ]
 
 [project.scripts]

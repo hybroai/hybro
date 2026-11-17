@@ -826,7 +826,7 @@ Room-level deletion coordination belongs to `conversation.deletion`, which drive
 the `room_files` deletion lifecycle through a narrow port.
 
 - Writes: `room_files` (metadata; indexes from `room_files.ensure_room_file_indexes`)
-  and file bytes under `HYBRO_FILE_DIR`. It has no `rooms` handle: write leases
+  and file bytes under `hybro_file_dir`. It has no `rooms` handle: write leases
   (`room_files.leases.RoomWriteLeases`), deletion fencing and phases, the active
   room owner, and stale-deletion recovery go through `RoomLifecycleStore`.
 - Exposes: implements `FileStorage` and `PreparedFileStream`, and Execution's
@@ -3306,17 +3306,16 @@ stop deadline, and emit `auxiliary_task_timeout` if still live.
 iterator cleanup, and close are timeout-bounded, and listener cancellation joins
 the in-flight remote callback before close. Its client is never shared with the
 Delivery bus. The channel is `eventing_redis_channel` (default
-`internal:global`; `redis_internal_channel` is accepted as an alias, and the
-former wins when both are set). Without Redis, local handlers remain and only
+`internal:global`). Without Redis, local handlers remain and only
 cross-instance fan-out is disabled.
 
 ## Room Files
 
 MongoDB stores `room_files` metadata while `LocalFileContentStore` stores bytes
-beneath `HYBRO_FILE_DIR` (or the platform user-data directory). Other modules use
+beneath `hybro_file_dir` (or the platform user-data directory). Other modules use
 the `FileContentStore` and `FileStorage` contracts and never construct paths.
 Every instance connected to the same MongoDB must mount the same persistent
-`HYBRO_FILE_DIR`. A local content miss is non-destructive: reads return
+`hybro_file_dir`. A local content miss is non-destructive: reads return
 unavailable without changing metadata, because the bytes may exist on another
 instance.
 

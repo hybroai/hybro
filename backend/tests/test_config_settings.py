@@ -86,23 +86,30 @@ def test_runtime_config_unification_explicit_overrides(
     assert settings.compaction_concurrency == 7
 
 
-@pytest.mark.parametrize(
-    ("raw", "expected"),
-    [
-        ("", 5),
-        ("bad", 5),
-        ("0", 1),
-        ("-2", 1),
-        ("9", 9),
-    ],
-)
-def test_compaction_concurrency_preserves_legacy_fallbacks(
-    raw: str,
-    expected: int,
-) -> None:
-    settings = Settings(compaction_concurrency=raw)
+@pytest.mark.parametrize("raw", ["", "bad", "9", 0, -2, 1.5])
+def test_compaction_concurrency_rejects_invalid_values(raw: object) -> None:
+    with pytest.raises(ValidationError, match="compaction_concurrency"):
+        Settings.model_validate({"compaction_concurrency": raw})
 
-    assert settings.compaction_concurrency == expected
+
+@pytest.mark.parametrize("raw", ["", "yes", "true", 1, None])
+def test_orchestrator_canary_enabled_requires_a_boolean(raw: object) -> None:
+    with pytest.raises(ValidationError, match="orchestrator_canary_enabled"):
+        Settings.model_validate({"orchestrator_canary_enabled": raw})
+
+
+def test_orchestrator_canary_enabled_accepts_booleans() -> None:
+    assert Settings.model_validate({"orchestrator_canary_enabled": True})
+    assert Settings().orchestrator_canary_enabled is False
+
+
+@pytest.mark.parametrize(
+    "key",
+    ["OPENAI_BASE_URL", "OPENAI_API_BASE", "redis_internal_channel", "HYBRO_FILE_DIR"],
+)
+def test_legacy_config_aliases_are_rejected(key: str) -> None:
+    with pytest.raises(ValidationError, match=key):
+        Settings.model_validate({key: "value"})
 
 
 def test_wait_semantics_settings_default_to_no_approval_deadline_and_week_ceiling():
