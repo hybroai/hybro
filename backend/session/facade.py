@@ -179,21 +179,26 @@ class SessionFacade:
         if earlier is not None:
             # The engine replays a recorded request; no run starts.
             return await self._earlier_receipt(record, earlier, request.agent_id)
-        # Only the engine call that created the message may start its run. It
-        # starts before the session write, so a failed write cannot leave the
-        # stored message without a run.
-        if ack.should_start_orchestration:
-            self._engine.schedule_orchestration(execution_request, ack)
-            record = await self._accept_agent(record, request.agent_id)
         lost_to: SessionRequest | None = None
         if is_retry:
             after = record.last_send_event_seq
         else:
-            after = seq_before
-            # This call can still lose the record to a faster replay.
-            record, lost_to = await self._record_send(
-                record, client_request_id, ack.message_id, seq_before
+            # A replay of a request this session never recorded (its first
+            # session write failed) may already have run, so read from the
+            # last recorded send instead of skipping the run's events.
+            after = (
+                seq_before
+                if ack.should_start_orchestration
+                else record.last_send_event_seq
             )
+            record, lost_to = await self._record_send_or_start(
+                record, execution_request, ack, client_request_id, after
+            )
+        # Only the engine call that created the message may start its run, and
+        # it can still lose the record to a faster replay of the same request.
+        if ack.should_start_orchestration:
+            self._engine.schedule_orchestration(execution_request, ack)
+            record = await self._accept_agent(record, request.agent_id)
         if lost_to is not None:
             # Report the recorded request, not this send's view of the log.
             return await self._earlier_receipt(record, lost_to, request.agent_id)
@@ -387,6 +392,26 @@ class SessionFacade:
             await self._store.record_accepted_agent(record.session_id, agent_id)
             or record
         )
+
+    async def _record_send_or_start(
+        self,
+        record: SessionRecord,
+        execution_request: ExecutionRequest,
+        ack: ExecutionAck,
+        client_request_id: str,
+        event_seq: int,
+    ) -> tuple[SessionRecord, SessionRequest | None]:
+        """Record the send; if the write fails, still start the stored message."""
+        assert ack.message_id
+        try:
+            return await self._record_send(
+                record, client_request_id, ack.message_id, event_seq
+            )
+        except Exception:
+            # The message is stored; without a run it would stay processing.
+            if ack.should_start_orchestration:
+                self._engine.schedule_orchestration(execution_request, ack)
+            raise
 
     async def _record_send(
         self,
