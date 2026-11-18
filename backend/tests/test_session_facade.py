@@ -570,6 +570,54 @@ async def test_member_and_last_accepted_agent_recorded_after_accepted_ack():
 
 
 @pytest.mark.asyncio
+async def test_failed_session_write_still_starts_the_run():
+    h = make_harness(on_schedule=[STARTED, settled("completed", final_message_id="f1")])
+
+    async def failing_record_send(*args: Any, **kwargs: Any) -> None:
+        raise RuntimeError("session store unavailable")
+
+    h.store.record_send = failing_record_send  # type: ignore[method-assign]
+
+    with pytest.raises(RuntimeError, match="session store unavailable"):
+        await h.send()
+
+    # The engine stored the message, so its run must start even though the
+    # session record was not updated; otherwise it stays processing forever.
+    assert len(h.engine.scheduled) == 1
+    assert h.engine.scheduled[0][1].message_id == "msg-1"
+
+
+@pytest.mark.asyncio
+async def test_retry_after_failed_session_write_reports_the_run():
+    h = make_harness(
+        on_schedule=[STARTED, settled("completed", final_message_id="f1")],
+        start_grace_seconds=1.0,
+    )
+    h.messages.add(final_message("f1", "conv-1", "Here is your plan."))
+    record_send = h.store.record_send
+
+    async def failing_record_send(*args: Any, **kwargs: Any) -> None:
+        raise RuntimeError("session store unavailable")
+
+    h.store.record_send = failing_record_send  # type: ignore[method-assign]
+    with pytest.raises(RuntimeError):
+        await h.send()
+    h.store.record_send = record_send  # type: ignore[method-assign]
+    await h.engine.flush()
+
+    # The retry is replayed after the run settled; it must not skip its events.
+    h.engine.ack = _replay_ack()
+    replay = await h.send(session_id="sess-1", client_label=None)
+    h.clock.now = 2.0
+    status = await h.check()
+
+    assert replay.state == "completed"
+    assert status.state == "completed"
+    assert status.history[-1].reply == "Here is your plan."
+    assert len(h.engine.scheduled) == 1
+
+
+@pytest.mark.asyncio
 async def test_rejected_ack_does_not_add_member_or_record_agent():
     h = make_harness()
     h.engine.ack = ExecutionAck(
