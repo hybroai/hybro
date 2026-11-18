@@ -10,6 +10,9 @@ from execution.ports import ClientRequestIdResolver, ProcessingStatusLike
 
 logger = get_logger(__name__)
 
+# Details of the FAILED status for a send whose Run could not start.
+START_FAILED_DETAILS = "Message processing could not start."
+
 SUPPORTED_TYPED_PROCESSING_STATUSES = {
     "queued",
     "processing",

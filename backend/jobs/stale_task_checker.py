@@ -2,7 +2,8 @@
 Stale Task Checker Background Job
 
 This module provides a leader-gated background job that runs the durable
-HITL lifecycle reconciliation passes.
+HITL lifecycle reconciliation passes, then fails accepted sends whose Run
+never started.
 """
 
 from __future__ import annotations
@@ -40,10 +41,11 @@ class LeaderGate(Protocol):
 @dataclass(frozen=True)
 class StaleHITLDeps:
     reconcile_lifecycle: Callable[[], Awaitable[Any]]
+    fail_unstarted_sends: Callable[[], Awaitable[Any]]
 
 
 class StaleTaskChecker:
-    """Background job for durable HITL reconciliation.
+    """Background job for durable HITL reconciliation and unstarted sends.
 
     Canonical Run recovery and projection are owned exclusively by the
     mandatory orchestrator workers; this checker never creates a second
@@ -132,13 +134,19 @@ class StaleTaskChecker:
             job_runs.failed(STALE_TASK_CHECKER, "deps_unbound")
             logger.emit(E.HITL_RECONCILIATION_SKIPPED, reason="deps_unbound")
             return False
-        try:
-            await self._hitl_deps.reconcile_lifecycle()
-        except Exception as exc:
-            job_runs.failed(STALE_TASK_CHECKER, type(exc).__name__)
-            logger.emit(E.JOB_ITERATION_FAILED, exc=exc, job=STALE_TASK_CHECKER)
-            return False
-        return True
+        completed = True
+        # Each pass runs even when the other fails.
+        for run_pass in (
+            self._hitl_deps.reconcile_lifecycle,
+            self._hitl_deps.fail_unstarted_sends,
+        ):
+            try:
+                await run_pass()
+            except Exception as exc:
+                job_runs.failed(STALE_TASK_CHECKER, type(exc).__name__)
+                logger.emit(E.JOB_ITERATION_FAILED, exc=exc, job=STALE_TASK_CHECKER)
+                completed = False
+        return completed
 
 
 # Singleton instance. Application startup binds runtime dependencies.

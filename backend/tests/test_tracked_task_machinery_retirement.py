@@ -84,7 +84,9 @@ def test_stale_checker_keeps_only_hitl_reconciliation():
 async def test_stale_checker_iteration_runs_hitl_reconcile():
     from jobs.stale_task_checker import StaleHITLDeps, StaleTaskChecker
 
-    hitl = StaleHITLDeps(reconcile_lifecycle=AsyncMock())
+    hitl = StaleHITLDeps(
+        reconcile_lifecycle=AsyncMock(), fail_unstarted_sends=AsyncMock()
+    )
     checker = StaleTaskChecker()
     checker.set_hitl_deps(hitl)
 

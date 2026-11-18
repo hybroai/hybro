@@ -1430,11 +1430,22 @@ async def _runtime_lifespan(app: Any, runtime: ApplicationRuntime):  # noqa: C90
         )
         stale_task_checker.set_leader_election(_leader)
         if _execution_deps is not None:
+            from execution.repository.user_message_runs import UserMessageRunReader
+            from execution.unstarted_sends import UnstartedSendSweep
             from jobs.stale_task_checker import StaleHITLDeps
 
+            unstarted_sends = UnstartedSendSweep(
+                sends=_room_event_store,
+                runs=UserMessageRunReader(mongo_dal),
+                event_publisher=_delivery_deps.event_publisher,
+                client_request_id_resolver=execution_client_request_id_resolver,
+                is_orchestration_pending=execution_facade.is_orchestration_pending,
+                terminal_statuses=_delivery_config.terminal_processing_statuses,
+            )
             stale_task_checker.set_hitl_deps(
                 StaleHITLDeps(
                     reconcile_lifecycle=hitl_reconciler.reconcile_lifecycle,
+                    fail_unstarted_sends=unstarted_sends.sweep,
                 )
             )
         compaction_sweep.set_leader_election(_leader)

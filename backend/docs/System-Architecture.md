@@ -1153,6 +1153,8 @@ port, or facade port, update the exact method inventory in
 | `EpochFencedRoomArtifactOwner` | `execution.repository.orchestrator.artifacts` | `execution.repository.orchestrator.artifacts.RoomFilesEpochFencedArtifactOwner` | internal to `execution` |
 | `RoomFileArtifactOwner` | `execution.repository.orchestrator.artifacts` | `room_files.service.RoomFiles` | crosses to `room_files` |
 | `AsyncMongoCollection` | `execution.repository.orchestrator.stores` | the raw Motor collection (`MongoCollectionAdapter.raw_collection`, third-party) | crosses to `dal` |
+| `AcceptedSendLog` | `execution.unstarted_sends` | `delivery.room_events.MongoRoomEventStore` | crosses to `delivery` |
+| `UserMessageRuns` | `execution.unstarted_sends` | `execution.repository.user_message_runs.UserMessageRunReader` | internal to `execution` |
 | `SettingsAccess` | `instance_settings.protocols` | `instance_settings.service.InstanceSettings` | crosses to `api_gateway` |
 | `LeaderGate` | `jobs.cleanup_orphaned_uploads` | `dal.redis.lock.LeaderElectorImpl` | crosses to `dal` |
 | `CompactionPort` | `jobs.compaction_sweep` | `context_memory.facade.ContextMemoryFacade` | crosses to `context_memory` |
@@ -2025,7 +2027,18 @@ from the root.
    preparation, or a store outage), the facade emits a terminal `failed`
    `processing_status` for the message with the request's `client_request_id`
    and the safe detail "Message processing could not start."; once a Run
-   exists, the Run's own lifecycle reports its end.
+   exists, the Run's own lifecycle reports its end. If the process stops
+   before the Run exists, `execution.unstarted_sends.UnstartedSendSweep` (run
+   by `stale_task_checker`) closes the message the same way. It reads the
+   `processing` statuses logged between one day and ten minutes ago from
+   `room_events` (partial index `processing_status_ts`), and emits the same
+   `failed` status for each send with no Run (looked up by room and user
+   message id), no terminal `processing_status` in its room, and no
+   orchestration task in this process. The durable checks decide on their own,
+   so the sweep is safe with several workers, and the logged `failed` status
+   is how a later sweep skips the message. A retry with the same
+   `client_request_id` then replays the failed message and does not start it;
+   the client sends a new id.
 7. `OrchestratorKernel` runs the bounded model/tool loop; the final assistant
    message reaches the room through the projection outbox (see
    [Orchestrator](#orchestrator)).
@@ -3349,7 +3362,8 @@ leader election prevents duplicate execution across workers.
   workers, polling every `orchestrator_worker_interval_seconds`.
 - `orchestrator_workers.OrchestratorCanaryJob`: a canary threshold watcher,
   started only when `orchestrator_canary_enabled` is set.
-- `stale_task_checker`: the HITL lifecycle reconciliation passes.
+- `stale_task_checker`: the HITL lifecycle reconciliation passes, then the
+  unstarted-send sweep; each pass runs even when the other fails.
 - `compaction_sweep`: context memory compaction for eligible rooms.
 - `orphaned_upload_cleaner`: `RoomFiles.recover`.
 - `AgentHealthService`: periodic agent health and liveness.

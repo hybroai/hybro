@@ -23,7 +23,7 @@ from common.observability import bind_log_context, traced_create_task
 from common.observability import events as E
 from common.protocols import EventPublisher
 from common.utils.logger import get_logger
-from execution.events import emit_room_processing_status
+from execution.events import START_FAILED_DETAILS, emit_room_processing_status
 from execution.idempotency import (
     IDEMPOTENCY_FINGERPRINT_VERSION,
     build_execution_request_fingerprint,
@@ -48,7 +48,6 @@ _ROOM_BUSY_ERROR = "Room is already processing another message."
 _ROOM_STATE_UNAVAILABLE_ERROR = (
     "Could not check whether the room is free. Please try again."
 )
-_START_FAILED_DETAILS = "Message processing could not start."
 
 
 @dataclass(frozen=True)
@@ -596,7 +595,7 @@ class ExecutionFacade:
                 await self._emit_orchestration_status(
                     pending,
                     SSEProcessingStatus.FAILED,
-                    details=_START_FAILED_DETAILS,
+                    details=START_FAILED_DETAILS,
                 )
             raise
 
