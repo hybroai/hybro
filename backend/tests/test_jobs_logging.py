@@ -78,7 +78,9 @@ def _canary(*, fast: bool) -> OrchestratorCanaryJob:
 def _stale(*, fast: bool) -> StaleTaskChecker:
     del fast  # The checker runs its first iteration before sleeping.
     job = StaleTaskChecker(check_interval_minutes=5)
-    job.set_hitl_deps(StaleHITLDeps(reconcile_lifecycle=_raise))
+    job.set_hitl_deps(
+        StaleHITLDeps(reconcile_lifecycle=_raise, fail_unstarted_sends=_noop)
+    )
     return job
 
 
@@ -378,7 +380,9 @@ def _ok_canary() -> OrchestratorCanaryJob:
 
 def _ok_stale() -> StaleTaskChecker:
     job = StaleTaskChecker(check_interval_minutes=5)
-    job.set_hitl_deps(StaleHITLDeps(reconcile_lifecycle=_noop))
+    job.set_hitl_deps(
+        StaleHITLDeps(reconcile_lifecycle=_noop, fail_unstarted_sends=_noop)
+    )
     return job
 
 
@@ -460,7 +464,9 @@ class _RaisingAgents:
 
 def _stale_failing() -> StaleTaskChecker:
     job = StaleTaskChecker(check_interval_minutes=5)
-    job.set_hitl_deps(StaleHITLDeps(reconcile_lifecycle=_raise))
+    job.set_hitl_deps(
+        StaleHITLDeps(reconcile_lifecycle=_raise, fail_unstarted_sends=_noop)
+    )
     return job
 
 

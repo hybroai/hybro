@@ -51,5 +51,23 @@
     "expects_run_event_sse": false,
     "transport_only_reason": "Closes a message whose orchestration ended before any Run existed",
     "terminal_status": true
+  },
+  {
+    "call_id": "execution.unstarted_sends.UnstartedSendSweep._fail_if_unstarted.failed",
+    "path": "execution/unstarted_sends.py",
+    "function_or_method": "UnstartedSendSweep._fail_if_unstarted",
+    "line": 112,
+    "conversation_id_expression": "conversation_id",
+    "status_expression": "SSEProcessingStatus.FAILED",
+    "sse_message_id_expression": "message_id",
+    "lifecycle_message_id_expression": "payload.get('related_message_id') or message_id",
+    "client_request_id_expression": "payload.get('client_request_id')",
+    "details_expression": "START_FAILED_DETAILS",
+    "delivery_expression": "self._event_publisher",
+    "recording_kind": "transport_only",
+    "requires_recording": false,
+    "expects_run_event_sse": false,
+    "transport_only_reason": "Closes an accepted send whose Run never started",
+    "terminal_status": true
   }
 ]

@@ -767,6 +767,14 @@ ORCHESTRATION_TASK_FAILED = define(
 ROOM_CLAIM_DROPPED = define(
     "room_claim_dropped", WARNING, required={"conversation_id", "user_message_id"}
 )
+UNSTARTED_SEND_FAILED = define(
+    "unstarted_send_failed", WARNING, required={"conversation_id", "user_message_id"}
+)
+UNSTARTED_SEND_CHECK_FAILED = define(
+    "unstarted_send_check_failed",
+    WARNING,
+    required={"conversation_id", "user_message_id"},
+)
 ORCHESTRATION_FAILURE_RUN_LOOKUP_FAILED = define(
     "orchestration_failure_run_lookup_failed", WARNING, required={"message_id"}
 )

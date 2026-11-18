@@ -15,6 +15,7 @@ past the gap by ``skip_grace`` allocations (§11 risk 10 fallback).
 from __future__ import annotations
 
 import uuid
+from collections.abc import Iterable
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Any, Protocol
@@ -26,6 +27,7 @@ from common.utils.logger import get_logger
 logger = get_logger(__name__)
 
 _GRACE_DEFAULT = 5
+_ACCEPTED_SEND = {"kind": "processing_status", "payload_public.status": "processing"}
 _FALLBACK_INSERT_ATTEMPTS = 3
 
 
@@ -91,6 +93,12 @@ class MongoRoomEventStore:
             unique=True,
         )
         await self._events.create_index([("room_id", 1), ("ts", 1)], name="room_id_ts")
+        # Accepted sends by time, across rooms, for the unstarted-send sweep.
+        await self._events.create_index(
+            [("ts", 1), ("_id", 1)],
+            name="processing_status_ts",
+            partialFilterExpression=_ACCEPTED_SEND,
+        )
 
     async def append(
         self,
@@ -294,6 +302,58 @@ class MongoRoomEventStore:
             upsert=True,
             return_document=True,
         )
+
+    async def list_accepted_sends(
+        self,
+        *,
+        oldest: datetime,
+        newest: datetime,
+        after: tuple[str, str] | None = None,
+        limit: int = 200,
+    ) -> list[dict[str, Any]]:
+        """``processing`` status records with ``oldest <= ts <= newest``.
+
+        Ordered by ``(ts, room_event_id)``; ``after`` is the last pair of the
+        previous page.
+        """
+        query: dict[str, Any] = {
+            **_ACCEPTED_SEND,
+            "ts": {"$gte": oldest.isoformat(), "$lte": newest.isoformat()},
+        }
+        if after is not None:
+            ts, event_id = after
+            query["$or"] = [
+                {"ts": {"$gt": ts}},
+                {"ts": ts, "_id": {"$gt": event_id}},
+            ]
+        docs = await self._events.find(
+            query,
+            sort=[("ts", 1), ("_id", 1)],
+            limit=limit,
+        )
+        return [
+            {
+                "room_event_id": str(doc.get("_id") or ""),
+                "conversation_id": doc.get("room_id"),
+                "ts": doc.get("ts"),
+                "payload_public": doc.get("payload_public") or {},
+            }
+            for doc in docs
+        ]
+
+    async def has_status(
+        self, conversation_id: str, message_id: str, statuses: Iterable[str]
+    ) -> bool:
+        """Whether the room logged one of ``statuses`` for ``message_id``."""
+        doc = await self._events.find_one(
+            {
+                "room_id": conversation_id,
+                "kind": "processing_status",
+                "payload_public.message_id": message_id,
+                "payload_public.status": {"$in": list(statuses)},
+            }
+        )
+        return doc is not None
 
     async def latest_seq(self, conversation_id: str) -> int:
         counter = await self._seq.find_one({"_id": conversation_id})
