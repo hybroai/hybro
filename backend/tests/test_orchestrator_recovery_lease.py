@@ -3,8 +3,8 @@ from datetime import UTC, datetime, timedelta
 
 import pytest
 
+from execution.model_loop.context import ContextCompiler
 from execution.orchestrator.budget import BudgetPolicy
-from execution.orchestrator.context import ContextCompiler
 from execution.orchestrator.kernel import KernelConflict, OrchestratorKernel
 from execution.orchestrator.models import RecoveryClaim
 from execution.orchestrator.session import EventCancellationSignal

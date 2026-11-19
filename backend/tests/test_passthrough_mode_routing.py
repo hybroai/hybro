@@ -24,8 +24,8 @@ from conversation.dto import UserMessageInsertResult
 from conversation.message_sending import RoomMessageSender
 from conversation.preflight import MessagePreflight
 from conversation.runtime import ConversationRuntime
-from execution.adapters.profiles import OrchestratorProfileResolver
 from execution.facade import ExecutionFacade
+from execution.model_loop.profiles import OrchestratorProfileResolver
 from execution.orchestrator_routing import (
     MODE_PROFILE_MAP,
     DualRuntimeRouter,

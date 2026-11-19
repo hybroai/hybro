@@ -8,9 +8,9 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from delivery.snapshot import RoomEventFold
+from execution.model_loop.model_runtime import GatewayModelRuntime
 from execution.orchestrator.kernel import OrchestratorKernel, UUIDFactory
 from execution.orchestrator.lifecycle import SessionEvent
-from execution.orchestrator.model_runtime import GatewayModelRuntime
 from execution.orchestrator.models import ModelStreamEvent
 from execution.orchestrator.public_projection import PublicProjectionTranslator
 from tests._orchestrator_a2a_helpers import ledger_record
@@ -1348,8 +1348,8 @@ async def test_surface_answer_waits_for_still_executing_sibling(
 async def test_overflow_uses_only_compaction_budget_across_restart(
     monkeypatch, boundary, max_compactions, ending
 ):
-    from execution.orchestrator.compaction import DeterministicFakeCompactor
-    from execution.orchestrator.context import CompiledContext
+    from execution.model_loop.compaction import DeterministicFakeCompactor
+    from execution.model_loop.context import CompiledContext
     from execution.orchestrator.models import ModelMessage, ModelTextPart
 
     class ShrinkingCompiler:

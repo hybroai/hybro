@@ -16,9 +16,9 @@ flowchart LR
 | # | Phase | In one line | Status |
 |---|---|---|---|
 | 0 | Make the direction visible | The design, this roadmap, contributor rules and a quick start. | Done |
-| 1 | Clean up and break down | Remove what is dead, and split `execution` without changing behaviour. | Now |
-| 2 | Source identity and remote access | Hybro verifies which source sent a step, and a source on another machine can reach the Source API with authentication. | Next |
-| 3 | Owner check rules and the step view | The owner gates agent calls with rules, and sees each step of a session. | Later |
+| 1 | Clean up and break down | Remove what is dead, and split `execution` without changing behaviour. | Done |
+| 2 | Source identity and remote access | Hybro verifies which source sent a step, and a source on another machine can reach the Source API with authentication. | Now |
+| 3 | Owner check rules and the step view | The owner gates agent calls with rules, and sees each step of a session. | Next |
 | 4 | Move out | The model loop leaves the core and becomes the bundled orchestrator, a source. | Later |
 | 5 | Migrate to the target modules | The remaining modules and their stored collections take their target names, one at a time, with a data migration. | Later |
 | 6 | Build what does not exist yet | Routing without a named agent, and evaluation by hand. | Later |
@@ -69,32 +69,66 @@ does not change.
 
 **Work.**
 
-1. **An inventory of code to remove.** It lists each candidate, why it looks
-   unused, and what depends on it. Nothing is deleted until the list is agreed.
-   Candidates to check, not decisions:
-   - frontend pages that only redirect to a newer address, such as `/agents`,
-     `/manage` and `/networks`
-   - stored run events of retired kinds, which are skipped when read
-   - compacted conversation content, which is written and not read back
-2. **Removal.** Each agreed item is removed in its own change. A public route
-   follows the deprecation rule above.
-3. **The split of `execution`.** Today `execution` is about 30,000 lines.
-   `execution/orchestrator/a2a_runtime/` already holds the part that runs agent
-   calls. `execution/orchestrator/kernel.py`, about 5,700 lines, holds the Run
-   lifecycle and the model loop together. The split puts the model loop behind
-   one interface with one entry point, so that the rest of `execution` no
-   longer depends on model code.
-4. **A boundary test.** `tests/test_module_boundaries.py` gains a rule that
-   keeps the two parts apart.
+1. **A list of code to remove.** Done. Each candidate was checked for why it
+   looks unused and what depends on it, and the list was agreed before
+   anything was deleted.
+2. **Removal.** Done. Dead code, stale tests, most test doubles in production
+   packages, unused dependencies and legacy configuration aliases are removed.
+   Following the deprecation rule, these are marked as deprecated: the redirect
+   pages under `/agents` and `/manage`,
+   `GET /sse/room/{conversation_id}/status`, and the three agent
+   capability-issue routes. What remains is carried forward below.
+3. **The split of `execution`.** Done. `execution` was about 30,000 lines,
+   and `execution/orchestrator/kernel.py`, about 5,700 lines, held the Run
+   lifecycle and the model loop together. The model loop is now its own
+   package, `execution/model_loop/`, behind one entry point, `model_loop_for`;
+   the kernel keeps the Run lifecycle and depends on the model loop only
+   through `model_loop_for`.
+   `execution/orchestrator/a2a_runtime/` holds the part that runs agent calls.
+4. **A boundary test.** Done. `tests/test_module_boundaries.py` has a rule,
+   with no exceptions, that keeps the two parts apart.
 
 **Done when.**
 
 - The model loop is one package with one entry point.
 - The rest of `execution` imports nothing from it except that entry point.
-- The existing tests pass without being changed.
+- The existing tests pass with no change to what they check. Only import paths
+  and source-file paths in tests changed.
 - No route, event or stored document changed.
 
 **What stays the same.** Everything a user or a client can see.
+
+**Carried forward.** Each item is done at the point named.
+
+- After the next release, in one removal change:
+  - the seven deprecated redirect pages under `/agents` and `/manage`
+  - the room SSE status route, `GET /sse/room/{conversation_id}/status`
+  - the three agent capability-issue routes, with their service code and the
+    `capability_issue_threshold` setting; nothing records a capability issue
+    today. The same service backs `AgentExclusionReader`
+    (`CapabilityIssueExclusionReader`) and the Room chat target-scope
+    exclusion (`bind_capability_issue_reader`), through which open issues
+    stored by earlier versions still exclude their agents. That change removes
+    both, with the Protocol, and drops the `agent_capability_issues`
+    collection, so those agents become selectable again.
+  - the marketing pages `/about` and `/pricing`, with `sitemap.ts` and
+    `robots.ts`. They are not deprecated first: they are not part of the
+    product, and hybro.ai is a separate site
+- Deprecated in the next release and removed in a later one, in its own
+  change: running several backend workers, which is not a supported setup.
+  This covers `gunicorn`, `Settings.is_gunicorn`, `check_multi_worker_safety`,
+  the unused Redis Streams client, the Redis settings that prove unused when
+  the change is written (the key-value client may stay as an optional cache),
+  and the direct `sse-starlette` dependency.
+- In the next major release. Open question: which version is the oldest
+  supported upgrade.
+  - `REMOVED_FIELDS`, `strip_removed_fields`, `RETIRED_SERVICE_KEYS` and the
+    `instances` handling, with the `google_api_key` and `gemini_api_key`
+    fields
+  - the one-off operator scripts
+  - the droppers for obsolete indexes, and the fallbacks for old stored data
+
+Items that belong to a later phase are listed in that phase.
 
 ## Phase 2: Source identity and remote access
 
@@ -126,8 +160,18 @@ build on it.
   authentication, and a remote request without it is refused.
 - The documents say what an MCP client can do from another machine.
 
+**Carried from phase 1.** Decided together with authentication:
+
+- the five `clerk_*` frontend fields and `clerk_webhook_secret`
+- the signed-out frontend surface: `/sign-in`, `/sign-up`, the redirect
+  branches, the signed-out header and the account dialog
+- `server_url` in the frontend public configuration
+- `enable_waitlist`
+- the direct `pyjwt` dependency
+
 **What stays the same.** The routes and MCP tools that exist today. A change to
-how a client connects follows the deprecation rule above.
+how a client connects follows the deprecation rule above, and so does a change
+to the sign-in pages carried from phase 1.
 
 ## Phase 3: Owner check rules and the step view
 
@@ -164,6 +208,10 @@ what each step did.
 - The Sessions page shows the input, output and timing of each step sent
   through the Source API.
 - With no rules, every call goes as it does today.
+
+**Carried from phase 1.** Decide whether the step view reads
+`orchestrator_run_events` or replaces it. Today every Run writes it, and no
+product feature reads it.
 
 **What stays the same.** Sessions and chats on an instance with no rules.
 
@@ -216,6 +264,14 @@ flowchart TB
 - The old Room chat path is gone.
 - The check rules of phase 3 cover every call through the one path.
 
+**Carried from phase 1.** Settled when the model loop moves out:
+
+- the unwired context compaction, with its test-only
+  `DeterministicFakeCompactor`, and the `orchestrator_fast_max_compactions`
+  and `orchestrator_ultimate_max_compactions` settings
+- the reserved profile dimensions `initial_routing` and `finalization`
+- `room_summary` and `room_facts` on `room_memories`
+
 **What stays the same.** The chat pages and the rooms API. The `/sessions`
 routes keep working, and new fields are optional.
 
@@ -254,6 +310,17 @@ example, `hitl_requests` is renamed after Question and
 - An existing install upgrades without losing data, and the release notes say
   how to go back.
 - One module's collections move per change.
+
+**Carried from phase 1.**
+
+- The guard that skips run events of retired kinds in `room_events`
+  (`delivery/snapshot.py`) stays until those old rows are deleted. No change
+  deletes them yet; the data migration of this phase decides it.
+- The compacted full-content store, `conversation_content`: its write stops and
+  the collection is dropped in the same change.
+- `execution/orchestrator/__init__.py` and
+  `execution/orchestrator/a2a_runtime/__init__.py` re-export only the target
+  modules' public names.
 
 **Done when.**
 

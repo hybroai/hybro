@@ -5,7 +5,7 @@ from hashlib import sha256
 import pytest
 
 from common.config.loader import Settings
-from execution.adapters.profiles import (
+from execution.model_loop.profiles import (
     BASE_ORCHESTRATOR_SYSTEM_PROMPT,
     FAST_ORCHESTRATOR_SYSTEM_PROMPT,
     ULTIMATE_ORCHESTRATOR_SYSTEM_PROMPT,

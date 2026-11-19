@@ -8,6 +8,12 @@ import pytest
 from pydantic import TypeAdapter, ValidationError
 
 from execution.adapters.hitl import HITLApplicationStore
+from execution.model_loop.streaming import (
+    MalformedToolArgumentsError,
+    ModelStreamAssembler,
+    ModelStreamAssemblyError,
+    TruncatedToolCallError,
+)
 from execution.orchestrator import (
     ORCHESTRATOR_COLLECTIONS,
     TOOL_RESULT_STATUSES,
@@ -15,12 +21,9 @@ from execution.orchestrator import (
     AssistantMessage,
     BudgetState,
     DataPart,
-    MalformedToolArgumentsError,
     ModelMessage,
     ModelRouteConfiguration,
     ModelRuntime,
-    ModelStreamAssembler,
-    ModelStreamAssemblyError,
     ModelStreamEvent,
     ModelTurnRequest,
     OrchestratorEvent,
@@ -37,7 +40,6 @@ from execution.orchestrator import (
     ToolDefinition,
     ToolResult,
     ToolRuntime,
-    TruncatedToolCallError,
     UnsupportedProviderCapabilities,
     UsageRecord,
     UserMessage,

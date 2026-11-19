@@ -10,11 +10,11 @@ from __future__ import annotations
 import pytest
 
 from delivery.snapshot import RoomEventFold
+from execution.model_loop.context import ContextCompiler
 from execution.orchestrator.a2a_runtime.catalog_assembler import (
     agent_tool_input_schema,
 )
 from execution.orchestrator.budget import BudgetPolicy
-from execution.orchestrator.context import ContextCompiler
 from execution.orchestrator.kernel import (
     SURFACE_AGENT_QUESTIONS_TOOL_NAME,
     OrchestratorKernel,

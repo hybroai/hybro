@@ -9,8 +9,8 @@ from pathlib import Path
 import pytest
 from jsonschema import Draft202012Validator
 
+from execution.model_loop.model_runtime import _to_gateway_request
 from execution.orchestrator.kernel import _surface_agent_questions_tool_definition
-from execution.orchestrator.model_runtime import _to_gateway_request
 from execution.orchestrator.models import (
     AssistantMessage,
     ModelTurnRequest,

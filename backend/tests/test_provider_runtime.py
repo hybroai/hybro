@@ -30,14 +30,14 @@ from common.config.runtime_config import (
 )
 from common.config.runtime_store import RuntimeConfigStore
 from common.dto import LLMResponse
-from execution.orchestrator.model_runtime import GatewayModelRuntime
+from execution.model_loop.model_runtime import GatewayModelRuntime
+from execution.model_loop.streaming import ModelStreamAssembler
 from execution.orchestrator.models import (
     ModelMessage,
     ModelStreamEvent,
     ModelTextPart,
     ModelTurnRequest,
 )
-from execution.orchestrator.streaming import ModelStreamAssembler
 from llm_gateway.errors import ProviderNotConfigured
 from llm_gateway.gateway import LLMGatewayImpl
 from llm_gateway.image_types import GatewayImageRequest
@@ -166,7 +166,7 @@ def test_application_boots_with_an_empty_config_directory(tmp_path):
         "import main\n"
         "from common.config.loader import get_settings\n"
         "from common.config.runtime_store import current_store\n"
-        "from execution.adapters.profiles import (\n"
+        "from execution.model_loop.profiles import (\n"
         "    OrchestratorProfileResolver, PromptAssetRegistry)\n"
         "from llm_gateway import LLMGatewayImpl, ModelRegistryImpl\n"
         "from llm_gateway.config import LLMGatewayConfig\n"
