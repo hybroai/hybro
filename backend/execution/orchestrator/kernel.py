@@ -6,6 +6,7 @@ import asyncio
 import json
 from collections.abc import Awaitable, Callable, Iterable
 from contextvars import ContextVar
+from dataclasses import dataclass
 from datetime import datetime
 from hashlib import sha256
 from typing import Literal, Protocol
@@ -216,6 +217,13 @@ def _usage_public_fields(usage) -> dict[str, object] | None:
     }
 
 
+@dataclass
+class _ModelStepState:
+    """Model-turn state that lives across the iterations of one Run loop."""
+
+    invalid_observations: int = 0
+
+
 class OrchestratorKernel:
     def __init__(
         self,
@@ -285,7 +293,7 @@ class OrchestratorKernel:
         lifecycle: KernelLifecycle | None = None,
     ) -> KernelRunResult:
         self._lifecycle_context.set(lifecycle)
-        invalid_observations = 0
+        model_state = _ModelStepState()
         recover_initial_state = True
         while True:
             run = await self._load(run_id)
@@ -446,551 +454,560 @@ class OrchestratorKernel:
                     return outcome
                 continue
 
-            grace = run.budget.model_turns_used >= run.profile.max_model_turns
-            if grace and not run.budget.wrap_up_requested:
-                budget = self.budget_policy.request_wrap_up(run.budget)
-                notice = SessionNotice(
-                    notice_id=self._stable_id(run, "wrap_up", 0),
-                    code="wrap_up",
-                    content="Tools are disabled. Produce the best final answer now.",
-                    created_at=self.clock.now(),
-                )
-                run = await self._checkpoint(
-                    run,
-                    updates={
-                        "budget": budget,
-                        "transcript": [*run.transcript, notice],
-                    },
-                    command_id=f"wrap-up:{run.run_id}",
-                )
-            try:
-                self.budget_policy.before_model_turn(
-                    run.budget,
-                    run.profile,
-                    now=self.clock.now(),
-                )
-            except BudgetExceeded as exc:
-                return await self._terminate(
-                    run, status="budget_exhausted", reason=exc.reason
-                )
-
-            run = await self._refresh_resource_manifest(run)
-            presentation_backfill = _backfill_presentation_ids(run)
-            if presentation_backfill is not run:
-                run = await self._checkpoint(
-                    run,
-                    updates={
-                        "tool_batches": presentation_backfill.tool_batches,
-                        "transcript": presentation_backfill.transcript,
-                    },
-                    command_id=f"backfill-presentations:{run.run_id}",
-                )
-            tools = (
-                []
-                if run.budget.wrap_up_requested
-                else self.tool_catalog.list_tools(run)
+            outcome = await self._model_step(
+                run, model_state, signal, lifecycle=lifecycle
             )
-            # The structured ask_user action pauses the Run into the unified
-            # Execution HITL service. It is only exposed to canonical Runs so
-            # the strict run_waiting_input/run_resumed lifecycle owns it.
-            if not run.budget.wrap_up_requested and self.supervisor_hitl is not None:
-                tools = [*tools, REQUEST_USER_INPUT_TOOL_DEFINITION]
-                # Forwarding an Agent's questions verbatim is only meaningful
-                # while a presented interaction is parked; hide it otherwise.
-                if _has_presented_interactions(run):
-                    tools = [*tools, _surface_agent_questions_tool_definition(run)]
-            try:
-                if run.background_context:
-                    compiled = self.context_compiler.compile(
-                        run,
-                        tools=tools,
-                        background=run.background_context,
-                        summary=run.compaction_summary,
-                    )
-                else:
-                    compiled = self.context_compiler.compile(
-                        run, tools=tools, summary=run.compaction_summary
-                    )
-            except UnresolvedToolBatchError:
-                return await self._terminate(
-                    run, status="failed", reason="unresolved tool batch"
-                )
-            if compiled.kind == "context_unfit":
-                return await self._terminate(
-                    run, status="failed", reason="context_unfit"
-                )
-            if compiled.kind == "needs_compaction":
-                compacted = await self._compact(
-                    run,
-                    compiled.messages,
-                    baseline=compiled.estimated_input_tokens,
-                    signal=signal,
-                )
-                if isinstance(compacted, KernelRunResult):
-                    return compacted
-                continue
-            if (
-                run.compaction_baseline_tokens is not None
-                and compiled.estimated_input_tokens >= run.compaction_baseline_tokens
-            ):
-                return await self._terminate(
-                    run,
-                    status="budget_exhausted",
-                    reason="compaction did not reduce context",
-                )
-            if run.compaction_baseline_tokens is not None:
-                run = await self._checkpoint(
-                    run,
-                    updates={"compaction_baseline_tokens": None},
-                    command_id=(
-                        f"compaction-validated:{run.run_id}:"
-                        f"{run.budget.compactions_used}"
-                    ),
-                )
+            if outcome is not None:
+                return outcome
 
-            retry_reserved = await self._reserve_model_retry(run)
-            if isinstance(retry_reserved, KernelRunResult):
-                return retry_reserved
-            run = retry_reserved
+    async def _model_step(
+        self,
+        run: OrchestratorRunState,
+        state: _ModelStepState,
+        signal: CancellationSignal,
+        *,
+        lifecycle: KernelLifecycle | None,
+    ) -> KernelRunResult | None:
+        """Take one model turn of a Run.
 
-            decision_continuation = bool(
-                run.active_internal_turn_id
-            ) and _has_presented_interactions(run)
-            if decision_continuation:
-                request = self._model_request(
-                    run,
-                    compiled.messages,
-                    tools,
-                    turn_id=run.active_internal_turn_id,
-                )
-            else:
-                request = self._model_request(run, compiled.messages, tools)
-            assistant_message_id = self.id_factory.new_id("assistant")
-            attempt_key = f"{request.turn_id}:{assistant_message_id}:1"
-            budget = self.budget_policy.record_provider_attempt(
-                run.budget, run.profile, attempt_key=attempt_key, retry=False
+        Returns the Run result to end the Run, or None to take another loop
+        iteration.
+        """
+        grace = run.budget.model_turns_used >= run.profile.max_model_turns
+        if grace and not run.budget.wrap_up_requested:
+            budget = self.budget_policy.request_wrap_up(run.budget)
+            notice = SessionNotice(
+                notice_id=self._stable_id(run, "wrap_up", 0),
+                code="wrap_up",
+                content="Tools are disabled. Produce the best final answer now.",
+                created_at=self.clock.now(),
             )
             run = await self._checkpoint(
                 run,
                 updates={
                     "budget": budget,
-                    "active_internal_turn_id": request.turn_id,
-                    "active_assistant_message_id": assistant_message_id,
-                    "active_attempt": 1,
-                    "greatest_public_text_offset": 0,
-                    "active_public_text": "",
+                    "transcript": [*run.transcript, notice],
                 },
+                command_id=f"wrap-up:{run.run_id}",
+            )
+        try:
+            self.budget_policy.before_model_turn(
+                run.budget,
+                run.profile,
+                now=self.clock.now(),
+            )
+        except BudgetExceeded as exc:
+            return await self._terminate(
+                run, status="budget_exhausted", reason=exc.reason
+            )
+
+        run = await self._refresh_resource_manifest(run)
+        presentation_backfill = _backfill_presentation_ids(run)
+        if presentation_backfill is not run:
+            run = await self._checkpoint(
+                run,
+                updates={
+                    "tool_batches": presentation_backfill.tool_batches,
+                    "transcript": presentation_backfill.transcript,
+                },
+                command_id=f"backfill-presentations:{run.run_id}",
+            )
+        tools = (
+            [] if run.budget.wrap_up_requested else self.tool_catalog.list_tools(run)
+        )
+        # The structured ask_user action pauses the Run into the unified
+        # Execution HITL service. It is only exposed to canonical Runs so
+        # the strict run_waiting_input/run_resumed lifecycle owns it.
+        if not run.budget.wrap_up_requested and self.supervisor_hitl is not None:
+            tools = [*tools, REQUEST_USER_INPUT_TOOL_DEFINITION]
+            # Forwarding an Agent's questions verbatim is only meaningful
+            # while a presented interaction is parked; hide it otherwise.
+            if _has_presented_interactions(run):
+                tools = [*tools, _surface_agent_questions_tool_definition(run)]
+        try:
+            if run.background_context:
+                compiled = self.context_compiler.compile(
+                    run,
+                    tools=tools,
+                    background=run.background_context,
+                    summary=run.compaction_summary,
+                )
+            else:
+                compiled = self.context_compiler.compile(
+                    run, tools=tools, summary=run.compaction_summary
+                )
+        except UnresolvedToolBatchError:
+            return await self._terminate(
+                run, status="failed", reason="unresolved tool batch"
+            )
+        if compiled.kind == "context_unfit":
+            return await self._terminate(run, status="failed", reason="context_unfit")
+        if compiled.kind == "needs_compaction":
+            compacted = await self._compact(
+                run,
+                compiled.messages,
+                baseline=compiled.estimated_input_tokens,
+                signal=signal,
+            )
+            if isinstance(compacted, KernelRunResult):
+                return compacted
+            return None
+        if (
+            run.compaction_baseline_tokens is not None
+            and compiled.estimated_input_tokens >= run.compaction_baseline_tokens
+        ):
+            return await self._terminate(
+                run,
+                status="budget_exhausted",
+                reason="compaction did not reduce context",
+            )
+        if run.compaction_baseline_tokens is not None:
+            run = await self._checkpoint(
+                run,
+                updates={"compaction_baseline_tokens": None},
                 command_id=(
-                    f"public-turn-start:{request.turn_id}:{assistant_message_id}"
-                    if decision_continuation
-                    else f"public-turn-start:{request.turn_id}"
+                    f"compaction-validated:{run.run_id}:{run.budget.compactions_used}"
                 ),
             )
-            if not decision_continuation:
-                await self._emit(
-                    lifecycle,
-                    "turn_started",
+
+        retry_reserved = await self._reserve_model_retry(run)
+        if isinstance(retry_reserved, KernelRunResult):
+            return retry_reserved
+        run = retry_reserved
+
+        decision_continuation = bool(
+            run.active_internal_turn_id
+        ) and _has_presented_interactions(run)
+        if decision_continuation:
+            request = self._model_request(
+                run,
+                compiled.messages,
+                tools,
+                turn_id=run.active_internal_turn_id,
+            )
+        else:
+            request = self._model_request(run, compiled.messages, tools)
+        assistant_message_id = self.id_factory.new_id("assistant")
+        attempt_key = f"{request.turn_id}:{assistant_message_id}:1"
+        budget = self.budget_policy.record_provider_attempt(
+            run.budget, run.profile, attempt_key=attempt_key, retry=False
+        )
+        run = await self._checkpoint(
+            run,
+            updates={
+                "budget": budget,
+                "active_internal_turn_id": request.turn_id,
+                "active_assistant_message_id": assistant_message_id,
+                "active_attempt": 1,
+                "greatest_public_text_offset": 0,
+                "active_public_text": "",
+            },
+            command_id=(
+                f"public-turn-start:{request.turn_id}:{assistant_message_id}"
+                if decision_continuation
+                else f"public-turn-start:{request.turn_id}"
+            ),
+        )
+        if not decision_continuation:
+            await self._emit(
+                lifecycle,
+                "turn_started",
+                run,
+                {"internal_turn_id": request.turn_id, "attempt": 1},
+            )
+        await self._emit(
+            lifecycle,
+            "message_started",
+            run,
+            {
+                "internal_turn_id": request.turn_id,
+                "message_id": assistant_message_id,
+            },
+        )
+        assembler = ModelStreamAssembler()
+        public_sanitizer = PublicTextSanitizer(secret_values=self.public_secret_values)
+        public_coalescer = PublicTextCoalescer(
+            run_id=run.run_id,
+            internal_turn_id=request.turn_id,
+            message_id=assistant_message_id,
+        )
+        turn_started_at = self.clock.now()
+        turn_usage: UsageRecord | None = None
+        turn_finish_reason: str | None = None
+        turn_attempt: int | None = None
+        stream = None
+        next_event: asyncio.Task[ModelStreamEvent] | None = None
+        try:
+            stream = self.model_runtime.stream_turn(request, signal=signal).__aiter__()
+            next_event = asyncio.create_task(anext(stream))
+            while True:
+                done, _ = await asyncio.wait(
+                    {next_event},
+                    timeout=DEFAULT_COALESCE_INTERVAL_MS / 1000,
+                )
+                if not done:
+                    # The provider may stall after a short safe fragment.
+                    # Flush the coalescer timer without cancelling/reordering
+                    # the outstanding provider ``anext`` operation.
+                    run = await self._publish_public_text(
+                        lifecycle,
+                        run,
+                        public_coalescer,
+                        "",
+                        timer_flush=True,
+                    )
+                    continue
+                try:
+                    event = next_event.result()
+                except StopAsyncIteration:
+                    break
+                deferred_attempt = (
+                    event.kind == "attempt_started" and (event.attempt or 1) > 1
+                )
+                if not deferred_attempt:
+                    next_event = asyncio.create_task(anext(stream))
+                assembler.accept(event)
+                if event.kind == "text_delta" and event.delta:
+                    decidable = public_sanitizer.feed(event.delta)
+                    run = await self._publish_public_text(
+                        lifecycle,
+                        run,
+                        public_coalescer,
+                        decidable,
+                    )
+                elif event.kind in {"tool_call_start", "finish", "error"}:
+                    decidable = public_sanitizer.flush()
+                    run = await self._publish_public_text(
+                        lifecycle,
+                        run,
+                        public_coalescer,
+                        decidable,
+                        semantic_boundary=True,
+                    )
+                run = await self._record_model_event(
                     run,
-                    {"internal_turn_id": request.turn_id, "attempt": 1},
+                    request.turn_id,
+                    event,
+                    message_id=assistant_message_id,
+                )
+                # Attempt 1 was admitted before stream creation. Later
+                # Gateway attempts must likewise be durable before prefetch
+                # can resume the generator into its next provider call.
+                if deferred_attempt:
+                    next_event = asyncio.create_task(anext(stream))
+                await self._emit_model_event(lifecycle, run, event, request)
+                if event.kind == "usage" and event.usage is not None:
+                    turn_usage = event.usage
+                if event.kind == "finish" and event.finish_reason:
+                    turn_finish_reason = str(event.finish_reason)
+                if event.attempt is not None:
+                    turn_attempt = event.attempt
+            final_fragment = public_sanitizer.flush()
+            run = await self._publish_public_text(
+                lifecycle,
+                run,
+                public_coalescer,
+                final_fragment,
+                semantic_boundary=True,
+            )
+            public_text = public_sanitizer.public_text
+            model_outcome = assembler.build_outcome(
+                message_id=assistant_message_id,
+                created_at=self.clock.now(),
+            )
+            if model_outcome.assistant is not None:
+                non_text_parts = [
+                    part
+                    for part in model_outcome.assistant.content
+                    if not isinstance(part, TextPart)
+                ]
+                model_outcome = model_outcome.__class__(
+                    kind=model_outcome.kind,
+                    assistant=model_outcome.assistant.model_copy(
+                        update={
+                            "content": (
+                                [TextPart(text=public_text)] if public_text else []
+                            )
+                            + non_text_parts
+                        }
+                    ),
+                    error_class=model_outcome.error_class,
+                    provider_request_id=model_outcome.provider_request_id,
                 )
             await self._emit(
                 lifecycle,
-                "message_started",
+                "model_turn_completed",
                 run,
                 {
-                    "internal_turn_id": request.turn_id,
-                    "message_id": assistant_message_id,
+                    "model": request.model.model_id,
+                    "provider": request.model.provider,
+                    "attempt": turn_attempt,
+                    "outcome": _model_turn_outcome(model_outcome),
+                    "duration_ms": _elapsed_ms(self.clock.now(), turn_started_at),
+                    "usage": _usage_public_fields(turn_usage),
+                    "finish_reason": turn_finish_reason,
                 },
             )
-            assembler = ModelStreamAssembler()
-            public_sanitizer = PublicTextSanitizer(
-                secret_values=self.public_secret_values
+        except BudgetExceeded as exc:
+            return await self._terminate(
+                run, status="budget_exhausted", reason=exc.reason
             )
-            public_coalescer = PublicTextCoalescer(
-                run_id=run.run_id,
-                internal_turn_id=request.turn_id,
-                message_id=assistant_message_id,
+        except ModelStreamAssemblyError as exc:
+            retry_reserved = await self._reserve_model_retry(run)
+            if isinstance(retry_reserved, KernelRunResult):
+                return retry_reserved
+            run = retry_reserved
+            run, closed_turn_id = await self._close_active_attempt(
+                run,
+                disposition="error",
+                error_summary="The model response could not be assembled.",
             )
-            turn_started_at = self.clock.now()
-            turn_usage: UsageRecord | None = None
-            turn_finish_reason: str | None = None
-            turn_attempt: int | None = None
-            stream = None
-            next_event: asyncio.Task[ModelStreamEvent] | None = None
-            try:
-                stream = self.model_runtime.stream_turn(
-                    request, signal=signal
-                ).__aiter__()
-                next_event = asyncio.create_task(anext(stream))
-                while True:
-                    done, _ = await asyncio.wait(
-                        {next_event},
-                        timeout=DEFAULT_COALESCE_INTERVAL_MS / 1000,
-                    )
-                    if not done:
-                        # The provider may stall after a short safe fragment.
-                        # Flush the coalescer timer without cancelling/reordering
-                        # the outstanding provider ``anext`` operation.
-                        run = await self._publish_public_text(
-                            lifecycle,
-                            run,
-                            public_coalescer,
-                            "",
-                            timer_flush=True,
-                        )
-                        continue
-                    try:
-                        event = next_event.result()
-                    except StopAsyncIteration:
-                        break
-                    deferred_attempt = (
-                        event.kind == "attempt_started" and (event.attempt or 1) > 1
-                    )
-                    if not deferred_attempt:
-                        next_event = asyncio.create_task(anext(stream))
-                    assembler.accept(event)
-                    if event.kind == "text_delta" and event.delta:
-                        decidable = public_sanitizer.feed(event.delta)
-                        run = await self._publish_public_text(
-                            lifecycle,
-                            run,
-                            public_coalescer,
-                            decidable,
-                        )
-                    elif event.kind in {"tool_call_start", "finish", "error"}:
-                        decidable = public_sanitizer.flush()
-                        run = await self._publish_public_text(
-                            lifecycle,
-                            run,
-                            public_coalescer,
-                            decidable,
-                            semantic_boundary=True,
-                        )
-                    run = await self._record_model_event(
-                        run,
-                        request.turn_id,
-                        event,
-                        message_id=assistant_message_id,
-                    )
-                    # Attempt 1 was admitted before stream creation. Later
-                    # Gateway attempts must likewise be durable before prefetch
-                    # can resume the generator into its next provider call.
-                    if deferred_attempt:
-                        next_event = asyncio.create_task(anext(stream))
-                    await self._emit_model_event(lifecycle, run, event, request)
-                    if event.kind == "usage" and event.usage is not None:
-                        turn_usage = event.usage
-                    if event.kind == "finish" and event.finish_reason:
-                        turn_finish_reason = str(event.finish_reason)
-                    if event.attempt is not None:
-                        turn_attempt = event.attempt
-                final_fragment = public_sanitizer.flush()
-                run = await self._publish_public_text(
-                    lifecycle,
-                    run,
-                    public_coalescer,
-                    final_fragment,
-                    semantic_boundary=True,
-                )
-                public_text = public_sanitizer.public_text
-                model_outcome = assembler.build_outcome(
-                    message_id=assistant_message_id,
-                    created_at=self.clock.now(),
-                )
-                if model_outcome.assistant is not None:
-                    non_text_parts = [
-                        part
-                        for part in model_outcome.assistant.content
-                        if not isinstance(part, TextPart)
-                    ]
-                    model_outcome = model_outcome.__class__(
-                        kind=model_outcome.kind,
-                        assistant=model_outcome.assistant.model_copy(
-                            update={
-                                "content": (
-                                    [TextPart(text=public_text)] if public_text else []
-                                )
-                                + non_text_parts
-                            }
-                        ),
-                        error_class=model_outcome.error_class,
-                        provider_request_id=model_outcome.provider_request_id,
-                    )
-                await self._emit(
-                    lifecycle,
-                    "model_turn_completed",
-                    run,
-                    {
-                        "model": request.model.model_id,
-                        "provider": request.model.provider,
-                        "attempt": turn_attempt,
-                        "outcome": _model_turn_outcome(model_outcome),
-                        "duration_ms": _elapsed_ms(self.clock.now(), turn_started_at),
-                        "usage": _usage_public_fields(turn_usage),
-                        "finish_reason": turn_finish_reason,
-                    },
-                )
-            except BudgetExceeded as exc:
+            notice = self._assembly_notice(run, exc)
+            run = await self._append_notice(run, notice)
+            state.invalid_observations += 1
+            if state.invalid_observations > run.profile.grace_model_turns + 1:
                 return await self._terminate(
-                    run, status="budget_exhausted", reason=exc.reason
+                    run, status="failed", reason="invalid model output loop"
                 )
-            except ModelStreamAssemblyError as exc:
-                retry_reserved = await self._reserve_model_retry(run)
-                if isinstance(retry_reserved, KernelRunResult):
-                    return retry_reserved
-                run = retry_reserved
-                run, closed_turn_id = await self._close_active_attempt(
-                    run,
-                    disposition="error",
-                    error_summary="The model response could not be assembled.",
-                )
-                notice = self._assembly_notice(run, exc)
-                run = await self._append_notice(run, notice)
-                invalid_observations += 1
-                if invalid_observations > run.profile.grace_model_turns + 1:
-                    return await self._terminate(
-                        run, status="failed", reason="invalid model output loop"
-                    )
-                await self._emit(
-                    lifecycle,
-                    "model_retry_scheduled",
-                    run,
-                    {
-                        "internal_turn_id": closed_turn_id or request.turn_id,
-                        "attempt": 2,
-                        "error_class": "assembly_error",
-                        "retry_delay_ms": 0,
-                    },
-                )
-                continue
-            except ValueError:
-                return await self._terminate(
-                    run, status="failed", reason="public_text_oversized"
-                )
-            finally:
-                if next_event is not None:
-                    if not next_event.done():
-                        next_event.cancel()
+            await self._emit(
+                lifecycle,
+                "model_retry_scheduled",
+                run,
+                {
+                    "internal_turn_id": closed_turn_id or request.turn_id,
+                    "attempt": 2,
+                    "error_class": "assembly_error",
+                    "retry_delay_ms": 0,
+                },
+            )
+            return None
+        except ValueError:
+            return await self._terminate(
+                run, status="failed", reason="public_text_oversized"
+            )
+        finally:
+            if next_event is not None:
+                if not next_event.done():
+                    next_event.cancel()
+                try:
+                    await next_event
+                except (asyncio.CancelledError, Exception):
+                    pass
+            if stream is not None:
+                close_stream = getattr(stream, "aclose", None)
+                if close_stream is not None:
                     try:
-                        await next_event
+                        await close_stream()
                     except (asyncio.CancelledError, Exception):
                         pass
-                if stream is not None:
-                    close_stream = getattr(stream, "aclose", None)
-                    if close_stream is not None:
-                        try:
-                            await close_stream()
-                        except (asyncio.CancelledError, Exception):
-                            pass
 
-            if model_outcome.kind == "aborted":
+        if model_outcome.kind == "aborted":
+            current = await self._load(run.run_id)
+            if current.status == "canceling":
+                return KernelRunResult("cancellation_pending", current)
+            raise KernelConflict(
+                "model cancellation observed without durable cancellation"
+            )
+        if model_outcome.kind == "context_overflow":
+            if (
+                self.context_compactor is None
+                or run.budget.compactions_used >= run.profile.max_compactions
+            ):
+                return await self._terminate(
+                    run, status="budget_exhausted", reason="context overflow"
+                )
+            # Persist classification and reserve only the independent
+            # compaction budget before closure can clear attempt identity.
+            number = run.budget.compactions_used + 1
+            notice = SessionNotice(
+                notice_id=(
+                    f"context-overflow:{request.turn_id}:"
+                    f"{assistant_message_id}:{number}"
+                ),
+                code="context_overflow",
+                content=(
+                    "The model context limit was exceeded; compact before continuing."
+                ),
+                created_at=self.clock.now(),
+            )
+            await self._checkpoint(
+                run,
+                updates={
+                    "transcript": [*run.transcript, notice],
+                    "budget": self.budget_policy.record_compaction(
+                        run.budget, run.profile
+                    ),
+                    "compaction_baseline_tokens": compiled.estimated_input_tokens,
+                },
+                command_id=notice.notice_id,
+            )
+            return None
+        if model_outcome.kind == "provider_error":
+            if model_outcome.error_code in _PROVIDER_UNAVAILABLE_CODES:
+                # Only a setup save changes this state, so a retry would
+                # fail the same way; fail now with the reason instead.
+                return await self._terminate(
+                    run, status="failed", reason=model_outcome.error_code
+                )
+            retry_reserved = await self._reserve_model_retry(run)
+            if isinstance(retry_reserved, KernelRunResult):
+                return retry_reserved
+            run = retry_reserved
+            run, closed_turn_id = await self._close_active_attempt(
+                run,
+                disposition="error",
+                error_summary="The model provider did not complete the response.",
+            )
+            notice = SessionNotice(
+                notice_id=self._stable_id(
+                    run,
+                    model_outcome.error_class or "provider_error",
+                    run.budget.model_turns_used,
+                ),
+                code=model_outcome.error_class or "provider_error",
+                content="The previous model attempt failed; retry within bounds.",
+                created_at=self.clock.now(),
+            )
+            run = await self._append_notice(run, notice)
+            await self._emit(
+                lifecycle,
+                "model_retry_scheduled",
+                run,
+                {
+                    "internal_turn_id": closed_turn_id or request.turn_id,
+                    "attempt": 2,
+                    "error_class": "provider_error",
+                    "retry_delay_ms": 0,
+                },
+            )
+            return None
+        assistant = model_outcome.assistant
+        if assistant is None:
+            return await self._terminate(
+                run, status="failed", reason="missing assistant outcome"
+            )
+        run = await self._checkpoint(
+            run,
+            updates={
+                "budget": self.budget_policy.record_assistant_turn(
+                    run.budget, grace=grace
+                )
+            },
+            command_id=(
+                f"assistant-turn:{request.turn_id}:{assistant.message_id}"
+                if decision_continuation
+                else f"assistant-turn:{request.turn_id}"
+            ),
+        )
+        run = await self._append_assistant(run, assistant)
+        # A no-tool Assistant message is always final. Canonical final
+        # publication is delayed until every parked child and Tool entry
+        # has been durably closed and flushed.
+        if not assistant.tool_calls:
+            return await self._finalize_canonical_answer(
+                run, assistant, lifecycle=lifecycle
+            )
+        # Commentary is public only after the complete source-ordered
+        # declared Tool batch is durable, so restart recovery never has to
+        # guess declarations from public text.
+        run = await self._ensure_tool_batch(run, assistant)
+        assistant_public_text = _assistant_text(assistant)
+        await self._emit(
+            lifecycle,
+            "message_completed",
+            run,
+            {
+                "public_event_id": (
+                    f"public:{run.run_id}:{request.turn_id}:"
+                    f"{assistant.message_id}:message_end"
+                ),
+                "internal_turn_id": request.turn_id,
+                "message_id": assistant.message_id,
+                "stop_reason": "tool_use",
+                "disposition": "commentary",
+                "text": assistant_public_text,
+            },
+        )
+        run = await self._checkpoint(
+            run,
+            updates={
+                "active_assistant_message_id": None,
+                "active_public_text": "",
+                "greatest_public_text_offset": 0,
+            },
+            command_id=f"public-message-end:{assistant.message_id}",
+        )
+        await self._emit(
+            lifecycle,
+            "orchestrator_decision",
+            run,
+            {
+                "plan_steps": [
+                    {
+                        "agent": self._tool_label(run, call.tool_name)
+                        or call.tool_name,
+                        "summary": _task_text(call.arguments),
+                    }
+                    for call in assistant.tool_calls
+                ],
+                "reason": _assistant_text(assistant),
+            },
+        )
+        if run.budget.wrap_up_requested:
+            run = await self._reject_grace_tools(run, assistant)
+            return None
+        try:
+            result = await self._execute_tool_batch(
+                run, assistant, signal, lifecycle=lifecycle
+            )
+        except asyncio.CancelledError:
+            if signal.cancelled:
                 current = await self._load(run.run_id)
                 if current.status == "canceling":
                     return KernelRunResult("cancellation_pending", current)
                 raise KernelConflict(
-                    "model cancellation observed without durable cancellation"
-                )
-            if model_outcome.kind == "context_overflow":
-                if (
-                    self.context_compactor is None
-                    or run.budget.compactions_used >= run.profile.max_compactions
-                ):
-                    return await self._terminate(
-                        run, status="budget_exhausted", reason="context overflow"
-                    )
-                # Persist classification and reserve only the independent
-                # compaction budget before closure can clear attempt identity.
-                number = run.budget.compactions_used + 1
-                notice = SessionNotice(
-                    notice_id=(
-                        f"context-overflow:{request.turn_id}:"
-                        f"{assistant_message_id}:{number}"
-                    ),
-                    code="context_overflow",
-                    content=(
-                        "The model context limit was exceeded; "
-                        "compact before continuing."
-                    ),
-                    created_at=self.clock.now(),
-                )
-                await self._checkpoint(
-                    run,
-                    updates={
-                        "transcript": [*run.transcript, notice],
-                        "budget": self.budget_policy.record_compaction(
-                            run.budget, run.profile
-                        ),
-                        "compaction_baseline_tokens": compiled.estimated_input_tokens,
-                    },
-                    command_id=notice.notice_id,
-                )
-                continue
-            if model_outcome.kind == "provider_error":
-                if model_outcome.error_code in _PROVIDER_UNAVAILABLE_CODES:
-                    # Only a setup save changes this state, so a retry would
-                    # fail the same way; fail now with the reason instead.
-                    return await self._terminate(
-                        run, status="failed", reason=model_outcome.error_code
-                    )
-                retry_reserved = await self._reserve_model_retry(run)
-                if isinstance(retry_reserved, KernelRunResult):
-                    return retry_reserved
-                run = retry_reserved
-                run, closed_turn_id = await self._close_active_attempt(
-                    run,
-                    disposition="error",
-                    error_summary="The model provider did not complete the response.",
-                )
-                notice = SessionNotice(
-                    notice_id=self._stable_id(
-                        run,
-                        model_outcome.error_class or "provider_error",
-                        run.budget.model_turns_used,
-                    ),
-                    code=model_outcome.error_class or "provider_error",
-                    content="The previous model attempt failed; retry within bounds.",
-                    created_at=self.clock.now(),
-                )
-                run = await self._append_notice(run, notice)
-                await self._emit(
-                    lifecycle,
-                    "model_retry_scheduled",
-                    run,
-                    {
-                        "internal_turn_id": closed_turn_id or request.turn_id,
-                        "attempt": 2,
-                        "error_class": "provider_error",
-                        "retry_delay_ms": 0,
-                    },
-                )
-                continue
-            assistant = model_outcome.assistant
-            if assistant is None:
-                return await self._terminate(
-                    run, status="failed", reason="missing assistant outcome"
-                )
-            run = await self._checkpoint(
-                run,
-                updates={
-                    "budget": self.budget_policy.record_assistant_turn(
-                        run.budget, grace=grace
-                    )
-                },
-                command_id=(
-                    f"assistant-turn:{request.turn_id}:{assistant.message_id}"
-                    if decision_continuation
-                    else f"assistant-turn:{request.turn_id}"
-                ),
-            )
-            run = await self._append_assistant(run, assistant)
-            # A no-tool Assistant message is always final. Canonical final
-            # publication is delayed until every parked child and Tool entry
-            # has been durably closed and flushed.
-            if not assistant.tool_calls:
-                return await self._finalize_canonical_answer(
-                    run, assistant, lifecycle=lifecycle
-                )
-            # Commentary is public only after the complete source-ordered
-            # declared Tool batch is durable, so restart recovery never has to
-            # guess declarations from public text.
-            run = await self._ensure_tool_batch(run, assistant)
-            assistant_public_text = _assistant_text(assistant)
-            await self._emit(
-                lifecycle,
-                "message_completed",
-                run,
-                {
-                    "public_event_id": (
-                        f"public:{run.run_id}:{request.turn_id}:"
-                        f"{assistant.message_id}:message_end"
-                    ),
-                    "internal_turn_id": request.turn_id,
-                    "message_id": assistant.message_id,
-                    "stop_reason": "tool_use",
-                    "disposition": "commentary",
-                    "text": assistant_public_text,
-                },
-            )
-            run = await self._checkpoint(
-                run,
-                updates={
-                    "active_assistant_message_id": None,
-                    "active_public_text": "",
-                    "greatest_public_text_offset": 0,
-                },
-                command_id=f"public-message-end:{assistant.message_id}",
-            )
-            await self._emit(
-                lifecycle,
-                "orchestrator_decision",
-                run,
-                {
-                    "plan_steps": [
-                        {
-                            "agent": self._tool_label(run, call.tool_name)
-                            or call.tool_name,
-                            "summary": _task_text(call.arguments),
-                        }
-                        for call in assistant.tool_calls
-                    ],
-                    "reason": _assistant_text(assistant),
-                },
-            )
-            if run.budget.wrap_up_requested:
-                run = await self._reject_grace_tools(run, assistant)
-                continue
-            try:
-                result = await self._execute_tool_batch(
-                    run, assistant, signal, lifecycle=lifecycle
-                )
-            except asyncio.CancelledError:
-                if signal.cancelled:
-                    current = await self._load(run.run_id)
-                    if current.status == "canceling":
-                        return KernelRunResult("cancellation_pending", current)
-                    raise KernelConflict(
-                        "tool cancellation observed without durable cancellation"
-                    ) from None
-                raise
-            if result == "retry":
-                continue
-            if result == "decide":
-                # Model-first HITL decision turn continues within the same
-                # internal turn; the loop re-compiles and calls the model.
-                continue
-            if result is not None:
-                return result
-            completed_run = await self._load(run.run_id)
-            closure = _canonical_turn_closure(completed_run, request.turn_id)
-            if closure is None:
-                # The active internal turn still has open entries (for
-                # example a presented interaction awaiting a model join
-                # reply). Defer turn_end; the loop continues to the next
-                # decision turn within the same internal turn.
-                continue
-            closing_message_id = closure.message_id
-            turn_public_ids = list(closure.public_tool_call_ids)
-            await self._emit(
-                lifecycle,
-                "turn_completed",
-                completed_run,
-                {
-                    "internal_turn_id": request.turn_id,
-                    "message_id": closing_message_id,
-                    "tool_call_ids": turn_public_ids,
-                    "status": "completed",
-                },
-            )
-            run = await self._checkpoint(
-                completed_run,
-                updates={
-                    "active_internal_turn_id": None,
-                    "active_assistant_message_id": None,
-                    "active_attempt": None,
-                },
-                command_id=f"public-turn-end:{request.turn_id}",
-            )
-            continue
+                    "tool cancellation observed without durable cancellation"
+                ) from None
+            raise
+        if result == "retry":
+            return None
+        if result == "decide":
+            # Model-first HITL decision turn continues within the same
+            # internal turn; the loop re-compiles and calls the model.
+            return None
+        if result is not None:
+            return result
+        completed_run = await self._load(run.run_id)
+        closure = _canonical_turn_closure(completed_run, request.turn_id)
+        if closure is None:
+            # The active internal turn still has open entries (for
+            # example a presented interaction awaiting a model join
+            # reply). Defer turn_end; the loop continues to the next
+            # decision turn within the same internal turn.
+            return None
+        closing_message_id = closure.message_id
+        turn_public_ids = list(closure.public_tool_call_ids)
+        await self._emit(
+            lifecycle,
+            "turn_completed",
+            completed_run,
+            {
+                "internal_turn_id": request.turn_id,
+                "message_id": closing_message_id,
+                "tool_call_ids": turn_public_ids,
+                "status": "completed",
+            },
+        )
+        run = await self._checkpoint(
+            completed_run,
+            updates={
+                "active_internal_turn_id": None,
+                "active_assistant_message_id": None,
+                "active_attempt": None,
+            },
+            command_id=f"public-turn-end:{request.turn_id}",
+        )
+        return None
 
     async def terminalize(
         self,
