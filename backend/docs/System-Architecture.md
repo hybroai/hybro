@@ -61,7 +61,7 @@ flowchart TD
 | Product | `chat` | The owner's rooms as a product: create, read settings, list, history, rename, pin, default mode, delete. |
 | Product | `session` | A client's conversation with the owner's agents, opened through `POST /sessions/messages` or MCP. |
 | Core | `conversation` | The conversation container: rooms, messages, membership, timeline, attachments, user-message commit and preflight, quotes, deletion, candidate scope. |
-| Core | `execution` | The engine: the orchestrator kernel, the A2A tool runtime, HITL continuation, cancellation, Run lifecycle, and recovery. |
+| Core | `execution` | The engine: the orchestrator kernel, the model loop, the A2A tool runtime, HITL continuation, cancellation, Run lifecycle, and recovery. |
 | Core | `approval` | Human-in-the-loop requests, interactions, answers, cancellation, and reconciliation. |
 | Support | `agent`, `local_agents`, `delivery`, `context_memory`, `room_files`, `llm_gateway` | Agent directory, local discovery, SSE delivery, room memory, files, and model access. |
 | Support | `diagnostics` | The local store of system events and warnings (two capped collections). |
@@ -704,12 +704,18 @@ Owns orchestration after a user message is accepted.
   freezes the candidate scope, resource manifest, and Agent tool catalog,
   creates the Run, and prompts the room's `RoomSessionHost`; it also routes
   cancellation, HITL answers, and observations.
-- `orchestrator/`: the provider-neutral kernel (`OrchestratorKernel`,
+- `orchestrator/`: the provider-neutral Run lifecycle (`OrchestratorKernel`,
   `RoomAgentSession`, `BudgetPolicy`, settlement, projection, and public
-  text/summary policies).
-- `model_loop/`: the model loop's modules: `GatewayModelRuntime`, model stream
-  assembly, `ContextCompiler`, compaction, and profile resolution
-  (`OrchestratorProfileResolver`).
+  text/summary policies). It holds no model-loop implementation; it keeps the
+  provider-neutral model contracts (`models.py`, `ports.py`, `profiles.py`)
+  that both sides share.
+- `model_loop/`: the model loop, one package with one entry point. It owns the
+  model turn (`loop.py`), `GatewayModelRuntime`, model stream assembly,
+  `ContextCompiler`, compaction, and profile resolution
+  (`OrchestratorProfileResolver`). The rest of `execution` imports only
+  `model_loop_for` from it; `orchestrator_composition.py` imports only the
+  package root's five other names, to build the runtime, compiler and resolver.
+  `tests/test_module_boundaries.py` enforces both rules.
 - `orchestrator/a2a_runtime/`: the A2A tool runtime (`A2AAgentToolRuntime`),
   frozen catalog, call ledger, observation ingress, HITL continuation,
   cancellation, recovery, and resource materialization.
@@ -2259,11 +2265,20 @@ Lexical matching serves discovery and suggestion surfaces only.
 
 ### Kernel
 
-`OrchestratorKernel` owns the provider-neutral model/tool loop, CAS checkpoints,
-durable compaction summaries, atomic recoverable tool batches, two-phase tool
-acceptance, suspension, correlated observation, and terminal settlement.
-`RoomAgentSession` is an exactly-once lifecycle facade; `ContextCompiler` and
-`BudgetPolicy` bound each turn. `GatewayModelRuntime` owns bounded retries,
+`OrchestratorKernel` owns the Run lifecycle: the provider-neutral run loop, CAS
+checkpoints, atomic recoverable tool batches, two-phase tool acceptance,
+suspension, correlated observation, recovery, and terminal settlement. It runs
+each model turn through the model loop (`execution/model_loop/`): `_run_normal`
+builds one `ModelLoop` per call with `model_loop_for(self)`, passing itself as
+the `ModelLoopHost`, and calls `step` for each model turn (`None` means take
+another loop iteration) and `resume_overflow` for a pending context-overflow
+notice. A model turn compiles the context, calls the model, streams public
+text, writes durable compaction summaries, and hands the Assistant message back
+through the host's checkpoint. The kernel holds the model runtime, context
+compiler and compactor only to hand them to the loop, and imports no model-loop
+module at import time. `RoomAgentSession` is an
+exactly-once lifecycle facade; `ContextCompiler` and `BudgetPolicy` bound each
+turn. `GatewayModelRuntime` owns bounded retries,
 hard-deadline handling, typed provider failures, and per-attempt usage and retry
 accounting over the gateway's `LLMTurnGateway`. OpenAI uses native streamed tool
 calls; DeepSeek uses the locally validated structured-action route. No

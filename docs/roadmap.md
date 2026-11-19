@@ -78,14 +78,15 @@ does not change.
    - compacted conversation content, which is written and not read back
 2. **Removal.** Each agreed item is removed in its own change. A public route
    follows the deprecation rule above.
-3. **The split of `execution`.** Today `execution` is about 30,000 lines.
-   `execution/orchestrator/a2a_runtime/` already holds the part that runs agent
-   calls. `execution/orchestrator/kernel.py`, about 5,700 lines, holds the Run
-   lifecycle and the model loop together. The split puts the model loop behind
-   one interface with one entry point, so that the rest of `execution` no
-   longer depends on model code.
-4. **A boundary test.** `tests/test_module_boundaries.py` gains a rule that
-   keeps the two parts apart.
+3. **The split of `execution`.** Done. `execution` was about 30,000 lines,
+   and `execution/orchestrator/kernel.py`, about 5,700 lines, held the Run
+   lifecycle and the model loop together. The model loop is now its own
+   package, `execution/model_loop/`, behind one entry point, `model_loop_for`;
+   the kernel keeps the Run lifecycle and depends on the model loop only
+   through `model_loop_for`.
+   `execution/orchestrator/a2a_runtime/` holds the part that runs agent calls.
+4. **A boundary test.** Done. `tests/test_module_boundaries.py` has a rule,
+   with no exceptions, that keeps the two parts apart.
 
 **Done when.**
 
