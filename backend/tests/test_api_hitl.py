@@ -19,7 +19,13 @@ from api_gateway.routes.hitl_routes import (
     get_pending_hitl_requests,
     respond_to_hitl_interaction,
 )
-from approval.exceptions import HITLConflictError, HITLRoomMismatchError
+from approval.exceptions import (
+    HITLConflictError,
+    HITLDeliveryUncertainError,
+    HITLRequestProjectionError,
+    HITLRoomMismatchError,
+    HITLRoutingFailedError,
+)
 from common.dto import HITLCancelCommand
 from common.dto import HITLRequest as CommonHITLRequest
 from models.hitl import HITLBatchResponseRequest
@@ -61,6 +67,114 @@ async def test_batch_inventory_conflict_returns_safe_409(mock_user, sample_room)
         "The input request changed before submission. Refresh and try again."
     )
     assert "inventory" not in str(conflict.value.detail).lower()
+
+
+@pytest.mark.asyncio
+async def test_unexpected_batch_error_returns_fixed_500_and_logs(
+    mock_user, sample_room, caplog
+):
+    manager = MagicMock()
+    manager.resolve_hitl_batch = AsyncMock(
+        side_effect=RuntimeError("mongodb://internal-host:27017 refused")
+    )
+    body = HITLBatchResponseRequest.model_validate(
+        {
+            "interaction_id": "interaction-1",
+            "answers": [{"request_id": "question-1", "user_input": "answer"}],
+            "client_request_id": "client-1",
+        }
+    )
+
+    with pytest.raises(HTTPException) as failure:
+        await respond_to_hitl_interaction(
+            sample_room.conversation_id,
+            body,
+            mock_user,
+            manager=manager,
+            room_ownership=_room_ownership(mock_user.user_id),
+        )
+
+    assert failure.value.status_code == 500
+    assert failure.value.detail == "HITL request failed."
+    [record] = [r for r in caplog.records if r.getMessage() == "hitl_route_failed"]
+    assert record.levelname == "ERROR"
+    assert record.conversation_id == sample_room.conversation_id
+    assert record.operation == "respond_batch"
+    assert record.status == 500
+
+
+@pytest.mark.asyncio
+async def test_unexpected_cancel_error_returns_fixed_500(mock_user, sample_room):
+    manager = MagicMock()
+    manager.cancel_hitl_interaction = AsyncMock(
+        side_effect=HITLRequestProjectionError("lifecycle write failed: E11000")
+    )
+    body = HITLCancelCommand(
+        interaction_id="interaction-1",
+        expected_interaction_version=1,
+        client_request_id="cancel-1",
+    )
+
+    with pytest.raises(HTTPException) as failure:
+        await cancel_hitl_interaction(
+            sample_room.conversation_id,
+            "interaction-1",
+            body,
+            mock_user,
+            manager=manager,
+            room_ownership=_room_ownership(mock_user.user_id),
+        )
+
+    assert failure.value.status_code == 500
+    assert failure.value.detail == "HITL request failed."
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("error", "status_code", "detail"),
+    [
+        (
+            HITLRoutingFailedError("Run answer projection failed: E11000 dup key"),
+            502,
+            "HITL answers could not be routed to the run.",
+        ),
+        (
+            HITLDeliveryUncertainError("mongodb://internal-host:27017 timed out"),
+            503,
+            {
+                "message": "HITL answer delivery could not be confirmed.",
+                "code": "HITL_DELIVERY_UNCERTAIN",
+                "lifecycle_state": "delivery_uncertain",
+            },
+        ),
+    ],
+)
+async def test_routing_and_delivery_errors_return_fixed_text_and_log(
+    mock_user, sample_room, caplog, error, status_code, detail
+):
+    manager = MagicMock()
+    manager.resolve_hitl_batch = AsyncMock(side_effect=error)
+    body = HITLBatchResponseRequest.model_validate(
+        {
+            "interaction_id": "interaction-1",
+            "answers": [{"request_id": "question-1", "user_input": "answer"}],
+            "client_request_id": "client-1",
+        }
+    )
+
+    with pytest.raises(HTTPException) as failure:
+        await respond_to_hitl_interaction(
+            sample_room.conversation_id,
+            body,
+            mock_user,
+            manager=manager,
+            room_ownership=_room_ownership(mock_user.user_id),
+        )
+
+    assert failure.value.status_code == status_code
+    assert failure.value.detail == detail
+    [record] = [r for r in caplog.records if r.getMessage() == "hitl_route_failed"]
+    assert record.status == status_code
 
 
 # =============================================================================

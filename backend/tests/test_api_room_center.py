@@ -970,12 +970,12 @@ class TestSuggestAgents:
         assert response["status_code"] == 400
 
     @pytest.mark.asyncio
-    async def test_handles_service_error(self, mock_user):
+    async def test_handles_service_error(self, mock_user, caplog):
         """Should handle errors from agent selection service."""
 
         mock_selection_service = MagicMock()
         mock_selection_service.suggest_agents = AsyncMock(
-            side_effect=Exception("Service error")
+            side_effect=Exception("mongodb://internal-host:27017 refused")
         )
 
         response = await suggest_agents(
@@ -991,3 +991,11 @@ class TestSuggestAgents:
         )
         assert response["success"] is False
         assert response["status_code"] == 500
+        assert response["error"] == "Agent suggestion failed."
+        assert "internal-host" not in json.dumps(response)
+        [record] = [
+            r
+            for r in caplog.records
+            if r.getMessage() == "agent_suggestion_route_failed"
+        ]
+        assert record.levelname == "ERROR"

@@ -203,6 +203,10 @@ GATEWAY_SEND_MESSAGE_BACKGROUND_SCHEDULED = define(
 ACTIVE_RUN_LOOKUP_FAILED = define(
     "active_run_lookup_failed", WARNING, required={"conversation_id"}
 )
+HITL_ROUTE_FAILED = define(
+    "hitl_route_failed", ERROR, required={"conversation_id", "operation"}
+)
+AGENT_SUGGESTION_ROUTE_FAILED = define("agent_suggestion_route_failed", ERROR)
 SSE_SNAPSHOT_BUILD_FAILED = define(
     "sse_snapshot_build_failed", WARNING, required={"conversation_id"}
 )

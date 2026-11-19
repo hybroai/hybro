@@ -35,6 +35,8 @@ from models.response import (
 router = APIRouter()
 logger = get_logger(__name__)
 
+AGENT_SUGGESTION_FAILED_DETAIL = "Agent suggestion failed."
+
 
 class RoomHistoryUpdate(BaseModel):
     title: str | None = Field(default=None, min_length=1, max_length=80)
@@ -690,8 +692,13 @@ async def suggest_agents(
             **serialize_agent_suggestion_result(suggestion_result),
             "status_code": 200,
         }
-    except Exception as e:
-        return {"success": False, "error": str(e), "status_code": 500}
+    except Exception as exc:
+        logger.emit(E.AGENT_SUGGESTION_ROUTE_FAILED, exc=exc)
+        return {
+            "success": False,
+            "error": AGENT_SUGGESTION_FAILED_DETAIL,
+            "status_code": 500,
+        }
 
 
 _mark_declared_owner(router, __name__)
