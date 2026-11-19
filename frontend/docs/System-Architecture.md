@@ -173,13 +173,10 @@ src/app/
     |-- room/[id]/page.tsx
     |-- sessions/page.tsx        # Inbox: searchable session list, no selection
     |-- sessions/[id]/page.tsx   # same workspace with the session record selected
-    |-- agents/page.tsx          # redirect -> /network
-    |-- agents/[id]/page.tsx     # redirect -> /network/agents/[id]
-    |-- agents/new/page.tsx      # redirect -> /network/agents/new
-    |-- networks/page.tsx        # redirect -> /network
-    |-- access/mcp/page.tsx      # redirect -> /connect/mcp
-    |-- access/api/page.tsx      # redirect -> /connect/api
-    `-- manage/                  # redirect-only paths
+    |-- agents/page.tsx          # deprecated redirect -> /network
+    |-- agents/[id]/page.tsx     # deprecated redirect -> /network/agents/[id]
+    |-- agents/new/page.tsx      # deprecated redirect -> /network/agents/new
+    `-- manage/                  # deprecated redirect-only paths
         |-- page.tsx
         |-- agents/page.tsx
         |-- agents/[id]/page.tsx
@@ -205,9 +202,9 @@ The application exposes one unprefixed route tree with these destinations:
   `/settings/system`: instance Settings; `/settings` redirects to Model
   provider.
 
-There is no host-based route rewrite. `/agents*`, `/networks`,
-`/access/*`, and `/manage*` paths are page-level `redirect()` routes to their
-canonical equivalents. `src/lib/routes.ts` is the canonical route vocabulary
+There is no host-based route rewrite. `/agents*` and `/manage*` paths are
+page-level `redirect()` routes to their canonical equivalents. They are
+deprecated and will be removed in a later release. `src/lib/routes.ts` is the canonical route vocabulary
 (`overview`, `network`, `networkWith(query)`, `networkAgent(id)`,
 `registerAgent`, `connectMcp`, `connectApi`, `settings`,
 `settingsModelProvider`, `settingsConfiguration`, `settingsSystem`, `chat`,
@@ -1147,8 +1144,8 @@ invalidates the authenticated user-scoped query immediately. Sending a message
 similarly cancels an in-flight history read before optimistically advancing that
 room's activity and status, then invalidates the query after a successful
 acknowledgement. These paths share the user-scoped `ROOM_HISTORY_QUERY_KEY`
-prefix. `/agents*`, `/networks`, `/access/*`, and `/manage*` routes are
-redirect-only paths. `src/lib/routes.ts` is
+prefix. `/agents*` and `/manage*` routes are deprecated redirect-only paths,
+to be removed in a later release. `src/lib/routes.ts` is
 the canonical route vocabulary for application links.
 
 ### Network workspace

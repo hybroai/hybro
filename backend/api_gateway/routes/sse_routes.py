@@ -176,7 +176,7 @@ async def stream_room_messages(  # noqa: C901
     )
 
 
-@router.get("/sse/room/{conversation_id}/status")
+@router.get("/sse/room/{conversation_id}/status", deprecated=True)
 async def get_room_sse_status(
     conversation_id: str = Path(..., description="room ID"),
     user: ClerkUser = Depends(get_current_user_with_query_token),

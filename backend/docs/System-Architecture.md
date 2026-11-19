@@ -292,8 +292,9 @@ Route groups:
   profiles, and one-shot direct A2A messaging.
 - `agent_group_routes.py`: saved agent groups (`/agentGroups`).
 - `session_routes.py`: `/sessions`.
-- `sse_routes.py`: room SSE stream, SSE status, event replay, and message
-  cancellation.
+- `sse_routes.py`: room SSE stream, event replay, message cancellation, and
+  SSE status. `GET /sse/room/{conversation_id}/status` is deprecated and will be
+  removed in a later release.
 - `hitl_routes.py`: `/rooms/{conversation_id}/hitl` pending reads, batch answers, and
   interaction cancellation.
 - `files_routes.py`: room file upload and content download.
