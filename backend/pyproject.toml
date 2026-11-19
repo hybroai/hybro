@@ -127,7 +127,7 @@ ignore = ["E501"]
 "delivery/translator.py" = ["C901"]
 "approval/service.py" = ["C901"]
 "execution/orchestrator/kernel.py" = ["C901"]
-"execution/orchestrator/model_runtime.py" = ["C901"]
+"execution/model_loop/model_runtime.py" = ["C901"]
 "execution/orchestrator/run_state.py" = ["C901"]
 "execution/orchestrator/transcript.py" = ["C901"]
 "llm_gateway/providers/openai_provider.py" = ["C901"]
@@ -180,6 +180,7 @@ packages = [
     "instance_settings",
     "execution",
     "execution.adapters",
+    "execution.model_loop",
     "execution.orchestrator",
     "execution.orchestrator.a2a_runtime",
     "execution.repository",

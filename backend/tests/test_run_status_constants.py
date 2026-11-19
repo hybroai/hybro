@@ -82,6 +82,7 @@ def test_no_suspended_literal_in_kernel_or_session():
     copies: list[str] = []
     for relative in (
         "execution/orchestrator/kernel.py",
+        "execution/orchestrator/run_state.py",
         "execution/orchestrator/session.py",
     ):
         path = ROOT / relative

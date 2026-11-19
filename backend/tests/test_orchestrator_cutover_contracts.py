@@ -28,6 +28,7 @@ from ._orchestrator_helpers import make_run
 
 ROOT = Path(__file__).parents[1]
 ORCHESTRATOR = ROOT / "execution" / "orchestrator"
+MODEL_LOOP = ROOT / "execution" / "model_loop"
 
 
 def test_run_runtime_generation_is_persisted_and_immutable_by_schema():
@@ -67,8 +68,9 @@ def test_initial_routing_and_finalization_are_reserved_not_consumed():
     }
     consumers = [
         ORCHESTRATOR / "kernel.py",
+        ORCHESTRATOR / "run_state.py",
         ORCHESTRATOR / "session.py",
-        ORCHESTRATOR / "context.py",
+        MODEL_LOOP / "context.py",
         ORCHESTRATOR / "a2a_runtime" / "catalog_assembler.py",
     ]
     for path in consumers:
