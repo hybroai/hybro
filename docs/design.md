@@ -146,7 +146,7 @@ module.
 | Group | A named set of agents. | `agent` | agent group (`agent_groups`) |
 | Standard | A requirement a step's result must meet, such as a time limit or a required field. It attaches to a label the source sends, or to an agent. | `evaluation` | new |
 | Rule | One line set by the instance owner. There are three kinds: route, access and check. | `policy` | new |
-| Source | One thing that asks for work. Hybro verifies which source sent a step. Today a source names itself, and the name is not verified. | Source API | client (`client_label`) |
+| Source | One program that asks for work. The owner creates it and gives it a token, and Hybro records on every Step which source sent it. Today a source names itself, and the name is not verified. | Source API | client (`client_label`) |
 
 How the records of one piece of work hang together:
 
@@ -174,7 +174,8 @@ The states of each record:
 
 Four more words:
 
-- **Owner:** the person who runs the instance.
+- **Owner:** the person who runs the instance. The owner has the instance's
+  one account and signs in to the Panel with it.
 - **Panel:** the pages of the Hybro app where the owner sees what needs them
   and answers.
 - **Label:** a short key and value that a source sends with a step, such as
@@ -214,6 +215,51 @@ What a step carries:
 
 These are shapes, not final field names. The fields are fixed when the roadmap
 phase that builds them starts.
+
+### Who may use it
+
+Two kinds of caller exist, and nothing else is let in.
+
+| Who | Proves it with | Can reach |
+|---|---|---|
+| The owner, in a browser | The owner account's sign-in | The Panel and every route |
+| A source | Its source token | The Source API only |
+
+- **A source token.** The owner creates a source in the Panel and receives its
+  token once. The source sends the token with each request. Hybro stores only
+  a hash of it, finds the source from it, and records that source on every
+  Step. A token never opens the Panel or the settings.
+- **A token is required by default,** on every install, for a program on the
+  same machine as well as one on another machine. The rule does not depend on
+  how the instance was started or where a request comes from.
+- **The owner can turn the requirement off.** Then a request without a token is
+  accepted and recorded under one built-in source, "No token". The Panel says
+  so while the requirement is off. A request that carries a token is always
+  recorded under its own source.
+- **Trust needs a token.** A feature that limits or trusts a source by its
+  name, such as an access rule that matches on a source or the grant that lets
+  a source answer permission questions, applies to sources with a token. It
+  can never be given to "No token".
+- **`client_label` is a claimed name, not an identity.** It is optional when a
+  token is sent and required when a session is opened without one. The Panel
+  shows it as text the client gave, apart from the source, and no decision
+  uses it.
+- **MCP uses the same token.** The MCP adapter is served on every install. It
+  passes the client's token to the Source API, which checks it; the adapter
+  decides nothing about who a source is.
+
+### The owner account
+
+- The instance has one account, the owner's: a name, an email and a password.
+  Hybro keeps it itself and needs no outside service to sign in.
+- The owner creates the account on the first visit, through a one-time setup
+  link that the `hybro` command prints. Until the account exists, every other
+  route refuses requests.
+- Sign-in is required on every install. The owner changes the profile and the
+  password in the Panel, sees the signed-in browsers, and resets a forgotten
+  password with a command on the machine that runs Hybro.
+- More people, roles and single sign-on are enterprise (see
+  [Community and enterprise](#community-and-enterprise)).
 
 ## One step, from request to reply
 
@@ -461,8 +507,11 @@ work on it starts. This list fixes which pages exist and what belongs on each.
 | Network | Agents and Groups. | Exists |
 | Rules | The ordered route rules, and the check rules. | New |
 | Evaluation | Standards, and checking one against a run. | New |
-| Connect | How a source connects, over the API or MCP. | Exists |
+| Connect | The owner's sources and their tokens, and how a source connects, over the API or MCP. | Exists under the name Access, without sources |
 | Settings | Model provider, configuration and system. | Exists |
+
+The owner's account is not a page. It sits in the user menu: profile, password,
+signed-in browsers, and sign out.
 
 ## Community and enterprise
 
@@ -504,7 +553,7 @@ once, on the current run.
 | Questions and approvals | The agent's own permission questions, answered by the owner in the Panel. Owner check rules. The grant that lets a source answer. | Several approvers, and approval by role. |
 | Evaluation | Each step's input, output and timing. A standard checked by hand on the current run. | Saved standards that run on every step, results over time, comparison, sharing, alerts. |
 | Event log | The full log of each session, and the live stream. | Audit across sessions, and export. |
-| Access and people | One owner, everything allowed. | Access rules, roles, users, teams, single sign-on. |
+| Access and people | One owner with a built-in account, everything allowed. | Access rules, roles, more users, members with fewer rights, teams, single sign-on. |
 
 Where the enterprise side attaches: access rules and roles to `policy`, saved
 standards and history to `evaluation`, an audit listener to `events`, and
@@ -600,13 +649,8 @@ Nothing is deleted before its replacement has shipped.
 
 ## Open questions
 
-- How a source is identified. For now a source names itself, as `client_label`
-  does today. The answer is decided when roadmap phase 2 starts, and a verified
-  source is part of the community edition. A feature that limits or trusts a
-  source by its name waits for the answer, because any caller can send another
-  source's name while the name is not verified. Two are planned: an access
-  rule that matches on a source, and the grant that lets a source answer
-  permission questions.
+None at present. How a source is identified was the open question; the answer
+is in [Who may use it](#who-may-use-it).
 
 ## Changing this document
 
