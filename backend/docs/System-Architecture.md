@@ -705,14 +705,16 @@ Owns orchestration after a user message is accepted.
   creates the Run, and prompts the room's `RoomSessionHost`; it also routes
   cancellation, HITL answers, and observations.
 - `orchestrator/`: the provider-neutral kernel (`OrchestratorKernel`,
-  `RoomAgentSession`, `ContextCompiler`, `BudgetPolicy`, `GatewayModelRuntime`,
-  settlement, projection, and public text/summary policies).
+  `RoomAgentSession`, `BudgetPolicy`, settlement, projection, and public
+  text/summary policies).
+- `model_loop/`: the model loop's modules: `GatewayModelRuntime`, model stream
+  assembly, `ContextCompiler`, compaction, and profile resolution
+  (`OrchestratorProfileResolver`).
 - `orchestrator/a2a_runtime/`: the A2A tool runtime (`A2AAgentToolRuntime`),
   frozen catalog, call ledger, observation ingress, HITL continuation,
   cancellation, recovery, and resource materialization.
-- `adapters/`: profile resolution (`OrchestratorProfileResolver`), the session
-  host, candidate sources, membership authorization refresh, HITL application,
-  and resource adapters.
+- `adapters/`: the session host, candidate sources, membership authorization
+  refresh, HITL application, and resource adapters.
 - `direct_agent.DirectAgentExecution`: the bounded one-shot agent-network send.
 - `events.emit_room_processing_status`: room processing-status emission; it
   accepts string `details` and normalizes them into the typed payload before
@@ -1138,7 +1140,7 @@ port, or facade port, update the exact method inventory in
 | `CancellationSignal` | `execution.orchestrator.ports` | `execution.orchestrator.a2a_runtime.runtime._RecoveryCancellationSignal`, `execution.orchestrator.session.EventCancellationSignal` | internal to `execution` |
 | `ContextCompactor` | `execution.orchestrator.ports` | none wired; `OrchestratorKernel` runs without a compactor (`context_compactor=None`) | internal to `execution` |
 | `InvocationCheckpointReader` | `execution.orchestrator.ports` | `execution.orchestrator.a2a_runtime.in_memory.RunCheckpointReader` | internal to `execution` |
-| `ModelRuntime` | `execution.orchestrator.ports` | `execution.orchestrator.model_runtime.GatewayModelRuntime` | internal to `execution` |
+| `ModelRuntime` | `execution.orchestrator.ports` | `execution.model_loop.model_runtime.GatewayModelRuntime` | internal to `execution` |
 | `OrchestratorRunStore` | `execution.orchestrator.ports` | `execution.repository.orchestrator.run_store.MongoOrchestratorRunStore` | internal to `execution` |
 | `ProjectionDriver` | `execution.orchestrator.ports` | `execution.orchestrator.projection.SettlingProjectionDriver` | internal to `execution` |
 | `RunStoreResult` | `execution.orchestrator.ports` | `execution.repository.orchestrator.run_store.MongoRunStoreResult` | internal to `execution` |
@@ -2216,7 +2218,7 @@ non-terminal Run (`orchestrator_active_room_unique_canceling`, which includes
 - `fast` and `ultimate`: model-driven profiles whose model routes must resolve
   at startup and are resolved again for each Run, so a live Provider change
   applies to the next Run. Both use the orchestrator system prompt in
-  `execution/adapters/profiles.py` (prompt version `5`), with a fast strategy
+  `execution/model_loop/profiles.py` (prompt version `5`), with a fast strategy
   (shortest sufficient path, smallest set of calls) or an ultimate strategy
   (evidence-ordered dependencies and a bounded review-and-revision cycle). The
   prompt treats the listed tools as the closed Agent scope, calls each explicitly

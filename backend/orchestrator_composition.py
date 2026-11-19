@@ -38,13 +38,15 @@ from diagnostics import read_token
 from execution.adapters.agent_candidates import AgentServiceCandidateSource
 from execution.adapters.authorization import MembershipAuthorizationRefresh
 from execution.adapters.hitl import DurableHITLApplicationPort
-from execution.adapters.profiles import (
+from execution.adapters.resources import RoomFilesResourceMaterializer
+from execution.adapters.session_host import RoomSessionHost
+from execution.model_loop import (
+    ContextCompiler,
+    GatewayModelRuntime,
     OrchestratorProfileResolutionError,
     OrchestratorProfileResolver,
     PromptAssetRegistry,
 )
-from execution.adapters.resources import RoomFilesResourceMaterializer
-from execution.adapters.session_host import RoomSessionHost
 from execution.orchestrator.a2a_runtime.call_counting import (
     CountingAgentCallLedgerStore,
 )
@@ -93,10 +95,8 @@ from execution.orchestrator.a2a_runtime.terminal_interactions import (
     TerminalInteractionFinalizer,
 )
 from execution.orchestrator.budget import BudgetPolicy
-from execution.orchestrator.context import ContextCompiler
 from execution.orchestrator.kernel import KernelConflict, OrchestratorKernel
 from execution.orchestrator.lifecycle import SessionEvent
-from execution.orchestrator.model_runtime import GatewayModelRuntime
 from execution.orchestrator.models import (
     FrozenToolCatalogSnapshot,
     OrchestratorProfile,

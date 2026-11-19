@@ -5,7 +5,12 @@ or its ``protocols`` module. ``a2a_adapter`` is the A2A SDK boundary and is
 open to every module. ``common`` and ``models`` import no domain module, and
 ``dal`` imports none outside the listed debt. ``api_gateway`` has its own
 boundary test; ``container.py`` and ``orchestrator_composition.py`` are the
-composition root and are not scanned.
+composition root and are not scanned by the domain rule.
+
+Inside ``execution``, the model loop (``execution/model_loop/``) is reached
+only through its package root: the rest of ``execution`` imports the entry
+point ``model_loop_for``, and ``orchestrator_composition.py`` imports the five
+names it wires. Neither imports a submodule or an old-path re-export shim.
 
 The debt allowlists are exact: an entry that no longer matches a real import
 fails the test, so they can only shrink. They are tracked as cleanup debt.
@@ -43,16 +48,16 @@ DAL_ROOT = "dal"
 # package root or protocols.
 DOMAIN_IMPORT_DEBT = frozenset(
     {
-        ("execution/adapters/profiles.py", "llm_gateway.errors"),
-        ("execution/adapters/profiles.py", "llm_gateway.model_registry"),
-        ("execution/orchestrator/model_runtime.py", "llm_gateway.error_classification"),
-        ("execution/orchestrator/model_runtime.py", "llm_gateway.gateway"),
-        ("execution/orchestrator/model_runtime.py", "llm_gateway.model_registry"),
+        ("execution/model_loop/model_runtime.py", "llm_gateway.error_classification"),
+        ("execution/model_loop/model_runtime.py", "llm_gateway.gateway"),
+        ("execution/model_loop/model_runtime.py", "llm_gateway.model_registry"),
         (
-            "execution/orchestrator/model_runtime.py",
+            "execution/model_loop/model_runtime.py",
             "llm_gateway.structured_generation",
         ),
-        ("execution/orchestrator/model_runtime.py", "llm_gateway.turn_types"),
+        ("execution/model_loop/model_runtime.py", "llm_gateway.turn_types"),
+        ("execution/model_loop/profiles.py", "llm_gateway.errors"),
+        ("execution/model_loop/profiles.py", "llm_gateway.model_registry"),
         ("execution/orchestrator_routing.py", "context_memory.resources"),
         ("execution/orchestrator_routing.py", "context_memory.translators"),
         ("jobs/orchestrator_workers.py", "execution.adapters.canary_metrics"),
@@ -141,6 +146,118 @@ def test_dal_imports_no_domain_module_outside_the_debt():
     assert files == DAL_IMPORT_DEBT
 
 
+# -- the model loop package ----------------------------------------------------
+
+MODEL_LOOP = "execution.model_loop"
+MODEL_LOOP_DIR = "execution/model_loop"
+COMPOSITION_ROOT = "orchestrator_composition.py"
+
+# Old module paths that re-export the moved model-loop modules.
+MODEL_LOOP_SHIMS = frozenset(
+    {
+        "execution.adapters.profiles",
+        "execution.orchestrator.compaction",
+        "execution.orchestrator.context",
+        "execution.orchestrator.model_runtime",
+        "execution.orchestrator.streaming",
+    }
+)
+
+# Names each scanned file may import from the package root.
+MODEL_LOOP_ENTRY_POINT = frozenset({"model_loop_for"})
+MODEL_LOOP_COMPOSITION_NAMES = frozenset(
+    {
+        "ContextCompiler",
+        "GatewayModelRuntime",
+        "OrchestratorProfileResolutionError",
+        "OrchestratorProfileResolver",
+        "PromptAssetRegistry",
+    }
+)
+
+# (importing file, imported module or root name) pairs that reach the model
+# loop other than through its entry point.
+MODEL_LOOP_IMPORT_DEBT = frozenset(
+    {
+        ("execution/adapters/profiles.py", "execution.model_loop.profiles"),
+        ("execution/orchestrator/__init__.py", "execution.orchestrator.compaction"),
+        ("execution/orchestrator/__init__.py", "execution.orchestrator.context"),
+        ("execution/orchestrator/__init__.py", "execution.orchestrator.model_runtime"),
+        ("execution/orchestrator/__init__.py", "execution.orchestrator.streaming"),
+        ("execution/orchestrator/compaction.py", "execution.model_loop.compaction"),
+        ("execution/orchestrator/context.py", "execution.model_loop.context"),
+        ("execution/orchestrator/kernel.py", "execution.orchestrator.context"),
+        ("execution/orchestrator/kernel.py", "execution.orchestrator.streaming"),
+        (
+            "execution/orchestrator/model_runtime.py",
+            "execution.model_loop.model_runtime",
+        ),
+        ("execution/orchestrator/streaming.py", "execution.model_loop.streaming"),
+    }
+)
+
+
+def _absolute_imports(path: Path, *, root: Path) -> list[tuple[str, list[str]]]:
+    """(module, imported names) per import; plain imports list no names."""
+    tree = ast.parse(path.read_text(), filename=str(path))
+    package = list(path.relative_to(root).parent.parts)
+    found: list[tuple[str, list[str]]] = []
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            found.extend((alias.name, []) for alias in node.names)
+        elif isinstance(node, ast.ImportFrom):
+            if node.level:
+                base = package[: len(package) - (node.level - 1)]
+                module = ".".join([*base, *([node.module] if node.module else [])])
+            else:
+                module = node.module or ""
+            if module:
+                found.append((module, [alias.name for alias in node.names]))
+    return found
+
+
+def _in_model_loop(module: str) -> bool:
+    return module == MODEL_LOOP or module.startswith(f"{MODEL_LOOP}.")
+
+
+def model_loop_violations(root: Path = ROOT) -> set[tuple[str, str]]:
+    """Imports of the model loop that bypass its package root, or a shim.
+
+    Files under ``execution/`` outside the package may import only the entry
+    point from the package root; the composition root only the five names it
+    wires. Neither may import a shim, a submodule, or the bare package.
+    """
+    scanned = [
+        (path, MODEL_LOOP_ENTRY_POINT)
+        for path in _source_files(root, "execution")
+        if not path.relative_to(root).as_posix().startswith(f"{MODEL_LOOP_DIR}/")
+    ]
+    composition = root / COMPOSITION_ROOT
+    if composition.is_file():
+        scanned.append((composition, MODEL_LOOP_COMPOSITION_NAMES))
+    violations: set[tuple[str, str]] = set()
+    for path, allowed in scanned:
+        relative = path.relative_to(root).as_posix()
+        for module, names in _absolute_imports(path, root=root):
+            if module == MODEL_LOOP and names:
+                bad = [f"{module}.{name}" for name in names if name not in allowed]
+            elif _in_model_loop(module) or module in MODEL_LOOP_SHIMS:
+                bad = [module]
+            else:
+                bad = [
+                    f"{module}.{name}"
+                    for name in names
+                    if _in_model_loop(f"{module}.{name}")
+                    or f"{module}.{name}" in MODEL_LOOP_SHIMS
+                ]
+            violations.update((relative, target) for target in bad)
+    return violations
+
+
+def test_model_loop_is_reached_only_through_its_package_root():
+    assert model_loop_violations() == MODEL_LOOP_IMPORT_DEBT
+
+
 # -- scanner self-tests ---------------------------------------------------------
 
 
@@ -213,3 +330,40 @@ def test_scanner_ignores_build_copies_and_unscanned_roots(tmp_path):
     )
 
     assert domain_violations(root) == set()
+
+
+def test_model_loop_rule_allows_only_the_package_root_names(tmp_path):
+    root = _tree(
+        tmp_path,
+        {
+            "container.py": "from execution.model_loop.context import X\n",
+            "execution/__init__.py": "",
+            "execution/model_loop/__init__.py": "",
+            "execution/model_loop/context.py": "",
+            "execution/model_loop/loop.py": "from execution.model_loop.context import X\n",
+            "execution/orchestrator/__init__.py": "",
+            "execution/orchestrator/context.py": (
+                "from execution.model_loop.context import ContextCompiler\n"
+            ),
+            "execution/orchestrator/kernel.py": (
+                "from execution.model_loop import model_loop_for\n"
+                "from execution.model_loop import ContextCompiler\n"
+                "from .context import ContextCompiler\n"
+                "from execution import model_loop\n"
+            ),
+            "orchestrator_composition.py": (
+                "from execution.model_loop import ContextCompiler, PromptAssetRegistry\n"
+                "from execution.model_loop import model_loop_for\n"
+                "import execution.model_loop.context\n"
+            ),
+        },
+    )
+
+    assert model_loop_violations(root) == {
+        ("execution/orchestrator/context.py", "execution.model_loop.context"),
+        ("execution/orchestrator/kernel.py", "execution.model_loop"),
+        ("execution/orchestrator/kernel.py", "execution.model_loop.ContextCompiler"),
+        ("execution/orchestrator/kernel.py", "execution.orchestrator.context"),
+        ("orchestrator_composition.py", "execution.model_loop.context"),
+        ("orchestrator_composition.py", "execution.model_loop.model_loop_for"),
+    }

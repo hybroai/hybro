@@ -8,6 +8,7 @@ from execution.orchestrator.models import OrchestratorRunState
 
 ROOT = Path(__file__).parents[1]
 ORCHESTRATOR = ROOT / "execution" / "orchestrator"
+MODEL_LOOP = ROOT / "execution" / "model_loop"
 
 
 def imported_modules(path: Path) -> set[str]:
@@ -41,7 +42,7 @@ def test_orchestrator_contracts_do_not_import_runtime_adapters_or_old_policies()
         "execution.orchestrator.a2a_runtime",
     }
     violations = []
-    for path in ORCHESTRATOR.glob("*.py"):
+    for path in [*ORCHESTRATOR.glob("*.py"), *MODEL_LOOP.glob("*.py")]:
         for module in imported_modules(path):
             if any(
                 module == root or module.startswith(f"{root}.")
@@ -87,8 +88,14 @@ def test_generic_kernel_session_context_and_budget_have_no_plan3_or_product_depe
         "sse_starlette",
         "openai",
     }
-    for filename in ("kernel.py", "session.py", "context.py", "budget.py"):
-        modules = imported_modules(ORCHESTRATOR / filename)
+    for path in (
+        ORCHESTRATOR / "kernel.py",
+        ORCHESTRATOR / "run_state.py",
+        ORCHESTRATOR / "session.py",
+        MODEL_LOOP / "context.py",
+        ORCHESTRATOR / "budget.py",
+    ):
+        modules = imported_modules(path)
         assert not {
             module
             for module in modules
@@ -96,7 +103,7 @@ def test_generic_kernel_session_context_and_budget_have_no_plan3_or_product_depe
             or any(
                 module == root or module.startswith(f"{root}.") for root in forbidden
             )
-        }, filename
+        }, path
 
 
 def test_gateway_provider_inventory_is_closed_and_gemini_dependency_is_removed():
@@ -149,7 +156,10 @@ def test_run_model_excludes_forbidden_semantic_state():
         for model in models
         for field_name in getattr(model, "model_fields", {})
     }
-    source = "\n".join(path.read_text() for path in ORCHESTRATOR.glob("*.py"))
+    source = "\n".join(
+        path.read_text()
+        for path in [*ORCHESTRATOR.glob("*.py"), *MODEL_LOOP.glob("*.py")]
+    )
 
     assert fields.isdisjoint(forbidden)
     for name in forbidden:
