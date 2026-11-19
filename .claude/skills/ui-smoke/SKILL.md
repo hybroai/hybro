@@ -23,7 +23,7 @@ Use the built-in browser (`mcp__Claude_Browser__*`). Prefer `read_page` and `get
 - **HITL**: when an agent asks for input, the reply control appears, the answer is accepted, and the resolved interaction stays visible after reload.
 - **Files**: attach a small file and send; artifact shows a download control.
 - **Sessions `/sessions`**: list renders; owner can approve a client session.
-- **Connect `/connect/mcp` and `/connect/api`**: readable and copyable at 1280px and 375px; legacy addresses (`/agents`, `/networks`, `/manage`, `/access/*`) redirect.
+- **Connect `/connect/mcp` and `/connect/api`**: readable and copyable at 1280px and 375px; deprecated legacy addresses (`/agents`, `/manage`) redirect.
 - **Model provider settings**: banner opens settings; saving a key clears the banner (use a dummy key only if the UI validates format, not a live call).
 - **Errors**: unknown route gives a 404 page; `/rooms/<id>/anything` returns 404, not a settings route.
 - **Responsive**: repeat Overview, Chat and a Room at 375x812 and 1280x800; no horizontal scroll, controls reachable.

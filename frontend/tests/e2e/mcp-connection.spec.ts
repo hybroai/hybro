@@ -33,8 +33,3 @@ for (const viewport of [{ width: 1280, height: 800 }, { width: 390, height: 844 
     await page.screenshot({ path: testInfo.outputPath(`api-${viewport.width}.png`), fullPage: true })
   })
 }
-
-test('legacy access URL redirects', async ({ page }) => {
-  await page.goto('/access/mcp')
-  await expect(page).toHaveURL(/\/connect\/mcp$/)
-})

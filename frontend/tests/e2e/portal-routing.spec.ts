@@ -13,7 +13,6 @@ test.describe('Unified portal routing', () => {
       '/connect/api',
       '/agents',
       '/agents/new',
-      '/networks',
     ]) {
       const response = await request.get(path)
       expect(response.status(), `${path} should resolve`).toBe(200)
@@ -26,9 +25,7 @@ test.describe('Unified portal routing', () => {
   for (const [from, to] of [
     ['/agents', /\/network$/],
     ['/agents/new', /\/network\/agents\/new$/],
-    ['/networks', /\/network$/],
     ['/manage/agents/new', /\/network\/agents\/new$/],
-    ['/access/api', /\/connect\/api$/],
   ] as const) {
     test(`redirects ${from}`, async ({ page }) => {
       await page.goto(from)
@@ -50,6 +47,8 @@ test.describe('Unified portal routing', () => {
 
   test('does not retain retired routes', async ({ request }) => {
     for (const path of [
+      '/access/api',
+      '/access/mcp',
       '/c',
       '/c/chat',
       '/core',
@@ -58,6 +57,7 @@ test.describe('Unified portal routing', () => {
       '/hub',
       '/manage/api-keys',
       '/manage/inspector',
+      '/networks',
     ]) {
       const response = await request.get(path)
       expect(response.status(), `${path} should be retired`).toBe(404)
