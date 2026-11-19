@@ -10,6 +10,7 @@ Tests cover:
 
 import json
 import logging
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -18,10 +19,23 @@ from fastapi.responses import StreamingResponse
 
 from api_gateway.routes.sse_routes import (
     cancel_message,
+    get_room_events,
     get_room_sse_status,
     stream_room_messages,
 )
 from common.errors import NotFoundError
+
+
+def _request(**state):
+    """A request whose app.state holds the given services."""
+    return SimpleNamespace(app=SimpleNamespace(state=SimpleNamespace(**state)))
+
+
+def _stream_request():
+    snapshot_service = MagicMock()
+    snapshot_service.snapshot = AsyncMock(return_value=None)
+    return _request(room_snapshot_service=snapshot_service)
+
 
 # =============================================================================
 # SSE Stream Tests
@@ -49,6 +63,7 @@ class TestStreamRoomMessages:
             mock_user,
             transport=mock_sse_transport,
             db=mock_db_service,
+            request=_stream_request(),
         )
 
         assert isinstance(response, StreamingResponse)
@@ -72,6 +87,7 @@ class TestStreamRoomMessages:
             mock_user,
             transport=mock_sse_transport,
             db=mock_db_service,
+            request=_stream_request(),
         )
 
         directives = {
@@ -116,6 +132,7 @@ class TestStreamRoomMessages:
             mock_user,
             transport=mock_sse_transport,
             db=mock_db_service,
+            request=_stream_request(),
         )
 
         first_event = await anext(response.body_iterator)
@@ -152,6 +169,7 @@ class TestStreamRoomMessages:
             mock_user,
             transport=mock_sse_transport,
             db=mock_db_service,
+            request=_stream_request(),
         )
         with caplog.at_level(logging.DEBUG):
             frames = [frame async for frame in response.body_iterator]
@@ -162,6 +180,69 @@ class TestStreamRoomMessages:
         ]
         assert bool(failed) is logged
         mock_sse_transport.remove_connection.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_returns_503_without_snapshot_service(
+        self, mock_user, mock_sse_transport, mock_db_service, sample_room
+    ):
+        mock_db_service.get_room_by_room_id.return_value = sample_room
+
+        with pytest.raises(HTTPException) as exc_info:
+            await stream_room_messages(
+                sample_room.conversation_id,
+                mock_user,
+                transport=mock_sse_transport,
+                db=mock_db_service,
+                request=_request(),
+            )
+
+        assert exc_info.value.status_code == 503
+        mock_sse_transport.add_connection.assert_not_called()
+
+
+class TestGetRoomEvents:
+    """Tests for the room event replay endpoint."""
+
+    @pytest.mark.asyncio
+    async def test_replays_events_after_the_cursor(
+        self, mock_user, mock_db_service, sample_room
+    ):
+        mock_db_service.get_room_by_room_id.return_value = sample_room
+        store = MagicMock()
+        store.read_range = AsyncMock(return_value=[{"room_seq": 4}])
+        store.latest_seq = AsyncMock(return_value=4)
+
+        response = await get_room_events(
+            sample_room.conversation_id,
+            request=_request(room_event_store=store),
+            after=3,
+            limit=10,
+            user=mock_user,
+            db=mock_db_service,
+        )
+
+        assert response == {"room_seq": 4, "events": [{"room_seq": 4}]}
+        store.read_range.assert_awaited_once_with(
+            sample_room.conversation_id, after=3, limit=10
+        )
+
+    @pytest.mark.asyncio
+    async def test_returns_503_without_event_store(
+        self, mock_user, mock_db_service, sample_room
+    ):
+        mock_db_service.get_room_by_room_id.return_value = sample_room
+
+        with pytest.raises(HTTPException) as exc_info:
+            await get_room_events(
+                sample_room.conversation_id,
+                request=_request(),
+                after=0,
+                limit=10,
+                user=mock_user,
+                db=mock_db_service,
+            )
+
+        assert exc_info.value.status_code == 503
 
 
 # =============================================================================

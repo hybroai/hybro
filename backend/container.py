@@ -364,13 +364,15 @@ def validate_runtime_bindings(
     for missing in chat_service.missing_required_bindings():
         errors.append(f"chat.{missing}")
 
-    if getattr(app.state, "delivery_facade", None) is None:
-        errors.append("app.state.delivery_facade")
-
-    if getattr(app.state, "execution_deps", None) is None:
-        errors.append("app.state.execution_deps")
-    if getattr(app.state, "orchestrator_runtime", None) is None:
-        errors.append("app.state.orchestrator_runtime")
+    for name in (
+        "delivery_facade",
+        "room_event_store",
+        "room_snapshot_service",
+        "execution_deps",
+        "orchestrator_runtime",
+    ):
+        if getattr(app.state, name, None) is None:
+            errors.append(f"app.state.{name}")
     execution_facade = getattr(app.state, "execution_facade", None)
     if (
         execution_facade is None
