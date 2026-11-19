@@ -1134,7 +1134,7 @@ port, or facade port, update the exact method inventory in
 | `RoomEpochStore` | `execution.orchestrator.a2a_runtime.ports` | `execution.repository.orchestrator.stores.MongoRoomEpochStore` | internal to `execution` |
 | `ToolObservationSink` | `execution.orchestrator.a2a_runtime.ports` | `execution.orchestrator.a2a_runtime.observations.RunAddressedToolObservationSink` | internal to `execution` |
 | `AcceptedCallRecoveryRuntime` | `execution.orchestrator.a2a_runtime.preparation` | `execution.orchestrator.a2a_runtime.runtime.A2AAgentToolRuntime` | internal to `execution` |
-| `IDFactory` | `execution.orchestrator.kernel` | `execution.orchestrator.kernel.UUIDFactory` | internal to `execution` |
+| `IDFactory` | `execution.orchestrator.kernel` | `execution.orchestrator.run_state.UUIDFactory` | internal to `execution` |
 | `CancellationSignal` | `execution.orchestrator.ports` | `execution.orchestrator.a2a_runtime.runtime._RecoveryCancellationSignal`, `execution.orchestrator.session.EventCancellationSignal` | internal to `execution` |
 | `ContextCompactor` | `execution.orchestrator.ports` | none wired; `OrchestratorKernel` runs without a compactor (`context_compactor=None`) | internal to `execution` |
 | `InvocationCheckpointReader` | `execution.orchestrator.ports` | `execution.orchestrator.a2a_runtime.in_memory.RunCheckpointReader` | internal to `execution` |
