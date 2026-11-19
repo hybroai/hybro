@@ -12,10 +12,15 @@ from api_gateway.dependencies import get_hitl_manager, get_room_ownership_reader
 from api_gateway.registry import mark_declared_owner as _mark_declared_owner
 from common.auth import ClerkUser, get_current_user
 from common.dto import HITLCancelCommand, HITLRequest
+from common.observability import events as E
 from common.protocols import HITLManager, RoomOwnershipReader
+from common.utils.logger import get_logger
 from models.hitl import HITLBatchResponseRequest
 
 router = APIRouter(prefix="/rooms/{conversation_id}/hitl", tags=["hitl"])
+logger = get_logger(__name__)
+
+HITL_ROUTE_FAILED_DETAIL = "HITL request failed."
 
 
 async def verify_room_ownership(
@@ -72,8 +77,19 @@ _PUBLIC_PENDING_HITL_FIELDS = {
 }
 
 
-def _raise_http_for_hitl_error(exc: Exception) -> None:
-    status_code = _HITL_ERROR_STATUS.get(exc.__class__.__name__, 500)
+def _raise_http_for_hitl_error(
+    exc: Exception, *, conversation_id: str, operation: str
+) -> None:
+    status_code = _HITL_ERROR_STATUS.get(exc.__class__.__name__)
+    if status_code is None:
+        # Unexpected errors can carry internal detail; log it, return fixed text.
+        logger.emit(
+            E.HITL_ROUTE_FAILED,
+            exc=exc,
+            conversation_id=conversation_id,
+            operation=operation,
+        )
+        raise HTTPException(status_code=500, detail=HITL_ROUTE_FAILED_DETAIL) from exc
     message = getattr(exc, "message", str(exc))
     code = getattr(exc, "code", None)
     details = getattr(exc, "details", None)
@@ -121,7 +137,9 @@ async def respond_to_hitl_interaction(
             body.client_request_id,
         )
     except Exception as exc:
-        _raise_http_for_hitl_error(exc)
+        _raise_http_for_hitl_error(
+            exc, conversation_id=conversation_id, operation="respond_batch"
+        )
     return {
         "status": response.status,
         "request_id": response.request_id,
@@ -164,7 +182,9 @@ async def cancel_hitl_interaction(
             body.expected_interaction_version,
         )
     except Exception as exc:
-        _raise_http_for_hitl_error(exc)
+        _raise_http_for_hitl_error(
+            exc, conversation_id=conversation_id, operation="cancel_interaction"
+        )
     return {
         "status": "canceled",
         "interaction_id": interaction_id,
