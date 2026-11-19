@@ -12,6 +12,7 @@ jobs:
   backend-ci:
     name: Backend CI (Python / FastAPI)
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     services:
       redis:
         image: redis:7-alpine
@@ -62,6 +63,7 @@ jobs:
   default-agents-ci:
     name: Default Agents CI
     runs-on: ubuntu-latest
+    timeout-minutes: 10
 
     steps:
       - name: Checkout repository
@@ -104,6 +106,7 @@ jobs:
   frontend-ci:
     name: Frontend CI (Next.js / React)
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     defaults:
       run:
         working-directory: frontend
@@ -132,6 +135,7 @@ jobs:
   mcp-ci:
     name: MCP CI (local adapter)
     runs-on: ubuntu-latest
+    timeout-minutes: 10
 
     steps:
       - name: Checkout repository
@@ -159,6 +163,7 @@ jobs:
   image-ci:
     name: Image CI (single image smoke test)
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     needs: [backend-ci, frontend-ci, default-agents-ci, mcp-ci]
 
     steps:
@@ -218,6 +223,7 @@ jobs:
   cli-ci:
     name: Shell CLI CI (stubbed Docker)
     runs-on: ubuntu-latest
+    timeout-minutes: 10
 
     steps:
       - name: Checkout repository
@@ -243,6 +249,7 @@ jobs:
   migration-ci:
     name: Migration CI (0.3 volumes to the single image)
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     needs: [backend-ci, frontend-ci, default-agents-ci, mcp-ci, cli-ci]
 
     steps:
@@ -261,6 +268,7 @@ jobs:
     name: Functional Regression CI (Single Image + Mock LLM)
     # Playwright 1.58 cannot install Chromium on Ubuntu 26.04 (ubuntu-latest).
     runs-on: ubuntu-24.04
+    timeout-minutes: 45
     needs: [backend-ci, frontend-ci, default-agents-ci, mcp-ci]
 
     steps:

@@ -19,6 +19,7 @@ jobs:
     # main green instead of failing on a permission it does not need.
     if: github.repository == 'hybroai/hybro'
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     outputs:
       released: ${{ steps.release.outputs.release_created }}
       version: ${{ steps.release.outputs.version }}

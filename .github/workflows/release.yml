@@ -36,6 +36,7 @@ jobs:
   version:
     name: Resolve version
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     outputs:
       value: ${{ steps.resolve.outputs.value }}
       ref: ${{ steps.ref.outputs.ref }}
@@ -197,6 +198,7 @@ jobs:
     name: Release assets
     needs: [version, image-manifest]
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     permissions:
       contents: write
     steps:
@@ -224,6 +226,7 @@ jobs:
     name: Publish @hybroai/cli
     needs: [version, image-manifest]
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     permissions:
       contents: read
       id-token: write
@@ -263,6 +266,7 @@ jobs:
     # the release rather than passing an image-only check.
     needs: [version, image-manifest, assets, npm-cli]
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     permissions:
       contents: read
       packages: read
