@@ -1,6 +1,7 @@
 """The model loop: model turns, stream assembly, context, and profile routes."""
 
 from .context import ContextCompiler
+from .loop import model_loop_for
 from .model_runtime import GatewayModelRuntime
 from .profiles import (
     OrchestratorProfileResolutionError,
@@ -14,4 +15,5 @@ __all__ = [
     "OrchestratorProfileResolutionError",
     "OrchestratorProfileResolver",
     "PromptAssetRegistry",
+    "model_loop_for",
 ]

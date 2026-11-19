@@ -186,8 +186,6 @@ MODEL_LOOP_IMPORT_DEBT = frozenset(
         ("execution/orchestrator/__init__.py", "execution.orchestrator.streaming"),
         ("execution/orchestrator/compaction.py", "execution.model_loop.compaction"),
         ("execution/orchestrator/context.py", "execution.model_loop.context"),
-        ("execution/orchestrator/kernel.py", "execution.orchestrator.context"),
-        ("execution/orchestrator/kernel.py", "execution.orchestrator.streaming"),
         (
             "execution/orchestrator/model_runtime.py",
             "execution.model_loop.model_runtime",
