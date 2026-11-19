@@ -2318,7 +2318,7 @@
           "sse"
         ],
         "summary": "Stream Room Messages",
-        "description": "create SSE message stream for specified room\n\nThe stream is snapshot-driven (Room Stream Snapshot plan \u00a74): the\n``connected`` handshake carries the room's latest contiguous ``room_seq``\nand a ``snapshot`` frame follows as the first frame. ``?snapshot=1``\nforces a fresh fold from the authoritative room event log (gap recovery).\nWithout a bound snapshot service, or when the snapshot build fails, the\nstream continues delta-only with an unchanged envelope.\n\nArgs:\n    conversation_id: room ID\n    user: Authenticated user (from header or query param token)\n\nReturns:\n    StreamingResponse: SSE stream response",
+        "description": "create SSE message stream for specified room\n\nThe stream is snapshot-driven (Room Stream Snapshot plan \u00a74): the\n``connected`` handshake carries the room's latest contiguous ``room_seq``\nand a ``snapshot`` frame follows as the first frame. ``?snapshot=1``\nforces a fresh fold from the authoritative room event log (gap recovery).\nWhen the snapshot build fails, the stream continues delta-only with an\nunchanged envelope. A missing snapshot service is a startup fault: 503.\n\nArgs:\n    conversation_id: room ID\n    user: Authenticated user (from header or query param token)\n\nReturns:\n    StreamingResponse: SSE stream response",
         "operationId": "stream_room_messages_api_v1_sse_room__conversation_id__stream_get",
         "parameters": [
           {

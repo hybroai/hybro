@@ -118,3 +118,16 @@ def test_container_validates_the_lifespan_runtime_from_app_state():
     app = SimpleNamespace(state=SimpleNamespace())
     with pytest.raises(RuntimeError, match="app.state.conversation_runtime"):
         container.validate_runtime_bindings(app)
+
+
+def test_container_requires_the_room_event_store_and_snapshot_service():
+    from types import SimpleNamespace
+
+    import container
+
+    app = SimpleNamespace(state=SimpleNamespace())
+    with pytest.raises(RuntimeError) as exc_info:
+        container.validate_runtime_bindings(app)
+
+    assert "app.state.room_event_store" in str(exc_info.value)
+    assert "app.state.room_snapshot_service" in str(exc_info.value)

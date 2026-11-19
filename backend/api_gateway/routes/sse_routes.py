@@ -36,8 +36,6 @@ async def _fetch_connect_snapshot(
 ) -> dict[str, Any] | None:
     """Build the initial snapshot for one connect, tolerating failures."""
 
-    if snapshot_service is None:
-        return None
     try:
         return await snapshot_service.snapshot(conversation_id, force=force)
     except Exception as exc:
@@ -63,8 +61,8 @@ async def stream_room_messages(  # noqa: C901
     ``connected`` handshake carries the room's latest contiguous ``room_seq``
     and a ``snapshot`` frame follows as the first frame. ``?snapshot=1``
     forces a fresh fold from the authoritative room event log (gap recovery).
-    Without a bound snapshot service, or when the snapshot build fails, the
-    stream continues delta-only with an unchanged envelope.
+    When the snapshot build fails, the stream continues delta-only with an
+    unchanged envelope. A missing snapshot service is a startup fault: 503.
 
     Args:
         conversation_id: room ID
@@ -82,9 +80,9 @@ async def stream_room_messages(  # noqa: C901
             detail="You do not have permission to stream this room",
         )
 
-    snapshot_service = None
-    if request is not None:
-        snapshot_service = getattr(request.app.state, "room_snapshot_service", None)
+    snapshot_service = getattr(request.app.state, "room_snapshot_service", None)
+    if snapshot_service is None:
+        raise HTTPException(status_code=503, detail="Room stream is unavailable")
 
     async def event_generator():
         connection = None
@@ -232,7 +230,7 @@ async def get_room_events(
 
     store = getattr(request.app.state, "room_event_store", None)
     if store is None:
-        return {"room_seq": 0, "events": []}
+        raise HTTPException(status_code=503, detail="Room event replay is unavailable")
     records = await store.read_range(conversation_id, after=after, limit=limit)
     return {"room_seq": await store.latest_seq(conversation_id), "events": records}
 
