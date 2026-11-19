@@ -116,7 +116,7 @@ async def delete_agent(
 # ============= CAPABILITY ISSUE ENDPOINTS (Auth Required) =============
 
 
-@router.get("/agent/{agent_id}/capability-issues")
+@router.get("/agent/{agent_id}/capability-issues", deprecated=True)
 async def get_capability_issues(
     agent_id: str,
     status: str | None = Query(None, description="Filter by status: open or resolved"),
@@ -151,7 +151,7 @@ async def get_capability_issues(
     return {"issues": [issue.model_dump(mode="json") for issue in issues]}
 
 
-@router.post("/agent/{agent_id}/capability-issues/resolve-all")
+@router.post("/agent/{agent_id}/capability-issues/resolve-all", deprecated=True)
 async def resolve_all_capability_issues(
     agent_id: str,
     user: ClerkUser = Depends(get_current_user),
@@ -172,7 +172,7 @@ async def resolve_all_capability_issues(
     return {"resolved_count": count}
 
 
-@router.post("/agent/capability-issues/{issue_id}/resolve")
+@router.post("/agent/capability-issues/{issue_id}/resolve", deprecated=True)
 async def resolve_capability_issue(
     issue_id: str,
     user: ClerkUser = Depends(get_current_user),

@@ -117,6 +117,7 @@
         "summary": "Get Capability Issues",
         "description": "Get capability issues for an agent - PROTECTED (requires ownership)",
         "operationId": "get_capability_issues_api_v1_agent__agent_id__capability_issues_get",
+        "deprecated": true,
         "parameters": [
           {
             "name": "agent_id",
@@ -203,6 +204,7 @@
         "summary": "Resolve All Capability Issues",
         "description": "Bulk resolve all open capability issues for an agent - PROTECTED",
         "operationId": "resolve_all_capability_issues_api_v1_agent__agent_id__capability_issues_resolve_all_post",
+        "deprecated": true,
         "parameters": [
           {
             "name": "agent_id",
@@ -244,6 +246,7 @@
         "summary": "Resolve Capability Issue",
         "description": "Resolve a single capability issue - PROTECTED (requires ownership)",
         "operationId": "resolve_capability_issue_api_v1_agent_capability_issues__issue_id__resolve_post",
+        "deprecated": true,
         "parameters": [
           {
             "name": "issue_id",

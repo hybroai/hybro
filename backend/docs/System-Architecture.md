@@ -287,7 +287,11 @@ Route groups:
   pinned order, delete, active runs, timeline reads, sends, the canonical Agent
   call detail, and `POST /agent-suggestions`.
 - `agent_routes.py`: registration, lookup, deletion, capability issues, card
-  preview, and the local-agent discovery trigger.
+  preview, and the local-agent discovery trigger. The three capability-issue
+  routes (`GET /agent/{agent_id}/capability-issues`,
+  `POST /agent/{agent_id}/capability-issues/resolve-all`, and
+  `POST /agent/capability-issues/{issue_id}/resolve`) are deprecated and will be
+  removed in a later release.
 - `agent_network_routes.py`: caller-visible discovery, groups, search,
   profiles, and one-shot direct A2A messaging.
 - `agent_group_routes.py`: saved agent groups (`/agentGroups`).
