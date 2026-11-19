@@ -2,12 +2,12 @@ from __future__ import annotations
 
 import pytest
 
-from execution.orchestrator.budget import BudgetPolicy
-from execution.orchestrator.compaction import (
+from execution.model_loop.compaction import (
     DeterministicFakeCompactor,
     ModelBackedCompactor,
 )
-from execution.orchestrator.context import ContextCompiler, UnresolvedToolBatchError
+from execution.model_loop.context import ContextCompiler, UnresolvedToolBatchError
+from execution.orchestrator.budget import BudgetPolicy
 from execution.orchestrator.kernel import OrchestratorKernel
 from execution.orchestrator.models import (
     AssistantMessage,

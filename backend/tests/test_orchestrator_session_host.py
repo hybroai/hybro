@@ -12,11 +12,11 @@ import pytest
 from common.dto import CancellationAck
 from delivery.snapshot import SnapshotService
 from execution.adapters.session_host import RoomSessionHost
+from execution.model_loop.context import ContextCompiler
 from execution.orchestrator.a2a_runtime.observations import (
     RunAddressedToolObservationSink,
 )
 from execution.orchestrator.budget import BudgetPolicy
-from execution.orchestrator.context import ContextCompiler
 from execution.orchestrator.kernel import OrchestratorKernel
 from execution.orchestrator.models import (
     FrozenToolCatalogSnapshot,

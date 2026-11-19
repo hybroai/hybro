@@ -10,7 +10,7 @@ composition root and are not scanned by the domain rule.
 Inside ``execution``, the model loop (``execution/model_loop/``) is reached
 only through its package root: the rest of ``execution`` imports the entry
 point ``model_loop_for``, and ``orchestrator_composition.py`` imports the five
-names it wires. Neither imports a submodule or an old-path re-export shim.
+names it wires. Neither imports a submodule or an old module path.
 
 The debt allowlists are exact: an entry that no longer matches a real import
 fails the test, so they can only shrink. They are tracked as cleanup debt.
@@ -152,7 +152,8 @@ MODEL_LOOP = "execution.model_loop"
 MODEL_LOOP_DIR = "execution/model_loop"
 COMPOSITION_ROOT = "orchestrator_composition.py"
 
-# Old module paths that re-export the moved model-loop modules.
+# Old module paths of the moved model-loop modules. They were removed and must
+# not come back as re-export shims.
 MODEL_LOOP_SHIMS = frozenset(
     {
         "execution.adapters.profiles",
@@ -177,22 +178,7 @@ MODEL_LOOP_COMPOSITION_NAMES = frozenset(
 
 # (importing file, imported module or root name) pairs that reach the model
 # loop other than through its entry point.
-MODEL_LOOP_IMPORT_DEBT = frozenset(
-    {
-        ("execution/adapters/profiles.py", "execution.model_loop.profiles"),
-        ("execution/orchestrator/__init__.py", "execution.orchestrator.compaction"),
-        ("execution/orchestrator/__init__.py", "execution.orchestrator.context"),
-        ("execution/orchestrator/__init__.py", "execution.orchestrator.model_runtime"),
-        ("execution/orchestrator/__init__.py", "execution.orchestrator.streaming"),
-        ("execution/orchestrator/compaction.py", "execution.model_loop.compaction"),
-        ("execution/orchestrator/context.py", "execution.model_loop.context"),
-        (
-            "execution/orchestrator/model_runtime.py",
-            "execution.model_loop.model_runtime",
-        ),
-        ("execution/orchestrator/streaming.py", "execution.model_loop.streaming"),
-    }
-)
+MODEL_LOOP_IMPORT_DEBT: frozenset[tuple[str, str]] = frozenset()
 
 
 def _absolute_imports(path: Path, *, root: Path) -> list[tuple[str, list[str]]]:

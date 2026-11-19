@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import replace
 
-from execution.orchestrator.context import ContextCompiler
+from execution.model_loop.context import ContextCompiler
 from execution.orchestrator.models import ModelMessage, ModelTextPart
 from execution.orchestrator.session import DefaultRunFactory
 from execution.orchestrator_routing import DualRuntimeRouter

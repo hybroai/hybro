@@ -4,8 +4,8 @@ import asyncio
 from collections.abc import AsyncIterator
 from datetime import UTC, datetime
 
+from execution.model_loop.context import ContextCompiler
 from execution.orchestrator.budget import BudgetPolicy
-from execution.orchestrator.context import ContextCompiler
 from execution.orchestrator.kernel import OrchestratorKernel
 from execution.orchestrator.models import (
     AuthorizationBasis,

@@ -117,7 +117,7 @@ async def test_no_setup_boots_and_calls_fail_even_with_a_legacy_key(
 
 def test_orchestrator_defaults_resolve_without_env_example(tmp_path, monkeypatch):
     _configure(tmp_path, monkeypatch)
-    from execution.adapters.profiles import OrchestratorProfileResolver
+    from execution.model_loop.profiles import OrchestratorProfileResolver
     from llm_gateway.model_registry import ModelRegistryImpl
 
     settings = Settings()

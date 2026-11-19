@@ -1,21 +1,9 @@
 """Version-neutral orchestrator runtime: bounded agent kernel, room session facade, profile contracts, and injected ports."""
 
 from .budget import BudgetExceeded, BudgetPolicy
-from .compaction import (
-    CompactionError,
-    DeterministicFakeCompactor,
-    ModelBackedCompactor,
-)
-from .context import (
-    CompiledContext,
-    ContextCompiler,
-    DeterministicTokenEstimator,
-    UnresolvedToolBatchError,
-)
 from .events import EventAppendEvaluation, evaluate_event_append
 from .kernel import KernelConflict, KernelRunResult, OrchestratorKernel
 from .lifecycle import LifecycleEmitter, SessionEvent, SessionEventListener
-from .model_runtime import GatewayModelRuntime
 from .models import (
     EVENT_TYPES,
     TOOL_RESULT_STATUSES,
@@ -127,14 +115,6 @@ from .settlement import (
     transition_projection_intent,
     transition_projection_settlement,
 )
-from .streaming import (
-    MalformedToolArgumentsError,
-    ModelAssemblyOutcome,
-    ModelStreamAssembler,
-    ModelStreamAssemblyError,
-    ModelStreamAssemblyErrorCode,
-    TruncatedToolCallError,
-)
 from .tools import ToolCorrelationError, validate_tool_result_correlation
 from .transcript import (
     TranscriptCorruptionError,
@@ -145,18 +125,11 @@ from .transcript import (
 __all__ = [
     "BudgetExceeded",
     "BudgetPolicy",
-    "CompactionError",
-    "CompiledContext",
-    "ContextCompiler",
     "DefaultRunFactory",
-    "DeterministicFakeCompactor",
-    "DeterministicTokenEstimator",
     "EventCancellationSignal",
-    "GatewayModelRuntime",
     "KernelConflict",
     "KernelRunResult",
     "LifecycleEmitter",
-    "ModelBackedCompactor",
     "OrchestratorKernel",
     "RoomAgentSession",
     "RoomAgentSessionConfig",
@@ -166,7 +139,6 @@ __all__ = [
     "SessionRunResult",
     "SettlingProjectionDriver",
     "TranscriptCorruptionError",
-    "UnresolvedToolBatchError",
     "EVENT_TYPES",
     "NON_TERMINAL_RUN_STATUSES",
     "ORCHESTRATOR_COLLECTIONS",
@@ -198,11 +170,6 @@ __all__ = [
     "ModelMessage",
     "ModelRouteConfiguration",
     "ModelRuntime",
-    "MalformedToolArgumentsError",
-    "ModelAssemblyOutcome",
-    "ModelStreamAssembler",
-    "ModelStreamAssemblyError",
-    "ModelStreamAssemblyErrorCode",
     "ModelStreamEvent",
     "ModelTextPart",
     "ModelToolCallPart",
@@ -251,7 +218,6 @@ __all__ = [
     "ToolSuspension",
     "ToolResultMessage",
     "ToolRuntime",
-    "TruncatedToolCallError",
     "UnsupportedProviderCapabilities",
     "UsageRecord",
     "UserMessage",

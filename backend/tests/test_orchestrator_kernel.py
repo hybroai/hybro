@@ -5,9 +5,9 @@ import logging
 
 import pytest
 
+from execution.model_loop.compaction import DeterministicFakeCompactor
+from execution.model_loop.context import CompiledContext
 from execution.orchestrator.budget import BudgetExceeded, BudgetPolicy
-from execution.orchestrator.compaction import DeterministicFakeCompactor
-from execution.orchestrator.context import CompiledContext
 from execution.orchestrator.kernel import KernelConflict
 from execution.orchestrator.models import (
     AssistantMessage,

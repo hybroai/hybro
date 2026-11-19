@@ -12,9 +12,9 @@ from unittest.mock import MagicMock
 
 import pytest
 
+from execution.model_loop.context import ContextCompiler
 from execution.orchestrator.a2a_runtime.ledger import transition_call
 from execution.orchestrator.budget import BudgetPolicy, resumed_deadline_at
-from execution.orchestrator.context import ContextCompiler
 from execution.orchestrator.kernel import OrchestratorKernel
 from execution.orchestrator.lifecycle import SessionEvent
 from execution.orchestrator.models import (

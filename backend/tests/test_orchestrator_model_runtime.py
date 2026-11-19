@@ -6,13 +6,13 @@ from types import SimpleNamespace
 
 import pytest
 
-from execution.orchestrator.model_runtime import (
+from execution.model_loop.model_runtime import (
     GatewayModelRuntime,
     route_configuration_from_gateway,
 )
+from execution.model_loop.streaming import ModelStreamAssembler
 from execution.orchestrator.models import ModelMessage, ModelTextPart, ModelTurnRequest
 from execution.orchestrator.session import EventCancellationSignal
-from execution.orchestrator.streaming import ModelStreamAssembler
 from llm_gateway.model_registry import ModelRouteInfo
 from llm_gateway.turn_types import GatewayTurnEvent, GatewayUsage
 from tests._orchestrator_helpers import NOW, NeverCancelled, profile

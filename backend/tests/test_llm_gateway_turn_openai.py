@@ -5,12 +5,12 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from execution.orchestrator.model_runtime import GatewayModelRuntime
-from execution.orchestrator.models import ModelMessage, ModelTextPart, ModelTurnRequest
-from execution.orchestrator.streaming import (
+from execution.model_loop.model_runtime import GatewayModelRuntime
+from execution.model_loop.streaming import (
     ModelStreamAssembler,
     TruncatedToolCallError,
 )
+from execution.orchestrator.models import ModelMessage, ModelTextPart, ModelTurnRequest
 from llm_gateway.error_classification import classify_gateway_error
 from llm_gateway.providers.openai_provider import OpenAIProvider
 from llm_gateway.turn_types import (
