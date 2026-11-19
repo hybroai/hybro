@@ -315,7 +315,12 @@ export class SSEConnection {
   }
 }
 
-// Get SSE connection status
+/**
+ * Get SSE connection status.
+ *
+ * @deprecated `GET /sse/room/{conversation_id}/status` is deprecated and will be
+ * removed in a later release. Nothing in the app calls this function.
+ */
 export async function getSSEStatus(
   conversationId: string,
   getToken?: () => Promise<string | null>

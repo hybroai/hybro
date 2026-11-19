@@ -2379,6 +2379,7 @@
         "summary": "Get Room Sse Status",
         "description": "get SSE connection status for specified room\n\nArgs:\n    conversation_id: room ID\n    user: Authenticated user (from header or query param token)\n\nReturns:\n    dict: room connection status information",
         "operationId": "get_room_sse_status_api_v1_sse_room__conversation_id__status_get",
+        "deprecated": true,
         "parameters": [
           {
             "name": "conversation_id",

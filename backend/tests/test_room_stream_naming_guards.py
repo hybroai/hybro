@@ -43,6 +43,16 @@ def test_pinned_sse_endpoint_paths_are_present():
     assert "/api/v1/sse/room/{conversation_id}/status" in paths
 
 
+def test_sse_status_endpoint_is_deprecated_in_openapi():
+    from main import app
+
+    paths = app.openapi()["paths"]
+    status = paths["/api/v1/sse/room/{conversation_id}/status"]["get"]
+    stream = paths["/api/v1/sse/room/{conversation_id}/stream"]["get"]
+    assert status.get("deprecated") is True
+    assert "deprecated" not in stream
+
+
 @pytest.mark.parametrize(
     "event_type",
     [
