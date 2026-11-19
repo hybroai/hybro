@@ -21,6 +21,12 @@ router = APIRouter(prefix="/rooms/{conversation_id}/hitl", tags=["hitl"])
 logger = get_logger(__name__)
 
 HITL_ROUTE_FAILED_DETAIL = "HITL request failed."
+# Routing and delivery errors can wrap storage or transport text, so the client
+# gets fixed text for them; the original message goes to the server log.
+_FIXED_HITL_ERROR_DETAIL = {
+    "HITLRoutingFailedError": "HITL answers could not be routed to the run.",
+    "HITLDeliveryUncertainError": "HITL answer delivery could not be confirmed.",
+}
 
 
 async def verify_room_ownership(
@@ -80,20 +86,23 @@ _PUBLIC_PENDING_HITL_FIELDS = {
 def _raise_http_for_hitl_error(
     exc: Exception, *, conversation_id: str, operation: str
 ) -> None:
-    status_code = _HITL_ERROR_STATUS.get(exc.__class__.__name__)
-    if status_code is None:
-        # Unexpected errors can carry internal detail; log it, return fixed text.
+    name = exc.__class__.__name__
+    status_code = _HITL_ERROR_STATUS.get(name)
+    if status_code is None or name in _FIXED_HITL_ERROR_DETAIL:
+        # These errors can carry internal detail; log it, return fixed text.
         logger.emit(
             E.HITL_ROUTE_FAILED,
             exc=exc,
             conversation_id=conversation_id,
             operation=operation,
+            status=status_code or 500,
         )
+    if status_code is None:
         raise HTTPException(status_code=500, detail=HITL_ROUTE_FAILED_DETAIL) from exc
-    message = getattr(exc, "message", str(exc))
+    message = _FIXED_HITL_ERROR_DETAIL.get(name) or getattr(exc, "message", str(exc))
     code = getattr(exc, "code", None)
     details = getattr(exc, "details", None)
-    if exc.__class__.__name__ == "HITLDeliveryUncertainError":
+    if name == "HITLDeliveryUncertainError":
         raise HTTPException(
             status_code=status_code,
             detail={"message": message, "code": code, **(details or {})},
