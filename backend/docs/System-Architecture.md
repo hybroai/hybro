@@ -1140,6 +1140,8 @@ port, or facade port, update the exact method inventory in
 | `CancellationSignal` | `execution.orchestrator.ports` | `execution.orchestrator.a2a_runtime.runtime._RecoveryCancellationSignal`, `execution.orchestrator.session.EventCancellationSignal` | internal to `execution` |
 | `ContextCompactor` | `execution.orchestrator.ports` | none wired; `OrchestratorKernel` runs without a compactor (`context_compactor=None`) | internal to `execution` |
 | `InvocationCheckpointReader` | `execution.orchestrator.ports` | `execution.orchestrator.a2a_runtime.in_memory.RunCheckpointReader` | internal to `execution` |
+| `ModelLoop` | `execution.orchestrator.ports` | `execution.model_loop.loop._HostModelLoop`, built by `execution.model_loop.model_loop_for` | internal to `execution` |
+| `ModelLoopHost` | `execution.orchestrator.ports` | `execution.orchestrator.kernel.OrchestratorKernel` | internal to `execution` |
 | `ModelRuntime` | `execution.orchestrator.ports` | `execution.model_loop.model_runtime.GatewayModelRuntime` | internal to `execution` |
 | `OrchestratorRunStore` | `execution.orchestrator.ports` | `execution.repository.orchestrator.run_store.MongoOrchestratorRunStore` | internal to `execution` |
 | `ProjectionDriver` | `execution.orchestrator.ports` | `execution.orchestrator.projection.SettlingProjectionDriver` | internal to `execution` |
