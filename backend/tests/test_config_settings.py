@@ -319,3 +319,18 @@ def test_validate_backend_refuses_integers_beyond_a_safe_json_integer() -> None:
     with pytest.raises(BackendFieldError) as caught:
         validate_backend({"agent_health_check_interval": 2**53})
     assert caught.value.field == "agent_health_check_interval"
+
+
+def test_machine_handoff_file_is_private_and_image_only() -> None:
+    from common.config.loader import (
+        PRIVATE_FIELDS,
+        _apply_image_defaults,
+        image_defaults,
+    )
+
+    assert "machine_handoff_file" in PRIVATE_FIELDS
+    assert Settings().machine_handoff_file == ""
+    values: dict = {"machine_handoff_file": "/elsewhere.json"}
+    _apply_image_defaults(values)
+    assert values["machine_handoff_file"] == "/tmp/hybro/machine.json"
+    assert "machine_handoff_file" not in image_defaults()

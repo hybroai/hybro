@@ -37,3 +37,16 @@ uv run pytest tests/test_common_foundation.py::test_protocol_methods_match_desig
 ```
 
 For API contract changes, update affected route/schema tests and the tracked `openapi.json` snapshot. Review `docs/System-Architecture.md` for architecture-impacting changes and `tests/README.md` for test lanes and cleanup conventions.
+
+## Code Review Rules
+
+These add to the root `AGENTS.md` Code Review Rules and use its severities.
+
+- A public method is added, removed, or renamed on a `Protocol`, repository port, facade port, or compatibility interface. Check that the exact inventory in `tests/test_common_foundation.py` changes with it. Must fix.
+- An `HTTPException` detail or error response built from `str(exc)`, `exc.message`, or an f-string of an exception. Check that the client gets fixed text and the exception goes to a log event. Must fix.
+- An `except` that returns `None`, an empty result, or a default; a `pass`; or a missing service on `app.state` treated as "nothing there". Check that a failed admission or ownership lookup refuses the request (often 503), that a missing required service fails startup or returns 503, and that every swallowed error emits a log event. Must fix.
+- A send, cancel, or HITL answer path that writes a message or record and then starts a Run, or reads state and then writes it (registration takeover, Run claims, leases, session request lists). Check that a failure between the two steps leaves a terminal state the client sees, and that the write is conditional on the state it read. Must fix.
+- A new outbound HTTP fetch of a URL that a user or an Agent Card supplied (cards, redirects, artifacts, health probes, inspection). Check that it uses the bounded A2A client and the per-call destination policy, caps the body size, has an overall deadline, and sits behind the signed-in user dependency. Must fix.
+- A `find` or `aggregate` without a limit on a growing collection, a read that takes only the first page (for example the first 1000 events or 100 sessions), or a new silent default cap. Check that the caller either bounds the read on purpose or pages to the end. Should fix.
+- A change to how A2A stream frames become reply text. Check that an answer delivered only in artifact updates survives a final status with no message, and that a status message repeating the artifact text is not added twice. Should fix.
+- A change that reads or counts on the legacy path (the legacy runs mirror, `A2AService` send paths, legacy turn traces). Check that canonical orchestrator Runs get the same behavior. Should fix.

@@ -1486,3 +1486,59 @@ def test_an_unreachable_server_while_reading_the_config_is_not_retried():
     with pytest.raises(ServerSelectionTimeoutError):
         entry.settle_replica_set(client, interval=0)
     assert len(client.admin.calls) == 1
+
+
+# ---- The machine-only routes ----
+
+
+def test_machine_handoff_is_private_and_fresh_per_start(tmp_path, monkeypatch):
+    monkeypatch.setattr(entry, "RUN_DIR", tmp_path / "run")
+
+    entry.write_machine_handoff("/api/v9")
+    path = tmp_path / "run" / "machine.json"
+    first = json.loads(path.read_text())
+    assert path.stat().st_mode & 0o777 == 0o600
+    assert first["base_url"] == "http://127.0.0.1:8000/api/v9/machine"
+    assert read_token(str(path)) == first["token"]
+
+    entry.write_machine_handoff("/api/v9")
+    assert json.loads(path.read_text())["token"] != first["token"]
+
+
+def test_user_phase_writes_a_machine_token_no_program_receives(tmp_path, monkeypatch):
+    monkeypatch.setattr(entry, "VOLUME_MARKER", tmp_path / "hybro-volume.json")
+    monkeypatch.setattr(entry, "RUN_DIR", tmp_path / "run")
+    monkeypatch.setattr(entry, "RUNTIME_DIR", tmp_path / "runtime")
+    monkeypatch.setattr(entry, "MANIFEST", REPO_MANIFEST)
+    monkeypatch.setattr(entry, "prepare_mongodb", lambda: None)
+    monkeypatch.setattr(entry.os, "execvpe", lambda *a: None)
+    (tmp_path / "runtime").mkdir(mode=0o700)
+    monkeypatch.setenv("HYBRO_LISTEN", "loopback")
+    monkeypatch.setenv("HYBRO_PUBLIC_PORT", "3000")
+
+    entry.user_phase()
+
+    run = tmp_path / "run"
+    machine = json.loads((run / "machine.json").read_text())["token"]
+    diagnostics = json.loads((run / "diagnostics.json").read_text())["token"]
+    assert machine != diagnostics
+    for program in (run / "programs").glob("*.json"):
+        text = program.read_text()
+        assert machine not in text
+        assert "machine.json" not in text
+
+
+@pytest.mark.parametrize("listener", [loopback, public])
+def test_caddy_refuses_the_machine_routes_on_every_listener(listener):
+    text = entry.caddyfile(listener=listener(), api_prefix="/custom/v2")
+
+    assert "\t@machine path /custom/v2/machine /custom/v2/machine/*" in text
+    refusal = text.index("handle @machine {\n\t\trespond 404")
+    # Handle blocks run in file order: the refusal wins over the backend route.
+    assert refusal < text.index("handle @backend")
+
+
+def test_the_loopback_host_check_still_comes_first():
+    text = entry.caddyfile(listener=loopback(), api_prefix="/api/v1")
+
+    assert text.index("handle @foreign") < text.index("handle @machine")

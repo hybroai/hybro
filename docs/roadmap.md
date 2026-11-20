@@ -149,6 +149,9 @@ Nothing depends on an authentication mode or on how the instance was started.
 1. **Sources and their tokens.**
    - The owner creates a source and receives its token once. Hybro stores a
      hash, and every Step records the source that sent it.
+   - `hybro source create --name` creates a source on the machine that runs
+     Hybro and prints its token once, for a headless install and for tests
+     that run against a started image.
    - A token reaches the Source API only.
    - `client_label` stays accepted. It is optional with a token and required
      when a session is opened without one. It is marked as deprecated for
@@ -205,28 +208,44 @@ Nothing depends on an authentication mode or on how the instance was started.
      requirement is off. It is never recorded under "No token".
    - While it is off, the Connect page shows a banner that the owner can
      dismiss, with a dialog that explains it and holds the switch.
+   - `hybro` prints a warning, and blocks nothing, when the instance listens on
+     another address than this machine's while the requirement is off.
 5. **MCP with tokens.** `/mcp` is served on every install. A client sends its
    source token, and the adapter passes it to the Source API, which checks it.
+   On a listener that other machines can reach, the MCP server's own check of
+   the `Host` and `Origin` headers is off, and the token is the control; on a
+   loopback listener that check stays.
    Which MCP clients can send a fixed token is checked against the MCP
    specification and the clients' documentation when this is built.
 6. **Plain HTTP.** Hybro does not block it. The setup, sign-in and Connect
    pages warn when they are opened over plain HTTP from another machine, the
    session cookie is marked secure under HTTPS, and the documentation shows how
-   to put a reverse proxy in front.
+   to put a reverse proxy in front. A setting in `config.json` gives the
+   number of reverse proxies in front of Hybro, default 0. With a count, Hybro
+   believes the forwarded scheme, host and client address from that many
+   proxies; the secure cookie, the warnings, the cross-site check and the
+   attempt limits depend on it behind a proxy.
 7. **What this replaces.** Each of these is marked as deprecated in the release
    that ships the owner account and removed in a later one:
    - Clerk mode, with the five `clerk_*` frontend fields,
      `clerk_webhook_secret`, `enable_waitlist`, the Clerk library and the
-     direct `pyjwt` dependency
+     direct `pyjwt` dependency. Its settings stay accepted until their
+     removal, so no configuration file fails to load.
    - `mock` mode. It is treated as the built-in account, and `auth_mode`
      becomes a retired key when Clerk mode is removed. Tests provide their own
      user in the test setup, so no production path skips authentication.
    - the `--insecure-no-auth` option, in favour of the switch
-   - the `?token=` query parameter on the event stream routes. The Panel's
-     cookie replaces it.
+   - the code that reads the `?token=` query parameter on the event stream
+     routes. The Panel's cookie replaces it.
    - the rule that a listener on another address needs Clerk, and the rule that
      leaves `/mcp` out on such a listener. `--listen` stays as a networking
      option with its default, `127.0.0.1`.
+
+   The Clerk sign-in itself, and `?token=` with it, stop working in one step,
+   in the release that enforces the owner's sign-in, with no deprecation
+   release. This is an exception to the deprecation rule in "How we move":
+   no install is known to run in Clerk mode, and the Panel does not work with
+   it today. From that release on a Clerk token opens nothing.
 
    `POST /agents/messages` is removed in this phase with no deprecation
    release, an exception to the deprecation rule in "How we move": nothing in
@@ -241,15 +260,17 @@ Nothing depends on an authentication mode or on how the instance was started.
   rooms and settings belong to, so nothing is lost and nothing is rewritten.
   The token requirement starts off, so programs that are already connected
   keep working. A one-time notice and the banner tell the owner.
-- **From Clerk mode.** The install runs as before, with Clerk sign-in and
-  Clerk tokens on the Source API, until the owner moves it to the built-in
-  account through the setup link or `hybro owner create`.
+- **From Clerk mode.** No install is known to run in Clerk mode: the Panel
+  does not work with it today. There is no separate move path, and a
+  configuration with `auth_mode: clerk` gets the same account as every other
+  install. For such a configuration:
   - The new account takes over the identity listed in
-    `backend.admin_user_ids`. If several are listed, the owner chooses one.
+    `backend.admin_user_ids`. If several are listed, the owner chooses one;
+    if none is, it takes the same identity as on every other install.
+  - The token requirement is on, because the install required a credential
+    before. A program that sent a Clerk token needs a source token.
   - What other users stored stays in the database, unchanged and not shown.
     Nothing is deleted or rewritten.
-  - The token requirement starts on, because the install required a
-    credential before. Programs that sent a Clerk token need a source token.
 - No upgrade leaves an install more open than it was. A fresh install starts
   with the token requirement on.
 
@@ -267,8 +288,9 @@ Nothing depends on an authentication mode or on how the instance was started.
 - The owner account can be created only through the setup link or
   `hybro owner create`, and only while none exists.
 - An install upgraded from mock mode keeps its data, and its connected
-  programs keep working. An install moved from Clerk mode keeps the chosen
-  admin's data and requires a source token.
+  programs keep working. A configuration with `auth_mode: clerk` gets an
+  owner account that takes over the listed admin's data, and it requires a
+  source token.
 - The functional tests create the owner with `hybro owner create`.
 - An MCP client can connect from another machine with a source token, and the
   documents say so.

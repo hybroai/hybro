@@ -1753,5 +1753,267 @@
     "status_code": null,
     "streaming_response": null,
     "supporting_protocols": []
+  },
+  {
+    "auth_dependencies": [
+      "get_optional_owner_session"
+    ],
+    "dependencies": [
+      "get_optional_owner_session",
+      "get_owner_account"
+    ],
+    "methods": [
+      "GET"
+    ],
+    "module": "api_gateway.routes.auth_routes",
+    "name": "auth_status",
+    "openapi_response_codes": [
+      "200"
+    ],
+    "owning_protocol": "account.protocols.OwnerAccount",
+    "path": "/api/v1/auth/status",
+    "response_class": null,
+    "response_model": "AccountStatus",
+    "status_code": null,
+    "streaming_response": null,
+    "supporting_protocols": []
+  },
+  {
+    "auth_dependencies": [],
+    "dependencies": [
+      "get_owner_account"
+    ],
+    "methods": [
+      "POST"
+    ],
+    "module": "api_gateway.routes.auth_routes",
+    "name": "auth_setup",
+    "openapi_response_codes": [
+      "200",
+      "422"
+    ],
+    "owning_protocol": "account.protocols.OwnerAccount",
+    "path": "/api/v1/auth/setup",
+    "response_class": null,
+    "response_model": "OwnerProfile",
+    "status_code": null,
+    "streaming_response": null,
+    "supporting_protocols": []
+  },
+  {
+    "auth_dependencies": [],
+    "dependencies": [
+      "get_owner_account"
+    ],
+    "methods": [
+      "POST"
+    ],
+    "module": "api_gateway.routes.auth_routes",
+    "name": "auth_sign_in",
+    "openapi_response_codes": [
+      "200",
+      "422"
+    ],
+    "owning_protocol": "account.protocols.OwnerAccount",
+    "path": "/api/v1/auth/sign-in",
+    "response_class": null,
+    "response_model": "OwnerProfile",
+    "status_code": null,
+    "streaming_response": null,
+    "supporting_protocols": []
+  },
+  {
+    "auth_dependencies": [
+      "get_optional_owner_session"
+    ],
+    "dependencies": [
+      "get_optional_owner_session",
+      "get_owner_account"
+    ],
+    "methods": [
+      "POST"
+    ],
+    "module": "api_gateway.routes.auth_routes",
+    "name": "auth_sign_out",
+    "openapi_response_codes": [
+      "204"
+    ],
+    "owning_protocol": "account.protocols.OwnerAccount",
+    "path": "/api/v1/auth/sign-out",
+    "response_class": "Response",
+    "response_model": null,
+    "status_code": 204,
+    "streaming_response": null,
+    "supporting_protocols": []
+  },
+  {
+    "auth_dependencies": [
+      "get_owner_session"
+    ],
+    "dependencies": [
+      "get_owner_account",
+      "get_owner_session"
+    ],
+    "methods": [
+      "PATCH"
+    ],
+    "module": "api_gateway.routes.auth_routes",
+    "name": "auth_update_profile",
+    "openapi_response_codes": [
+      "200",
+      "422"
+    ],
+    "owning_protocol": "account.protocols.OwnerAccount",
+    "path": "/api/v1/auth/profile",
+    "response_class": null,
+    "response_model": "OwnerProfile",
+    "status_code": null,
+    "streaming_response": null,
+    "supporting_protocols": []
+  },
+  {
+    "auth_dependencies": [
+      "get_owner_session"
+    ],
+    "dependencies": [
+      "get_owner_account",
+      "get_owner_session"
+    ],
+    "methods": [
+      "POST"
+    ],
+    "module": "api_gateway.routes.auth_routes",
+    "name": "auth_change_password",
+    "openapi_response_codes": [
+      "204",
+      "422"
+    ],
+    "owning_protocol": "account.protocols.OwnerAccount",
+    "path": "/api/v1/auth/password",
+    "response_class": "Response",
+    "response_model": null,
+    "status_code": 204,
+    "streaming_response": null,
+    "supporting_protocols": []
+  },
+  {
+    "auth_dependencies": [
+      "get_owner_session"
+    ],
+    "dependencies": [
+      "get_owner_account",
+      "get_owner_session"
+    ],
+    "methods": [
+      "GET"
+    ],
+    "module": "api_gateway.routes.auth_routes",
+    "name": "auth_list_browsers",
+    "openapi_response_codes": [
+      "200"
+    ],
+    "owning_protocol": "account.protocols.OwnerAccount",
+    "path": "/api/v1/auth/browsers",
+    "response_class": null,
+    "response_model": "BrowserList",
+    "status_code": null,
+    "streaming_response": null,
+    "supporting_protocols": []
+  },
+  {
+    "auth_dependencies": [
+      "get_owner_session"
+    ],
+    "dependencies": [
+      "get_owner_account",
+      "get_owner_session"
+    ],
+    "methods": [
+      "DELETE"
+    ],
+    "module": "api_gateway.routes.auth_routes",
+    "name": "auth_revoke_browser",
+    "openapi_response_codes": [
+      "204",
+      "422"
+    ],
+    "owning_protocol": "account.protocols.OwnerAccount",
+    "path": "/api/v1/auth/browsers/{browser_id}",
+    "response_class": "Response",
+    "response_model": null,
+    "status_code": 204,
+    "streaming_response": null,
+    "supporting_protocols": []
+  },
+  {
+    "auth_dependencies": [
+      "get_machine_account"
+    ],
+    "dependencies": [
+      "get_machine_account"
+    ],
+    "methods": [
+      "POST"
+    ],
+    "module": "api_gateway.routes.machine_routes",
+    "name": "machine_issue_setup_code",
+    "openapi_response_codes": [
+      "200"
+    ],
+    "owning_protocol": "account.protocols.OwnerAccount",
+    "path": "/api/v1/machine/setup-code",
+    "response_class": null,
+    "response_model": "SetupCode",
+    "status_code": null,
+    "streaming_response": null,
+    "supporting_protocols": []
+  },
+  {
+    "auth_dependencies": [
+      "get_machine_account"
+    ],
+    "dependencies": [
+      "get_machine_account"
+    ],
+    "methods": [
+      "POST"
+    ],
+    "module": "api_gateway.routes.machine_routes",
+    "name": "machine_create_owner",
+    "openapi_response_codes": [
+      "201",
+      "422"
+    ],
+    "owning_protocol": "account.protocols.OwnerAccount",
+    "path": "/api/v1/machine/owner",
+    "response_class": null,
+    "response_model": "OwnerProfile",
+    "status_code": 201,
+    "streaming_response": null,
+    "supporting_protocols": []
+  },
+  {
+    "auth_dependencies": [
+      "get_machine_account"
+    ],
+    "dependencies": [
+      "get_machine_account"
+    ],
+    "methods": [
+      "POST"
+    ],
+    "module": "api_gateway.routes.machine_routes",
+    "name": "machine_reset_password",
+    "openapi_response_codes": [
+      "204",
+      "422"
+    ],
+    "owning_protocol": "account.protocols.OwnerAccount",
+    "path": "/api/v1/machine/owner/password",
+    "response_class": "Response",
+    "response_model": null,
+    "status_code": 204,
+    "streaming_response": null,
+    "supporting_protocols": []
   }
 ]

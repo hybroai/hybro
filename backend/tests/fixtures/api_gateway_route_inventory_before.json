@@ -405,6 +405,168 @@
     "include_in_schema": true
   },
   {
+    "path": "/api/v1/auth/browsers",
+    "methods": [
+      "GET"
+    ],
+    "name": "auth_list_browsers",
+    "endpoint_module": "api_gateway.routes.auth_routes",
+    "declared_owner": "api_gateway.routes.auth_routes",
+    "tags": [
+      "auth"
+    ],
+    "status_code": null,
+    "dependencies": [
+      "get_owner_account",
+      "get_owner_session"
+    ],
+    "auth_dependencies": [
+      "get_owner_session"
+    ],
+    "include_in_schema": true
+  },
+  {
+    "path": "/api/v1/auth/browsers/{browser_id}",
+    "methods": [
+      "DELETE"
+    ],
+    "name": "auth_revoke_browser",
+    "endpoint_module": "api_gateway.routes.auth_routes",
+    "declared_owner": "api_gateway.routes.auth_routes",
+    "tags": [
+      "auth"
+    ],
+    "status_code": 204,
+    "dependencies": [
+      "get_owner_account",
+      "get_owner_session"
+    ],
+    "auth_dependencies": [
+      "get_owner_session"
+    ],
+    "include_in_schema": true
+  },
+  {
+    "path": "/api/v1/auth/password",
+    "methods": [
+      "POST"
+    ],
+    "name": "auth_change_password",
+    "endpoint_module": "api_gateway.routes.auth_routes",
+    "declared_owner": "api_gateway.routes.auth_routes",
+    "tags": [
+      "auth"
+    ],
+    "status_code": 204,
+    "dependencies": [
+      "get_owner_account",
+      "get_owner_session"
+    ],
+    "auth_dependencies": [
+      "get_owner_session"
+    ],
+    "include_in_schema": true
+  },
+  {
+    "path": "/api/v1/auth/profile",
+    "methods": [
+      "PATCH"
+    ],
+    "name": "auth_update_profile",
+    "endpoint_module": "api_gateway.routes.auth_routes",
+    "declared_owner": "api_gateway.routes.auth_routes",
+    "tags": [
+      "auth"
+    ],
+    "status_code": null,
+    "dependencies": [
+      "get_owner_account",
+      "get_owner_session"
+    ],
+    "auth_dependencies": [
+      "get_owner_session"
+    ],
+    "include_in_schema": true
+  },
+  {
+    "path": "/api/v1/auth/setup",
+    "methods": [
+      "POST"
+    ],
+    "name": "auth_setup",
+    "endpoint_module": "api_gateway.routes.auth_routes",
+    "declared_owner": "api_gateway.routes.auth_routes",
+    "tags": [
+      "auth"
+    ],
+    "status_code": null,
+    "dependencies": [
+      "get_owner_account"
+    ],
+    "auth_dependencies": [],
+    "include_in_schema": true
+  },
+  {
+    "path": "/api/v1/auth/sign-in",
+    "methods": [
+      "POST"
+    ],
+    "name": "auth_sign_in",
+    "endpoint_module": "api_gateway.routes.auth_routes",
+    "declared_owner": "api_gateway.routes.auth_routes",
+    "tags": [
+      "auth"
+    ],
+    "status_code": null,
+    "dependencies": [
+      "get_owner_account"
+    ],
+    "auth_dependencies": [],
+    "include_in_schema": true
+  },
+  {
+    "path": "/api/v1/auth/sign-out",
+    "methods": [
+      "POST"
+    ],
+    "name": "auth_sign_out",
+    "endpoint_module": "api_gateway.routes.auth_routes",
+    "declared_owner": "api_gateway.routes.auth_routes",
+    "tags": [
+      "auth"
+    ],
+    "status_code": 204,
+    "dependencies": [
+      "get_optional_owner_session",
+      "get_owner_account"
+    ],
+    "auth_dependencies": [
+      "get_optional_owner_session"
+    ],
+    "include_in_schema": true
+  },
+  {
+    "path": "/api/v1/auth/status",
+    "methods": [
+      "GET"
+    ],
+    "name": "auth_status",
+    "endpoint_module": "api_gateway.routes.auth_routes",
+    "declared_owner": "api_gateway.routes.auth_routes",
+    "tags": [
+      "auth"
+    ],
+    "status_code": null,
+    "dependencies": [
+      "get_optional_owner_session",
+      "get_owner_account"
+    ],
+    "auth_dependencies": [
+      "get_optional_owner_session"
+    ],
+    "include_in_schema": true
+  },
+  {
     "path": "/api/v1/diagnostics/events",
     "methods": [
       "GET"
@@ -563,6 +725,66 @@
     ],
     "auth_dependencies": [
       "get_current_user"
+    ],
+    "include_in_schema": true
+  },
+  {
+    "path": "/api/v1/machine/owner",
+    "methods": [
+      "POST"
+    ],
+    "name": "machine_create_owner",
+    "endpoint_module": "api_gateway.routes.machine_routes",
+    "declared_owner": "api_gateway.routes.machine_routes",
+    "tags": [
+      "machine"
+    ],
+    "status_code": 201,
+    "dependencies": [
+      "get_machine_account"
+    ],
+    "auth_dependencies": [
+      "get_machine_account"
+    ],
+    "include_in_schema": true
+  },
+  {
+    "path": "/api/v1/machine/owner/password",
+    "methods": [
+      "POST"
+    ],
+    "name": "machine_reset_password",
+    "endpoint_module": "api_gateway.routes.machine_routes",
+    "declared_owner": "api_gateway.routes.machine_routes",
+    "tags": [
+      "machine"
+    ],
+    "status_code": 204,
+    "dependencies": [
+      "get_machine_account"
+    ],
+    "auth_dependencies": [
+      "get_machine_account"
+    ],
+    "include_in_schema": true
+  },
+  {
+    "path": "/api/v1/machine/setup-code",
+    "methods": [
+      "POST"
+    ],
+    "name": "machine_issue_setup_code",
+    "endpoint_module": "api_gateway.routes.machine_routes",
+    "declared_owner": "api_gateway.routes.machine_routes",
+    "tags": [
+      "machine"
+    ],
+    "status_code": null,
+    "dependencies": [
+      "get_machine_account"
+    ],
+    "auth_dependencies": [
+      "get_machine_account"
     ],
     "include_in_schema": true
   },

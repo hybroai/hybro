@@ -10,12 +10,14 @@ FORBIDDEN_API_GATEWAY_IMPORTS = (
     REMOVED_RUNTIME_PACKAGE,
 )
 MODULE_ROUTE_PROTOCOL_IMPORTS = {
+    "account.protocols",
     "agent.protocols",
     "chat.protocols",
     "context_memory.protocols",
     "session.protocols",
 }
 FORBIDDEN_ROUTE_MODULE_ROOTS = {
+    "account",
     "agent",
     "chat",
     "conversation",

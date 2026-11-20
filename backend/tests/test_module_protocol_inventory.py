@@ -15,6 +15,37 @@ import pytest
 from tests.test_common_foundation import _assert_methods, _assert_params
 
 EXPECTED_METHODS = {
+    "account.protocols": {
+        "AccountStore": {
+            "consume_setup_code",
+            "create_owner",
+            "create_session",
+            "delete_session",
+            "delete_sessions",
+            "ensure_indexes",
+            "get_owner",
+            "get_session",
+            "has_setup_code",
+            "list_sessions",
+            "replace_setup_code",
+            "touch_session",
+            "update_owner",
+        },
+        "OwnerAccount": {
+            "change_password",
+            "create_owner",
+            "exists",
+            "issue_setup_code",
+            "list_browsers",
+            "reset_password",
+            "resolve",
+            "revoke_browser",
+            "setup",
+            "sign_in",
+            "sign_out",
+            "update_profile",
+        },
+    },
     "agent.protocols": {
         "AgentCapabilityIssueStore": {
             "get_issue_by_id",

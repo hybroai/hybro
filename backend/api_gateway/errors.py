@@ -2,8 +2,13 @@
 
 from __future__ import annotations
 
-from fastapi import HTTPException, Request
+from collections.abc import Callable, Coroutine
+from typing import Any
+
+from fastapi import HTTPException, Request, Response
+from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
+from fastapi.routing import APIRoute
 
 from instance_settings import SettingsRequestError
 from llm_gateway.errors import ProviderNotConfigured
@@ -48,3 +53,30 @@ async def provider_not_configured_handler(
     """A model call without a working Provider pair: 409 with the state's code."""
     assert isinstance(exc, ProviderNotConfigured)
     return JSONResponse({"detail": str(exc), "code": exc.code}, status_code=409)
+
+
+class QuietValidationRoute(APIRoute):
+    """Validation failures without FastAPI's echoed ``input``.
+
+    The default 422 body repeats the rejected input, and these bodies carry
+    passwords and setup codes.
+    """
+
+    def get_route_handler(self) -> Callable[[Request], Coroutine[Any, Any, Response]]:
+        original = super().get_route_handler()
+
+        async def handle(request: Request) -> Response:
+            try:
+                return await original(request)
+            except RequestValidationError:
+                return JSONResponse(
+                    {
+                        "detail": {
+                            "code": "invalid_request",
+                            "message": "Invalid request; check the fields.",
+                        }
+                    },
+                    status_code=422,
+                )
+
+        return handle
