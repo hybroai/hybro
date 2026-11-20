@@ -3,8 +3,8 @@ import { buildMcpConfig } from '@/lib/mcp'
 export type AccessKind = 'mcp' | 'api'
 export interface AccessScope { id: string; name: string }
 
-export const API_AUTH_HELP = 'Local Developer Mode (backend.auth_mode="mock") does not require a token. Only deployments with backend.auth_mode="clerk" require a valid Clerk session JWT in an Authorization: Bearer header. Never share real tokens in prompts or logs.'
-export const MCP_AUTH_HELP = 'The bundled MCP adapter is for trusted local use with Local Developer Mode. It does not support Clerk authentication or supply Clerk credentials.'
+export const API_AUTH_HELP = 'Local Developer Mode (backend.auth_mode="mock") does not require a token. Deployments with backend.auth_mode="clerk" require a source token in an Authorization: Bearer header; the owner creates one with hybro source create --name <name>. Never share real tokens in prompts or logs.'
+export const MCP_AUTH_HELP = 'The bundled MCP adapter passes on the Authorization header your MCP client sends. Local Developer Mode does not require one; with backend.auth_mode="clerk", set it to a source token (Bearer <token>), which the owner creates with hybro source create --name <name>.'
 
 function shellQuote(value: string): string {
   return `'${value.replace(/'/g, `'"'"'`)}'`

@@ -45,7 +45,7 @@ def _refuse(status: int, code: str, message: str) -> NoReturn:
 async def get_owner_sources(
     owner: SignedInOwnerDependency, sources: SourceRegistryDependency
 ) -> SourceRegistry:
-    """The sources, for the owner only: a source token acts as the owner."""
+    """Owner only; a source token cannot call these routes."""
     return sources
 
 

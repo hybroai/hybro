@@ -942,9 +942,10 @@ returns only `service: "hybro-mcp"` and
 `status: "ready" | "unavailable" | "unsupported_auth"`; invalid responses and
 probe failures become unavailable. It never forwards tool traffic, browser
 credentials, upstream errors, or Agent Cards, and cannot control services or
-bypass backend authentication. MCP's own health check performs a bounded,
-read-only backend discovery request, never Agent execution. Clerk rejection is
-reported as unsupported authentication.
+bypass backend authentication. MCP's own health check calls the backend's
+root `/health` with a deadline and no credential, never Agent execution; it
+reports only `ready` or `unavailable`. `unsupported_auth` stays in the
+route's type, but MCP no longer sends it.
 
 ### Send Message Routing
 
