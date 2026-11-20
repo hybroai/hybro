@@ -167,14 +167,31 @@ Nothing depends on an authentication mode or on how the instance was started.
 3. **The owner account.**
    - On the first visit the owner creates the account: name, email, password.
      The setup page opens only through a one-time link that `hybro` prints,
-     with the code after the `#`. Until the account exists, every other route
-     refuses requests.
-   - Sign-in is required on every install, and every route outside the Source
-     API needs it.
+     with the code after the `#`.
+   - `hybro` asks the backend for a new code each time it runs while no
+     account exists, and prints the link itself, so the code does not pass
+     through the container logs. The backend stores only a hash. The code
+     works once, and stops working after 24 hours or when a newer one is
+     issued.
+   - `hybro owner create` creates the account without a browser, for a
+     headless install and for tests that run against a started image. It takes
+     the name and the email as options and reads the password from a prompt
+     or from standard input, never from an option. It works only while no
+     account exists.
+   - Until the account exists, the routes that need the owner's sign-in and
+     the Source API refuse requests.
+   - Sign-in is required on every install. Every route needs it except the
+     Source API, which takes a source token, and the routes that agents and
+     probes call with their own credential or none: the model proxy
+     (`/internal/llm`, the internal credential), `/a2a/push` (the push token
+     of the call) and `/health`.
+   - The sign-in is kept in a cookie. Sign-in and setup limit repeated
+     attempts, and the cookie is `SameSite` with a check against cross-site
+     request forgery on every route that changes something.
    - The account sits in the existing user menu: profile, password change,
      signed-in browsers, sign out.
-   - A command on the machine resets a forgotten password and signs out every
-     browser.
+   - `hybro owner reset-password` on the machine resets a forgotten password
+     and signs out every browser.
    - There is one account. It is stored as a user record, so that the
      enterprise edition can add people later.
 4. **The token requirement and its switch.**
@@ -182,6 +199,8 @@ Nothing depends on an authentication mode or on how the instance was started.
    - The owner can turn the requirement off with a switch on the Sources tab,
      after a confirmation that states the consequence. A request without a
      token is then recorded under the built-in "No token" source.
+   - A request with an unknown or revoked token is refused, also while the
+     requirement is off. It is never recorded under "No token".
    - While it is off, the Connect page shows a banner that the owner can
      dismiss, with a dialog that explains it and holds the switch.
 5. **MCP with tokens.** `/mcp` is served on every install. A client sends its
@@ -201,18 +220,30 @@ Nothing depends on an authentication mode or on how the instance was started.
      becomes a retired key when Clerk mode is removed. Tests provide their own
      user in the test setup, so no production path skips authentication.
    - the `--insecure-no-auth` option, in favour of the switch
+   - the `?token=` query parameter on the event stream routes. The Panel's
+     cookie replaces it.
    - the rule that a listener on another address needs Clerk, and the rule that
      leaves `/mcp` out on such a listener. `--listen` stays as a networking
      option with its default, `127.0.0.1`.
 
 **Upgrading an existing install.**
 
-- The first visit after the upgrade shows the setup page once. The new account
-  takes over the identity that the stored sessions, rooms and settings belong
-  to, so nothing is lost and nothing is rewritten.
-- The token requirement starts off, so programs that are already connected
-  keep working. A one-time notice and the banner tell the owner. A fresh
-  install starts with it on.
+- **From mock mode.** The first visit after the upgrade shows the setup page
+  once. The new account takes over the one identity that the stored sessions,
+  rooms and settings belong to, so nothing is lost and nothing is rewritten.
+  The token requirement starts off, so programs that are already connected
+  keep working. A one-time notice and the banner tell the owner.
+- **From Clerk mode.** The install runs as before, with Clerk sign-in and
+  Clerk tokens on the Source API, until the owner moves it to the built-in
+  account through the setup link or `hybro owner create`.
+  - The new account takes over the identity listed in
+    `backend.admin_user_ids`. If several are listed, the owner chooses one.
+  - What other users stored stays in the database, unchanged and not shown.
+    Nothing is deleted or rewritten.
+  - The token requirement starts on, because the install required a
+    credential before. Programs that sent a Clerk token need a source token.
+- No upgrade leaves an install more open than it was. A fresh install starts
+  with the token requirement on.
 
 **Done when.**
 
@@ -221,10 +252,16 @@ Nothing depends on an authentication mode or on how the instance was started.
 - A source on another machine can send a step and read its result with its
   token. Without a token the request is refused, unless the owner turned the
   requirement off.
-- The Panel and every route outside the Source API need the owner's sign-in,
-  and a source token does not open them.
-- The owner account can be created only through the setup link.
-- An upgraded install keeps its data, and its connected programs keep working.
+- The Panel and every route need the owner's sign-in, except the Source API
+  and the agent-facing routes and `/health` named above. A source token opens
+  only the Source API.
+- A revoked token is refused whether the requirement is on or off.
+- The owner account can be created only through the setup link or
+  `hybro owner create`, and only while none exists.
+- An install upgraded from mock mode keeps its data, and its connected
+  programs keep working. An install moved from Clerk mode keeps the chosen
+  admin's data and requires a source token.
+- The functional tests create the owner with `hybro owner create`.
 - An MCP client can connect from another machine with a source token, and the
   documents say so.
 

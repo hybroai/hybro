@@ -218,12 +218,19 @@ phase that builds them starts.
 
 ### Who may use it
 
-Two kinds of caller exist, and nothing else is let in.
+Two kinds of caller use Hybro from outside: the owner and a source. Agents
+call back on a few routes with a credential of their own.
 
 | Who | Proves it with | Can reach |
 |---|---|---|
-| The owner, in a browser | The owner account's sign-in | The Panel and every route |
+| The owner, in a browser | The owner account's sign-in | The Panel and every route not named below |
 | A source | Its source token | The Source API only |
+| A bundled agent | The internal credential the entrypoint gives it | The model proxy, `/internal/llm` |
+| An agent that reports the result of a call | The push token of that call | `/a2a/push` |
+| A health probe | Nothing | `/health`, which reports only that the service is up |
+
+Each route accepts one kind of credential. The owner's sign-in does not open
+the agent-facing routes, and their credentials open nothing else.
 
 - **A source token.** The owner creates a source in the Panel and receives its
   token once. The source sends the token with each request. Hybro stores only
@@ -236,6 +243,9 @@ Two kinds of caller exist, and nothing else is let in.
   accepted and recorded under one built-in source, "No token". The Panel says
   so while the requirement is off. A request that carries a token is always
   recorded under its own source.
+- **A bad token is always refused.** A request that carries an unknown or
+  revoked token is refused, also while the requirement is off. It is never
+  recorded under "No token", so revoking a token always takes effect.
 - **Trust needs a token.** A feature that limits or trusts a source by its
   name, such as an access rule that matches on a source or the grant that lets
   a source answer permission questions, applies to sources with a token. It
@@ -253,11 +263,19 @@ Two kinds of caller exist, and nothing else is let in.
 - The instance has one account, the owner's: a name, an email and a password.
   Hybro keeps it itself and needs no outside service to sign in.
 - The owner creates the account on the first visit, through a one-time setup
-  link that the `hybro` command prints. Until the account exists, every other
-  route refuses requests.
+  link that the `hybro` command prints, or without a browser with
+  `hybro owner create` on the machine that runs Hybro. Both work only while no
+  account exists. Until it exists, the routes that need the owner's sign-in
+  and the Source API refuse requests; the agent-facing routes and `/health`
+  are not affected.
+- The setup link carries a code that works once. Hybro stores only a hash of
+  it, and it stops working after 24 hours or when a newer link is issued.
 - Sign-in is required on every install. The owner changes the profile and the
   password in the Panel, sees the signed-in browsers, and resets a forgotten
-  password with a command on the machine that runs Hybro.
+  password with `hybro owner reset-password` on the machine that runs Hybro.
+- The Panel keeps the sign-in in a cookie. Sign-in and setup limit repeated
+  attempts, and a request that changes something is checked against
+  cross-site request forgery.
 - More people, roles and single sign-on are enterprise (see
   [Community and enterprise](#community-and-enterprise)).
 
