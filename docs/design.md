@@ -146,7 +146,7 @@ module.
 | Group | A named set of agents. | `agent` | agent group (`agent_groups`) |
 | Standard | A requirement a step's result must meet, such as a time limit or a required field. It attaches to a label the source sends, or to an agent. | `evaluation` | new |
 | Rule | One line set by the instance owner. There are three kinds: route, access and check. | `policy` | new |
-| Source | One program that asks for work. The owner creates it and gives it a token, and Hybro records on every Step which source sent it. Today a source names itself, and the name is not verified. | Source API | client (`client_label`) |
+| Source | One program that asks for work. The owner creates it and gives it a token, and Hybro records on every Step which source sent it. Today a source names itself, and the name is not verified. | `source` | client (`client_label`) |
 
 How the records of one piece of work hang together:
 
@@ -225,14 +225,21 @@ call back on a few routes with a credential of their own.
 |---|---|---|
 | The owner, in a browser | The owner account's sign-in | The Panel and every route not named below |
 | A source | Its source token | The Source API only |
+| The owner at the machine, through the `hybro` command | A token the entrypoint writes inside the container on each start | The machine-only routes: create the owner, issue a setup link, reset the password, create a source |
+| The `hybro` command, for `hybro doctor` | A second token of the same kind | The diagnostics routes, which the owner's sign-in opens too |
 | A bundled agent | The internal credential the entrypoint gives it | The model proxy, `/internal/llm` |
 | An agent that reports the result of a call | The push token of that call | `/a2a/push` |
 | A health probe | Nothing | `/health`, which reports only that the service is up |
 
-Each route accepts one kind of credential. The owner's sign-in does not open
-the agent-facing routes, and their credentials open nothing else.
+Each route accepts one kind of credential, with one exception: the diagnostics
+routes take the `hybro` command's token or the owner's sign-in. The owner's
+sign-in does not open the agent-facing routes, and their credentials open
+nothing else. The machine-only routes cannot be reached through the published
+port: the image's proxy refuses them, and `hybro` calls them from inside the
+container.
 
-- **A source token.** The owner creates a source in the Panel and receives its
+- **A source token.** The owner creates a source in the Panel, or with
+  `hybro source create` on the machine that runs Hybro, and receives its
   token once. The source sends the token with each request. Hybro stores a
   hash of it and its last four characters, never the token itself. It finds
   the source from the hash and records that source on every Step. A token
@@ -243,7 +250,9 @@ the agent-facing routes, and their credentials open nothing else.
 - **The owner can turn the requirement off.** Then a request without a token is
   accepted and recorded under one built-in source, "No token". The Panel says
   so while the requirement is off. A request that carries a token is always
-  recorded under its own source.
+  recorded under its own source. One exception stays refused: a request
+  without a token that a web page on another address made a browser send (see
+  [Requests from other websites](#requests-from-other-websites)).
 - **A bad token is always refused.** A request that carries an unknown or
   revoked token is refused, also while the requirement is off. It is never
   recorded under "No token", so revoking a token always takes effect.
@@ -251,6 +260,12 @@ the agent-facing routes, and their credentials open nothing else.
   which source it is, such as an access rule that matches on a source or the
   grant that lets a source answer permission questions, applies to sources
   with a token. It can never be given to "No token".
+- **A session belongs to the source that opened it.** Whoever holds that
+  source's current token can send to the session, read it and close it;
+  another source gets "not found". Rotating the token keeps the sessions,
+  because they belong to the source and not to the token value. Programs that
+  share one token share its sessions. The owner sees every session in the
+  Panel.
 - **`client_label` is a claimed name, not an identity.** It is optional when a
   token is sent and required when a session is opened without one. The Panel
   shows it as text the client gave, apart from the source, and no decision
@@ -279,6 +294,23 @@ the agent-facing routes, and their credentials open nothing else.
   cross-site request forgery.
 - More people, roles and single sign-on are enterprise (see
   [Community and enterprise](#community-and-enterprise)).
+
+### Requests from other websites
+
+A browser sends the owner's cookie with a request that any web page starts, so
+Hybro checks where a request came from:
+
+- A request that changes something and carries the owner's cookie must come
+  from Hybro's own address, and so must sign-in and setup. The browser states
+  the page's address in the `Origin` header; a request whose `Origin` is
+  missing or names another address is refused.
+- A Source API request without a token is refused when its `Origin` names
+  another address. A program sends no `Origin`, so programs are not affected.
+- Hybro's own address is the host and port the browser used. Behind a reverse
+  proxy that is the forwarded host, so the proxy must pass the browser's host
+  on.
+- A request without the cookie is not checked by the first rule. Scripts, the
+  MCP adapter and agents are not affected.
 
 ## One step, from request to reply
 
@@ -357,7 +389,9 @@ repeats from 2, and no new Session opens.
 
 | Layer | Module | Job | Owns |
 |---|---|---|---|
-| Door | Source API | The one API every source uses. The bundled orchestrator has no private path. | Source |
+| Door | Source API | The one API every source uses. The bundled orchestrator has no private path. | nothing |
+| Door | `source` | Stores each source, the hash of its token, and whether a token is required. It tells the Source API which source sent a request. | Source |
+| Door | `account` | The owner account: sign-in, the signed-in browsers, and the one-time setup link. | the owner account |
 | Step path | `session` | Stores each Session and Step. A small function with no I/O decides what happens next: route, check, ask, start a call, or finish. | Session, Step |
 | Step path | `routing` | Finds the agent for a step and fits the prompt to that agent's input. It never rewords the prompt. | nothing |
 | Step path | `policy` | Stores the owner's rules and answers from them. | Rule |
@@ -595,10 +629,11 @@ Each module in today's code has one of three statuses:
 | `dal`, `common`, `models` | Stable | Foundation and shared contracts |
 | `instance_settings` | Stable | `settings` |
 | `diagnostics`, `room_files` | Stable | Support: logs and files |
+| `account` | Stable | `account` |
 | `jobs` | Stable | `scheduler` |
 | `MCP/server.py` | Stable | A source that uses the Source API |
 | `default_agents` | Stable | The bundled agents |
-| `api_gateway` | Changing | Hosts the routes of the Source API and the Panel |
+| `api_gateway` | Changing | Hosts the routes of the Source API and the Panel, and the checks on who may call them |
 | `session` | Changing | Its `/sessions` routes grow into the Source API |
 | `conversation` | Changing | The store behind `session` |
 | `chat` | Changing | Room chat, a bundled source |

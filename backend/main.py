@@ -10,6 +10,7 @@ from common.observability.bootstrap import settings as _logging_settings  # noqa
 from common.config.loader import settings
 
 import api_gateway
+from api_gateway.cross_site import CrossSiteCheckMiddleware
 from api_gateway.errors import (
     provider_not_configured_handler,
     settings_request_error_handler,
@@ -125,6 +126,9 @@ def create_app(
     app.add_exception_handler(SetupRequestError, setup_request_error_handler)
     app.add_exception_handler(SettingsRequestError, settings_request_error_handler)
 
+    # Added before CORS, which makes it the inner one: a refusal still carries
+    # the CORS headers of an allowed origin.
+    app.add_middleware(CrossSiteCheckMiddleware, api_prefix=settings.api_prefix)
     app.add_middleware(
         CORSMiddleware,
         allow_origins=settings.frontend_origins,

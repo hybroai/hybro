@@ -9,6 +9,9 @@ AUTH_DEPENDENCY_NAMES = {
     "get_current_user",
     "get_current_user_with_query_token",
     "get_optional_user",
+    "get_owner_session",
+    "get_optional_owner_session",
+    "get_machine_account",
 }
 
 
