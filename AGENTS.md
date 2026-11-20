@@ -103,6 +103,39 @@ Run commands from the directory that owns the relevant configuration.
 - In the image, the entrypoint (`backend/runtime_entrypoint.py`) owns the projections: it reads `config.json` and gives the frontend, MCP, and each agent only its scoped settings and internal credential, never the whole auth store, including during restart; the backend never writes them. Runtime records under `/tmp/hybro` are not configuration sources.
 - Do not broaden environment-variable, secret, workflow-permission, or container exposure without an explicit security reason.
 
+## Code Review Rules
+
+These rules apply when reviewing a diff in this repository, with any tool. Each rule names the trigger visible in the diff, what to check, and the severity. `backend/AGENTS.md` and `frontend/AGENTS.md` add rules for their directories.
+
+Severity:
+
+- **Must fix**: breaks a contract below, loses data, leaks a secret, or lets a request through that should be refused.
+- **Should fix**: a real defect or gap with a narrower impact; fix it in this change unless the author gives a reason.
+- **Nit**: optional; never blocks.
+
+Contracts (see Architecture Contracts, Configuration and Secrets, and Design Direction):
+
+- A route, request model, or response model changes. Check that the route/schema tests, the `backend/openapi.json` snapshot, and the frontend consumer and its types change with it. Must fix.
+- A room, SSE, streaming, HITL, processing-status, message-sending, or agent-response path changes. Check that `client_request_id` still travels from the request to every event and record it produced, on both sides. Must fix.
+- Code outside backend `execution/` ingests or finalizes an A2A response (writes the reply, the terminal status, or the Run result). Check that it hands off to Execution instead. Must fix.
+- `default_agents/agents.yaml`, the agent uv workspace, or the root `Dockerfile` changes alone. Check that the other two match and `default_agents/tests/test_manifest_in_sync.py` still passes. Must fix.
+- A new `os.environ`/`process.env` read of a user setting, a dotenv load, a `.env.local` requirement, or a direct read of `config.json` or `auth.json` outside the configuration loader and the entrypoint. Must fix.
+- A file outside an `enterprise/` folder imports from one. Must fix.
+- A public route or MCP tool is removed or renamed without a deprecated release in between. Must fix.
+- A dependency manifest changes without its lockfile, or a lockfile changes without a manifest change. Check that `backend/uv.lock` was produced by the same uv version the image uses. Should fix.
+- Routes, schemas, data flow, streaming, persistence, or module boundaries change without an update to the matching `docs/System-Architecture.md`. Should fix.
+
+Recurring misses:
+
+- A new or changed log event, log field, error message, or Caddy log setting. Check that headers, full URIs with query strings, request bodies, tokens, and caller-supplied ids cannot reach the output unredacted, and that the redaction does not swallow ordinary words. Must fix.
+- A new or changed numeric setting (backend, frontend, or agent). Check that it has a minimum and a maximum that its consumer can hold (date math, JavaScript timers, a 64-bit MongoDB integer, a fixed backend limit), and that cross-field rules also run when one side is the default. Must fix.
+
+Do not flag:
+
+- Formatting, import order, naming style, and anything Ruff, ESLint, `tsc`, or shellcheck already enforces.
+- Speculative refactors or abstractions the change does not need.
+- Problems that existed before the change. Label them pre-existing and keep them out of the author's findings.
+
 ## Git
 
 Multiple users or agents may modify this worktree concurrently. Git operations must not disturb changes outside the current task.

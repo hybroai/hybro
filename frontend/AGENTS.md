@@ -35,6 +35,13 @@ Run focused Vitest or Playwright coverage first. For visible UI changes, verify 
 
 Review `docs/System-Architecture.md` when frontend routes, API integrations, data flow, streaming, state management, authentication, module boundaries, or major UI workflows change.
 
+## Code Review Rules
+
+These add to the root `AGENTS.md` Code Review Rules and use its severities.
+
+- A composer, HITL answer form, or other input clears its text or attachments, or revokes attachment preview URLs, before the backend accepts the send; or keeps an unsent draft only in component state. Check that a failed send restores the draft and that a remount or refresh does not drop it. Should fix.
+- An API URL built with `new URL(...)` or string concatenation of a query, or a server credential reachable from a client component. See Configuration above. Must fix.
+
 <!-- BEGIN:nextjs-agent-rules -->
 
 # This is NOT the Next.js you know
