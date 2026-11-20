@@ -3,6 +3,7 @@ import { http, HttpResponse } from 'msw'
 import { server } from '../../setup/msw-server'
 import { getApiUrl } from '@/lib/utils'
 import { closeSession, fetchSessionEvents, getSessionRecord, listSessions } from '@/lib/api/session'
+import { sessionRequester } from '@/lib/session-format'
 
 const base = getApiUrl('sessions')
 
@@ -20,15 +21,21 @@ describe('session api', () => {
     expect(record.client_label).toBe('Buyer agent')
   })
 
-  it('escapes the session id and posts close', async () => {
+  it('escapes the session id and posts the owner close', async () => {
     const seen: string[] = []
-    server.use(http.post(`${base}/:id/close`, ({ params, request }) => {
+    server.use(http.post(`${base}/:id/record/close`, ({ params, request }) => {
       seen.push(`${request.method} ${String(params.id)} ${new URL(request.url).pathname}`)
       return HttpResponse.json({ session_id: params.id, status: 'closed' })
     }))
     const closed = await closeSession('a/b')
     expect(closed.status).toBe('closed')
-    expect(seen[0]).toContain('/sessions/a%2Fb/close')
+    expect(seen[0]).toContain('/sessions/a%2Fb/record/close')
+  })
+
+  it('names the requester by its label, else by its source', () => {
+    const source = { source_id: 'src_1', name: 'CI bot', has_token: true }
+    expect(sessionRequester({ client_label: 'Laptop', source })).toBe('Laptop')
+    expect(sessionRequester({ client_label: null, source })).toBe('CI bot')
   })
 
   it('reads the whole event log past one page', async () => {

@@ -11,6 +11,7 @@ const api = vi.hoisted(() => ({
     opened_at: '2026-10-14T09:00:00Z',
     last_activity_at: '2026-10-14T09:05:00Z',
     client_label: 'Buyer agent',
+    source: { source_id: 'no_token', name: 'No token', has_token: false },
     title: 'Generate a travel plan',
     status: 'open',
     conversation_id: 'conv-1',
@@ -110,6 +111,15 @@ describe('SessionRecordView', () => {
     for (const label of ['Status', 'Requester', 'Created', 'Updated', 'Requests']) {
       expect(within(panel).getByText(label)).toBeInTheDocument()
     }
+  })
+
+  it('names a requester without a label by its source', async () => {
+    const saved = api.record
+    api.record = { ...saved, client_label: null, source: { source_id: 'src_ci', name: 'CI bot', has_token: true } }
+    render(<SessionRecordView sessionId="sess-1" />)
+    const panel = await screen.findByRole('complementary', { name: 'Details' })
+    expect(within(panel).getByText('CI bot')).toBeInTheDocument()
+    api.record = saved
   })
 
   it('returns to the list view the owner came from', async () => {

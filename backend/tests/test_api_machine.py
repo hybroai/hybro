@@ -11,7 +11,9 @@ from fastapi.testclient import TestClient
 from api_gateway.cross_site import CrossSiteCheckMiddleware
 from api_gateway.routes import machine_routes
 from api_gateway.routes.machine_routes import TOKEN_HEADER
+from source import SourceService
 from tests.fakes.account import build_service
+from tests.fakes.source import MemorySourceStore
 
 TOKEN = "a" * 64
 PASSWORD = "correct horse battery"
@@ -21,6 +23,7 @@ ROUTES = (
     ("/api/v1/machine/setup-code", None),
     ("/api/v1/machine/owner", OWNER),
     ("/api/v1/machine/owner/password", {"password": "reset to this one"}),
+    ("/api/v1/machine/sources", {"name": "CI bot"}),
 )
 
 
@@ -29,6 +32,7 @@ def _client(service=None, *, token: str = TOKEN) -> TestClient:
     app.add_middleware(CrossSiteCheckMiddleware, api_prefix="/api/v1")
     app.include_router(machine_routes.router, prefix="/api/v1")
     app.state.owner_account = service if service is not None else build_service()
+    app.state.source_registry = SourceService(MemorySourceStore(), auth_mode="mock")
     app.state.machine_token = token
     return TestClient(app)
 
@@ -186,5 +190,41 @@ def test_the_routes_are_unavailable_before_the_account_service_is_bound():
     app.state.machine_token = TOKEN
 
     response = TestClient(app).post("/api/v1/machine/setup-code", headers=AUTH)
+
+    assert response.status_code == 503
+
+
+def test_create_a_source_returns_its_token_once():
+    client = _client()
+
+    response = client.post(
+        "/api/v1/machine/sources", json={"name": "CI bot"}, headers=AUTH
+    )
+
+    assert response.status_code == 201
+    body = response.json()
+    assert body["name"] == "CI bot"
+    assert body["token"].startswith("hybro_src_")
+    assert body["token_last4"] == body["token"][-4:]
+    listed = asyncio.run(client.app.state.source_registry.list_sources())
+    assert [s.source_id for s in listed.sources] == [body["source_id"]]
+
+
+def test_create_a_source_needs_a_name():
+    response = _client().post(
+        "/api/v1/machine/sources", json={"name": " "}, headers=AUTH
+    )
+    assert response.status_code == 422
+    assert response.json()["detail"]["code"] == "invalid_request"
+
+
+def test_the_source_route_is_unavailable_before_sources_are_bound():
+    app = FastAPI()
+    app.include_router(machine_routes.router, prefix="/api/v1")
+    app.state.machine_token = TOKEN
+
+    response = TestClient(app).post(
+        "/api/v1/machine/sources", json={"name": "CI bot"}, headers=AUTH
+    )
 
     assert response.status_code == 503

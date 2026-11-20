@@ -1,0 +1,500 @@
+"""Source tokens on the Source API, the owner's /sources routes, and the
+owner's own session routes.
+
+The app is the real one with its middleware; the session facade is a fake that
+records who each call acted for, so the tests show which caller a route
+resolves and what it refuses before any session work.
+"""
+
+from __future__ import annotations
+
+from datetime import UTC, datetime
+from types import SimpleNamespace
+
+import httpx
+import pytest
+
+from account.protocols import OWNER_USER_ID, OwnerCreate
+from api_gateway.dependencies import get_agent_network
+from api_gateway.source_token import SourceCaller
+from common import auth
+from common.auth import ClerkUser, get_current_user
+from main import create_app
+from models.session import (
+    SessionClosed,
+    SessionListResponse,
+    SessionMessageResponse,
+    SessionStatus,
+)
+from session.protocols import SessionOwner
+from source import SourceService
+from source.protocols import NO_TOKEN, SourceIdentity
+from tests.fakes.account import build_service
+from tests.fakes.source import MemorySourceStore
+
+NOW = datetime(2026, 11, 20, tzinfo=UTC)
+API = "/api/v1"
+SEND = f"{API}/sessions/messages"
+BODY = {
+    "agent_id": "agent-1",
+    "text": "Plan a trip",
+    "client_request_id": "cr-1",
+    "client_label": "Buyer agent",
+}
+SOURCE_ROUTES = (
+    ("POST", SEND, BODY),
+    ("GET", f"{API}/sessions/sess-1", None),
+    ("POST", f"{API}/sessions/sess-1/close", None),
+    ("GET", f"{API}/agents/discovery", None),
+    ("GET", f"{API}/agents/search?query=trip", None),
+    ("GET", f"{API}/agents/groups", None),
+    ("GET", f"{API}/agents/agent-1/profile", None),
+)
+
+
+class RecordingFacade:
+    """Records the owner and source of each call; answers with fixed payloads."""
+
+    def __init__(self) -> None:
+        self.calls: list[tuple[str, SessionOwner, SourceIdentity | None]] = []
+
+    async def send(self, request, *, owner, source, resolver):
+        self.calls.append(("send", owner, source))
+        return SessionMessageResponse(
+            session_id="sess-1",
+            client_request_id=request.client_request_id,
+            agent_id=request.agent_id,
+            status="created",
+            state="working",
+            message="Created.",
+            created_at=NOW,
+            updated_at=NOW,
+        )
+
+    async def check(self, session_id, *, owner, source):
+        self.calls.append(("check", owner, source))
+        return SessionStatus(
+            session_id=session_id, state="working", created_at=NOW, updated_at=NOW
+        )
+
+    async def close(self, session_id, *, owner, source):
+        self.calls.append(("close", owner, source))
+        return SessionClosed(session_id=session_id, status="closed")
+
+    async def close_for_owner(self, session_id, *, owner):
+        self.calls.append(("close_for_owner", owner, None))
+        return SessionClosed(session_id=session_id, status="closed")
+
+    async def list_for_owner(self, *, owner):
+        self.calls.append(("list", owner, None))
+        return SessionListResponse()
+
+    async def record_for_owner(self, session_id, *, owner):
+        raise AssertionError("not used")
+
+
+def make_app(*, auth_mode: str = "mock", admin_user_ids=frozenset(), owner=None):
+    app = create_app()
+    facade = RecordingFacade()
+    sources = SourceService(MemorySourceStore(), auth_mode=auth_mode)
+    app.state.source_registry = sources
+    app.state.owner_account = build_service(
+        auth_mode=auth_mode, admin_user_ids=admin_user_ids
+    )
+    app.state.api_gateway_deps = SimpleNamespace(
+        session_facade=facade,
+        agent_service=object(),
+        agent_group_store=object(),
+        agent_matcher=object(),
+    )
+    app.dependency_overrides[get_current_user] = lambda: ClerkUser(
+        user_id=owner or OWNER_USER_ID, session_id="s", claims={}
+    )
+    return app, facade, sources
+
+
+def client_for(app, host: str = "hybro.test"):
+    return httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=app, raise_app_exceptions=False),
+        base_url=f"http://{host}",
+    )
+
+
+def bearer(token: str) -> dict[str, str]:
+    return {"Authorization": f"Bearer {token}"}
+
+
+# -- Who a Source API request is --------------------------------------------
+
+
+async def test_no_token_is_no_token_and_acts_for_the_owner():
+    app, facade, _ = make_app()
+    async with client_for(app) as client:
+        response = await client.post(SEND, json=BODY)
+
+    assert response.status_code == 200
+    _, owner, source = facade.calls[0]
+    assert source == NO_TOKEN
+    assert owner.user_id == OWNER_USER_ID
+
+
+async def test_a_token_names_its_source():
+    app, facade, sources = make_app()
+    created = await sources.create("CI bot")
+    async with client_for(app) as client:
+        response = await client.post(SEND, json=BODY, headers=bearer(created.token))
+
+    assert response.status_code == 200
+    _, owner, source = facade.calls[0]
+    assert (source.source_id, source.name, source.has_token) == (
+        created.source_id,
+        "CI bot",
+        True,
+    )
+    assert owner.user_id == OWNER_USER_ID
+
+
+async def test_client_label_is_optional_with_a_token():
+    app, facade, sources = make_app()
+    created = await sources.create("CI bot")
+    body = {key: value for key, value in BODY.items() if key != "client_label"}
+    async with client_for(app) as client:
+        response = await client.post(SEND, json=body, headers=bearer(created.token))
+
+    assert response.status_code == 200
+    assert facade.calls[0][0] == "send"
+
+
+@pytest.mark.parametrize(("method", "path", "body"), SOURCE_ROUTES)
+@pytest.mark.parametrize(
+    "header",
+    [
+        "Bearer hybro_src_not-a-real-token",
+        # The Panel's leftover bearer, which mock mode used to ignore.
+        "Bearer mock-jwt-token",
+        "Bearer ",
+        "Basic dXNlcjpwYXNz",
+        "hybro_src_without_scheme",
+    ],
+)
+async def test_an_unknown_or_malformed_token_is_refused_everywhere(
+    method, path, body, header
+):
+    app, facade, _ = make_app()
+    async with client_for(app) as client:
+        response = await client.request(
+            method, path, json=body, headers={"Authorization": header}
+        )
+
+    assert response.status_code == 401
+    detail = response.json()["detail"]
+    assert detail["code"] == "unknown_source_token"
+    assert "Authorization" in detail["message"]
+    assert "source token" in detail["message"]
+    assert response.headers["www-authenticate"] == "Bearer"
+    assert facade.calls == []
+
+
+@pytest.mark.parametrize("auth_mode", ["mock", "clerk"])
+async def test_a_revoked_or_replaced_token_is_refused(auth_mode):
+    app, facade, sources = make_app(auth_mode=auth_mode)
+    revoked = await sources.create("old")
+    await sources.revoke(revoked.source_id)
+    rotated = await sources.create("rotated")
+    await sources.rotate(rotated.source_id)
+    async with client_for(app) as client:
+        responses = [
+            await client.post(SEND, json=BODY, headers=bearer(token))
+            for token in (revoked.token, rotated.token)
+        ]
+
+    assert [r.status_code for r in responses] == [401, 401]
+    assert facade.calls == []
+
+
+async def test_clerk_mode_requires_a_token():
+    app, facade, sources = make_app(auth_mode="clerk")
+    created = await sources.create("CI bot")
+    async with client_for(app) as client:
+        refused = await client.post(SEND, json=BODY)
+        accepted = await client.post(SEND, json=BODY, headers=bearer(created.token))
+
+    assert refused.status_code == 401
+    assert refused.json()["detail"]["code"] == "source_token_required"
+    assert accepted.status_code == 200
+    assert len(facade.calls) == 1
+
+
+@pytest.mark.parametrize(
+    ("admins", "expected"),
+    [(frozenset(), OWNER_USER_ID), (frozenset({"user_abc"}), "user_abc")],
+)
+async def test_clerk_mode_acts_for_the_listed_admin(admins, expected):
+    app, facade, sources = make_app(auth_mode="clerk", admin_user_ids=admins)
+    created = await sources.create("CI bot")
+    async with client_for(app) as client:
+        await client.post(SEND, json=BODY, headers=bearer(created.token))
+
+    assert facade.calls[0][1].user_id == expected
+
+
+async def test_several_admins_refuse_until_the_account_exists():
+    app, facade, sources = make_app(
+        auth_mode="clerk", admin_user_ids=frozenset({"user_a", "user_b"})
+    )
+    created = await sources.create("CI bot")
+    async with client_for(app) as client:
+        refused = await client.post(SEND, json=BODY, headers=bearer(created.token))
+        await app.state.owner_account.create_owner(
+            OwnerCreate(
+                name="Ada",
+                email="ada@example.com",
+                password="correct horse battery",
+                owner_id="user_b",
+            )
+        )
+        accepted = await client.post(SEND, json=BODY, headers=bearer(created.token))
+
+    assert refused.status_code == 503
+    assert refused.json()["detail"]["code"] == "owner_unknown"
+    assert accepted.status_code == 200
+    assert facade.calls[0][1].user_id == "user_b"
+
+
+# -- Requests that another website makes a browser send ------------------------
+
+
+@pytest.mark.parametrize(("method", "path", "body"), SOURCE_ROUTES)
+async def test_no_token_with_a_foreign_origin_is_refused(method, path, body):
+    app, facade, _ = make_app()
+    async with client_for(app) as client:
+        response = await client.request(
+            method, path, json=body, headers={"Origin": "https://evil.example"}
+        )
+
+    assert response.status_code == 403
+    assert response.json()["detail"]["code"] == "cross_site_request"
+    assert facade.calls == []
+
+
+@pytest.mark.parametrize(
+    "headers",
+    [
+        {},
+        {"Origin": "http://hybro.test"},
+        # Through Caddy or the Next dev proxy, which pass the browser's host.
+        {"Origin": "http://localhost:3000", "X-Forwarded-Host": "localhost:3000"},
+    ],
+)
+async def test_no_token_from_no_origin_or_our_own_address_passes(headers):
+    app, facade, _ = make_app()
+    async with client_for(app) as client:
+        response = await client.post(SEND, json=BODY, headers=headers)
+
+    assert response.status_code == 200
+    assert facade.calls[0][2] == NO_TOKEN
+
+
+async def test_a_token_with_a_foreign_origin_is_accepted():
+    app, facade, sources = make_app()
+    created = await sources.create("Web tool")
+    async with client_for(app) as client:
+        response = await client.post(
+            SEND,
+            json=BODY,
+            headers={**bearer(created.token), "Origin": "https://tool.example"},
+        )
+
+    assert response.status_code == 200
+    assert facade.calls[0][2].source_id == created.source_id
+
+
+# -- The owner's session routes ---------------------------------------------
+
+
+async def test_the_owner_routes_act_for_the_owner_without_a_source():
+    app, facade, _ = make_app()
+    async with client_for(app) as client:
+        listing = await client.get(f"{API}/sessions")
+        closed = await client.post(f"{API}/sessions/sess-1/record/close")
+        # A leftover bearer is not read by the owner's routes in this release.
+        with_bearer = await client.get(
+            f"{API}/sessions", headers=bearer("mock-jwt-token")
+        )
+
+    assert listing.status_code == closed.status_code == with_bearer.status_code == 200
+    assert closed.json() == {"session_id": "sess-1", "status": "closed"}
+    assert [call[0] for call in facade.calls] == ["list", "close_for_owner", "list"]
+    assert all(call[1].user_id == OWNER_USER_ID for call in facade.calls)
+
+
+OWNER_SESSION_ROUTES = (
+    ("GET", f"{API}/sessions"),
+    ("GET", f"{API}/sessions/sess-1/record"),
+    ("POST", f"{API}/sessions/sess-1/record/close"),
+)
+
+
+async def test_the_owner_sees_the_sessions_sources_opened_in_clerk_mode():
+    # No admin listed and no account yet: the acting owner is the id rule's.
+    app, facade, sources = make_app(auth_mode="clerk")
+    created = await sources.create("CI bot")
+    async with client_for(app) as client:
+        await client.post(SEND, json=BODY, headers=bearer(created.token))
+        listing = await client.get(f"{API}/sessions")
+
+    assert listing.status_code == 200
+    sent_for, listed_for = facade.calls[0][1], facade.calls[1][1]
+    assert sent_for.user_id == listed_for.user_id == OWNER_USER_ID
+
+
+@pytest.mark.parametrize(("method", "path"), OWNER_SESSION_ROUTES)
+async def test_another_signed_in_user_cannot_use_the_owner_session_routes(method, path):
+    app, facade, _ = make_app(
+        auth_mode="clerk", admin_user_ids=frozenset({"user_abc"}), owner="user_other"
+    )
+    async with client_for(app) as client:
+        response = await client.request(method, path)
+
+    assert response.status_code == 403
+    assert response.json()["detail"]["code"] == "forbidden"
+    assert facade.calls == []
+
+
+@pytest.mark.parametrize(("method", "path"), OWNER_SESSION_ROUTES)
+async def test_clerk_mode_without_a_listed_admin_closes_the_owner_routes(method, path):
+    # The acting owner is user_local_developer, which no Clerk user is.
+    app, facade, _ = make_app(auth_mode="clerk", owner="user_clerk")
+    async with client_for(app) as client:
+        response = await client.request(method, path)
+        listing = await client.get(f"{API}/sources")
+
+    assert response.status_code == listing.status_code == 403
+    assert facade.calls == []
+
+
+async def test_the_owner_session_routes_wait_for_the_owner_to_be_known():
+    app, facade, _ = make_app(
+        auth_mode="clerk",
+        admin_user_ids=frozenset({"user_a", "user_b"}),
+        owner="user_a",
+    )
+    async with client_for(app) as client:
+        response = await client.get(f"{API}/sessions")
+
+    assert response.status_code == 503
+    assert response.json()["detail"]["code"] == "owner_unknown"
+    assert facade.calls == []
+
+
+async def test_the_source_close_route_needs_the_source():
+    app, facade, sources = make_app()
+    created = await sources.create("CI bot")
+    async with client_for(app) as client:
+        response = await client.post(
+            f"{API}/sessions/sess-1/close", headers=bearer(created.token)
+        )
+
+    assert response.status_code == 200
+    name, _, source = facade.calls[0]
+    assert name == "close" and source.source_id == created.source_id
+
+
+def test_get_agent_network_acts_for_the_caller_owner():
+    deps = SimpleNamespace(
+        agent_service=object(), agent_group_store=object(), agent_matcher=object()
+    )
+    caller = SourceCaller(
+        source=NO_TOKEN, owner=SessionOwner(user_id="user_abc", name="user_abc")
+    )
+
+    network = get_agent_network(caller, deps)
+
+    assert network._requesting_user_id == "user_abc"
+
+
+# -- The owner's /sources routes ------------------------------------------------
+
+
+async def test_the_owner_creates_lists_renames_rotates_and_revokes_a_source():
+    app, _, _ = make_app()
+    async with client_for(app) as client:
+        created = await client.post(f"{API}/sources", json={"name": "CI bot"})
+        token = created.json()["token"]
+        source_id = created.json()["source_id"]
+        listing = await client.get(f"{API}/sources")
+        renamed = await client.patch(
+            f"{API}/sources/{source_id}", json={"name": "Nightly"}
+        )
+        rotated = await client.post(f"{API}/sources/{source_id}/rotate")
+        old = await client.post(SEND, json=BODY, headers=bearer(token))
+        new = await client.post(
+            SEND, json=BODY, headers=bearer(rotated.json()["token"])
+        )
+        revoked = await client.post(f"{API}/sources/{source_id}/revoke")
+        after = await client.post(
+            SEND, json=BODY, headers=bearer(rotated.json()["token"])
+        )
+        rotate_revoked = await client.post(f"{API}/sources/{source_id}/rotate")
+        missing = await client.patch(f"{API}/sources/nope", json={"name": "x"})
+
+    assert created.status_code == 201
+    assert token.startswith("hybro_src_")
+    assert listing.json()["sources"][0]["source_id"] == source_id
+    assert "token" not in listing.json()["sources"][0]
+    assert renamed.json()["name"] == "Nightly"
+    assert rotated.status_code == 200 and rotated.json()["token"] != token
+    assert (old.status_code, new.status_code) == (401, 200)
+    assert revoked.json()["has_token"] is False
+    assert after.status_code == 401
+    assert rotate_revoked.status_code == 409
+    assert rotate_revoked.json()["detail"]["code"] == "source_revoked"
+    assert missing.status_code == 404
+    assert missing.json()["detail"]["code"] == "source_not_found"
+
+
+@pytest.mark.parametrize("name", ["", "   ", "x" * 121])
+async def test_a_source_needs_a_name(name):
+    app, _, _ = make_app()
+    async with client_for(app) as client:
+        response = await client.post(f"{API}/sources", json={"name": name})
+    assert response.status_code == 422
+
+
+async def test_only_the_owner_manages_sources():
+    app, _, _ = make_app(
+        auth_mode="clerk", admin_user_ids=frozenset({"user_abc"}), owner="user_other"
+    )
+    async with client_for(app) as client:
+        listing = await client.get(f"{API}/sources")
+        create = await client.post(f"{API}/sources", json={"name": "x"})
+
+    assert listing.status_code == create.status_code == 403
+    assert create.json()["detail"]["code"] == "forbidden"
+
+
+async def test_a_source_token_does_not_open_the_sources_routes(monkeypatch):
+    app, _, sources = make_app()
+    created = await sources.create("CI bot")
+    app.dependency_overrides.pop(get_current_user)
+    # The owner's credential today is a Clerk session; a source token is not one.
+    monkeypatch.setattr(auth, "_require_clerk_secret_key", lambda: "sk_test")
+    monkeypatch.setattr(
+        auth,
+        "authenticate_request",
+        lambda request, options: SimpleNamespace(is_signed_in=False, payload=None),
+    )
+    async with client_for(app) as client:
+        response = await client.get(f"{API}/sources", headers=bearer(created.token))
+    # The owner routes take the owner's credential, never a source token.
+    assert response.status_code == 401
+
+
+async def test_sources_are_unavailable_without_the_registry():
+    app, facade, _ = make_app()
+    del app.state.source_registry
+    async with client_for(app) as client:
+        response = await client.post(SEND, json=BODY)
+    assert response.status_code == 503
+    assert response.json()["detail"]["code"] == "sources_unavailable"
+    assert facade.calls == []

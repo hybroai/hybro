@@ -1,4 +1,7 @@
-"""Exercise authenticated HTTP access to the agent network's read routes."""
+"""Exercise HTTP access to the agent network's read routes on the Source API.
+
+The caller is a source; the routes read the agents of the owner it acts for.
+"""
 
 from datetime import UTC, datetime
 from types import SimpleNamespace
@@ -11,10 +14,11 @@ from google.protobuf.json_format import MessageToDict
 
 from agent.facade import AgentFacade
 from api_gateway.dependencies import get_api_gateway_deps
-from common import auth
-from common.auth import get_current_user
 from models.agent_group import AgentGroup
+from source import SourceService
 from tests.fakes.a2a_v1 import make_agent_card
+from tests.fakes.account import build_service
+from tests.fakes.source import MemorySourceStore
 from tests.test_agent_facade import Resolver, _doc
 from tests.test_agent_repository import _repo
 
@@ -57,6 +61,13 @@ async def network_api(monkeypatch, app):
         ),
     )
     monkeypatch.setattr(app, "dependency_overrides", app.dependency_overrides.copy())
+    monkeypatch.setattr(
+        app.state,
+        "source_registry",
+        SourceService(MemorySourceStore(), auth_mode="mock"),
+        raising=False,
+    )
+    monkeypatch.setattr(app.state, "owner_account", build_service(), raising=False)
     app.dependency_overrides[get_api_gateway_deps] = lambda: SimpleNamespace(
         agent_service=registry, agent_matcher=registry, agent_group_store=groups
     )
@@ -158,24 +169,30 @@ async def test_search_and_profile_reject_invalid_requests(
     assert response.status_code == status
 
 
-def clerk_session(monkeypatch, app, *, user_id: str | None):
-    """Exercise real auth dependencies, replacing only Clerk's remote boundary."""
-    monkeypatch.delitem(app.dependency_overrides, get_current_user)
+async def clerk_source(monkeypatch, app, client, *, owner_id: str | None):
+    """A Clerk-mode configuration, which requires a token, with one admin.
+
+    ``owner_id`` None sends no token; otherwise the request carries a source
+    token and acts for that admin.
+    """
+    sources = SourceService(MemorySourceStore(), auth_mode="clerk")
+    monkeypatch.setattr(app.state, "source_registry", sources)
+    admins = frozenset({owner_id}) if owner_id else frozenset()
     monkeypatch.setattr(
-        auth,
-        "authenticate_request",
-        lambda request, options: SimpleNamespace(
-            is_signed_in=user_id is not None,
-            payload={"sub": user_id, "sid": "test-session"} if user_id else None,
-        ),
+        app.state,
+        "owner_account",
+        build_service(auth_mode="clerk", admin_user_ids=admins),
     )
+    if owner_id is not None:
+        token = (await sources.create("Tests")).token
+        client.headers["Authorization"] = f"Bearer {token}"
 
 
-async def test_clerk_anonymous_requests_fail_before_store_access(
+async def test_clerk_mode_without_a_token_fails_before_store_access(
     network_api, monkeypatch, app
 ):
     client, collection, groups = network_api
-    clerk_session(monkeypatch, app, user_id=None)
+    await clerk_source(monkeypatch, app, client, owner_id=None)
 
     discovery = await client.get(
         "/api/v1/agents/discovery", params={"group_id": "team"}
@@ -192,7 +209,7 @@ async def test_clerk_cannot_discover_foreign_private_agent(
     network_api, monkeypatch, app, status
 ):
     client, collection, _ = network_api
-    clerk_session(monkeypatch, app, user_id="another-user")
+    await clerk_source(monkeypatch, app, client, owner_id="another-user")
     collection.docs[0]["agent_status"] = status
 
     discovery = await client.get("/api/v1/agents/discovery")
@@ -207,7 +224,7 @@ async def test_clerk_cannot_use_guessed_foreign_group_even_for_public_agent(
     network_api, monkeypatch, app
 ):
     client, collection, groups = network_api
-    clerk_session(monkeypatch, app, user_id="another-user")
+    await clerk_source(monkeypatch, app, client, owner_id="another-user")
     collection.docs[0]["is_public"] = True
     group = groups.get_agent_group_by_id.return_value
     group.group_id = uuid5(
@@ -229,7 +246,7 @@ async def test_clerk_can_discover_public_or_owned_agent(
 ):
     client, collection, groups = network_api
     user_id = "another-user" if public else "user_local_developer"
-    clerk_session(monkeypatch, app, user_id=user_id)
+    await clerk_source(monkeypatch, app, client, owner_id=user_id)
     collection.docs[0]["is_public"] = public
     groups.get_agent_group_by_id.return_value.owner_id = user_id
 

@@ -136,9 +136,12 @@
     ],
     "status_code": null,
     "dependencies": [
-      "get_agent_catalog"
+      "get_agent_catalog",
+      "get_current_user"
     ],
-    "auth_dependencies": [],
+    "auth_dependencies": [
+      "get_current_user"
+    ],
     "include_in_schema": true
   },
   {
@@ -636,7 +639,8 @@
     "dependencies": [
       "get_current_user",
       "get_file_storage",
-      "get_room_ownership_reader"
+      "get_room_ownership_reader",
+      "get_room_store"
     ],
     "auth_dependencies": [
       "get_current_user"
@@ -785,6 +789,26 @@
     ],
     "auth_dependencies": [
       "get_machine_account"
+    ],
+    "include_in_schema": true
+  },
+  {
+    "path": "/api/v1/machine/sources",
+    "methods": [
+      "POST"
+    ],
+    "name": "machine_create_source",
+    "endpoint_module": "api_gateway.routes.machine_routes",
+    "declared_owner": "api_gateway.routes.machine_routes",
+    "tags": [
+      "machine"
+    ],
+    "status_code": 201,
+    "dependencies": [
+      "get_machine_sources"
+    ],
+    "auth_dependencies": [
+      "get_machine_sources"
     ],
     "include_in_schema": true
   },
@@ -1090,7 +1114,7 @@
     ],
     "status_code": null,
     "dependencies": [
-      "get_session_access"
+      "get_owner_session_access"
     ],
     "auth_dependencies": [],
     "include_in_schema": true
@@ -1162,7 +1186,25 @@
     ],
     "status_code": null,
     "dependencies": [
-      "get_session_access"
+      "get_owner_session_access"
+    ],
+    "auth_dependencies": [],
+    "include_in_schema": true
+  },
+  {
+    "path": "/api/v1/sessions/{session_id}/record/close",
+    "methods": [
+      "POST"
+    ],
+    "name": "close_session_record",
+    "endpoint_module": "api_gateway.routes.session_routes",
+    "declared_owner": "api_gateway.routes.session_routes",
+    "tags": [
+      "session"
+    ],
+    "status_code": null,
+    "dependencies": [
+      "get_owner_session_access"
     ],
     "auth_dependencies": [],
     "include_in_schema": true
@@ -1381,6 +1423,106 @@
       "get_setup_reader"
     ],
     "auth_dependencies": [],
+    "include_in_schema": true
+  },
+  {
+    "path": "/api/v1/sources",
+    "methods": [
+      "GET"
+    ],
+    "name": "list_sources",
+    "endpoint_module": "api_gateway.routes.source_routes",
+    "declared_owner": "api_gateway.routes.source_routes",
+    "tags": [
+      "sources"
+    ],
+    "status_code": null,
+    "dependencies": [
+      "get_owner_sources"
+    ],
+    "auth_dependencies": [
+      "get_owner_sources"
+    ],
+    "include_in_schema": true
+  },
+  {
+    "path": "/api/v1/sources",
+    "methods": [
+      "POST"
+    ],
+    "name": "create_source",
+    "endpoint_module": "api_gateway.routes.source_routes",
+    "declared_owner": "api_gateway.routes.source_routes",
+    "tags": [
+      "sources"
+    ],
+    "status_code": 201,
+    "dependencies": [
+      "get_owner_sources"
+    ],
+    "auth_dependencies": [
+      "get_owner_sources"
+    ],
+    "include_in_schema": true
+  },
+  {
+    "path": "/api/v1/sources/{source_id}",
+    "methods": [
+      "PATCH"
+    ],
+    "name": "rename_source",
+    "endpoint_module": "api_gateway.routes.source_routes",
+    "declared_owner": "api_gateway.routes.source_routes",
+    "tags": [
+      "sources"
+    ],
+    "status_code": null,
+    "dependencies": [
+      "get_owner_sources"
+    ],
+    "auth_dependencies": [
+      "get_owner_sources"
+    ],
+    "include_in_schema": true
+  },
+  {
+    "path": "/api/v1/sources/{source_id}/revoke",
+    "methods": [
+      "POST"
+    ],
+    "name": "revoke_source",
+    "endpoint_module": "api_gateway.routes.source_routes",
+    "declared_owner": "api_gateway.routes.source_routes",
+    "tags": [
+      "sources"
+    ],
+    "status_code": null,
+    "dependencies": [
+      "get_owner_sources"
+    ],
+    "auth_dependencies": [
+      "get_owner_sources"
+    ],
+    "include_in_schema": true
+  },
+  {
+    "path": "/api/v1/sources/{source_id}/rotate",
+    "methods": [
+      "POST"
+    ],
+    "name": "rotate_source_token",
+    "endpoint_module": "api_gateway.routes.source_routes",
+    "declared_owner": "api_gateway.routes.source_routes",
+    "tags": [
+      "sources"
+    ],
+    "status_code": null,
+    "dependencies": [
+      "get_owner_sources"
+    ],
+    "auth_dependencies": [
+      "get_owner_sources"
+    ],
     "include_in_schema": true
   },
   {

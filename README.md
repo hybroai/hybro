@@ -281,8 +281,9 @@ From an MCP client, the same loop is three tools: `discover_agents`,
 `send_message`, and `check_session`.
 
 These calls need no token in the default local mode. With sign-in turned on
-(`backend.auth_mode` set to `clerk`), they need a session token in an
-`Authorization: Bearer` header.
+(`backend.auth_mode` set to `clerk`), they need a source token in an
+`Authorization: Bearer` header; create one with
+`hybro source create --name <name>`.
 
 ## Running
 

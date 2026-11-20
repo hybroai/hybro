@@ -1,4 +1,4 @@
-"""Machine-only routes; behaviour lives in ``account``.
+"""Machine-only routes; behaviour lives in ``account`` and ``source``.
 
 The ``hybro`` command reaches them from inside the container, over loopback,
 with the per-start token of the handoff file the entrypoint writes. Caddy
@@ -28,6 +28,8 @@ from api_gateway.owner_session import (
     refuse_account_error,
 )
 from api_gateway.registry import mark_declared_owner
+from api_gateway.source_token import get_source_registry
+from source.protocols import SourceCreate, SourceRegistry, SourceWithToken
 
 TOKEN_HEADER = "X-Hybro-Machine-Token"
 
@@ -60,6 +62,16 @@ def get_machine_account(
 MachineAccountDependency = Annotated[OwnerAccount, Depends(get_machine_account)]
 
 
+def get_machine_sources(
+    _token: Annotated[None, Depends(require_machine_token)],
+    sources: Annotated[SourceRegistry, Depends(get_source_registry)],
+) -> SourceRegistry:
+    return sources
+
+
+MachineSourcesDependency = Annotated[SourceRegistry, Depends(get_machine_sources)]
+
+
 @router.post("/setup-code")
 async def machine_issue_setup_code(account: MachineAccountDependency) -> SetupCode:
     try:
@@ -87,6 +99,14 @@ async def machine_reset_password(
     except ACCOUNT_ERRORS as exc:
         refuse_account_error(exc)
     return Response(status_code=204)
+
+
+@router.post("/sources", status_code=201)
+async def machine_create_source(
+    body: SourceCreate, sources: MachineSourcesDependency
+) -> SourceWithToken:
+    """Create a source for ``hybro source create``; its token is returned once."""
+    return await sources.create(body.name)
 
 
 mark_declared_owner(router, "api_gateway.routes.machine_routes")

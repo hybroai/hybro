@@ -130,6 +130,7 @@ from orchestrator_composition import (
 from room_files import LocalFileContentStore, RoomFiles, RoomLifecycleStore
 from session import MongoSessionRepository, SessionFacade, SessionWaiter
 from session.protocols import RoomManagement, RoomMessageStore, RoomRegistry
+from source import MongoSourceRepository, SourceService
 
 if TYPE_CHECKING:
     from dal.redis.streams import RedisStreamsImpl
@@ -729,6 +730,9 @@ async def _runtime_lifespan(app: Any, runtime: ApplicationRuntime):  # noqa: C90
             )
             app.state.setup_access = _browser_setup
             app.state.owner_account = create_owner_account(
+                settings=runtime.settings, mongo=mongo_dal
+            )
+            app.state.source_registry = create_source_registry(
                 settings=runtime.settings, mongo=mongo_dal
             )
             app.state.machine_token = read_token(runtime.settings.machine_handoff_file)
@@ -1508,6 +1512,7 @@ async def _runtime_lifespan(app: Any, runtime: ApplicationRuntime):  # noqa: C90
                 _room_event_store,
                 start_grace_seconds=runtime.settings.session_run_start_grace_seconds,
             ),
+            sources=app.state.source_registry,
         )
 
         bind_api_gateway_deps(
@@ -2164,6 +2169,7 @@ async def _runtime_lifespan(app: Any, runtime: ApplicationRuntime):  # noqa: C90
         app.state.agent_llm_proxy = None
         app.state.diagnostics_access = None
         app.state.owner_account = None
+        app.state.source_registry = None
         app.state.machine_token = ""
         raise
 
@@ -2250,6 +2256,7 @@ async def _runtime_lifespan(app: Any, runtime: ApplicationRuntime):  # noqa: C90
         app.state.agent_llm_proxy = None
         app.state.diagnostics_access = None
         app.state.owner_account = None
+        app.state.source_registry = None
         app.state.machine_token = ""
         if cleanup_error is not None and body_error is None:
             raise cleanup_error
@@ -2381,6 +2388,7 @@ async def ensure_runtime_indexes(*, mongo: MongoDAL) -> dict[str, bool]:
     await ensure_room_file_indexes(mongo)
     diagnostics_store_ready = await DiagnosticsMongoRepository(mongo).ensure_indexes()
     await MongoAccountRepository(mongo).ensure_indexes()
+    await MongoSourceRepository(mongo).ensure_indexes()
     return {
         "agent_search_index_ready": agent_search_index_ready,
         "diagnostics_store_ready": diagnostics_store_ready,
@@ -2627,6 +2635,11 @@ def create_owner_account(
         admin_user_ids=frozenset(settings.admin_user_ids),
         **({"params": params} if params is not None else {}),
     )
+
+
+def create_source_registry(*, settings: Any, mongo: MongoDAL) -> SourceService:
+    """The sources of this instance, over their own collection."""
+    return SourceService(MongoSourceRepository(mongo), auth_mode=settings.auth_mode)
 
 
 def create_agent_capability_issue_repository(mongo: MongoDAL) -> Any:

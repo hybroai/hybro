@@ -18,6 +18,7 @@ from api_gateway.routes import (
     session_routes,
     settings_routes,
     setup_routes,
+    source_routes,
     sse_routes,
 )
 from common.auth import get_current_user
@@ -46,6 +47,7 @@ def build_api_gateway_router() -> APIRouter:
     gateway_router.include_router(diagnostics_routes.router, tags=["diagnostics"])
     gateway_router.include_router(auth_routes.router, tags=["auth"])
     gateway_router.include_router(machine_routes.router, tags=["machine"])
+    gateway_router.include_router(source_routes.router, tags=["sources"])
 
     return gateway_router
 

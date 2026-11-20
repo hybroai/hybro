@@ -1399,12 +1399,77 @@ def test_install_script_is_valid_posix_sh():
 def test_help_lists_every_command():
     text = subprocess.run(["sh", str(SCRIPT), "help"], capture_output=True, text=True).stdout
     for command in (
-        "start", "stop", "status", "logs", "doctor", "owner", "upgrade", "cleanup-old", "version",
-        "owner create", "owner reset-password",
+        "start", "stop", "status", "logs", "doctor", "owner", "source", "upgrade", "cleanup-old", "version",
+        "owner create", "owner reset-password", "source create",
     ):
         assert f"\n  {command} " in text
     for option in ("--service", "--level", "--trace", "--bundle", "--json", "--output", "--name", "--email", "--owner-id"):
         assert f"\n  {option} " in text
+
+
+# ---- source ----
+
+SOURCE_HELPER = "/app/backend/source_cli.py"
+
+
+def source_runs(cli: Cli) -> list[list[str]]:
+    return [call for call in cli.calls() if SOURCE_HELPER in call and call[-2:] != ["-f", SOURCE_HELPER]]
+
+
+@pytest.mark.parametrize("args", [["--name", "CI bot"], ["--name=CI bot"]])
+def test_source_create_runs_the_helper(cli, args):
+    container(cli)
+    cli.state["exec_out"] = "Created the source CI bot.\nhybro_src_fake\n"
+    result = cli.run("source", "create", *args)
+    assert result.returncode == 0, cli.output
+    assert result.stdout == cli.state["exec_out"]
+    calls = cli.calls()
+    probe = ["exec", "hybro", "test", "-f", SOURCE_HELPER]
+    run = ["exec", "hybro", PYTHON, SOURCE_HELPER, "create", "--name", "CI bot"]
+    assert calls.index(probe) < calls.index(run)
+    assert source_runs(cli) == [run]
+
+
+@pytest.mark.parametrize("code", [1, 2])
+def test_source_passes_the_helper_exit_status_through(cli, code):
+    container(cli)
+    cli.state["exec_exit"] = code
+    assert cli.run("source", "create", "--name", "CI bot").returncode == code
+
+
+def test_source_docker_exec_failure_exits_2(cli):
+    container(cli)
+    cli.state["exec_exit"] = 126
+    assert cli.run("source", "create", "--name", "CI bot").returncode == 2
+
+
+@pytest.mark.parametrize(
+    "args",
+    [[], ["frobnicate"], ["create"], ["create", "--name"], ["create", "--name="], ["create", "--name", "x", "--y", "z"]],
+)
+def test_source_usage_errors_exit_2_before_docker(cli, args):
+    container(cli)
+    result = cli.run("source", *args)
+    assert result.returncode == 2, cli.output
+    assert cli.calls() == []
+    assert "Usage:" in result.stderr
+
+
+def test_source_help(cli):
+    result = cli.run("source", "--help")
+    assert result.returncode == 0 and "source create" in result.stdout
+    assert cli.calls() == []
+
+
+@pytest.mark.parametrize("case", ["stopped", "older_image"])
+def test_source_needs_a_running_container_with_the_helper(cli, case):
+    container(cli, "exited" if case == "stopped" else "running")
+    if case == "older_image":
+        cli.state["helper_missing"] = True
+    result = cli.run("source", "create", "--name", "CI bot")
+    assert result.returncode == 2
+    assert source_runs(cli) == []
+    assert ("not running" if case == "stopped" else "older image") in result.stderr
 
 
 # ---- owner ----

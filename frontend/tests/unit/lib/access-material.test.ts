@@ -5,6 +5,15 @@ import { buildMcpConfig } from '@/lib/mcp'
 const scope = { id: 'g1', name: 'Research' }
 
 describe('access materials', () => {
+  it('names a source token, not a Clerk session, for Clerk mode', () => {
+    for (const kind of ['api', 'mcp'] as const) {
+      const { prompt } = buildAccessMaterial(kind, 'https://hybro.example', '/api/v1')
+      expect(prompt).toContain('source token')
+      expect(prompt).toContain('hybro source create --name <name>')
+      expect(prompt).not.toMatch(/Clerk session|does not support Clerk/)
+    }
+  })
+
   it('omits group_id for whole-network discovery', () => {
     const material = buildAccessMaterial('api', 'https://hybro.example', '/custom/api')
     expect(material.configuration).toContain('https://hybro.example/custom/api/agents/discovery')

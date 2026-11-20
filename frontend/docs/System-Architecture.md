@@ -896,7 +896,7 @@ src/lib/api/
 |-- agent-call-detail.ts       # canonical Agent call detail request and parsing
 |-- canonical-agent-call-detail-query.ts # shared TanStack Query identity for call detail
 |-- room.ts
-|-- session.ts                 # owner session list, record, close, event replay
+|-- session.ts                 # owner session list, record, owner close (`POST /sessions/{id}/record/close`), event replay
 |-- sse.ts
 |-- inspection.ts
 |-- files.ts
@@ -942,9 +942,10 @@ returns only `service: "hybro-mcp"` and
 `status: "ready" | "unavailable" | "unsupported_auth"`; invalid responses and
 probe failures become unavailable. It never forwards tool traffic, browser
 credentials, upstream errors, or Agent Cards, and cannot control services or
-bypass backend authentication. MCP's own health check performs a bounded,
-read-only backend discovery request, never Agent execution. Clerk rejection is
-reported as unsupported authentication.
+bypass backend authentication. MCP's own health check calls the backend's
+root `/health` with a deadline and no credential, never Agent execution; it
+reports only `ready` or `unavailable`. `unsupported_auth` stays in the
+route's type, but MCP no longer sends it.
 
 ### Send Message Routing
 
@@ -1018,7 +1019,11 @@ segment.
   screens the requester and update time move under the name. The ticket page
   (`SessionRecordView`) shows the title, a chronological record, and a
   Details panel (status, requester, agents, created, updated, closed, request
-  count, copyable session ID, Close session with confirmation). The record is
+  count, copyable session ID, Close session with confirmation, which calls the
+  owner route `POST /sessions/{id}/record/close`). The requester is the
+  session's `client_label`, or its source's name when a source token opened
+  it without one (`sessionRequester`); the list, its search, sort and
+  requester filter use the same value. The record is
   built by `foldSessionEvents` (`src/lib/session-record.ts`) from the room
   event replay (`GET /sse/room/{id}/events`, paged 1000 events at a time up to
   the log's latest sequence) and reads as plain sentences with

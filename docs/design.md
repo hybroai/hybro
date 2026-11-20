@@ -630,6 +630,7 @@ Each module in today's code has one of three statuses:
 | `instance_settings` | Stable | `settings` |
 | `diagnostics`, `room_files` | Stable | Support: logs and files |
 | `account` | Stable | `account` |
+| `source` | Stable | `source` |
 | `jobs` | Stable | `scheduler` |
 | `MCP/server.py` | Stable | A source that uses the Source API |
 | `default_agents` | Stable | The bundled agents |

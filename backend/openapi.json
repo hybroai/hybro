@@ -451,7 +451,7 @@
             }
           },
           "401": {
-            "description": "Authentication required"
+            "description": "Unknown, revoked or missing source token"
           },
           "403": {
             "content": {
@@ -482,6 +482,9 @@
               }
             },
             "description": "Unprocessable Entity"
+          },
+          "503": {
+            "description": "Sources or the owner are unavailable"
           }
         }
       }
@@ -506,7 +509,13 @@
             }
           },
           "401": {
-            "description": "Authentication required"
+            "description": "Unknown, revoked or missing source token"
+          },
+          "403": {
+            "description": "Sent without a token from another website"
+          },
+          "503": {
+            "description": "Sources or the owner are unavailable"
           }
         }
       }
@@ -574,7 +583,7 @@
             }
           },
           "401": {
-            "description": "Authentication required"
+            "description": "Unknown, revoked or missing source token"
           },
           "403": {
             "content": {
@@ -605,6 +614,9 @@
               }
             },
             "description": "Unprocessable Entity"
+          },
+          "503": {
+            "description": "Sources or the owner are unavailable"
           }
         }
       }
@@ -642,7 +654,7 @@
             }
           },
           "401": {
-            "description": "Authentication required"
+            "description": "Unknown, revoked or missing source token"
           },
           "404": {
             "content": {
@@ -663,6 +675,9 @@
                 }
               }
             }
+          },
+          "503": {
+            "description": "Sources or the owner are unavailable"
           }
         }
       }
@@ -1177,7 +1192,7 @@
           "session"
         ],
         "summary": "Send Session Message",
-        "description": "Send one text message to one agent, opening a session without `session_id`.\n\nReturns a receipt as soon as Hybro has the message: `status` is `created`\nwhen this message opened the session, `accepted` for a later message, or\n`busy` when it was not recorded because an earlier message is still\nactive. The receipt carries the session's `created_at` and `updated_at`.\nThe agents' responses come from `GET /sessions/{session_id}`. Retrying\nwith the same `client_request_id` returns the same receipt.",
+        "description": "Send one text message to one agent, opening a session without `session_id`.\n\nReturns a receipt as soon as Hybro has the message: `status` is `created`\nwhen this message opened the session, `accepted` for a later message, or\n`busy` when it was not recorded because an earlier message is still\nactive. The receipt carries the session's `created_at` and `updated_at`.\nThe agents' responses come from `GET /sessions/{session_id}`. Retrying\nwith the same `client_request_id` returns the same receipt.\n\nSend the source token as `Authorization: Bearer <token>`. The session\nbelongs to the source that opened it. `client_label` is required to open\na session without a token, and deprecated with one.",
         "operationId": "send_session_message_api_v1_sessions_messages_post",
         "requestBody": {
           "content": {
@@ -1201,7 +1216,7 @@
             }
           },
           "401": {
-            "description": "Authentication required"
+            "description": "Unknown, revoked or missing source token"
           },
           "413": {
             "description": "Request body exceeds 64 KiB"
@@ -1220,7 +1235,7 @@
             }
           },
           "403": {
-            "description": "Forbidden",
+            "description": "Refused, or sent without a token from another website",
             "content": {
               "application/json": {
                 "schema": {
@@ -1258,6 +1273,9 @@
                 }
               }
             }
+          },
+          "503": {
+            "description": "Sources or the owner are unavailable"
           }
         }
       }
@@ -1283,6 +1301,12 @@
           },
           "401": {
             "description": "Authentication required"
+          },
+          "503": {
+            "description": "The owner is not known yet"
+          },
+          "403": {
+            "description": "Only the owner"
           }
         }
       }
@@ -1320,7 +1344,7 @@
             }
           },
           "401": {
-            "description": "Authentication required"
+            "description": "Unknown, revoked or missing source token"
           },
           "400": {
             "content": {
@@ -1340,7 +1364,7 @@
                 }
               }
             },
-            "description": "Forbidden"
+            "description": "Refused, or sent without a token from another website"
           },
           "404": {
             "content": {
@@ -1371,6 +1395,9 @@
               }
             },
             "description": "Unprocessable Entity"
+          },
+          "503": {
+            "description": "Sources or the owner are unavailable"
           }
         }
       }
@@ -1408,7 +1435,7 @@
             }
           },
           "401": {
-            "description": "Authentication required"
+            "description": "Unknown, revoked or missing source token"
           },
           "400": {
             "content": {
@@ -1428,7 +1455,7 @@
                 }
               }
             },
-            "description": "Forbidden"
+            "description": "Refused, or sent without a token from another website"
           },
           "404": {
             "content": {
@@ -1459,6 +1486,9 @@
               }
             },
             "description": "Unprocessable Entity"
+          },
+          "503": {
+            "description": "Sources or the owner are unavailable"
           }
         }
       }
@@ -1547,6 +1577,9 @@
               }
             },
             "description": "Unprocessable Entity"
+          },
+          "503": {
+            "description": "The owner is not known yet"
           }
         }
       }
@@ -4150,6 +4183,414 @@
           }
         }
       }
+    },
+    "/api/v1/sessions/{session_id}/record/close": {
+      "post": {
+        "tags": [
+          "session"
+        ],
+        "summary": "Close Session Record",
+        "description": "Close any source's session as the owner, canceling a pending approval\nor an active run first.",
+        "operationId": "close_session_record_api_v1_sessions__session_id__record_close_post",
+        "parameters": [
+          {
+            "name": "session_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 256,
+              "title": "Session Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SessionClosed"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SessionErrorResponse"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SessionErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SessionErrorResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SessionErrorResponse"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SessionErrorResponse"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "503": {
+            "description": "The owner is not known yet"
+          }
+        }
+      }
+    },
+    "/api/v1/machine/sources": {
+      "post": {
+        "tags": [
+          "machine"
+        ],
+        "summary": "Machine Create Source",
+        "description": "Create a source for ``hybro source create``; its token is returned once.",
+        "operationId": "machine_create_source_api_v1_machine_sources_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SourceCreate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SourceWithToken"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/sources": {
+      "get": {
+        "tags": [
+          "sources"
+        ],
+        "summary": "List Sources",
+        "description": "List every source, oldest first. Tokens are never returned here.",
+        "operationId": "list_sources_api_v1_sources_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SourceList"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required"
+          },
+          "403": {
+            "description": "Only the owner manages sources"
+          },
+          "404": {
+            "description": "No source has this id"
+          },
+          "409": {
+            "description": "The source is revoked"
+          },
+          "503": {
+            "description": "The owner is not known yet"
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "sources"
+        ],
+        "summary": "Create Source",
+        "description": "Create a source. Its token is in this response only.",
+        "operationId": "create_source_api_v1_sources_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SourceCreate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SourceWithToken"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required"
+          },
+          "403": {
+            "description": "Only the owner manages sources"
+          },
+          "404": {
+            "description": "No source has this id"
+          },
+          "409": {
+            "description": "The source is revoked"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "The owner is not known yet"
+          }
+        }
+      }
+    },
+    "/api/v1/sources/{source_id}": {
+      "patch": {
+        "tags": [
+          "sources"
+        ],
+        "summary": "Rename Source",
+        "operationId": "rename_source_api_v1_sources__source_id__patch",
+        "parameters": [
+          {
+            "name": "source_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Source Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SourceRename"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SourceView"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required"
+          },
+          "403": {
+            "description": "Only the owner manages sources"
+          },
+          "404": {
+            "description": "No source has this id"
+          },
+          "409": {
+            "description": "The source is revoked"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "The owner is not known yet"
+          }
+        }
+      }
+    },
+    "/api/v1/sources/{source_id}/rotate": {
+      "post": {
+        "tags": [
+          "sources"
+        ],
+        "summary": "Rotate Source Token",
+        "description": "Replace the token. The old one stops at once; the sessions stay.",
+        "operationId": "rotate_source_token_api_v1_sources__source_id__rotate_post",
+        "parameters": [
+          {
+            "name": "source_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Source Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SourceWithToken"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required"
+          },
+          "403": {
+            "description": "Only the owner manages sources"
+          },
+          "404": {
+            "description": "No source has this id"
+          },
+          "409": {
+            "description": "The source is revoked"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "The owner is not known yet"
+          }
+        }
+      }
+    },
+    "/api/v1/sources/{source_id}/revoke": {
+      "post": {
+        "tags": [
+          "sources"
+        ],
+        "summary": "Revoke Source",
+        "description": "Stop the token for good. The source and its sessions stay listed.",
+        "operationId": "revoke_source_api_v1_sources__source_id__revoke_post",
+        "parameters": [
+          {
+            "name": "source_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Source Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SourceView"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required"
+          },
+          "403": {
+            "description": "Only the owner manages sources"
+          },
+          "404": {
+            "description": "No source has this id"
+          },
+          "409": {
+            "description": "The source is revoked"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "The owner is not known yet"
+          }
+        }
+      }
     }
   },
   "components": {
@@ -6587,7 +7028,8 @@
                 "type": "null"
               }
             ],
-            "title": "Client Label"
+            "title": "Client Label",
+            "description": "The name the client gives itself. Required to open a session without a source token; deprecated with a token, where the source's name is used."
           }
         },
         "additionalProperties": false,
@@ -6722,8 +7164,15 @@
             "title": "Last Activity At"
           },
           "client_label": {
-            "type": "string",
-            "title": "Client Label"
+            "title": "Client Label",
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "title": {
             "anyOf": [
@@ -6766,12 +7215,15 @@
               }
             ],
             "title": "Closed At"
+          },
+          "source": {
+            "$ref": "#/components/schemas/SessionSource"
           }
         },
         "type": "object",
         "required": [
           "session_id",
-          "client_label",
+          "source",
           "state",
           "status",
           "opened_at",
@@ -6851,8 +7303,15 @@
             "title": "Session Id"
           },
           "client_label": {
-            "type": "string",
-            "title": "Client Label"
+            "title": "Client Label",
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "title": {
             "anyOf": [
@@ -6927,12 +7386,15 @@
               }
             ],
             "title": "Closed At"
+          },
+          "source": {
+            "$ref": "#/components/schemas/SessionSource"
           }
         },
         "type": "object",
         "required": [
           "session_id",
-          "client_label",
+          "source",
           "state",
           "opened_at",
           "last_activity_at"
@@ -9814,6 +10276,210 @@
           "password"
         ],
         "title": "SignInRequest"
+      },
+      "SessionSource": {
+        "properties": {
+          "source_id": {
+            "type": "string",
+            "title": "Source Id"
+          },
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "has_token": {
+            "type": "boolean",
+            "title": "Has Token"
+          }
+        },
+        "type": "object",
+        "required": [
+          "source_id",
+          "name",
+          "has_token"
+        ],
+        "title": "SessionSource",
+        "description": "The source that opened a session. \"No token\" has no token."
+      },
+      "SourceCreate": {
+        "properties": {
+          "name": {
+            "type": "string",
+            "maxLength": 120,
+            "minLength": 1,
+            "title": "Name"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "name"
+        ],
+        "title": "SourceCreate"
+      },
+      "SourceList": {
+        "properties": {
+          "sources": {
+            "items": {
+              "$ref": "#/components/schemas/SourceView"
+            },
+            "type": "array",
+            "title": "Sources"
+          }
+        },
+        "type": "object",
+        "title": "SourceList"
+      },
+      "SourceRename": {
+        "properties": {
+          "name": {
+            "type": "string",
+            "maxLength": 120,
+            "minLength": 1,
+            "title": "Name"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "name"
+        ],
+        "title": "SourceRename"
+      },
+      "SourceView": {
+        "properties": {
+          "source_id": {
+            "type": "string",
+            "title": "Source Id"
+          },
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "has_token": {
+            "type": "boolean",
+            "title": "Has Token"
+          },
+          "token_last4": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Token Last4"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          },
+          "last_used_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Used At"
+          },
+          "revoked_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Revoked At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "source_id",
+          "name",
+          "has_token",
+          "created_at"
+        ],
+        "title": "SourceView",
+        "description": "A source as the owner sees it. It never carries the token."
+      },
+      "SourceWithToken": {
+        "properties": {
+          "source_id": {
+            "type": "string",
+            "title": "Source Id"
+          },
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "has_token": {
+            "type": "boolean",
+            "title": "Has Token"
+          },
+          "token_last4": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Token Last4"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          },
+          "last_used_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Used At"
+          },
+          "revoked_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Revoked At"
+          },
+          "token": {
+            "type": "string",
+            "title": "Token"
+          }
+        },
+        "type": "object",
+        "required": [
+          "source_id",
+          "name",
+          "has_token",
+          "created_at",
+          "token"
+        ],
+        "title": "SourceWithToken",
+        "description": "A source with its new token, returned once by create and rotate."
       }
     },
     "securitySchemes": {

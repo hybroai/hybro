@@ -1,4 +1,9 @@
-import type { SessionAgent } from '@/lib/api/session'
+import type { SessionAgent, SessionSource } from '@/lib/api/session'
+
+/** Who sent the session: its label, else the name of its source. */
+export function sessionRequester(session: { client_label: string | null, source: SessionSource }): string {
+  return session.client_label ?? session.source.name
+}
 
 // Session times are always shown in English, whatever the browser locale.
 const LOCALE = 'en-US'

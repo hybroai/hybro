@@ -14,6 +14,7 @@ const NOW = Date.parse('2026-10-15T12:00:00Z')
 const session = (id: string, overrides: Partial<SessionSummary> = {}): SessionSummary => ({
   session_id: id,
   client_label: `Client ${id}`,
+  source: { source_id: 'no_token', name: 'No token', has_token: false },
   title: `Request ${id}`,
   agents: [{ agent_id: 'travel', name: 'Travel Planner Agent' }],
   state: 'completed',
@@ -24,6 +25,8 @@ const session = (id: string, overrides: Partial<SessionSummary> = {}): SessionSu
   closed_at: null,
   ...overrides,
 })
+
+const ciSource = { source_id: 'src_ci', name: 'CI bot', has_token: true }
 
 const sessions = [
   session('a', { title: 'Generate a travel plan', client_label: 'Northside buyer agent', state: 'waiting_on_owner', opened_at: '2026-10-14T21:16:00Z', last_activity_at: '2026-10-14T21:16:00Z' }),
@@ -97,5 +100,14 @@ describe('sessionName', () => {
   it('uses the title, or a fallback for sessions opened before titles existed', () => {
     expect(sessionName(sessions[0])).toBe('Generate a travel plan')
     expect(sessionName(sessions[2])).toBe('Untitled session')
+  })
+
+  it('uses the source name for a session without a label', () => {
+    const list = [...sessions, session('d', { client_label: null, source: ciSource })]
+    const ids = (overrides: Partial<typeof DEFAULT_SESSION_LIST_STATE>) =>
+      applySessionListState(list, { ...DEFAULT_SESSION_LIST_STATE, ...overrides }, NOW).map(s => s.session_id)
+    expect(ids({ q: 'ci bot' })).toEqual(['d'])
+    expect(ids({ requester: ['CI bot'] })).toEqual(['d'])
+    expect(ids({ sort: 'requester', dir: 'asc' })).toEqual(['b', 'c', 'd', 'a'])
   })
 })

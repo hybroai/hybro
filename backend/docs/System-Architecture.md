@@ -65,6 +65,7 @@ flowchart TD
 | Core | `approval` | Human-in-the-loop requests, interactions, answers, cancellation, and reconciliation. |
 | Support | `agent`, `local_agents`, `delivery`, `context_memory`, `room_files`, `llm_gateway` | Agent directory, local discovery, SSE delivery, room memory, files, and model access. |
 | Support | `diagnostics` | The local store of system events and warnings (two capped collections). |
+| Support | `source` | The sources that send work through the Source API: their names, token hashes, rotation and revocation, and the token check. |
 | Support | `account` | The owner account: the instance's one user record, its password hash, the signed-in browsers, the setup code, and the attempt limit of sign-in and setup. |
 | Support | `instance_settings` | The admin settings API: the curated field registry, validated `config.json` writes, the live log level, and the in-place service restart trigger. |
 | Infrastructure | `api_gateway`, `jobs`, `dal`, `a2a_adapter`, `common`, `models` | Routes, workers, Mongo/Redis connections and generic clients, the A2A SDK boundary, and shared contracts. |
@@ -271,7 +272,8 @@ dependency globals, or define `bind_*` functions.
 - Writes no collections.
 - Exposes nothing to other packages.
 - Consumes: the `agent.protocols` ports, `chat.protocols.ChatRooms`,
-  `session.protocols.SessionAccess` and `SessionService`,
+  `session.protocols.SessionAccess`, `OwnerSessionAccess` and `SessionService`,
+  `source.protocols.SourceRegistry`,
   `local_agents.protocols.LocalAgentDiscovery`,
   `llm_gateway.agent_proxy._AgentLLMProxyPort`,
   `llm_gateway.setup_api.SetupAccess`,
@@ -297,6 +299,8 @@ Route groups:
   profiles.
 - `agent_group_routes.py`: saved agent groups (`/agentGroups`).
 - `session_routes.py`: `/sessions`.
+- `source_routes.py`: `/sources`, the owner's sources (see
+  [`source`](#source)).
 - `sse_routes.py`: room SSE stream, event replay, message cancellation, and
   SSE status. `GET /sse/room/{conversation_id}/status` is deprecated and will be
   removed in a later release.
@@ -320,18 +324,20 @@ Route groups:
 - `machine_routes.py`: `/machine`, the routes the `hybro` command uses inside
   the container (see [Owner account API](#owner-account-api)).
 
-Three more files hold request checks. `owner_session.py` names the owner's
+Four more files hold request checks. `source_token.py` defines
+`get_request_source`, the dependency of the seven Source API routes (see
+[`source`](#source)). `owner_session.py` names the owner's
 sign-in cookie (`hybro_session`) and defines `get_owner_session`, the
 dependency that resolves it; only the `/auth` routes use it so far.
 `cross_site.py` is `CrossSiteCheckMiddleware`, which `main.create_app` installs
 inside the CORS middleware (see
 [Requests from other websites](#requests-from-other-websites)).
-`errors.QuietValidationRoute` is the route class of `/auth` and `/machine`: its
+`errors.QuietValidationRoute` is the route class of `/auth`, `/machine` and `/sources`: its
 422 body is a fixed message, because FastAPI's default repeats the rejected
 input and these bodies carry passwords and setup codes.
 
-Frontend-facing and agent-network routes use Clerk auth when
-`backend.auth_mode="clerk"`. In local `backend.auth_mode="mock"`, `main.py`
+Frontend-facing routes use Clerk auth when `backend.auth_mode="clerk"`; the
+Source API uses source tokens instead. In local `backend.auth_mode="mock"`, `main.py`
 overrides every user-auth dependency, including the dual user/service dependency
 used by agent registration, with the stable local developer identity.
 
@@ -953,12 +959,86 @@ owner's agents (see [Sessions](#sessions)). `SessionFacade`, `BoundSessionAccess
 `SessionWaiter`, the projection helpers, and `MongoSessionRepository` live here.
 
 - Writes: `sessions`; containers are created through Conversation.
-- Exposes: `SessionAccess` and `SessionService` to `api_gateway`; declares
-  `RoomRegistry`, `RoomManagement`, `RoomMessageStore` (implemented by
-  `ConversationFacade`) and `ConversationEventsPort` (implemented by
-  `MongoRoomEventStore`).
+- Exposes: `SessionAccess` (the source's send, check and close),
+  `OwnerSessionAccess` (the owner's list, record and close) and
+  `SessionService` to `api_gateway`; declares `RoomRegistry`,
+  `RoomManagement`, `RoomMessageStore` (implemented by `ConversationFacade`),
+  `ConversationEventsPort` (implemented by `MongoRoomEventStore`) and
+  `SourceDirectory` (implemented by `SourceService`).
 - Consumes: `ExecutionEngine`, `HITLManager`, `AgentNetworkTargetResolver`,
-  `RoomHistoryReader`, and `MongoDAL`.
+  `RoomHistoryReader`, `SourceDirectory`, and `MongoDAL`.
+
+### `source`
+
+A source is a program that sends work through the Source API, such as a CI
+job or an MCP client. `SourceService` and `MongoSourceRepository` live here;
+`container.create_source_registry` binds the service to
+`app.state.source_registry`.
+
+- Writes: `sources`, one document per source: `source_id` (`src_` and 24 hex
+  characters), `name` (1 to 120 characters), `token_hash` (SHA-256 of the
+  token), `token_last4`, `created_at`, `updated_at`, `last_used_at`,
+  `revoked_at`. Indexes: `source_id_unique`, and `source_token_hash_unique`,
+  partial on a string hash.
+- Exposes: `SourceRegistry` to `api_gateway` and, as `SourceDirectory`, to
+  `session`; declares `SourceStore`.
+- Consumes: `MongoDAL`.
+
+A token is `hybro_src_` and 43 URL-safe characters (`secrets.token_urlsafe(32)`).
+It is returned once, by create and rotate; only its hash and last four
+characters are stored. Rotate replaces the hash, so the old token stops
+working; it refuses a revoked source with 409 `source_revoked`. Revoke clears
+the hash and the last four and sets `revoked_at`; the record stays, so its
+sessions keep their name, and a second revoke changes nothing. `resolve`
+accepts only the prefix, compares the hash with `hmac.compare_digest`, and
+updates `last_used_at` at most once a minute; a failed write of it is logged
+(`source_last_use_write_failed`) and the request goes on. The built-in "No token" source
+(`source_id` `no_token`) is a constant, never a document.
+
+Whether a token is required is `token_required()`: true when
+`backend.auth_mode="clerk"`, false otherwise. The stored switch the owner can
+change is not built yet.
+
+`get_request_source` (`api_gateway/source_token.py`) runs on the seven Source
+API routes: `GET /agents/discovery`, `/agents/groups`, `/agents/search`,
+`/agents/{agent_id}/profile`, `POST /sessions/messages`,
+`GET /sessions/{session_id}` and `POST /sessions/{session_id}/close`.
+
+- An `Authorization` header that is not `Bearer` and a current source token is
+  401 `unknown_source_token` with `WWW-Authenticate: Bearer`, whatever the
+  requirement; a leftover Clerk or other header is refused, not ignored.
+- No header and a token required: 401 `source_token_required`.
+- No header and an `Origin` that does not name Hybro's own address (the rule
+  of [Requests from other websites](#requests-from-other-websites)): 403
+  `cross_site_request`. A request without `Origin` is accepted.
+- Otherwise the request is the "No token" source.
+- The request acts for the owner (`OwnerAccount.acting_owner()`: the stored
+  owner's id and name, else the id rule of the [`account`](#account) module
+  with the id as name). 503 `owner_unknown` when several administrators are
+  listed and no account exists; 503 `sources_unavailable` before startup binds
+  the registry.
+
+Owner routes under `{api_prefix}/sources` (`source_routes.py`), signed in as
+the owner. They and the owner's session routes take `get_signed_in_owner`
+(`source_token.py`): `get_current_user`, which must be the acting owner, the
+identity the Source API acts for. Another user is 403 `forbidden`, and 503
+`owner_unknown` applies as above. In Clerk mode these routes therefore need exactly
+one id in `backend.admin_user_ids`, or an owner account, and that user signed
+in: with no id listed the acting owner is `user_local_developer`, so every
+Clerk user is 403, and with several ids and no account every route is 503.
+Sessions stored under another Clerk user's own id are not reachable through
+them.
+
+| Route | Does |
+|---|---|
+| `GET /sources` | Every source, oldest first: `source_id`, `name`, `has_token`, `token_last4`, `created_at`, `last_used_at`, `revoked_at`. |
+| `POST /sources` | Creates a source (`name`); 201 with the same fields and `token`. |
+| `PATCH /sources/{source_id}` | Renames it (`name`). |
+| `POST /sources/{source_id}/rotate` | A new token, returned once. 409 `source_revoked`. |
+| `POST /sources/{source_id}/revoke` | Revokes it. |
+
+An unknown id is 404 `source_not_found`. `POST /machine/sources` creates a
+source for `hybro source create` (see [Owner account API](#owner-account-api)).
 
 ### `models`
 
@@ -1078,6 +1158,7 @@ recreation, so coordinate index-shape changes with a maintenance window.
 | `diagnostic_system_events` | `diagnostics.repository.mongo.DiagnosticsMongoRepository` (capped, 16 MiB) |
 | `diagnostic_log_records` | `diagnostics.repository.mongo.DiagnosticsMongoRepository` (capped, 32 MiB) |
 | `users`, `user_sessions`, `setup_codes` | `account.repository.mongo.MongoAccountRepository` |
+| `sources` | `source.repository.mongo.MongoSourceRepository` |
 
 Room-state deletion is per owner: `RoomFiles.delete_room_state` calls every bound
 `RoomStateOwner` (`MessageMongoRepository`, `RoomQuoteMongoRepository`,
@@ -1089,8 +1170,8 @@ Room-state deletion is per owner: `RoomFiles.delete_room_state` calls every boun
 deleted per room epoch by the orchestrator epoch cleanup;
 `orchestrator_room_epochs` keeps the deactivated epoch record; and
 `orchestrator_hitl_interactions`, `orchestrator_recovery_leases`, `room_events`,
-`room_event_seq`, `sessions`, `migration_markers`, and `agent_capability_issues`
-are retained, with no deletion or TTL. `diagnostic_system_events` and
+`room_event_seq`, `sessions`, `sources`, `migration_markers`, and
+`agent_capability_issues` are retained, with no deletion or TTL. `diagnostic_system_events` and
 `diagnostic_log_records` are capped: MongoDB evicts their oldest documents by
 size. `users` is retained; a `user_sessions` document is deleted at sign-out,
 at revocation, at a password change or reset, and by a TTL index 30 days after
@@ -1290,9 +1371,13 @@ port, or facade port, update the exact method inventory in
 | `RoomManagement` | `session.protocols` | `conversation.facade.ConversationFacade` | crosses to composition root; `conversation` |
 | `RoomMessageStore` | `session.protocols` | `conversation.facade.ConversationFacade` | crosses to composition root; `conversation` |
 | `RoomRegistry` | `session.protocols` | `conversation.facade.ConversationFacade` | crosses to composition root; `conversation` |
+| `OwnerSessionAccess` | `session.protocols` | `session.access.BoundOwnerSessionAccess` | crosses to `api_gateway` |
 | `SessionAccess` | `session.protocols` | `session.access.BoundSessionAccess` | crosses to `api_gateway` |
 | `SessionService` | `session.protocols` | `session.facade.SessionFacade` | crosses to `api_gateway` |
 | `SessionStore` | `session.protocols` | `session.repository.mongo.MongoSessionRepository` | internal to `session` |
+| `SourceDirectory` | `session.protocols` | `source.service.SourceService` | crosses to composition root; `source` |
+| `SourceRegistry` | `source.protocols` | `source.service.SourceService` | crosses to `api_gateway`; `session` |
+| `SourceStore` | `source.protocols` | `source.repository.mongo.MongoSourceRepository` | internal to `source` |
 
 ## Runtime Configuration
 
@@ -1626,6 +1711,13 @@ updates and the release workflow compares with the tag.
   unreachable, machine token refused, a 5xx or unexpected answer, no answer
   within the timeout, after which the change may have applied). The setup link
   is not printed yet.
+- **Source.** `hybro source create --name <name>` checks the flag (a usage
+  error exits 2 before Docker is used) and the container as for the owner
+  commands, with `/app/backend/source_cli.py`, then runs the helper with
+  `docker exec`. The helper, standard library only and built on
+  `owner_cli.py`'s transport, POSTs `{"name"}` to `/machine/sources` and
+  prints the source's name and its token once on standard output. The exit
+  status is as for the owner commands; it prints no token on a failure.
 - **Tests.** `scripts/test_hybro_cli.py` runs the script and `install.sh` under
   sh, dash, and busybox sh against stub `docker`, `curl`, and `npm` (the
   `Shell CLI CI` job, with shellcheck).
@@ -1861,6 +1953,7 @@ Routes under `{api_prefix}/machine`, for the `hybro` command:
 | `POST /setup-code` | Issues a setup code (`code`, `expires_at`). 409 `account_exists`. |
 | `POST /owner` | Creates the owner (`name`, `email`, `password`, optional `owner_id`). 201; 409 `account_exists` or `owner_id_required`. |
 | `POST /owner/password` | Sets a new password and signs out every browser. 204; 409 `no_account`. |
+| `POST /sources` | Creates a source (`name`). 201 with its token, returned once. |
 
 They take the per-start token of `/tmp/hybro/machine.json` in the
 `X-Hybro-Machine-Token` header, which is read from the request and not
@@ -1871,7 +1964,8 @@ checkout, where no token exists and the routes refuse every request. The token
 is added to the public-text sanitizer's secret values. Caddy answers the path
 with 404, so only a process inside the container reaches these routes, on
 `127.0.0.1:8000`. `hybro owner create` and `hybro owner reset-password` call
-the last two through `owner_cli.py` (see "Shell CLI"); nothing calls
+the two owner routes through `owner_cli.py`, and `hybro source create` calls
+`/sources` through `source_cli.py` (see "Shell CLI"); nothing calls
 `/setup-code` yet.
 
 #### Requests from other websites
@@ -1895,6 +1989,10 @@ the last two through `owner_cli.py` (see "Shell CLI"); nothing calls
   `Origin` on a default port carries none. The scheme is not compared. An
   `Origin` that is not `http://` or `https://` followed by exactly a host and
   an optional port is refused.
+
+The Source API applies the same `Origin` rule to a request without a token
+(see [`source`](#source)), so a web page cannot use the "No token" source
+through the visitor's browser.
 
 This is the only defence against a plain cross-site `POST`: FastAPI parses a
 body without a `Content-Type` as JSON, so no preflight protects these routes,
@@ -2010,14 +2108,14 @@ tabs; creation without a preset key keeps random IDs.
 
 `GET /api/v1/agents/discovery`, `GET /api/v1/agents/groups`,
 `GET /api/v1/agents/search`, and `GET /api/v1/agents/{agent_id}/profile` are
-authenticated and read-only; work is sent through `/sessions`. Their `get_agent_network`
-dependency resolves `get_current_user` and binds a network service to that user.
-Clerk-mode requests without a valid session receive `401`; mock mode uses
-`user_local_developer`. These routes use the public-or-owner visibility
-query, and saved groups require matching ownership. Private foreign targets
-return `404` without exposing status or Card. Mock-auth deployments still need a
-trusted-network boundary; Card credential stripping does not sanitize arbitrary
-metadata secrets.
+Source API routes and read-only; work is sent through `/sessions`. Their
+`get_agent_network` dependency resolves `get_request_source` (see
+[`source`](#source)) and binds a network service to the acting owner.
+Clerk-mode requests without a source token receive `401`. These routes use the
+public-or-owner visibility query, and saved groups require matching ownership.
+Private foreign targets return `404` without exposing status or Card.
+Deployments without a token requirement still need a trusted-network boundary;
+Card credential stripping does not sanitize arbitrary metadata secrets.
 
 Discovery reads the complete caller-visible active inventory; it neither probes
 endpoints nor refreshes Cards. A visible-inventory read without a positive `limit`
@@ -2060,8 +2158,9 @@ agents or refreshes Cards.
 
 | HTTP status | Meaning |
 | --- | --- |
-| `401` | Missing or invalid authentication in Clerk mode. |
-| `403` | Selected saved group belongs to another user. |
+| `401` | `unknown_source_token`, or `source_token_required` when a token is required. |
+| `403` | `cross_site_request` (no token, foreign `Origin`), or the selected saved group belongs to another user. |
+| `503` | `owner_unknown` or `sources_unavailable`. |
 | `404` | Selected group does not exist, or the agent is missing/not visible. |
 | `422` | Invalid query, or unsupported `room_team` scope. |
 
@@ -2070,7 +2169,7 @@ errors use a string `detail`; schema failures use FastAPI's validation format.
 
 ```text
 agent_network_routes
-  -> get_agent_network -> get_current_user + agent.protocols.AgentNetworkAccess
+  -> get_agent_network -> get_request_source + agent.protocols.AgentNetworkAccess
      -> caller-bound agent.network.AgentNetworkService
         -> registry + matcher + saved-group store
 ```
@@ -2091,7 +2190,8 @@ execution owner. It serves Streamable HTTP on `127.0.0.1:8001`, which Caddy
 publishes as `/mcp` on the app's port, and exposes seven tools: `list_subnets` (`agents/groups`), `find_agents`
 (`agents/search`), `get_agent` (`agents/{agent_id}/profile`), `discover_agents`
 (`agents/discovery`), `send_message` (`sessions/messages`), `check_session`
-(`sessions/{id}`), and `close_session` (`sessions/{id}/close`). Tool arguments
+(`sessions/{id}`), and `close_session` (`sessions/{id}/close`), all Source API
+routes. Tool arguments
 call saved groups subnets (`subnet_id`) and translate to `group_id`;
 `list_subnets` strips the app's `[hybro-use-case:<id>]` preset tag. It runs
 from the backend environment with the `mcp` extra of `backend/pyproject.toml`
@@ -2126,23 +2226,33 @@ tool call mints an `http_request_id`, binds it as the log context's
 that `send_message` mints is not on the log line; join through the trace id.
 `/health` sends a request id without logging.
 
+`logged_tool` also binds the `Authorization` header of the MCP request, which
+each tool receives through its `ctx: Context` parameter (`ctx.headers`, absent
+on stdio and in the in-memory client), and every backend call of that tool
+sends it on. The adapter never stores, logs or adds a credential of its own.
+
 `send_message` takes plain `text` (at most 10,000 characters), `agent_id`, and
 optionally `session_id`, `subnet_id`, `client_request_id` (minted when absent),
-and `client_label` ("MCP client" when opening a session without one). It returns
+and `client_label` ("MCP client" when opening a session without one and
+without an `Authorization` header; with one the backend uses the source's
+name). It returns
 the backend receipt with a `next_action`; a `failed` receipt is a tool error and
 `include_raw` adds the backend response. A retry must reuse the
 `client_request_id`; the adapter never retries. `check_session` returns the
 client view with a `next_action` per state, and `close_session` returns
 `session_id` and `status`. Every tool publishes an output schema; HTTP and
 transport failures become tool errors that keep the backend body, with a
-`409`/`404` hint keyed on the backend error code.
+`409`/`404` hint keyed on the backend error code; a `401` hint asks for a
+current source token.
 
-The adapter is for same-host clients: no MCP authentication, user isolation,
-auth-store access, retry loop, or orchestration. It relies on the backend's
-mock-auth identity, so Clerk-mode requests return `401` tool errors. Its
-610-second local deadline covers the backend session wait. Its `GET /health`
-probes `agents/discovery` with a two-second deadline and returns only
-`service: "hybro-mcp"` and `status: "ready" | "unavailable" | "unsupported_auth"`;
+The adapter is for same-host clients: no MCP authentication of its own, user
+isolation, auth-store access, retry loop, or orchestration. The backend checks
+the forwarded source token. Its 610-second local deadline covers the backend
+session wait. Its `GET /health` calls the backend's root `/health`, which
+needs no credential, with a two-second deadline, sends no `Authorization`,
+and returns only `service: "hybro-mcp"` and `status: "ready"` (the backend
+answered `{"status": "ok"}`) or `"unavailable"`, which includes a degraded
+backend;
 The frontend's `GET /hybro-mcp` route returns the sanitized status, which the
 Overview MCP tile shows. See the [local MCP instructions](../README.md#local-mcp-access). The
 `MCP CI (local adapter)` job runs
@@ -3268,17 +3378,22 @@ per message; nothing inside Hybro chooses who speaks next; every turn is recorde
 in a conversation container; when an agent needs the owner's permission, the
 owner approves or rejects in the Hybro app.
 
-Routes (`api_gateway/routes/session_routes.py`, tag `session`, route contract
-`session.protocols.SessionAccess`, bound per request by `get_session_access` to
-the authenticated owner and an owner-bound `AgentNetworkService` resolver):
+Routes (`api_gateway/routes/session_routes.py`, tag `session`). The first three
+are Source API routes: their contract is `session.protocols.SessionAccess`,
+bound per request by `get_session_access` to the request's source, the acting
+owner and an owner-bound `AgentNetworkService` resolver. The last three are the
+owner's: `OwnerSessionAccess`, bound by `get_owner_session_access` to the
+signed-in owner (`get_signed_in_owner`, see [`source`](#source)), so the owner
+sees the sessions that sources opened; another signed-in user is 403.
 
 | Method | Path | Returns |
 |---|---|---|
 | POST | `/sessions/messages` | receipt: `session_id`, `client_request_id`, `agent_id`, `status` (`created`, `accepted`, `busy`), `state`, `message`, `created_at`, `updated_at` |
 | GET | `/sessions/{session_id}` | client view: `state`, `reason`, `agents`, `created_at`, `updated_at`, `history` of client messages and agents' final replies; never `conversation_id`, internal message ids, or owner decisions |
 | POST | `/sessions/{session_id}/close` | `session_id`, `status` |
-| GET | `/sessions` | owner list with `client_label`, `title`, `agents`, `state`, `conversation_id`, times: the 100 most recently active sessions plus every open session whose latest run awaits the owner |
-| GET | `/sessions/{session_id}/record` | owner record: `state`, `reason`, `paused_agent_id`, `agents`, `client_label`, `title`, `status`, `conversation_id`, `opened_at`, `last_activity_at`, `closed_at` |
+| GET | `/sessions` | owner list with `client_label`, `source` (`source_id`, `name`, `has_token`), `title`, `agents`, `state`, `conversation_id`, times: the 100 most recently active sessions plus every open session whose latest run awaits the owner |
+| GET | `/sessions/{session_id}/record` | owner record: `state`, `reason`, `paused_agent_id`, `agents`, `client_label`, `source`, `title`, `status`, `conversation_id`, `opened_at`, `last_activity_at`, `closed_at` |
+| POST | `/sessions/{session_id}/record/close` | the owner's close of any of their sessions: `session_id`, `status` |
 
 `POST /sessions/messages` is limited to 64 KiB bodies and four concurrent
 requests; it returns the receipt without waiting for the run. Errors use
@@ -3291,12 +3406,16 @@ requests; it returns the receipt without waiting for the run. Errors use
 
 - `client_request_id` is required (at most 128 characters, normalized); text is
   required and at most 10,000 characters; `data` and files are not accepted.
-  `client_label` is required to open a session. The first message, on one line
+  `client_label` is required to open a session without a source token, and
+  optional with one; a session without a label shows the source's name, as its
+  room name and the sender name of its messages. The first message, on one line
   and shortened to 120 characters, becomes the session `title`; sessions without
   one show none.
 - The agent is resolved (visible, active, in the optional subnet) before any
   write. A send without `session_id` reserves the record under the unique
-  `(owner_user_id, creation_request_id)` key, then creates the container
+  `(owner_user_id, source_id, creation_request_id)` key
+  (`session_source_creation_request`; `ensure_indexes` drops the older
+  `session_creation_request` index), then creates the container
   (`owner_product="session"`, empty manual membership) and sets `conversation_id`
   only if it is still null; a concurrent loser deletes its container. A retry
   completes a crashed creation.
@@ -3324,6 +3443,11 @@ requests; it returns the receipt without waiting for the run. Errors use
   the session and replays instead of reporting busy. The facade calls
   `schedule_orchestration` (never `start_orchestration`), then adds the agent to
   the container membership and records `last_accepted_agent_id`.
+- Each session stores the `source_id` that opened it, and each entry of
+  `requests` the `source_id` that sent it. A source reaches only its own
+  sessions: a send, check or close of another source's session, or of one
+  stored before sources existed (no `source_id`, which counts as `no_token`),
+  is 404 `session_not_found`. The owner's routes reach every session.
 - Each invocation is a fresh A2A context on the agent's side; the agent does not
   receive the session history.
 - `close` cancels a pending approval through `cancel_hitl_interaction`, or else

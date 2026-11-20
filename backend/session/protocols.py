@@ -1,9 +1,11 @@
 """Session ports.
 
-``SessionAccess`` is the route-facing surface bound to one owner per request;
-every parameter and return is a public DTO from ``models.session``.
+``SessionAccess`` is the Source API surface, bound to one owner and one source
+per request; ``OwnerSessionAccess`` is the owner's surface in the Panel. Every
+parameter and return of both is a public DTO from ``models.session``.
 ``SessionService`` is the facade surface the gateway holds, ``SessionStore``
-the durable record, and ``ConversationEventsPort`` the durable room event log
+the durable record, ``SourceDirectory`` the names of the sources on the
+owner's payloads, and ``ConversationEventsPort`` the durable room event log
 the bounded wait reads.
 """
 
@@ -32,6 +34,7 @@ from models.session import (
     SessionStatus,
 )
 from session.models import SessionRecord
+from source.protocols import SourceIdentity
 
 
 @runtime_checkable
@@ -80,8 +83,18 @@ class SessionAccess(Protocol):
     async def send(self, request: SessionMessageRequest) -> SessionMessageResponse: ...
     async def check(self, session_id: str) -> SessionStatus: ...
     async def close(self, session_id: str) -> SessionClosed: ...
+
+
+@runtime_checkable
+class OwnerSessionAccess(Protocol):
     async def list_sessions(self) -> SessionListResponse: ...
     async def get_record(self, session_id: str) -> SessionOwnerRecord: ...
+    async def close(self, session_id: str) -> SessionClosed: ...
+
+
+@runtime_checkable
+class SourceDirectory(Protocol):
+    async def identities(self, source_ids: list[str]) -> dict[str, SourceIdentity]: ...
 
 
 @runtime_checkable
@@ -91,14 +104,22 @@ class SessionService(Protocol):
         request: SessionMessageRequest,
         *,
         owner: SessionOwner,
+        source: SourceIdentity,
         resolver: AgentNetworkTargetResolver,
     ) -> SessionMessageResponse: ...
-    async def check(self, session_id: str, *, owner: SessionOwner) -> SessionStatus: ...
-    async def close(self, session_id: str, *, owner: SessionOwner) -> SessionClosed: ...
+    async def check(
+        self, session_id: str, *, owner: SessionOwner, source: SourceIdentity
+    ) -> SessionStatus: ...
+    async def close(
+        self, session_id: str, *, owner: SessionOwner, source: SourceIdentity
+    ) -> SessionClosed: ...
     async def list_for_owner(self, *, owner: SessionOwner) -> SessionListResponse: ...
     async def record_for_owner(
         self, session_id: str, *, owner: SessionOwner
     ) -> SessionOwnerRecord: ...
+    async def close_for_owner(
+        self, session_id: str, *, owner: SessionOwner
+    ) -> SessionClosed: ...
 
 
 @runtime_checkable
@@ -114,6 +135,7 @@ class SessionStore(Protocol):
         *,
         client_request_id: str,
         user_message_id: str,
+        source_id: str,
         event_seq: int,
         at: datetime,
     ) -> SessionRecord | None: ...
@@ -139,6 +161,7 @@ class ConversationEventsPort(Protocol):
 
 __all__ = [
     "ConversationEventsPort",
+    "OwnerSessionAccess",
     "RoomManagement",
     "RoomMessageStore",
     "RoomRegistry",
@@ -146,4 +169,5 @@ __all__ = [
     "SessionOwner",
     "SessionService",
     "SessionStore",
+    "SourceDirectory",
 ]

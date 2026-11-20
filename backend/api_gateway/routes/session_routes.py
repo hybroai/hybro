@@ -1,8 +1,15 @@
-"""Client sessions with the owner's agents, and the owner's session views."""
+"""Client sessions with the owner's agents, and the owner's session views.
+
+The three Source API routes (send, check, close) take a source token; the
+owner's views (the list, the record, and the owner's close) take the owner.
+"""
 
 from fastapi import APIRouter, HTTPException
 
-from api_gateway.dependencies import SessionAccessDependency
+from api_gateway.dependencies import (
+    OwnerSessionAccessDependency,
+    SessionAccessDependency,
+)
 from api_gateway.registry import mark_declared_owner
 from common.errors import AppError
 from models.session import (
@@ -34,6 +41,18 @@ _ERROR_STATUS = {
 _ERRORS = {
     status: {"model": SessionErrorResponse} for status in (400, 403, 404, 409, 422)
 }
+_SOURCE_AUTH = {
+    401: {"description": "Unknown, revoked or missing source token"},
+    403: {
+        "model": SessionErrorResponse,
+        "description": "Refused, or sent without a token from another website",
+    },
+    503: {"description": "Sources or the owner are unavailable"},
+}
+_OWNER_AUTH = {
+    401: {"description": "Authentication required"},
+    503: {"description": "The owner is not known yet"},
+}
 
 
 def _http_error(
@@ -57,10 +76,10 @@ def _http_error(
 @router.post(
     "/sessions/messages",
     responses={
-        401: {"description": "Authentication required"},
         413: {"description": "Request body exceeds 64 KiB"},
         429: {"description": "Session send concurrency limit reached"},
         **_ERRORS,
+        **_SOURCE_AUTH,
     },
 )
 async def send_session_message(
@@ -75,6 +94,10 @@ async def send_session_message(
     active. The receipt carries the session's `created_at` and `updated_at`.
     The agents' responses come from `GET /sessions/{session_id}`. Retrying
     with the same `client_request_id` returns the same receipt.
+
+    Send the source token as `Authorization: Bearer <token>`. The session
+    belongs to the source that opened it. `client_label` is required to open
+    a session without a token, and deprecated with one.
     """
     try:
         return await sessions.send(request)
@@ -88,17 +111,16 @@ async def send_session_message(
 
 @router.get(
     "/sessions",
-    responses={401: {"description": "Authentication required"}},
+    responses={**_OWNER_AUTH, 403: {"description": "Only the owner"}},
 )
-async def list_sessions(sessions: SessionAccessDependency) -> SessionListResponse:
+async def list_sessions(
+    sessions: OwnerSessionAccessDependency,
+) -> SessionListResponse:
     """List the owner's sessions, most recently active first."""
     return await sessions.list_sessions()
 
 
-@router.get(
-    "/sessions/{session_id}",
-    responses={401: {"description": "Authentication required"}, **_ERRORS},
-)
+@router.get("/sessions/{session_id}", responses={**_ERRORS, **_SOURCE_AUTH})
 async def check_session(
     session_id: SessionIdentifier, sessions: SessionAccessDependency
 ) -> SessionStatus:
@@ -110,10 +132,7 @@ async def check_session(
         raise _http_error(exc, session_id=session_id) from exc
 
 
-@router.post(
-    "/sessions/{session_id}/close",
-    responses={401: {"description": "Authentication required"}, **_ERRORS},
-)
+@router.post("/sessions/{session_id}/close", responses={**_ERRORS, **_SOURCE_AUTH})
 async def close_session(
     session_id: SessionIdentifier, sessions: SessionAccessDependency
 ) -> SessionClosed:
@@ -126,14 +145,29 @@ async def close_session(
 
 @router.get(
     "/sessions/{session_id}/record",
-    responses={401: {"description": "Authentication required"}, **_ERRORS},
+    responses={**_ERRORS, **_OWNER_AUTH},
 )
 async def get_session_record(
-    session_id: SessionIdentifier, sessions: SessionAccessDependency
+    session_id: SessionIdentifier, sessions: OwnerSessionAccessDependency
 ) -> SessionOwnerRecord:
     """Return the owner's view of a session, including its conversation id."""
     try:
         return await sessions.get_record(session_id)
+    except AppError as exc:
+        raise _http_error(exc, session_id=session_id) from exc
+
+
+@router.post(
+    "/sessions/{session_id}/record/close",
+    responses={**_ERRORS, **_OWNER_AUTH},
+)
+async def close_session_record(
+    session_id: SessionIdentifier, sessions: OwnerSessionAccessDependency
+) -> SessionClosed:
+    """Close any source's session as the owner, canceling a pending approval
+    or an active run first."""
+    try:
+        return await sessions.close(session_id)
     except AppError as exc:
         raise _http_error(exc, session_id=session_id) from exc
 

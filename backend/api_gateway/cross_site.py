@@ -53,6 +53,17 @@ def same_address(origin: str, host: str) -> bool:
     return ours is not None and _host_and_port(netloc) == ours
 
 
+def from_own_address(request: Request) -> bool:
+    """Whether the request's ``Origin`` names Hybro's own address."""
+    origin = request.headers.get("origin")
+    if origin is None:
+        return False
+    forwarded = request.headers.get("x-forwarded-host")
+    # Several proxies list their hosts; the first is the browser's.
+    host = forwarded.split(",")[0] if forwarded else request.headers.get("host", "")
+    return same_address(origin, host)
+
+
 class CrossSiteCheckMiddleware:
     def __init__(self, app: ASGIApp, *, api_prefix: str) -> None:
         self.app = app
@@ -66,7 +77,7 @@ class CrossSiteCheckMiddleware:
             in_scope = (
                 scope["path"] in self._always or SESSION_COOKIE in request.cookies
             )
-            if in_scope and not self._from_own_address(request):
+            if in_scope and not from_own_address(request):
                 response = JSONResponse(
                     {
                         "detail": {
@@ -82,15 +93,5 @@ class CrossSiteCheckMiddleware:
                 return
         await self.app(scope, receive, send)
 
-    @staticmethod
-    def _from_own_address(request: Request) -> bool:
-        origin = request.headers.get("origin")
-        if origin is None:
-            return False
-        forwarded = request.headers.get("x-forwarded-host")
-        # Several proxies list their hosts; the first is the browser's.
-        host = forwarded.split(",")[0] if forwarded else request.headers.get("host", "")
-        return same_address(origin, host)
 
-
-__all__ = ["CrossSiteCheckMiddleware", "same_address"]
+__all__ = ["CrossSiteCheckMiddleware", "from_own_address", "same_address"]

@@ -50,6 +50,7 @@ def test_every_documented_root_counts(tmp_path: Path):
             "volume_migration.py": "import from_migration\n",
             "diagnostics_cli.py": "import from_diagnostics_cli\n",
             "owner_cli.py": "import from_owner_cli\n",
+            "source_cli.py": "import from_source_cli\n",
             "scripts/__init__.py": "",
             "scripts/tool.py": "import from_script\n",
             "from_dunder_main.py": "",
@@ -59,6 +60,7 @@ def test_every_documented_root_counts(tmp_path: Path):
             "from_migration.py": "",
             "from_diagnostics_cli.py": "",
             "from_owner_cli.py": "",
+            "from_source_cli.py": "",
             "from_script.py": "",
         },
     )

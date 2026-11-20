@@ -71,13 +71,14 @@ registered agents and choose one. Work is sent to an agent through a session
 (`/connect/api`) page provides copyable request examples; existing room chat continues to use its
 authenticated REST/SSE workflow.
 
-**Security boundary:** these routes use the existing `get_current_user` dependency.
-With `backend.auth_mode="clerk"`, callers need a valid Clerk session; add
-`-H "Authorization: Bearer <Clerk session JWT>"` to the curl examples below.
-With local `backend.auth_mode="mock"`, the existing override supplies
-`user_local_developer`; this mode must remain on a trusted network.
-Discovery is limited to public agents and the caller's own private
-agents. Saved groups must belong to that caller. Discovery returns only the
+**Security boundary:** these routes are part of the Source API and act for
+the instance owner on behalf of a source (see [Sources and
+tokens](#sources-and-tokens)). With `backend.auth_mode="clerk"`, callers need
+a source token: add `-H "Authorization: Bearer <source token>"` to the curl
+examples below. With local `backend.auth_mode="mock"` a request without a
+token is accepted as the built-in "No token" source; this mode must remain on
+a trusted network. Discovery is limited to public agents and the owner's own
+private agents. Saved groups must belong to that caller. Discovery returns only the
 Card fields a client needs to choose an agent (name, description, version,
 protocol version, provider, documentation and icon URLs, capabilities, default
 modes, and skills without per-skill `security`). Endpoint URLs, interfaces, and
@@ -161,7 +162,42 @@ validation errors use FastAPI's validation-detail array.
 Implementation ownership and protocol inventory are documented in
 [`System Architecture`](docs/System-Architecture.md#agent-network-api).
 
-## Sessions API
+## Sources and tokens
+
+A source is a program that sends work to Hybro, such as a CI job or an MCP
+client. The owner creates one and gets its token once:
+
+```sh
+hybro source create --name "CI bot"
+```
+
+or, signed in as the owner, through the owner routes (with
+`backend.auth_mode="clerk"`, the owner is the one id in
+`backend.admin_user_ids` or the owner account; any other signed-in user is
+refused, also on the owner's session routes): `GET /sources`,
+`POST /sources` (returns the token once), `PATCH /sources/{source_id}`
+(rename), `POST /sources/{source_id}/rotate` (a new token; the old one stops
+working) and `POST /sources/{source_id}/revoke`. Hybro stores only a SHA-256
+hash of a token and its last four characters.
+
+The Source API is the seven routes a source calls: `GET /agents/discovery`,
+`GET /agents/groups`, `GET /agents/search`, `GET /agents/{agent_id}/profile`,
+`POST /sessions/messages`, `GET /sessions/{session_id}` and
+`POST /sessions/{session_id}/close`. Each takes an optional
+`Authorization: Bearer <source token>` header:
+
+- A current token names the source on its sessions.
+- An Authorization header that is not a current source token of this Hybro
+  (unknown, revoked, rotated, or a leftover header of another kind) is refused
+  with `401 unknown_source_token`.
+- No header: the request is the built-in "No token" source. It is refused with
+  `401 source_token_required` when a token is required, which is the case with
+  `backend.auth_mode="clerk"`, and with `403 cross_site_request` when it comes
+  from a browser page on another site.
+
+A session belongs to the source that opened it: another source, or a request
+without a token, cannot read, continue or close it (`404 session_not_found`).
+
 
 A session is a conversation a client of the instance owner opens with the
 owner's agents. Each message names one agent; every turn is recorded in Hybro;
@@ -171,7 +207,8 @@ client and the owner share one identity, so the separation is a presentation
 rule.
 
 ```sh
-# Open a session (client_label is required without session_id).
+# Open a session. Without a token, client_label is required when session_id
+# is omitted; with one it is optional and the source's name is used.
 curl --request POST http://localhost:8000/api/v1/sessions/messages \
   --header 'Content-Type: application/json' \
   --data '{"agent_id": "<agent_id>", "text": "Generate a travel plan for Kyoto.",
@@ -183,11 +220,15 @@ curl --request POST http://localhost:8000/api/v1/sessions/messages \
   --data '{"session_id": "<session_id>", "agent_id": "<agent_id>",
            "text": "Now list the hotels.", "client_request_id": "turn-2"}'
 
-# Check, close; the owner list and record include the conversation id.
+# Check and close, as the source that opened the session.
 curl http://localhost:8000/api/v1/sessions/<session_id>
 curl --request POST http://localhost:8000/api/v1/sessions/<session_id>/close
+
+# The owner's list, record and close (signed in as the owner); they include
+# the conversation id and the source (source_id, name, has_token).
 curl http://localhost:8000/api/v1/sessions
 curl http://localhost:8000/api/v1/sessions/<session_id>/record
+curl --request POST http://localhost:8000/api/v1/sessions/<session_id>/record/close
 ```
 
 A send returns a receipt as soon as Hybro has the message: `session_id`,
@@ -209,8 +250,9 @@ are not accepted. Retrying with the same `client_request_id`, including an
 earlier request's, returns that request's receipt without sending it again.
 
 Under mock auth anyone who can call the HTTP API holds the owner's identity,
-so the owner-only routes (`GET /sessions`, `GET /sessions/{session_id}/record`)
-and the room routes behind `conversation_id` are reachable too. The MCP adapter
+so the owner-only routes (`GET /sessions`, `GET /sessions/{session_id}/record`,
+`POST /sessions/{session_id}/record/close`) and the room routes behind
+`conversation_id` are reachable too. The MCP adapter
 calls only the client routes. Agents run in passthrough mode:
 no orchestrator model turns, one call to the named agent, and a fresh A2A
 context per message (the agent does not receive the session history).
@@ -231,8 +273,13 @@ does not access the database or change Agent visibility rules.
 
 The single image runs MCP as one of its programs and serves it at `/mcp` on the
 app's port, only on a loopback listener: `http://localhost:3000/mcp` for a
-released install, `http://localhost:3100/mcp` from a checkout. Use a trusted
-backend in `backend.auth_mode="mock"`.
+released install, `http://localhost:3100/mcp` from a checkout.
+
+Each tool passes the `Authorization` header of the MCP request on to the
+backend. Set `Authorization: Bearer <source token>` in your MCP client's
+server configuration to name it as a source; it is required with
+`backend.auth_mode="clerk"`. Without the header the calls are the "No token"
+source.
 
 Add a **Streamable HTTP** server manually to your MCP client using:
 
@@ -311,11 +358,13 @@ request finished. `check_session` returns `state` (`completed`, `working`,
 owner's question or answer. `include_raw: true` adds the backend response as
 `raw`. A missing `client_request_id` is generated; a retried call must pass the
 same value to get the same receipt instead of a new send.
-A missing `client_label` defaults to "MCP client" when a session is opened.
+A missing `client_label` defaults to "MCP client" when a session is opened
+without a token; with a token the backend uses the source's name.
 
 Every tool publishes an output schema. Results are sent as both MCP structured
 content and JSON text. HTTP/transport errors set `isError`, keep the backend
-`detail`, and add a `next_action` hint; a `409` hint depends on the backend code
+`detail`, and add a `next_action` hint; a `401` hint asks for a current
+source token, and a `409` hint depends on the backend code
 (`session_closed`: start a new session; `request_conflict`: use a new
 `client_request_id`; otherwise the agent is inactive or outside the subnet).
 
@@ -329,12 +378,14 @@ containing only `api_prefix`; it reaches the backend on loopback and listens on
 DNS-rebinding checks remain active in both modes. MCP receives no auth store or
 Provider credentials.
 
-`GET http://127.0.0.1:8001/health` makes a read-only backend `agents/discovery`
-request with a two-second deadline and returns only `service: "hybro-mcp"` and
-`status: "ready" | "unavailable" | "unsupported_auth"`. It never executes
-agents or exposes Cards. A rejected authentication probe (`401`/`403`) reports
-`unsupported_auth`, including with Clerk. The public frontend `GET /hybro-mcp` route exposes
-only this sanitized status, not backend data or credentials.
+`GET http://127.0.0.1:8001/health` calls the backend's root `/health`, which
+needs no credential, with a two-second deadline, and returns only
+`service: "hybro-mcp"` and `status: "ready" | "unavailable"`. It is `ready`
+only when the backend answers `{"status": "ok"}`; a degraded backend (for
+example while the agent search index is not ready) reports `unavailable`. It
+sends no `Authorization`, never executes agents and exposes no Cards. The
+public frontend `GET /hybro-mcp` route exposes only this sanitized status, not
+backend data or credentials.
 
 The adapter has **no MCP authentication or user isolation** and supplies no
 Clerk credentials: Clerk-mode tool requests fail rather than bypassing auth.
