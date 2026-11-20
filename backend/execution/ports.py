@@ -6,8 +6,6 @@ from dataclasses import dataclass
 from enum import Enum
 from typing import Any, Literal, Protocol
 
-from models.agent_network import AgentMessageRequest, AgentMessageResponse
-
 ProcessingStatusLike = str | Enum
 
 
@@ -44,10 +42,6 @@ class A2APushNotificationReceiver(Protocol):
     ) -> A2APushReceipt: ...
 
     async def process(self, observation_id: str) -> None: ...
-
-
-class DirectAgentMessenger(Protocol):
-    async def send(self, request: AgentMessageRequest) -> AgentMessageResponse: ...
 
 
 class TaskFactory(Protocol):

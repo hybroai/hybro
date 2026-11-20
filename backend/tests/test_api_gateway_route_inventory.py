@@ -87,6 +87,7 @@ def test_removed_routes_are_absent_from_checked_in_openapi():
         "/api/v1/a2a-tasks/{message_id}",
         "/api/v1/agent/getAllActiveAgents",
         "/api/v1/agents",
+        "/api/v1/agents/messages",
         "/api/v1/agents/{item_id}",
         "/api/v1/roomCenter/createNewRoom",
         "/api/v1/roomCenter/history",
@@ -107,6 +108,9 @@ def test_removed_routes_are_absent_from_checked_in_openapi():
     schemas = openapi.get("components", {}).get("schemas", {})
     assert {
         "AgentCreate",
+        "AgentMessageRequest",
+        "AgentMessageResponse",
+        "AgentNetworkMessage",
         "AgentPatch",
         "AgentResponse",
         "AgentUpdate",

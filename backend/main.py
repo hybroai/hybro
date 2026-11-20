@@ -37,8 +37,6 @@ bind_auth_config(
     authorized_parties=tuple(settings.frontend_origins),
 )
 
-AGENT_MESSAGE_MAX_BYTES = 6 * 1024 * 1024
-AGENT_MESSAGE_MAX_CONCURRENT = 4
 # A session send holds its request for up to the configured wait (30 s by
 # default), so four concurrent sends also cap session throughput.
 SESSION_MESSAGE_MAX_BYTES = 64 * 1024
@@ -162,22 +160,11 @@ def create_app(
 
     app.add_middleware(
         RequestBodyLimitMiddleware,
-        path=f"{settings.api_prefix}/agents/messages",
-        method="POST",
-        max_bytes=AGENT_MESSAGE_MAX_BYTES,
-    )
-    app.add_middleware(
-        RequestBodyLimitMiddleware,
         path=f"{settings.api_prefix}/sessions/messages",
         method="POST",
         max_bytes=SESSION_MESSAGE_MAX_BYTES,
     )
     # Added last so admission also bounds requests still receiving their body.
-    app.add_middleware(
-        RequestConcurrencyLimitMiddleware,
-        path=f"{settings.api_prefix}/agents/messages",
-        max_concurrent=AGENT_MESSAGE_MAX_CONCURRENT,
-    )
     app.add_middleware(
         RequestConcurrencyLimitMiddleware,
         path=f"{settings.api_prefix}/sessions/messages",

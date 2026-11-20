@@ -189,7 +189,8 @@ function ApiPanel() {
         { title: 'List subnets', tool: `GET ${config.api_prefix}/agents/groups`, detail: 'Lists your subnets with their number of active agents.' },
         { title: 'Agent profiles', tool: `GET ${config.api_prefix}/agents/{agent_id}/profile`, detail: 'Shows an agent’s skills, examples, and accepted inputs.' },
         { title: 'Discover agents', tool: `GET ${config.api_prefix}/agents/discovery`, detail: 'Returns every agent visible to you with its public Agent Card fields.' },
-        { title: 'Send messages', tool: `POST ${config.api_prefix}/agents/messages`, detail: 'Sends a task to one agent and returns its reply.' },
+        { title: 'Send messages', tool: `POST ${config.api_prefix}/sessions/messages`, detail: 'Sends a task to one agent in a session and returns a receipt with its session_id.' },
+        { title: 'Check sessions', tool: `GET ${config.api_prefix}/sessions/{session_id}`, detail: 'Shows the session’s state and the agents’ replies.' },
       ]} />
     </div>
   )

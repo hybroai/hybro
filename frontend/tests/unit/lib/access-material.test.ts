@@ -15,7 +15,7 @@ describe('access materials', () => {
   it('builds requests from an empty same-origin base without parsing it as a URL', () => {
     const material = buildAccessMaterial('api', '', '/api/v1', scope)
     expect(material.configuration).toContain("'/api/v1/agents/discovery?group_id=g1'")
-    expect(material.toolCalls).toContain("'/api/v1/agents/messages'")
+    expect(material.toolCalls).toContain("'/api/v1/sessions/messages'")
     expect(material.scopeCall).toBe('GET /api/v1/agents/discovery?group_id=g1')
   })
 
@@ -55,12 +55,26 @@ describe('access materials', () => {
     expect(material.toolCalls).not.toContain('subnet_id')
   })
 
-  it('scopes API discovery and the message body', () => {
+  it('scopes API discovery and the session message body', () => {
     const material = buildAccessMaterial('api', 'https://hybro.example', '/api/v1', scope)
     expect(material.configuration).toContain('/api/v1/agents/discovery?group_id=g1')
-    expect(material.toolCalls).toContain('/api/v1/agents/messages')
-    expect(material.toolCalls).toContain('"group_id": "g1"')
+    expect(material.toolCalls).toContain('/api/v1/sessions/messages')
+    expect(material.toolCalls).toContain('"subnet_id": "g1"')
+    expect(material.toolCalls).not.toContain('"group_id"')
     expect(material.prompt).toContain('group_id=g1')
+    expect(material.prompt).toContain('"subnet_id": "g1"')
+  })
+
+  it('sends API work through a session and shows how to check it', () => {
+    const material = buildAccessMaterial('api', 'https://hybro.example', '/api/v1')
+    expect(material.toolCalls).toContain("'https://hybro.example/api/v1/sessions/messages'")
+    expect(material.toolCalls).not.toContain('/agents/messages')
+    for (const field of ['"agent_id"', '"text"', '"client_request_id"', '"client_label"']) {
+      expect(material.toolCalls).toContain(field)
+    }
+    expect(material.toolCalls).not.toContain('"message"')
+    expect(material.toolCalls).not.toContain('subnet_id')
+    expect(material.toolCalls).toContain("'https://hybro.example/api/v1/sessions/<session_id from the receipt>'")
   })
 
   it('builds an API search request with optional subnet scope', () => {
