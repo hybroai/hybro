@@ -128,7 +128,7 @@ Contracts (see Architecture Contracts, Configuration and Secrets, and Design Dir
 
 Recurring misses:
 
-- A new or changed log event, log field, error message, or Caddy log setting. Check that headers, full URIs with query strings, request bodies, tokens, and caller-supplied ids cannot reach the output unredacted, and that the redaction does not swallow ordinary words. Must fix.
+- A new or changed log event, log field, error message, or Caddy log setting. Check that headers, full URIs with query strings, request bodies, and tokens cannot reach the output unredacted, that a caller-supplied id is logged only through `log_id` or `log_ids` (which turn free text into `invalid`), and that the redaction does not swallow ordinary words. Must fix.
 - A new or changed numeric setting (backend, frontend, or agent). Check that it has a minimum and a maximum that its consumer can hold (date math, JavaScript timers, a 64-bit MongoDB integer, a fixed backend limit), and that cross-field rules also run when one side is the default. Must fix.
 
 Do not flag:
