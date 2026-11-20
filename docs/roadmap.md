@@ -17,7 +17,7 @@ flowchart LR
 |---|---|---|---|
 | 0 | Make the direction visible | The design, this roadmap, contributor rules and a quick start. | Done |
 | 1 | Clean up and break down | Remove what is dead, and split `execution` without changing behaviour. | Done |
-| 2 | Source identity and remote access | Hybro verifies which source sent a step, and a source on another machine can reach the Source API with authentication. | Now |
+| 2 | Source identity and remote access | Each source has a token and the owner has an account, so Hybro knows which source sent a step, and a source on another machine can reach the Source API. | Now |
 | 3 | Owner check rules and the step view | The owner gates agent calls with rules, and sees each step of a session. | Next |
 | 4 | Move out | The model loop leaves the core and becomes the bundled orchestrator, a source. | Later |
 | 5 | Migrate to the target modules | The remaining modules and their stored collections take their target names, one at a time, with a data migration. | Later |
@@ -132,46 +132,155 @@ Items that belong to a later phase are listed in that phase.
 
 ## Phase 2: Source identity and remote access
 
-**Goal.** Hybro knows which source sent a step, and a source on another machine
-can reach the Source API safely.
+**Goal.** Hybro knows which source sent a step, a source on another machine can
+reach the Source API safely, and only the owner can open the Panel.
 
 This phase comes before the larger structural work because it does not depend
 on it. It builds on the `/sessions` routes that exist today, and later features
 build on it.
 
+**The model.** One install and one rule, on a laptop and on a server alike:
+the Panel needs the owner's sign-in, and a program needs a source token.
+Nothing depends on an authentication mode or on how the instance was started.
+[Who may use it](design.md#who-may-use-it) in the design has the details.
+
 **Work.**
 
-1. **Source identity.** Today a source names itself with `client_label`, and
-   the name is not verified. This phase gives each source an identity that
-   Hybro verifies. How a source is identified is the open question in
-   `design.md`, and it is decided when this phase starts.
-2. **Authenticated remote access.** A source on another machine can use the
-   Source API with authentication, on a server install as well as on a local
-   one.
-3. **MCP from another machine.** Today the MCP adapter serves clients on the
-   same host and has no authentication. This phase decides between an
-   authenticated remote MCP and the rule that remote sources use the HTTP
-   Source API.
+1. **Sources and their tokens.**
+   - The owner creates a source and receives its token once. Hybro stores a
+     hash, and every Step records the source that sent it.
+   - A token reaches the Source API only.
+   - `client_label` stays accepted. It is optional with a token and required
+     when a session is opened without one. It is marked as deprecated for
+     requests that carry a token.
+   - Sessions from before this phase keep their stored label, shown as not
+     verified. No stored data is rewritten.
+2. **The Sources tab.** The Connect page (named Access in today's UI) gains a
+   Sources tab before MCP and API.
+   - It lists each source: name, how it connects, last use, creation date and
+     the last four characters of its token. Hybro stores those four
+     characters beside the hash of the token, so that the owner can tell
+     tokens apart; the token itself is never stored.
+   - A source can be renamed, its token rotated or revoked, and its sessions
+     opened from there.
+   - Creating a source shows the token once, with a ready-to-paste snippet that
+     already contains it.
+   - The Sessions page shows the source as the requester.
+3. **The owner account.**
+   - On the first visit the owner creates the account: name, email, password.
+     The setup page opens only through a one-time link that `hybro` prints,
+     with the code after the `#`.
+   - `hybro` asks the backend for a new code each time it runs while no
+     account exists, and prints the link itself, so the code does not pass
+     through the container logs. The backend stores only a hash. The code
+     works once, and stops working after 24 hours or when a newer one is
+     issued.
+   - `hybro owner create` creates the account without a browser, for a
+     headless install and for tests that run against a started image. It takes
+     the name and the email as options and reads the password from a prompt
+     or from standard input, never from an option. It works only while no
+     account exists.
+   - Until the account exists, the routes that need the owner's sign-in and
+     the Source API refuse requests.
+   - Sign-in is required on every install. Every route needs it except the
+     Source API, which takes a source token, and the routes that agents and
+     probes call with their own credential or none: the model proxy
+     (`/internal/llm`, the internal credential), `/a2a/push` (the push token
+     of the call) and `/health`.
+   - The sign-in is kept in a cookie. Sign-in and setup limit repeated
+     attempts, and the cookie is `SameSite` with a check against cross-site
+     request forgery on every route that changes something.
+   - The account sits in the existing user menu: profile, password change,
+     signed-in browsers, sign out.
+   - `hybro owner reset-password` on the machine resets a forgotten password
+     and signs out every browser.
+   - There is one account. It is stored as a user record, so that the
+     enterprise edition can add people later.
+4. **The token requirement and its switch.**
+   - A source token is required by default on every install.
+   - The owner can turn the requirement off with a switch on the Sources tab,
+     after a confirmation that states the consequence. A request without a
+     token is then recorded under the built-in "No token" source.
+   - A request with an unknown or revoked token is refused, also while the
+     requirement is off. It is never recorded under "No token".
+   - While it is off, the Connect page shows a banner that the owner can
+     dismiss, with a dialog that explains it and holds the switch.
+5. **MCP with tokens.** `/mcp` is served on every install. A client sends its
+   source token, and the adapter passes it to the Source API, which checks it.
+   Which MCP clients can send a fixed token is checked against the MCP
+   specification and the clients' documentation when this is built.
+6. **Plain HTTP.** Hybro does not block it. The setup, sign-in and Connect
+   pages warn when they are opened over plain HTTP from another machine, the
+   session cookie is marked secure under HTTPS, and the documentation shows how
+   to put a reverse proxy in front.
+7. **What this replaces.** Each of these is marked as deprecated in the release
+   that ships the owner account and removed in a later one:
+   - Clerk mode, with the five `clerk_*` frontend fields,
+     `clerk_webhook_secret`, `enable_waitlist`, the Clerk library and the
+     direct `pyjwt` dependency
+   - `mock` mode. It is treated as the built-in account, and `auth_mode`
+     becomes a retired key when Clerk mode is removed. Tests provide their own
+     user in the test setup, so no production path skips authentication.
+   - the `--insecure-no-auth` option, in favour of the switch
+   - the `?token=` query parameter on the event stream routes. The Panel's
+     cookie replaces it.
+   - the rule that a listener on another address needs Clerk, and the rule that
+     leaves `/mcp` out on such a listener. `--listen` stays as a networking
+     option with its default, `127.0.0.1`.
+
+**Upgrading an existing install.**
+
+- **From mock mode.** The first visit after the upgrade shows the setup page
+  once. The new account takes over the one identity that the stored sessions,
+  rooms and settings belong to, so nothing is lost and nothing is rewritten.
+  The token requirement starts off, so programs that are already connected
+  keep working. A one-time notice and the banner tell the owner.
+- **From Clerk mode.** The install runs as before, with Clerk sign-in and
+  Clerk tokens on the Source API, until the owner moves it to the built-in
+  account through the setup link or `hybro owner create`.
+  - The new account takes over the identity listed in
+    `backend.admin_user_ids`. If several are listed, the owner chooses one.
+  - What other users stored stays in the database, unchanged and not shown.
+    Nothing is deleted or rewritten.
+  - The token requirement starts on, because the install required a
+    credential before. Programs that sent a Clerk token need a source token.
+- No upgrade leaves an install more open than it was. A fresh install starts
+  with the token requirement on.
 
 **Done when.**
 
-- Each Step records a verified source.
-- A source on another machine can send a step and read its result with
-  authentication, and a remote request without it is refused.
-- The documents say what an MCP client can do from another machine.
+- Each Step records the source that sent it: a source with a token, or
+  "No token" while the owner has the requirement off.
+- A source on another machine can send a step and read its result with its
+  token. Without a token the request is refused, unless the owner turned the
+  requirement off.
+- The Panel and every route need the owner's sign-in, except the Source API
+  and the agent-facing routes and `/health` named above. A source token opens
+  only the Source API.
+- A revoked token is refused whether the requirement is on or off.
+- The owner account can be created only through the setup link or
+  `hybro owner create`, and only while none exists.
+- An install upgraded from mock mode keeps its data, and its connected
+  programs keep working. An install moved from Clerk mode keeps the chosen
+  admin's data and requires a source token.
+- The functional tests create the owner with `hybro owner create`.
+- An MCP client can connect from another machine with a source token, and the
+  documents say so.
 
-**Carried from phase 1.** Decided together with authentication:
+**Carried from phase 1.** Where each item ends:
 
-- the five `clerk_*` frontend fields and `clerk_webhook_secret`
-- the signed-out frontend surface: `/sign-in`, `/sign-up`, the redirect
-  branches, the signed-out header and the account dialog
-- `server_url` in the frontend public configuration
-- `enable_waitlist`
-- the direct `pyjwt` dependency
+- the five `clerk_*` frontend fields, `clerk_webhook_secret`, `enable_waitlist`
+  and the direct `pyjwt` dependency: retired with Clerk mode, in item 7
+- the signed-out frontend surface: `/sign-in` becomes the owner's sign-in, and
+  `/sign-up` becomes the setup page or is removed; the redirect branches, the
+  signed-out header and the account dialog serve the owner account
+- `server_url` in the frontend public configuration: still open. Whether the
+  frontend needs it is decided when the owner account is built.
 
-**What stays the same.** The routes and MCP tools that exist today. A change to
-how a client connects follows the deprecation rule above, and so does a change
-to the sign-in pages carried from phase 1.
+**What stays the same.** The `/sessions` routes and the MCP tools, with their
+request and response shapes. What changes for a user: the Panel asks for
+sign-in on every install, and a fresh install asks a program for a token. A
+change to how a client connects follows the deprecation rule above.
 
 ## Phase 3: Owner check rules and the step view
 
@@ -190,9 +299,10 @@ what each step did.
    cannot be done, the rules apply to steps from the Source API only, and the
    Rules page says so until phase 4.
 3. **The grant.** The owner can grant one source the right to answer permission
-   questions. It relies on the verified source of phase 2. It also adds the
-   first way for a source to answer a Question through the Source API, for
-   permission questions only. Information questions follow in phase 4.
+   questions. It relies on the source tokens of phase 2, and it can never be
+   given to the "No token" source. It also adds the first way for a source to
+   answer a Question through the Source API, for permission questions only.
+   Information questions follow in phase 4.
 4. **The Rules page** in the Panel, with the check rules.
 5. **The step view.** The Sessions page shows each step's input, output and
    timing. Until phase 4 it covers sessions from the Source API only, because
@@ -350,8 +460,14 @@ In this order:
    - A user writes a Standard and checks it against the current run.
    - The Panel gets the Evaluation page.
 
-Later, with no fixed place yet: event sources such as CI, chat apps and
-notifications, and timers that start work.
+Later, with no fixed place yet:
+
+- event sources such as CI, chat apps and notifications, and timers that start
+  work
+- built-in HTTPS: the image's Caddy obtains and renews a certificate for a
+  domain the owner names
+- the MCP specification's own authorization flow, for MCP clients that cannot
+  send a fixed token
 
 ## Phase 7: The enterprise edition
 
@@ -366,11 +482,14 @@ community edition does.
 2. **The license key** that turns the enterprise features on.
 3. **The features**, each behind a small hook in the community code:
    - access rules and roles: who may use which agent or item. An access rule
-     that matches on a source relies on the verified source of phase 2.
+     that matches on a source needs a source with a token and can never
+     match "No token".
    - several approvers, and approval by role
    - saved standards that run on every step, with results over time
    - audit across sessions, and export
-   - users, teams and single sign-on
+   - more users, members with fewer rights, teams and single sign-on. Sign-in
+     for these is designed here; it does not assume the Clerk mode that phase
+     2 retires.
 
 **Done when.**
 
