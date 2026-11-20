@@ -296,6 +296,8 @@ hybro logs --service backend --level warning   # one program, warnings and worse
 hybro logs --trace <id>      # one request: its X-Request-ID or trace id
 hybro doctor                 # check a running Hybro and list its problems
 hybro doctor --bundle        # write a diagnostics archive to attach to a report
+hybro owner create --name "Ada" --email ada@example.com   # create the owner account
+hybro owner reset-password   # set a new password and sign out every browser
 hybro stop                   # stop; data stays in the volume
 hybro upgrade                # newest release, its image, and any 0.3 migration
 hybro version
@@ -327,6 +329,19 @@ of the backend, MCP and Caddy; it also works while Hybro is stopped, with the
 log lines only. On an older image, run `hybro doctor --bundle` before stopping
 Hybro, because the next start removes the old container and its logs. Records were redacted when they were logged and plain-text lines
 are redacted by pattern, so review the archive before sharing it.
+
+`hybro owner create` creates the owner account of a running Hybro, once;
+`hybro owner reset-password` sets a new password for it and signs out every
+browser. Both ask for the password twice with echo off, or read it from the
+first line of standard input when that is not a terminal
+(`printf '%s\n' "$PASSWORD" | hybro owner reset-password`); the password is
+never a command-line option. It needs 8 to 1,024 characters. When
+`backend.auth_mode` is `clerk` and `backend.admin_user_ids` lists several ids,
+`create` names them and takes `--owner-id <id>`. They exit 0 when done, 1 when
+refused with nothing changed (the account exists, no account yet, an invalid
+field or password), and 2 when they could not run or the outcome is unknown
+(a server error or no answer within 30 seconds). The Panel does not ask for
+this account yet.
 
 ## Configuration
 

@@ -1602,6 +1602,30 @@ updates and the release workflow compares with the tag.
   entrypoint, supervisord), drops `frontend`, `mongod` and `agent-*` lines and
   counts both per program in the manifest; a kept line that is not a JSON
   object goes through `sanitize_text`. The token is in no file of the bundle.
+- **Owner.** `hybro owner create --name <name> --email <email> [--owner-id
+  <id>]` and `hybro owner reset-password` check the flags (a usage error
+  exits 2 before Docker is used), that the container is running and that it
+  has `/app/backend/owner_cli.py` (else exit 2: not running, or an older
+  image), and then read the password: on a terminal it is asked twice with
+  `stty -echo` (the terminal's settings are restored, also on HUP, INT, QUIT
+  and TERM), and otherwise it is the first line of standard input. The script
+  holds it in an unexported shell variable (`unset` first, so a `PASSWORD`
+  the user exported cannot carry it into a child's environment) and writes it
+  with the `printf` builtin into `docker exec -i` of the helper, so it is in
+  no process's arguments or environment. A `docker exec` status other than
+  0, 1 or 2 exits 2. The helper, standard
+  library only, reads the first line of its stdin, refuses a password outside
+  8 to 1,024 characters before any request, reads `base_url` and the token
+  from `/tmp/hybro/machine.json`, and POSTs to `/machine/owner` or
+  `/machine/owner/password` with `X-Hybro-Machine-Token`, a 30 s timeout and
+  no proxy. It prints the backend's fixed refusal text with a next step
+  (`reset-password` after `account_exists`, `create` after `no_account`, the
+  choices and `--owner-id` after `owner_id_required`) and never the password
+  or the token. Exit status 0 done, 1 refused with nothing changed, 2 could
+  not run or the outcome is unknown (handoff file missing, backend
+  unreachable, machine token refused, a 5xx or unexpected answer, no answer
+  within the timeout, after which the change may have applied). The setup link
+  is not printed yet.
 - **Tests.** `scripts/test_hybro_cli.py` runs the script and `install.sh` under
   sh, dash, and busybox sh against stub `docker`, `curl`, and `npm` (the
   `Shell CLI CI` job, with shellcheck).
@@ -1846,7 +1870,9 @@ owner's cookie and a bearer token open nothing here.
 checkout, where no token exists and the routes refuse every request. The token
 is added to the public-text sanitizer's secret values. Caddy answers the path
 with 404, so only a process inside the container reaches these routes, on
-`127.0.0.1:8000`. No `hybro` command calls them yet.
+`127.0.0.1:8000`. `hybro owner create` and `hybro owner reset-password` call
+the last two through `owner_cli.py` (see "Shell CLI"); nothing calls
+`/setup-code` yet.
 
 #### Requests from other websites
 

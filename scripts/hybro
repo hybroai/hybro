@@ -83,6 +83,7 @@ Commands:
   status        Show whether Hybro is running and its address
   logs          Show Hybro's logs; docker logs options such as -f pass through
   doctor        Check a running Hybro and list its problems
+  owner         Create the owner account or set a new password for it
   upgrade       Install the latest release, update the image, migrate 0.3 data
   cleanup-old   Remove the Hybro 0.3 containers, volumes, and images
   version       Print the version
@@ -111,6 +112,18 @@ Doctor options:
   --output <file>       Archive path for --bundle (default
                         hybro-diagnostics-<UTC time>.tar.gz here)
   Exit status: 0 no problems, 1 problems found, 2 the check could not run.
+
+Owner commands (Hybro must be running):
+  owner create          Create the owner account, once
+  owner reset-password  Set a new password and sign out every browser
+  --name <name>         The owner's name (create)
+  --email <email>       The email address to sign in with (create)
+  --owner-id <id>       Which administrator the account takes over, when
+                        backend.auth_mode is clerk and several are listed
+  The password is asked twice with echo off, or read from the first line of
+  standard input when that is not a terminal; it is never an option.
+  Exit status: 0 done, 1 refused (nothing was changed), 2 the command could
+  not run or its outcome is unknown.
 
 Upgrade options:
   --check               Only report whether a newer release exists
@@ -801,6 +814,142 @@ cmd_doctor() {
     esac
 }
 
+OWNER_HELPER=/app/backend/owner_cli.py
+
+# A usage error of hybro owner: exit 2 before Docker is used.
+owner_usage() {
+    err "$*"
+    usage >&2
+    exit 2
+}
+
+# Exits 2 unless the running container has the helper; an older image does not.
+require_owner_helper() {
+    (require_docker) || exit 2
+    state=$(container_state)
+    if [ "$state" != running ]; then
+        err "Hybro is not running${state:+ (container $CONTAINER is $state)}. Start it with: $CLI"
+        exit 2
+    fi
+    docker exec "$CONTAINER" test -f "$OWNER_HELPER" && return 0
+    err "this container runs an older image without the owner commands. Run $CLI stop, then $CLI start"
+    exit 2
+}
+
+# Sets PASSWORD: asked twice with echo off on a terminal, else the first line
+# of standard input. It is kept in the shell and only ever reaches printf, a
+# builtin, so it is in no process's arguments. unset first: a variable the
+# user's shell exported stays exported after an assignment, and would carry
+# the password into the environment of every command run here.
+read_password() {
+    unset PASSWORD repeat
+    PASSWORD=
+    if [ -t 0 ]; then
+        if ! tty_state=$(stty -g); then
+            err "cannot read the terminal's settings"
+            exit 2
+        fi
+        trap 'stty "$tty_state"; printf "\n" >&2; exit 129' HUP
+        trap 'stty "$tty_state"; printf "\n" >&2; exit 130' INT
+        trap 'stty "$tty_state"; printf "\n" >&2; exit 131' QUIT
+        trap 'stty "$tty_state"; exit 143' TERM
+        if ! stty -echo; then
+            err "cannot turn off the terminal's echo"
+            exit 2
+        fi
+        printf 'New password: ' >&2
+        IFS= read -r PASSWORD
+        printf '\nRepeat the password: ' >&2
+        repeat=
+        IFS= read -r repeat
+        stty "$tty_state"
+        trap - HUP INT QUIT TERM
+        printf '\n' >&2
+        [ "$PASSWORD" = "$repeat" ] ||
+            die "the passwords do not match; nothing was changed"
+        repeat=
+    else
+        IFS= read -r PASSWORD
+    fi
+    [ -n "$PASSWORD" ] ||
+        die "no password given: type it at the prompt, or send it on standard input; nothing was changed"
+}
+
+# owner_helper <helper arguments>: runs the helper with the password on stdin.
+# 0, 1 and 2 are the helper's answers; any other status is docker exec's own
+# failure, so the command could not run.
+owner_helper() {
+    read_password
+    printf '%s\n' "$PASSWORD" |
+        docker exec -i "$CONTAINER" "$DIAG_PYTHON" "$OWNER_HELPER" "$@"
+    status=$?
+    PASSWORD=
+    case $status in
+    0 | 1 | 2) return "$status" ;;
+    *) exit 2 ;;
+    esac
+}
+
+cmd_owner() {
+    action=${1:-}
+    [ $# -eq 0 ] || shift
+    case $action in
+    create)
+        name="" email="" owner_id="" owner_id_given=0
+        while [ $# -gt 0 ]; do
+            case $1 in
+            --name | --email | --owner-id)
+                [ $# -ge 2 ] || owner_usage "$1 needs a value"
+                value=$2
+                flag=$1
+                shift
+                ;;
+            --name=* | --email=* | --owner-id=*)
+                value=${1#*=}
+                flag=${1%%=*}
+                ;;
+            -h | --help)
+                usage
+                exit 0
+                ;;
+            *) owner_usage "unknown owner create option: $1" ;;
+            esac
+            [ -n "$value" ] || owner_usage "$flag needs a value"
+            case $flag in
+            --name) name=$value ;;
+            --email) email=$value ;;
+            --owner-id)
+                owner_id=$value
+                owner_id_given=1
+                ;;
+            esac
+            shift
+        done
+        [ -n "$name" ] && [ -n "$email" ] || owner_usage "owner create needs --name and --email"
+        set -- create --name "$name" --email "$email"
+        [ "$owner_id_given" = 1 ] && set -- "$@" --owner-id "$owner_id"
+        ;;
+    reset-password)
+        case ${1:-} in
+        -h | --help)
+            usage
+            exit 0
+            ;;
+        esac
+        [ $# -eq 0 ] || owner_usage "owner reset-password takes no options"
+        set -- reset-password
+        ;;
+    -h | --help)
+        usage
+        exit 0
+        ;;
+    '') owner_usage "owner needs a command: create or reset-password" ;;
+    *) owner_usage "unknown owner command: $action" ;;
+    esac
+    require_owner_helper
+    owner_helper "$@"
+}
+
 sha256_of() {
     if command -v sha256sum >/dev/null 2>&1; then
         sha256sum "$1" | awk '{ print $1 }'
@@ -1027,6 +1176,7 @@ stop) cmd_stop "$@" ;;
 status) cmd_status "$@" ;;
 logs) cmd_logs "$@" ;;
 doctor) cmd_doctor "$@" ;;
+owner) cmd_owner "$@" ;;
 upgrade) cmd_upgrade "$@" ;;
 cleanup-old) cmd_cleanup_old "$@" ;;
 version) say "hybro $HYBRO_VERSION" ;;

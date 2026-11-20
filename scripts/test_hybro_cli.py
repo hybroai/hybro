@@ -70,6 +70,7 @@ def helper():
         sys.exit(1)
     if "-i" in args:
         state["exec_stdin"] = sys.stdin.read()
+        state["exec_env"] = dict(os.environ)
     if state.get("exec_stops") in containers:
         containers[state["exec_stops"]]["status"] = "exited"
     if state.get("exec_removes") in containers:
@@ -283,7 +284,7 @@ class Cli:
             **extra,
         }
 
-    def run(self, *args: str, script: Path | None = None, **env: str):
+    def run(self, *args: str, script: Path | None = None, input: str | None = None, **env: str):
         self.state_path.write_text(json.dumps(self.state))
         self.calls_path.write_text("")
         result = subprocess.run(
@@ -291,6 +292,7 @@ class Cli:
             env=self.env(**env),
             capture_output=True,
             text=True,
+            input=input,
             timeout=30,
             # A private directory, so the default bundle names cannot collide.
             cwd=self.tmp,
@@ -1396,10 +1398,248 @@ def test_install_script_is_valid_posix_sh():
 
 def test_help_lists_every_command():
     text = subprocess.run(["sh", str(SCRIPT), "help"], capture_output=True, text=True).stdout
-    for command in ("start", "stop", "status", "logs", "doctor", "upgrade", "cleanup-old", "version"):
+    for command in (
+        "start", "stop", "status", "logs", "doctor", "owner", "upgrade", "cleanup-old", "version",
+        "owner create", "owner reset-password",
+    ):
         assert f"\n  {command} " in text
-    for option in ("--service", "--level", "--trace", "--bundle", "--json", "--output"):
+    for option in ("--service", "--level", "--trace", "--bundle", "--json", "--output", "--name", "--email", "--owner-id"):
         assert f"\n  {option} " in text
+
+
+# ---- owner ----
+
+OWNER_HELPER = "/app/backend/owner_cli.py"
+SECRET = "test-only pass phrase"
+
+
+def owner_runs(cli: Cli) -> list[list[str]]:
+    return [call for call in cli.calls() if OWNER_HELPER in call and call[-2:] != ["-f", OWNER_HELPER]]
+
+
+def assert_secret_in_no_argument(cli: Cli) -> None:
+    assert SECRET not in cli.calls_path.read_text()
+
+
+@pytest.mark.parametrize(
+    "args",
+    [
+        ["--name", "Ada Lovelace", "--email", "ada@example.com"],
+        ["--email=ada@example.com", "--name=Ada Lovelace"],
+    ],
+)
+def test_owner_create_sends_the_password_on_stdin_only(cli, args):
+    container(cli)
+    cli.state["exec_out"] = "Created the owner account for ada@example.com.\n"
+    result = cli.run("owner", "create", *args, input=SECRET + "\n")
+    assert result.returncode == 0, cli.output
+    assert result.stdout == cli.state["exec_out"]
+    calls = cli.calls()
+    probe = ["exec", "hybro", "test", "-f", OWNER_HELPER]
+    run = ["exec", "-i", "hybro", PYTHON, OWNER_HELPER, "create", "--name", "Ada Lovelace", "--email", "ada@example.com"]
+    assert calls.index(probe) < calls.index(run)
+    assert owner_runs(cli) == [run]
+    assert cli.state["exec_stdin"] == SECRET + "\n"
+    assert_secret_in_no_argument(cli)
+    assert SECRET not in cli.output
+
+
+def test_owner_create_passes_the_owner_id(cli):
+    container(cli)
+    result = cli.run(
+        "owner", "create", "--name", "Ada", "--email", "ada@example.com", "--owner-id", "user_2",
+        input=SECRET + "\n",
+    )
+    assert result.returncode == 0, cli.output
+    assert owner_runs(cli)[0][-2:] == ["--owner-id", "user_2"]
+
+
+def test_owner_reset_password_sends_the_password_on_stdin_only(cli):
+    container(cli)
+    cli.state["exec_out"] = "Set the new password and signed out every browser.\n"
+    result = cli.run("owner", "reset-password", input=SECRET + "\n")
+    assert result.returncode == 0, cli.output
+    assert owner_runs(cli) == [["exec", "-i", "hybro", PYTHON, OWNER_HELPER, "reset-password"]]
+    assert cli.state["exec_stdin"] == SECRET + "\n"
+    assert "signed out every browser" in result.stdout
+    assert_secret_in_no_argument(cli)
+
+
+def test_owner_password_never_reaches_an_environment(cli):
+    container(cli)
+    result = cli.run("owner", "reset-password", input=SECRET + "\n", PASSWORD="exported by the user")
+    assert result.returncode == 0, cli.output
+    assert cli.state["exec_stdin"] == SECRET + "\n"
+    assert SECRET not in json.dumps(cli.state["exec_env"])
+
+
+@pytest.mark.parametrize("code", [125, 126, 127])
+def test_owner_docker_exec_failure_exits_2(cli, code):
+    container(cli)
+    cli.state["exec_exit"] = code
+    assert cli.run("owner", "reset-password", input=SECRET + "\n").returncode == 2
+
+
+@pytest.mark.parametrize(("stdin", "sent"), [("  spaced\\pass  \n", "  spaced\\pass  \n"), ("no-newline", "no-newline\n"), ("first\nsecond\n", "first\n")])
+def test_owner_password_from_stdin_is_the_first_line_unchanged(cli, stdin, sent):
+    container(cli)
+    assert cli.run("owner", "reset-password", input=stdin).returncode == 0, cli.output
+    assert cli.state["exec_stdin"] == sent
+
+
+@pytest.mark.parametrize("stdin", ["", "\n"])
+def test_owner_without_a_password_changes_nothing(cli, stdin):
+    container(cli)
+    result = cli.run("owner", "reset-password", input=stdin)
+    assert result.returncode == 1
+    assert "no password" in result.stderr
+    assert owner_runs(cli) == []
+
+
+@pytest.mark.parametrize("code", [1, 2])
+def test_owner_passes_the_helper_exit_status_through(cli, code):
+    container(cli)
+    cli.state["exec_exit"] = code
+    result = cli.run("owner", "reset-password", input=SECRET + "\n")
+    assert result.returncode == code
+
+
+@pytest.mark.parametrize(
+    "args",
+    [
+        [],
+        ["frobnicate"],
+        ["create"],
+        ["create", "--name", "Ada"],
+        ["create", "--email", "ada@example.com"],
+        ["create", "--name", "", "--email", "ada@example.com"],
+        ["create", "--name", "Ada", "--email"],
+        ["create", "--name", "Ada", "--email", "a@b.co", "--password", "x"],
+        ["create", "--name", "Ada", "--email", "a@b.co", "--owner-id="],
+        ["reset-password", "--force"],
+    ],
+)
+def test_owner_usage_errors_exit_2_before_docker(cli, args):
+    container(cli)
+    result = cli.run("owner", *args, input=SECRET + "\n")
+    assert result.returncode == 2, cli.output
+    assert cli.calls() == []
+    assert "Usage:" in result.stderr
+
+
+def test_owner_help(cli):
+    result = cli.run("owner", "--help")
+    assert result.returncode == 0 and "owner create" in result.stdout
+    assert cli.calls() == []
+
+
+@pytest.mark.parametrize("case", ["no_container", "stopped", "older_image"])
+def test_owner_needs_a_running_container_with_the_helper(cli, case):
+    if case == "stopped":
+        container(cli, "exited")
+    elif case == "older_image":
+        container(cli)
+        cli.state["helper_missing"] = True
+    else:
+        cli.state["containers"] = {}
+    result = cli.run("owner", "reset-password", input=SECRET + "\n")
+    assert result.returncode == 2
+    assert owner_runs(cli) == []
+    assert "exec_stdin" not in cli.state
+    expected = {
+        "no_container": "Hybro is not running. Start it with: hybro",
+        "stopped": "Hybro is not running (container hybro is exited). Start it with: hybro",
+        "older_image": "older image",
+    }[case]
+    assert expected in result.stderr
+    if case == "older_image":
+        assert "hybro stop" in result.stderr and "hybro start" in result.stderr
+
+
+def _prompted(cli: Cli, *lines: str, signal_at_prompt: int | None = None, stty_fails: str | None = None):
+    """Runs `hybro owner reset-password` on a terminal and types each line after
+    its prompt; returns the process, its stderr, what the terminal echoed, and
+    whether echo is on once it exits."""
+    import select
+    import termios
+
+    stty = shutil.which("stty")
+    assert stty
+    if stty_fails is None:
+        (cli.tools / "stty").symlink_to(stty)
+    else:
+        # The real stty, except that the given option fails.
+        (cli.tools / "stty").write_text(f'#!/bin/sh\n[ "$1" = {stty_fails} ] && exit 1\nexec {stty} "$@"\n')
+        (cli.tools / "stty").chmod(0o755)
+    container(cli)
+    cli.state_path.write_text(json.dumps(cli.state))
+    cli.calls_path.write_text("")
+    master, slave = os.openpty()
+    # Not in a new session: there, macOS's sh left the terminal refusing
+    # tcgetattr once it exited.
+    process = subprocess.Popen(
+        [*cli.shell, str(cli.script), "owner", "reset-password"],
+        env=cli.env(),
+        cwd=cli.tmp,
+        stdin=slave,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+    )
+    stderr = b""
+    echoed = b""
+    deadline = time.monotonic() + 15
+    for line in lines:
+        prompts = stderr.count(b": ")
+        while stderr.count(b": ") == prompts:
+            assert time.monotonic() < deadline, stderr
+            assert process.poll() is None, stderr
+            ready, _, _ = select.select([process.stderr], [], [], 0.1)
+            if ready:
+                stderr += os.read(process.stderr.fileno(), 1024)
+        os.write(master, line.encode() + b"\n")
+    if signal_at_prompt is not None:
+        while b": " not in stderr:
+            assert time.monotonic() < deadline, stderr
+            assert process.poll() is None, stderr
+            ready, _, _ = select.select([process.stderr], [], [], 0.1)
+            if ready:
+                stderr += os.read(process.stderr.fileno(), 1024)
+        os.kill(process.pid, signal_at_prompt)
+    out, rest = process.communicate(timeout=15)
+    stderr += rest
+    while select.select([master], [], [], 0.2)[0]:
+        try:
+            chunk = os.read(master, 1024)
+        except OSError:
+            break
+        if not chunk:
+            break
+        echoed += chunk
+    echo_on = bool(termios.tcgetattr(slave)[3] & termios.ECHO)
+    os.close(master)
+    os.close(slave)
+    cli.state = json.loads(cli.state_path.read_text())
+    return process, out.decode(), stderr.decode(), echoed.decode(), echo_on
+
+
+def test_owner_prompts_twice_with_echo_off(cli):
+    process, _, stderr, echoed, echo_on = _prompted(cli, SECRET, SECRET)
+    assert process.returncode == 0, stderr
+    assert SECRET not in echoed and SECRET not in stderr
+    assert echo_on
+    assert stderr.count("assword") == 2
+    assert cli.state["exec_stdin"] == SECRET + "\n"
+    assert_secret_in_no_argument(cli)
+
+
+def test_owner_prompt_refuses_passwords_that_differ(cli):
+    process, _, stderr, echoed, echo_on = _prompted(cli, SECRET, SECRET + "x")
+    assert process.returncode == 1
+    assert "do not match" in stderr
+    assert SECRET not in echoed
+    assert echo_on
+    assert "exec_stdin" not in cli.state
+    assert owner_runs(cli) == []
 
 
 # ---- install.sh ----
@@ -1488,3 +1728,25 @@ def test_fresh_validates_flags_before_removing_an_unfinished_volume(cli):
     result = cli.run("--fresh", "--port", "abc")
     assert result.returncode != 0
     assert "hybro-data" in cli.state["volumes"]
+
+
+@pytest.mark.parametrize(
+    ("sig", "code"),
+    [(signal.SIGINT, 130), (signal.SIGTERM, 143), (signal.SIGHUP, 129), (signal.SIGQUIT, 131)],
+    ids=["INT", "TERM", "HUP", "QUIT"],
+)
+def test_owner_prompt_restores_the_terminal_on_a_signal(cli, sig, code):
+    process, _, stderr, _, echo_on = _prompted(cli, signal_at_prompt=sig)
+    assert process.returncode == code, stderr
+    assert echo_on
+    assert owner_runs(cli) == []
+
+
+@pytest.mark.parametrize("option", ["-g", "-echo"])
+def test_owner_prompt_that_cannot_set_the_terminal_exits_2(cli, option):
+    process, _, stderr, _, echo_on = _prompted(cli, stty_fails=option)
+    assert process.returncode == 2, stderr
+    assert "terminal" in stderr
+    assert echo_on
+    assert owner_runs(cli) == []
+    assert "exec_stdin" not in cli.state
