@@ -1,4 +1,4 @@
-"""HTTP admission/body-limit regressions without providers or application startup."""
+"""Body-size and admission middleware regressions on a minimal application."""
 
 import asyncio
 import json
@@ -8,21 +8,16 @@ import httpx
 import pytest
 from fastapi import FastAPI, UploadFile
 
-from api_gateway.dependencies import get_direct_agent_execution
-from common.auth import ClerkUser, get_current_user
+from common.middleware.request_concurrency import RequestConcurrencyLimitMiddleware
 from common.middleware.request_size import RequestBodyLimitMiddleware
-from main import AGENT_MESSAGE_MAX_BYTES, create_app
-from models.agent_network import AgentMessageRequest, AgentMessageResponse
 
-PATH = "/api/v1/agents/messages"
+PATH = "/api/v1/limited"
+MAX_BYTES = 64 * 1024
+MAX_CONCURRENT = 4
 
 
 def message_body(request_id: str = "request", text: str = "Hello") -> dict:
-    return {
-        "agent_id": "reviewer",
-        "client_request_id": request_id,
-        "message": {"parts": [{"kind": "text", "text": text}]},
-    }
+    return {"client_request_id": request_id, "text": text}
 
 
 def sized_body(size: int) -> bytes:
@@ -43,24 +38,28 @@ class ExecutionStub:
         self.release.set()
         self.error = False
 
-    async def send(self, request: AgentMessageRequest) -> AgentMessageResponse:
-        self.started.put_nowait(request.client_request_id)
+    async def send(self, body: dict) -> dict:
+        self.started.put_nowait(body["client_request_id"])
         if self.error:
             raise RuntimeError("execution failed")
         await self.release.wait()
-        return AgentMessageResponse(
-            agent_id=request.agent_id,
-            client_request_id=request.client_request_id,
-            result={"kind": "message", "parts": [{"kind": "text", "text": "OK"}]},
-        )
+        return {"client_request_id": body["client_request_id"]}
 
 
 def make_app():
+    """Mirror the production order: admission wraps the body limit."""
     execution = ExecutionStub()
-    app = create_app()
-    app.dependency_overrides[get_direct_agent_execution] = lambda: execution
-    app.dependency_overrides[get_current_user] = lambda: ClerkUser(
-        user_id="owner", session_id="session", claims={}
+    app = FastAPI()
+
+    @app.post(PATH)
+    async def limited(body: dict):
+        return await execution.send(body)
+
+    app.add_middleware(
+        RequestBodyLimitMiddleware, path=PATH, method="POST", max_bytes=MAX_BYTES
+    )
+    app.add_middleware(
+        RequestConcurrencyLimitMiddleware, path=PATH, max_concurrent=MAX_CONCURRENT
     )
     return app, execution
 
@@ -102,7 +101,7 @@ async def test_declared_oversize_rejected_before_execution(mount, suffix):
         response = await client.post(
             mount + PATH + suffix,
             content=b"",
-            headers={"Content-Length": str(AGENT_MESSAGE_MAX_BYTES + 1)},
+            headers={"Content-Length": str(MAX_BYTES + 1)},
         )
     assert response.status_code == 413
     assert execution.started.empty()
@@ -117,7 +116,7 @@ async def test_streamed_oversize_is_413_not_parser_error(declared_length):
     async with client_for(app) as client:
         response = await client.post(
             PATH,
-            content=chunks(sized_body(AGENT_MESSAGE_MAX_BYTES + 1)),
+            content=chunks(sized_body(MAX_BYTES + 1)),
             headers=headers,
         )
     assert response.status_code == 413
@@ -129,7 +128,7 @@ async def test_exact_body_limit_still_executes_and_preserves_request_id():
     async with client_for(app) as client:
         response = await client.post(
             PATH,
-            content=chunks(sized_body(AGENT_MESSAGE_MAX_BYTES)),
+            content=chunks(sized_body(MAX_BYTES)),
             headers={"Content-Type": "application/json"},
         )
     assert response.status_code == 200
@@ -199,7 +198,7 @@ async def test_disconnect_during_body_receive_restores_admission():
     app, execution = make_app()
     incoming = iter(
         [
-            {"type": "http.request", "body": b'{"agent_id":', "more_body": True},
+            {"type": "http.request", "body": b'{"text":', "more_body": True},
             {"type": "http.disconnect"},
         ]
     )
@@ -245,7 +244,7 @@ async def test_admission_includes_incomplete_bodies_and_rejection_frees_slot():
     async def incomplete_body():
         receiving.put_nowait(True)
         await finish.wait()
-        yield sized_body(AGENT_MESSAGE_MAX_BYTES + 1)
+        yield sized_body(MAX_BYTES + 1)
 
     async with client_for(app) as client:
         requests = [
@@ -288,7 +287,7 @@ async def test_limits_do_not_intercept_other_methods_or_neighbor_paths():
                     method,
                     path,
                     content=b"",
-                    headers={"Content-Length": str(AGENT_MESSAGE_MAX_BYTES + 1)},
+                    headers={"Content-Length": str(MAX_BYTES + 1)},
                 )
                 assert response.status_code == 200
                 assert response.json() == {"unaffected": True}

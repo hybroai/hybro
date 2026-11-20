@@ -677,7 +677,6 @@ def test_route_owner_protocols_match_handler_calls():
         RoomRouteReader,
         SSEStateReader,
     )
-    from execution.ports import DirectAgentMessenger
     from session.protocols import SessionAccess
 
     expected_by_protocol = {
@@ -716,7 +715,6 @@ def test_route_owner_protocols_match_handler_calls():
             "resolve_target",
             "search",
         },
-        DirectAgentMessenger: {"send"},
         SessionAccess: {"check", "close", "get_record", "list_sessions", "send"},
         RoomRouteReader: {"get_room_by_room_id"},
         SSEStateReader: {

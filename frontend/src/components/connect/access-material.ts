@@ -22,9 +22,11 @@ export function buildAccessMaterial(kind: AccessKind, url: string, apiPrefix: st
   const findCall = `find_agents({"query": "<capability keywords>"${subnetField}})`
   const sendSubnetField = scope ? `,\n  "subnet_id": ${JSON.stringify(scope.id)}` : ''
   const sendCall = `send_message({\n  "agent_id": "<agent_id from find_agents>",\n  "text": "Your task"${sendSubnetField}\n})`
-  const groupField = scope ? `,\n  "group_id": ${JSON.stringify(scope.id)}` : ''
-  const messageBody = `{\n  "agent_id": "<agent_id from search or discovery>",\n  "message": {"parts": [{"kind": "text", "text": "Your task"}]}${groupField}\n}`
-  const messageRequest = `curl --request POST \\\n  ${shellQuote(`${base}${apiPrefix}/agents/messages`)} \\\n  --header 'Content-Type: application/json' \\\n  --data ${shellQuote(messageBody)}`
+  const messagePath = `${apiPrefix}/sessions/messages`
+  // Without session_id the send opens a session; client_label names the caller.
+  const messageBody = `{\n  "agent_id": "<agent_id from search or discovery>",\n  "text": "Your task",\n  "client_request_id": "<unique id for this message>",\n  "client_label": "<name of your program>"${sendSubnetField}\n}`
+  const messageRequest = `curl --request POST \\\n  ${shellQuote(`${base}${messagePath}`)} \\\n  --header 'Content-Type: application/json' \\\n  --data ${shellQuote(messageBody)}`
+  const checkRequest = `curl --request GET \\\n  ${shellQuote(`${base}${apiPrefix}/sessions/<session_id from the receipt>`)}`
 
   const configuration = kind === 'mcp' ? buildMcpConfig(url) : discoveryRequest
   const searchScope = scope ? ` \\
@@ -33,11 +35,11 @@ export function buildAccessMaterial(kind: AccessKind, url: string, apiPrefix: st
   --data-urlencode 'query=<capability keywords>'${searchScope} \\
   ${shellQuote(`${base}${apiPrefix}/agents/search`)}`
   const checkCall = 'check_session({"session_id": "<session_id from send_message>"})'
-  const toolCalls = kind === 'mcp' ? `${findCall}\n\n${sendCall}\n\n${checkCall}` : messageRequest
+  const toolCalls = kind === 'mcp' ? `${findCall}\n\n${sendCall}\n\n${checkCall}` : `${messageRequest}\n\n${checkRequest}`
   const scopeLine = scope
     ? kind === 'mcp'
       ? `Scope requests to the "${scope.name}" subnet: pass subnet_id "${scope.id}" on every find_agents, discover_agents and send_message call, and keep the same subnet_id within a session. Scope is a per-call argument, not part of the connection.`
-      : `Scope requests to the "${scope.name}" subnet: use GET ${discoveryPath}?group_id=${scope.id} and include "group_id": "${scope.id}" in every POST ${apiPrefix}/agents/messages body.`
+      : `Scope requests to the "${scope.name}" subnet: use GET ${discoveryPath}?group_id=${scope.id} and include "subnet_id": "${scope.id}" in every POST ${messagePath} body.`
     : kind === 'mcp'
       ? `After connecting, call list_subnets({}) to see subnets and ${findCall} to find the best agents for a task.`
       : `Use GET ${discoveryPath} without group_id to discover all visible active agents.`

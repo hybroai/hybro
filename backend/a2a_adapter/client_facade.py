@@ -23,7 +23,7 @@ from typing import Any
 import httpx
 from a2a.client import A2ACardResolver as SDKCardResolver
 from a2a.client import Client, ClientConfig, ClientFactory
-from a2a.client.errors import A2AClientError, A2AClientTimeoutError
+from a2a.client.errors import A2AClientError
 from a2a.types import AgentCard, SendMessageRequest
 from a2a.utils.errors import JSON_RPC_ERROR_CODE_MAP, A2AError
 from google.protobuf.json_format import ParseError
@@ -154,9 +154,8 @@ async def send_message(
     push_notification_config: dict[str, Any] | None = None,
     blocking: bool = True,
     timeout: float = 600.0,
-    allow_docker_host_fallback: bool = True,
 ) -> dict[str, Any]:
-    """Send once, optionally retrying through the Docker-host URL fallback.
+    """Send once, retrying through the Docker-host URL fallback.
 
     ``registered_url`` is the address the agent was registered at; it decides
     which card destinations may be dialed (see ``address_policy``). Pass the
@@ -187,15 +186,12 @@ async def send_message(
                 accepted_output_modes=accepted_output_modes,
                 push_notification_config=push_notification_config,
             )
-            if allow_docker_host_fallback:
-                response = await with_docker_host_fallback(
-                    card,
-                    lambda candidate: _send_once(
-                        _create_client(candidate, config), request
-                    ),
-                )
-            else:
-                response = await _send_once(_create_client(card, config), request)
+            response = await with_docker_host_fallback(
+                card,
+                lambda candidate: _send_once(
+                    _create_client(candidate, config), request
+                ),
+            )
         normalized = _normalize_response(response)
     except A2AError as exc:
         if not is_protocol_error(exc):
@@ -423,13 +419,6 @@ def is_protocol_error(exc: BaseException) -> bool:
     return isinstance(exc, A2AError) and not isinstance(exc, A2AClientError)
 
 
-def is_timeout_error(exc: BaseException) -> bool:
-    """Recognize HTTP timeouts both before and after SDK transport wrapping."""
-    return isinstance(
-        exc, (TimeoutError, httpx.TimeoutException, A2AClientTimeoutError)
-    )
-
-
 def _protocol_error_response(exc: A2AError) -> dict[str, Any]:
     """Project a rejected request onto the normalized error envelope.
 
@@ -544,7 +533,6 @@ __all__ = [
     "fetch_agent_card_with_fallback",
     "fetch_dispatch_card",
     "is_protocol_error",
-    "is_timeout_error",
     "send_message",
     "stream_message",
 ]

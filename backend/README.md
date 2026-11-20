@@ -65,17 +65,18 @@ runtime architecture.
 
 ## Agent-network API
 
-These endpoints let an authenticated client discover visible registered agents
-and send one A2A message without creating a room. The frontend's **Access > API**
+These read-only endpoints let an authenticated client discover visible
+registered agents and choose one. Work is sent to an agent through a session
+(see [Sessions API](#sessions-api)). The frontend's **Access > API**
 (`/connect/api`) page provides copyable request examples; existing room chat continues to use its
 authenticated REST/SSE workflow.
 
-**Security boundary:** both routes use the existing `get_current_user` dependency.
+**Security boundary:** these routes use the existing `get_current_user` dependency.
 With `backend.auth_mode="clerk"`, callers need a valid Clerk session; add
 `-H "Authorization: Bearer <Clerk session JWT>"` to the curl examples below.
 With local `backend.auth_mode="mock"`, the existing override supplies
 `user_local_developer`; this mode must remain on a trusted network.
-Discovery and sending are limited to public agents and the caller's own private
+Discovery is limited to public agents and the caller's own private
 agents. Saved groups must belong to that caller. Discovery returns only the
 Card fields a client needs to choose an agent (name, description, version,
 protocol version, provider, documentation and icon URLs, capabilities, default
@@ -151,132 +152,11 @@ curl --fail-with-body --silent --show-error \
   and `groups`. It leaves out URLs, transport interfaces, and security
   details because Hybro makes the call. Missing or invisible agents return `404`.
 
-### Send one message
-
-Replace `registered-agent-id` with an `agent_id` from discovery; the ID belongs
-in the request body, not in the URL. This example assumes an agent that can
-multiply two numbers:
-
-```sh
-curl --fail-with-body --silent --show-error \
-  'http://localhost:8000/api/v1/agents/messages' \
-  -H 'Content-Type: application/json' \
-  --data '{
-    "agent_id": "registered-agent-id",
-    "client_request_id": "multiply-17-23-1",
-    "message": {
-      "role": "user",
-      "messageId": "multiply-message-1",
-      "parts": [{"kind": "text", "text": "Multiply 17 by 23."}]
-    }
-  }'
-```
-
-Add `"group_id":"my-saved-team-id"` to the outer object to enforce saved-group
-membership and ownership at send time. Without it (or with `all_agents`), any
-visible registered active agent may be targeted. The service reloads visibility,
-status, and group ownership rather than trusting an earlier discovery response.
-
-`client_request_id` and `message.messageId` are generated when omitted; the
-message role defaults to `user`, the only accepted caller role. `parts` must be
-nonempty. Request text parts use the existing common A2A shape with `kind:"text"`;
-supported data and file parts use their corresponding common-model shapes.
-Room file IDs alone are not accepted as file content.
-
-An illustrative Task response is:
-
-```json
-{
-  "agent_id": "registered-agent-id",
-  "client_request_id": "multiply-17-23-1",
-  "result": {
-    "kind": "task",
-    "id": "remote-task-1",
-    "contextId": "remote-context-1",
-    "status": {
-      "state": "TASK_STATE_COMPLETED",
-      "message": {
-        "messageId": "remote-reply-1",
-        "role": "ROLE_AGENT",
-        "parts": [{"text": "PRODUCT=391"}]
-      }
-    }
-  }
-}
-```
-
-The remote agent can instead return a Message, for example:
-
-```json
-{
-  "agent_id": "registered-agent-id",
-  "client_request_id": "multiply-17-23-1",
-  "result": {
-    "kind": "message",
-    "messageId": "remote-reply-1",
-    "role": "ROLE_AGENT",
-    "parts": [{"text": "PRODUCT=391"}]
-  }
-}
-```
-
-These are shape examples, not a promise about any agent's output. `result`
-preserves the SDK's A2A 1.0 ProtoJSON fields plus the adapter's top-level `kind`
-discriminator: enums are `ROLE_AGENT` / `TASK_STATE_COMPLETED`, and result text
-parts have `text` **without** legacy `kind:"text"`. Do not deserialize results
-as the legacy request model or expect a flattened text answer. Task history,
-artifacts, metadata, status messages, and continuation IDs remain in the result.
-A nonterminal or failed Task also returns HTTP `200`; inspect its state.
-
-### Continuation and failure semantics
-
-To continue an agent conversation, keep its returned `contextId`. To continue a
-specific Task, also put its returned `id` into the next `message.taskId`. Send a
-new user message to the same agent with a new `messageId`, for example:
-
-```json
-{
-  "agent_id": "registered-agent-id",
-  "client_request_id": "follow-up-2",
-  "message": {
-    "messageId": "follow-up-message-2",
-    "contextId": "remote-context-1",
-    "taskId": "remote-task-awaiting-input",
-    "parts": [{"kind": "text", "text": "Use whole numbers."}]
-  }
-}
-```
-
-Use IDs actually returned by that agent. Omit `taskId` for a new task in a reusable
-context; do not assume a completed Task can be reopened. The remote agent owns
-continuation validity. This API does not bind task/context IDs to a
-caller, store conversation history, or provide room/HITL/LLM orchestration.
-
-The call has a **600-second deadline** and performs one blocking send, without
-automatic retries or Docker-host fallback. A timeout stops the local wait,
-**not the remote task**: no A2A cancellation is sent, and the agent may continue
-working after HTTP `504` or client disconnection. `client_request_id` is only a
-correlation ID, not an idempotency key; resubmitting the same request can repeat
-remote effects. There are no polling, cancellation, or SSE endpoints for this
-network API.
-
-`POST /agents/messages` accepts at most **6 MiB** of total request-body bytes,
-including JSON and base64 file content. The limit also applies without
-`Content-Length`. Each backend worker admits at most **four concurrent requests**,
-including requests still receiving their body. Additional requests receive HTTP
-`429` immediately; there is no waiting queue. Slots are released when the request
-exits, including errors and cancellation. These limits are per worker, not a
-distributed quota; remote work may still outlive a timed-out request.
-
-Errors use HTTP `401` for missing/invalid authentication, `403` for another owner's
-group, `404` for a missing group or missing/invisible agent, `409` for an inactive
-or out-of-group visible agent, `413` for an oversized body, `422` for invalid input
-or `room_team`, `429` for exhausted concurrent admission, `502` for upstream
-transport/protocol or invalid-result failures, and `504` for timeout.
-Domain errors have `detail.code` and `detail.message`; domain send errors also
-include `detail.agent_id` and `detail.client_request_id`. Authentication and
-middleware errors use a string `detail`; schema validation errors use FastAPI's
-validation-detail array.
+Errors use HTTP `401` for missing/invalid authentication, `403` for another
+owner's group, `404` for a missing group or missing/invisible agent, and `422`
+for invalid input or `room_team`. Domain errors have `detail.code` and
+`detail.message`. Authentication errors use a string `detail`; schema
+validation errors use FastAPI's validation-detail array.
 
 Implementation ownership and protocol inventory are documented in
 [`System Architecture`](docs/System-Architecture.md#agent-network-api).

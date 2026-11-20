@@ -414,35 +414,6 @@
   {
     "auth_dependencies": [],
     "dependencies": [
-      "get_direct_agent_execution"
-    ],
-    "methods": [
-      "POST"
-    ],
-    "module": "api_gateway.routes.agent_network_routes",
-    "name": "send_agent_message",
-    "openapi_response_codes": [
-      "200",
-      "401",
-      "403",
-      "404",
-      "409",
-      "413",
-      "422",
-      "429",
-      "502",
-      "504"
-    ],
-    "owning_protocol": "execution.ports.DirectAgentMessenger",
-    "path": "/api/v1/agents/messages",
-    "response_class": null,
-    "response_model": "AgentMessageResponse",
-    "status_code": null,
-    "streaming_response": null
-  },
-  {
-    "auth_dependencies": [],
-    "dependencies": [
       "get_agent_network"
     ],
     "methods": [

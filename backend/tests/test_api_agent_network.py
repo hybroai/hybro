@@ -1,6 +1,5 @@
-"""Exercise authenticated HTTP access through Execution and the real A2A adapter."""
+"""Exercise authenticated HTTP access to the agent network's read routes."""
 
-from contextlib import asynccontextmanager
 from datetime import UTC, datetime
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
@@ -10,18 +9,12 @@ import httpx
 import pytest
 from google.protobuf.json_format import MessageToDict
 
-from a2a_adapter import client_facade
 from agent.facade import AgentFacade
 from api_gateway.dependencies import get_api_gateway_deps
 from common import auth
 from common.auth import get_current_user
 from models.agent_group import AgentGroup
 from tests.fakes.a2a_v1 import make_agent_card
-from tests.fakes.a2a_v1_agent import (
-    A2A10AgentStub,
-    completed_task_payload,
-    input_required_task_payload,
-)
 from tests.test_agent_facade import Resolver, _doc
 from tests.test_agent_repository import _repo
 
@@ -43,8 +36,6 @@ async def network_api(monkeypatch, app):
     )
     doc = _doc("reviewer", "Reviewer", public=False, provider_id="user_local_developer")
     doc["agent_card"] = card
-    # The send fetches the live card from the registered URL.
-    doc["normalized_url"] = "http://agent.test"
     repository, collection = _repo([doc])
     registry = AgentFacade(
         repository=repository,
@@ -69,37 +60,14 @@ async def network_api(monkeypatch, app):
     app.dependency_overrides[get_api_gateway_deps] = lambda: SimpleNamespace(
         agent_service=registry, agent_matcher=registry, agent_group_store=groups
     )
-    remote = A2A10AgentStub(
-        send_result={"task": input_required_task_payload(question="Which runtime?")}
-    )
-
-    @asynccontextmanager
-    async def bounded_client(*, timeout, **_policy):
-        async with httpx.AsyncClient(
-            transport=httpx.ASGITransport(app=remote.app), timeout=timeout
-        ) as client:
-            yield client
-
-    monkeypatch.setattr(client_facade, "bounded_client", bounded_client)
-    monkeypatch.setattr(client_facade, "card_client", bounded_client)
     async with httpx.AsyncClient(
         transport=httpx.ASGITransport(app=app), base_url="http://hybro.test"
     ) as client:
-        yield client, remote, collection, groups
+        yield client, collection, groups
 
 
-def message_body(**overrides):
-    return {
-        "agent_id": "reviewer",
-        "group_id": "team",
-        "client_request_id": "pi-turn-1",
-        "message": {"parts": [{"kind": "text", "text": "Review this code"}]},
-        **overrides,
-    }
-
-
-async def test_mock_auth_discovery_send_and_continue_preserve_a2a_results(network_api):
-    client, remote, _, _ = network_api
+async def test_mock_auth_discovery_hides_transport_details(network_api):
+    client, _, _ = network_api
     discovery = await client.get(
         "/api/v1/agents/discovery", params={"group_id": "team"}
     )
@@ -112,80 +80,21 @@ async def test_mock_auth_discovery_send_and_continue_preserve_a2a_results(networ
     assert "url" not in card
     assert "http://agent.test" not in str(card)
 
-    response = await client.post("/api/v1/agents/messages", json=message_body())
-    assert response.status_code == 200
-    payload = response.json()
-    assert payload["agent_id"] == "reviewer"
-    assert payload["client_request_id"] == "pi-turn-1"
-    task = payload["result"]
-    assert task["status"]["state"] == "TASK_STATE_INPUT_REQUIRED"
-    assert task["status"]["message"]["parts"][0]["text"] == "Which runtime?"
 
-    remote.send_result = {
-        "task": completed_task_payload(text="Python 3.12 is supported")
-    }
-    continuation = message_body(
-        client_request_id="pi-turn-2",
-        message={
-            "contextId": task["contextId"],
-            "taskId": task["id"],
-            "parts": [{"kind": "text", "text": "Python 3.12"}],
-        },
-    )
-    response = await client.post("/api/v1/agents/messages", json=continuation)
-    assert response.status_code == 200
-    result = response.json()["result"]
-    assert result["status"]["state"] == "TASK_STATE_COMPLETED"
-    assert result["artifacts"][0]["parts"][0]["text"] == "Python 3.12 is supported"
-    assert remote.last_message()["taskId"] == task["id"]
-    assert remote.last_message()["contextId"] == task["contextId"]
-    after = await client.get("/api/v1/agents/discovery", params={"group_id": "team"})
-    assert after.json()["agents"] == discovered
-
-
-async def test_send_rechecks_state_after_discovery_and_preserves_error_correlation(
-    network_api,
-):
-    client, remote, collection, _ = network_api
-    assert (await client.get("/api/v1/agents/discovery")).status_code == 200
-    collection.docs[0]["agent_status"] = "inactive"
-    response = await client.post("/api/v1/agents/messages", json=message_body())
-    assert response.status_code == 409
-    detail = response.json()["detail"]
-    assert detail["code"] == "CONFLICT"
-    assert detail["client_request_id"] == "pi-turn-1"
-    assert detail["agent_id"] == "reviewer"
-    assert remote.requests == []
-
-
-@pytest.mark.parametrize(
-    "override",
-    [
-        {"agent_id": " "},
-        {"agent_url": "http://unregistered.example/"},
-        {"message": {"role": "agent", "parts": [{"kind": "text", "text": "x"}]}},
-        {"message": {"parts": []}},
-        {"message": {"taskId": " ", "parts": [{"kind": "text", "text": "x"}]}},
-        {
-            "message": {
-                "parts": [{"kind": "file", "metadata": {"file_id": "room-secret"}}]
-            }
-        },
-    ],
-)
-async def test_invalid_or_proxy_override_requests_never_reach_agent(
-    network_api, override
-):
-    client, remote, _, _ = network_api
+async def test_direct_send_route_is_gone(network_api):
+    client, _, _ = network_api
     response = await client.post(
-        "/api/v1/agents/messages", json=message_body(**override)
+        "/api/v1/agents/messages",
+        json={
+            "agent_id": "reviewer",
+            "message": {"parts": [{"kind": "text", "text": "Review this code"}]},
+        },
     )
-    assert response.status_code == 422
-    assert remote.requests == []
+    assert response.status_code == 404
 
 
 async def test_group_errors_do_not_expand_discovery_scope(network_api):
-    client, remote, _, groups = network_api
+    client, _, groups = network_api
     groups.get_agent_group_by_id.return_value = None
     missing = await client.get(
         "/api/v1/agents/discovery", params={"group_id": "missing"}
@@ -195,11 +104,10 @@ async def test_group_errors_do_not_expand_discovery_scope(network_api):
         "/api/v1/agents/discovery", params={"group_id": "room_team"}
     )
     assert room.status_code == 422
-    assert remote.requests == []
 
 
 async def test_groups_search_and_profile_help_choose_an_agent(network_api):
-    client, remote, _, _ = network_api
+    client, _, _ = network_api
 
     groups = await client.get("/api/v1/agents/groups")
     assert groups.status_code == 200
@@ -231,7 +139,6 @@ async def test_groups_search_and_profile_help_choose_an_agent(network_api):
     assert body["agent_id"] == "reviewer"
     assert body["skills"][0]["id"] == "review"
     assert "http://agent.test/" not in profile.text
-    assert remote.requests == []
 
 
 @pytest.mark.parametrize(
@@ -246,10 +153,9 @@ async def test_groups_search_and_profile_help_choose_an_agent(network_api):
 async def test_search_and_profile_reject_invalid_requests(
     network_api, path, params, status
 ):
-    client, remote, _, _ = network_api
+    client, _, _ = network_api
     response = await client.get(path, params=params)
     assert response.status_code == status
-    assert remote.requests == []
 
 
 def clerk_session(monkeypatch, app, *, user_id: str | None):
@@ -265,57 +171,42 @@ def clerk_session(monkeypatch, app, *, user_id: str | None):
     )
 
 
-async def test_clerk_anonymous_requests_fail_before_store_or_remote_access(
+async def test_clerk_anonymous_requests_fail_before_store_access(
     network_api, monkeypatch, app
 ):
-    client, remote, collection, groups = network_api
+    client, collection, groups = network_api
     clerk_session(monkeypatch, app, user_id=None)
 
     discovery = await client.get(
         "/api/v1/agents/discovery", params={"group_id": "team"}
     )
-    send = await client.post("/api/v1/agents/messages", json=message_body())
 
-    assert discovery.status_code == send.status_code == 401
+    assert discovery.status_code == 401
     assert discovery.headers["www-authenticate"] == "Bearer"
-    assert send.headers["www-authenticate"] == "Bearer"
     assert collection.find_calls == collection.find_one_calls == []
     groups.get_agent_group_by_id.assert_not_awaited()
-    assert remote.requests == []
 
 
 @pytest.mark.parametrize("status", ["active", "inactive"])
-async def test_clerk_cannot_discover_or_invoke_foreign_private_agent(
+async def test_clerk_cannot_discover_foreign_private_agent(
     network_api, monkeypatch, app, status
 ):
-    client, remote, collection, _ = network_api
+    client, collection, _ = network_api
     clerk_session(monkeypatch, app, user_id="another-user")
     collection.docs[0]["agent_status"] = status
 
     discovery = await client.get("/api/v1/agents/discovery")
     assert discovery.status_code == 200
     assert discovery.json() == {"agents": []}
-    denied = await client.post(
-        "/api/v1/agents/messages", json=message_body(group_id="all_agents")
-    )
-    missing = await client.post(
-        "/api/v1/agents/messages",
-        json=message_body(agent_id="missing", group_id="all_agents"),
-    )
-    assert denied.status_code == missing.status_code == 404
-    detail = denied.json()["detail"]
-    assert detail["code"] == missing.json()["detail"]["code"] == "NOT_FOUND"
-    assert detail["agent_id"] == "reviewer"
-    assert detail["client_request_id"] == "pi-turn-1"
-    assert "status" not in detail
-    assert "agent_card" not in detail
-    assert remote.requests == []
+    profile = await client.get("/api/v1/agents/reviewer/profile")
+    assert profile.status_code == 404
+    assert profile.json()["detail"]["code"] == "NOT_FOUND"
 
 
 async def test_clerk_cannot_use_guessed_foreign_group_even_for_public_agent(
     network_api, monkeypatch, app
 ):
-    client, remote, collection, groups = network_api
+    client, collection, groups = network_api
     clerk_session(monkeypatch, app, user_id="another-user")
     collection.docs[0]["is_public"] = True
     group = groups.get_agent_group_by_id.return_value
@@ -326,25 +217,17 @@ async def test_clerk_cannot_use_guessed_foreign_group_even_for_public_agent(
     discovery = await client.get(
         "/api/v1/agents/discovery", params={"group_id": group.group_id}
     )
-    send = await client.post(
-        "/api/v1/agents/messages", json=message_body(group_id=group.group_id)
-    )
 
-    assert discovery.status_code == send.status_code == 403
+    assert discovery.status_code == 403
     assert discovery.json()["detail"]["code"] == "FORBIDDEN"
-    detail = send.json()["detail"]
-    assert detail["code"] == "FORBIDDEN"
-    assert detail["client_request_id"] == "pi-turn-1"
-    assert detail["agent_id"] == "reviewer"
     assert collection.find_calls == collection.find_one_calls == []
-    assert remote.requests == []
 
 
 @pytest.mark.parametrize("public", [True, False])
-async def test_clerk_can_discover_and_invoke_public_or_owned_agent(
+async def test_clerk_can_discover_public_or_owned_agent(
     network_api, monkeypatch, app, public
 ):
-    client, remote, collection, groups = network_api
+    client, collection, groups = network_api
     user_id = "another-user" if public else "user_local_developer"
     clerk_session(monkeypatch, app, user_id=user_id)
     collection.docs[0]["is_public"] = public
@@ -355,10 +238,6 @@ async def test_clerk_can_discover_and_invoke_public_or_owned_agent(
     )
     assert discovery.status_code == 200
     assert [agent["agent_id"] for agent in discovery.json()["agents"]] == ["reviewer"]
-    response = await client.post("/api/v1/agents/messages", json=message_body())
-    assert response.status_code == 200
-    assert response.json()["result"]["status"]["state"] == "TASK_STATE_INPUT_REQUIRED"
-    assert remote.last_message()["parts"][0]["text"] == "Review this code"
 
 
 def test_discovery_card_keeps_choice_fields_and_drops_transport_and_security():

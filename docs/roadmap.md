@@ -228,6 +228,12 @@ Nothing depends on an authentication mode or on how the instance was started.
      leaves `/mcp` out on such a listener. `--listen` stays as a networking
      option with its default, `127.0.0.1`.
 
+   `POST /agents/messages` is removed in this phase with no deprecation
+   release, an exception to the deprecation rule in "How we move": nothing in
+   the product calls it, and it sends work to an agent around the Step path,
+   with no record of which source sent it. `POST /sessions/messages` replaces
+   it.
+
 **Upgrading an existing install.**
 
 - **From mock mode.** The first visit after the upgrade shows the setup page

@@ -29,8 +29,7 @@ from common.protocols import (
     SSERouteTransport,
     SSEStateReader,
 )
-from execution.direct_agent import DirectAgentExecution
-from execution.ports import A2APushNotificationReceiver, DirectAgentMessenger
+from execution.ports import A2APushNotificationReceiver
 from local_agents.protocols import LocalAgentDiscovery
 from session.access import BoundSessionAccess
 from session.protocols import SessionAccess, SessionOwner, SessionService
@@ -209,17 +208,6 @@ def get_agent_network(
 
 
 AgentNetworkDependency = Annotated[AgentNetworkAccess, Depends(get_agent_network)]
-
-
-def get_direct_agent_execution(
-    network: AgentNetworkDependency,
-) -> DirectAgentMessenger:
-    return DirectAgentExecution(network)
-
-
-DirectAgentExecutionDependency = Annotated[
-    DirectAgentMessenger, Depends(get_direct_agent_execution)
-]
 
 
 def get_session_access(

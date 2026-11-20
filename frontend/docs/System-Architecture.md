@@ -1255,11 +1255,12 @@ the two capabilities in plain language: discover agents and send tasks. There
 is no scope control, no status probe, and no step-by-step prose.
 
 The API tab shows the public runtime `api_base_url` (the page origin when it is
-empty) with a copy button, the two
+empty) with a copy button, the
 request examples built by `access-material.ts` (discovery via
-`GET {api_prefix}/agents/discovery` and sending a message via
-`POST {api_prefix}/agents/messages`, each with a copy button), and the same
-Features section phrased for HTTP. The page reads no query parameters, and its
+`GET {api_prefix}/agents/discovery`, and sending a message in a session via
+`POST {api_prefix}/sessions/messages` followed by the check
+`GET {api_prefix}/sessions/{session_id}`, each with a copy button), and the
+same Features section phrased for HTTP. The page reads no query parameters, and its
 examples carry no `group_id`.
 
 Neither tab executes discovery, registers clients, sends messages, or invokes

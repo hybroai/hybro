@@ -217,8 +217,7 @@ Owner modules never open `httpx` or SDK clients against agent URLs; they call
 adapter helpers. For backend-initiated calls the adapter may retry `localhost`,
 `127.0.0.1`, `::1`, or `0.0.0.0` URLs through `host.docker.internal` after a
 connection-style failure. The rewrite is request-local: registered card URLs are
-never changed. The direct agent-network send disables this fallback for the send
-to keep its one-attempt contract; its Card fetch may still use it.
+never changed.
 
 **Destination rule.** The owner who registers an agent is trusted; the agent's
 card is not. Hybro still sends to whatever interface the live card advertises,
@@ -239,7 +238,7 @@ so a third-party agent may move between public addresses, but:
 
 The registered URL is the agent's stored `url` (the address its card was
 fetched from), which the orchestrator carries as the call's `endpoint_scope`.
-The orchestrator and the agent-network send both fetch the live card from that
+The orchestrator fetches the live card from that
 URL before sending, so the card fetch is the call's first request; card fetches, health probes, and inspection use the URL being fetched. One
 `DestinationPolicy` serves a whole call (card fetch, card check, and send) and
 classifies the registered host once: an IP literal when the policy is built, a
@@ -253,7 +252,7 @@ gets its own connection pool so a TLS connection is never reused for another
 hostname at the same IP. Before a send, `ensure_card_destinations_allowed` checks the card's
 JSON-RPC and HTTP+JSON interfaces so a refused card fails with a clear reason:
 the orchestrator records `agent_card_contract_error` without retrying (also
-when the refusal happens at connect time during a send or stream), the agent-network send returns an `UPSTREAM` error, and inspection
+when the refusal happens at connect time during a send or stream), and inspection
 reports the reason. Artifact file URIs stay public-only through the same
 resolver. Card fetches request identity encoding and refuse compressed bodies,
 so the 1 MiB card cap also bounds the decoded card.
@@ -272,7 +271,7 @@ dependency globals, or define `bind_*` functions.
 - Exposes nothing to other packages.
 - Consumes: the `agent.protocols` ports, `chat.protocols.ChatRooms`,
   `session.protocols.SessionAccess` and `SessionService`,
-  `execution.ports.DirectAgentMessenger`, `local_agents.protocols.LocalAgentDiscovery`,
+  `local_agents.protocols.LocalAgentDiscovery`,
   `llm_gateway.agent_proxy._AgentLLMProxyPort`,
   `llm_gateway.setup_api.SetupAccess`,
   `diagnostics.protocols.DiagnosticsAccess`,
@@ -292,8 +291,8 @@ Route groups:
   `POST /agent/{agent_id}/capability-issues/resolve-all`, and
   `POST /agent/capability-issues/{issue_id}/resolve`) are deprecated and will be
   removed in a later release.
-- `agent_network_routes.py`: caller-visible discovery, groups, search,
-  profiles, and one-shot direct A2A messaging.
+- `agent_network_routes.py`: caller-visible discovery, groups, search, and
+  profiles.
 - `agent_group_routes.py`: saved agent groups (`/agentGroups`).
 - `session_routes.py`: `/sessions`.
 - `sse_routes.py`: room SSE stream, event replay, message cancellation, and
@@ -725,7 +724,6 @@ Owns orchestration after a user message is accepted.
   cancellation, recovery, and resource materialization.
 - `adapters/`: the session host, candidate sources, membership authorization
   refresh, HITL application, and resource adapters.
-- `direct_agent.DirectAgentExecution`: the bounded one-shot agent-network send.
 - `events.emit_room_processing_status`: room processing-status emission; it
   accepts string `details` and normalizes them into the typed payload before
   Delivery.
@@ -742,8 +740,7 @@ Owns orchestration after a user message is accepted.
   `orchestrator_hitl_interactions`; the final assistant message reaches
   `room_agent_messages` through `ConversationMessageWriter`.
 - Exposes: implements `ExecutionEngine` and `HITLManager`, and Conversation's
-  `RoomEpochDeactivationPort` and `OrchestratorEpochCleanupPort`;
-  `execution.ports.DirectAgentMessenger` crosses to `api_gateway`.
+  `RoomEpochDeactivationPort` and `OrchestratorEpochCleanupPort`.
 - Consumes: `RoomCenterPort` (Conversation), `HITLServicePort` (Approval),
   `ConversationMessageWriter`, `ClientRequestIdResolver`, `AgentRegistry`,
   `AgentExclusionReader`, `AgentNetworkTargetResolver`, `AgentCallCounter`
@@ -1162,7 +1159,6 @@ port, or facade port, update the exact method inventory in
 | `RoomEnvelopeSource` | `execution.orchestrator_routing` | `execution.orchestrator_routing.RoomMessageEnvelopeResolver` | internal to `execution` |
 | `A2APushNotificationReceiver` | `execution.ports` | `execution.orchestrator.a2a_runtime.push.A2APushNotificationIngress` (bound as `app.state.a2a_push_receiver`) | crosses to `api_gateway` |
 | `ClientRequestIdResolver` | `execution.ports` | `execution.client_request_id.SSEClientRequestIdResolver` | internal to `execution` |
-| `DirectAgentMessenger` | `execution.ports` | `execution.direct_agent.DirectAgentExecution` | crosses to `api_gateway` |
 | `HITLMessageCancellationPort` | `execution.ports` | `execution.adapters.hitl.HITLMessageCancellationAdapter` | internal to `execution` |
 | `TaskFactory` | `execution.ports` | callable shape (functions or callables) | internal to `execution` |
 | `EpochFencedRoomArtifactOwner` | `execution.repository.orchestrator.artifacts` | `execution.repository.orchestrator.artifacts.RoomFilesEpochFencedArtifactOwner` | internal to `execution` |
@@ -1799,11 +1795,11 @@ tabs; creation without a preset key keeps random IDs.
 ### Agent-network API
 
 `GET /api/v1/agents/discovery`, `GET /api/v1/agents/groups`,
-`GET /api/v1/agents/search`, `GET /api/v1/agents/{agent_id}/profile`, and
-`POST /api/v1/agents/messages` are authenticated. Their `get_agent_network`
+`GET /api/v1/agents/search`, and `GET /api/v1/agents/{agent_id}/profile` are
+authenticated and read-only; work is sent through `/sessions`. Their `get_agent_network`
 dependency resolves `get_current_user` and binds a network service to that user.
 Clerk-mode requests without a valid session receive `401`; mock mode uses
-`user_local_developer`. Discovery and sends use the public-or-owner visibility
+`user_local_developer`. These routes use the public-or-owner visibility
 query, and saved groups require matching ownership. Private foreign targets
 return `404` without exposing status or Card. Mock-auth deployments still need a
 trusted-network boundary; Card credential stripping does not sanitize arbitrary
@@ -1848,67 +1844,21 @@ version, provider organization, streaming, and skill examples and modes) and omi
 URLs, interfaces, security schemes, and credentials. None of these routes probes
 agents or refreshes Cards.
 
-Sending accepts `agent_id`, a `message`, and optional `group_id` and
-`client_request_id` (generated when missing). The service reloads the target
-through the visibility query and checks active status, saved-group ownership, and
-group membership. The message uses Hybro's common A2A request model: `role`
-defaults to `user` (the only accepted role), `messageId` is generated when
-omitted, and `parts` must be nonempty, for example
-`[{"kind":"text","text":"Hello"}]`. `contextId`, `taskId`, metadata, and
-text/data/file parts pass through; a room-only file ID is not a wire file payload.
-
-The response is `{"agent_id":"...","client_request_id":"...","result":{...}}`.
-`result` preserves the adapter's ProtoJSON Message or Task plus its top-level
-`kind` discriminator; it is not the room projection. A2A 1.0 result enums use
-`ROLE_AGENT` and `TASK_STATE_COMPLETED`, and text parts use `{"text":"..."}`. A
-nonterminal or failed Task is still HTTP `200`; clients inspect
-`result.status.state`. See the
-[backend README examples](../README.md#agent-network-api).
-
 | HTTP status | Meaning |
 | --- | --- |
 | `401` | Missing or invalid authentication in Clerk mode. |
 | `403` | Selected saved group belongs to another user. |
-| `404` | Selected group does not exist, or target agent is missing/not visible. |
-| `409` | Visible target agent is inactive or outside the selected saved group. |
-| `413` | Total request body exceeds 6 MiB. |
-| `422` | Invalid request/message, or unsupported `room_team` scope. |
-| `429` | Four direct-send requests are already admitted on this backend worker. |
-| `502` | Upstream transport/protocol failure or an invalid A2A Message/Task response. |
-| `504` | The send deadline or upstream timeout expired. |
+| `404` | Selected group does not exist, or the agent is missing/not visible. |
+| `422` | Invalid query, or unsupported `room_team` scope. |
 
-Domain errors use `{"detail":{"code":"...","message":"...",...}}`; send errors
-include `agent_id` and `client_request_id`. Authentication and middleware errors
-use a string `detail`; schema failures use FastAPI's validation format.
-
-Each call has a 600-second deadline covering target resolution, a fetch of the
-target's live Card from its registered URL, and the single blocking send to the
-interface that Card advertises (see the destination rule under `a2a_adapter`).
-A target without a registered URL fails with `502` before any request. The Card
-fetch may take the Docker-host fallback; the send never does. A Card fetch that
-fails returns `502`, or `504` when it timed out. There are no send retries and no
-idempotency: `client_request_id` is correlation only, and repeating IDs may repeat
-remote effects. Timeout or client cancellation ends the local wait without a
-remote cancellation. Middleware caps the body at 6 MiB before parsing, including
-streamed bodies, and a per-worker admission counter permits four concurrent
-requests, rejecting overflow with `429`; admission is released on ASGI exit.
-
-For continuation, callers keep the remote `contextId` and, for a Task, its `id`
-as the next `message.taskId`, and send a new message with a new `messageId`. The
-remote agent decides which continuations are valid; Hybro binds no IDs to a
-caller, keeps no history, and offers no polling, cancel, webhook, or SSE
-endpoints on this surface. No Room, Run, memory, or LLM orchestration is created
-(use `/sessions` for that).
+Domain errors use `{"detail":{"code":"...","message":"..."}}`. Authentication
+errors use a string `detail`; schema failures use FastAPI's validation format.
 
 ```text
 agent_network_routes
   -> get_agent_network -> get_current_user + agent.protocols.AgentNetworkAccess
      -> caller-bound agent.network.AgentNetworkService
         -> registry + matcher + saved-group store
-  -> get_direct_agent_execution -> execution.ports.DirectAgentMessenger
-     -> execution.direct_agent.DirectAgentExecution
-        -> common.protocols.AgentNetworkTargetResolver.resolve_target
-        -> a2a_adapter.client_facade.send_message -> remote agent
 ```
 
 | Protocol / method | Owner and implementation | Contract |
@@ -1917,9 +1867,8 @@ agent_network_routes
 | `AgentRepository.list_active_agents(agent_ids=None)` | `agent.facade`; `agent.repository.mongo.AgentMongoRepository` | Queries `agent_status="active"` with an optional `agent_id` membership filter and exhausts the cursor. `[]` selects no agents; `None` selects all active agents. |
 | `AgentRegistry.list_visible_agents(user_id=None, active_only=False, query=None, limit=0)` | `common.protocols.agent_protocols`; `agent.AgentFacade` | Uses the public-or-owner visibility query. Without a positive limit it returns every matching agent. Network access always supplies its authenticated user ID. |
 | `AgentRepository.list_visible(..., limit=0)` | `agent.facade`; `agent.repository.mongo.AgentMongoRepository` | Applies visibility and scope before reading. A positive limit bounds the read; otherwise every matching agent is returned. |
-| `AgentNetworkTargetResolver.resolve_target(agent_id, group_id=None)` | `common.protocols.agent_protocols`; `agent.network.AgentNetworkService` | Fresh caller-visible target and owned-group validation returning `AgentInfo`; the narrow dependency used by direct Execution and Session. |
+| `AgentNetworkTargetResolver.resolve_target(agent_id, group_id=None)` | `common.protocols.agent_protocols`; `agent.network.AgentNetworkService` | Fresh caller-visible target and owned-group validation returning `AgentInfo`; the narrow dependency used by Session. |
 | `AgentNetworkAccess.discover` / inherited `resolve_target` | Module-local `agent.protocols`; `agent.network.AgentNetworkService` | Extends `AgentNetworkTargetResolver` with caller-visible stored-card discovery; `get_agent_network` binds the authenticated user. |
-| `DirectAgentMessenger.send` | Module-local `execution.ports`; `execution.direct_agent.DirectAgentExecution` | One bounded A2A send returning the network response DTO; injected through `get_direct_agent_execution`. |
 
 ### Local MCP adapter
 
