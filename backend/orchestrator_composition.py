@@ -286,10 +286,13 @@ def validate_orchestrator_runtime(runtime: Any) -> list[str]:
     return [name for name in _RUNTIME_BINDINGS if getattr(runtime, name, None) is None]
 
 
-def _diagnostics_token(settings_obj: Any) -> set[str]:
-    """The per-start diagnostics token; its setting names a path, not a secret."""
-    token = read_token(getattr(settings_obj, "diagnostics_handoff_file", ""))
-    return {token} if token else set()
+def _handoff_tokens(settings_obj: Any) -> set[str]:
+    """The per-start handoff tokens; their settings name paths, not secrets."""
+    tokens = {
+        read_token(getattr(settings_obj, name, ""))
+        for name in ("diagnostics_handoff_file", "machine_handoff_file")
+    }
+    return tokens - {""}
 
 
 def configured_public_secret_values(settings_obj: Any) -> tuple[str, ...]:
@@ -325,7 +328,7 @@ def configured_public_secret_values(settings_obj: Any) -> tuple[str, ...]:
                     decoded = unquote(credential)
                     if len(decoded) >= 4:
                         values.add(decoded)
-    values.update(_diagnostics_token(settings_obj))
+    values.update(_handoff_tokens(settings_obj))
     return tuple(sorted(values, key=len, reverse=True))
 
 

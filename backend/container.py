@@ -14,6 +14,7 @@ from types import SimpleNamespace
 from typing import TYPE_CHECKING, Any
 from uuid import uuid4
 
+from account import AccountService, MongoAccountRepository, ScryptParams
 from agent import AgentFacade, AgentMongoRepository
 from agent.facade import AgentRepository
 from api_gateway.dependencies import (
@@ -727,6 +728,10 @@ async def _runtime_lifespan(app: Any, runtime: ApplicationRuntime):  # noqa: C90
                 admin_user_ids=frozenset(runtime.settings.admin_user_ids),
             )
             app.state.setup_access = _browser_setup
+            app.state.owner_account = create_owner_account(
+                settings=runtime.settings, mongo=mongo_dal
+            )
+            app.state.machine_token = read_token(runtime.settings.machine_handoff_file)
             from instance_settings import InstanceSettings
             from instance_settings.restart import RestartControl
 
@@ -2158,6 +2163,8 @@ async def _runtime_lifespan(app: Any, runtime: ApplicationRuntime):  # noqa: C90
         app.state.mongo_dal = None
         app.state.agent_llm_proxy = None
         app.state.diagnostics_access = None
+        app.state.owner_account = None
+        app.state.machine_token = ""
         raise
 
     # ── Phase 3: Serve + Normal Shutdown ──
@@ -2242,6 +2249,8 @@ async def _runtime_lifespan(app: Any, runtime: ApplicationRuntime):  # noqa: C90
         app.state.mongo_dal = None
         app.state.agent_llm_proxy = None
         app.state.diagnostics_access = None
+        app.state.owner_account = None
+        app.state.machine_token = ""
         if cleanup_error is not None and body_error is None:
             raise cleanup_error
 
@@ -2371,6 +2380,7 @@ async def ensure_runtime_indexes(*, mongo: MongoDAL) -> dict[str, bool]:
     await MessageMongoRepository(mongo).ensure_indexes()
     await ensure_room_file_indexes(mongo)
     diagnostics_store_ready = await DiagnosticsMongoRepository(mongo).ensure_indexes()
+    await MongoAccountRepository(mongo).ensure_indexes()
     return {
         "agent_search_index_ready": agent_search_index_ready,
         "diagnostics_store_ready": diagnostics_store_ready,
@@ -2604,6 +2614,18 @@ def create_diagnostics_access(
         log_level=current_log_level,
         log_format=settings.log_format,
         started_at=utcnow(),
+    )
+
+
+def create_owner_account(
+    *, settings: Any, mongo: MongoDAL, params: ScryptParams | None = None
+) -> AccountService:
+    """The owner account of this instance, over its own collections."""
+    return AccountService(
+        MongoAccountRepository(mongo),
+        auth_mode=settings.auth_mode,
+        admin_user_ids=frozenset(settings.admin_user_ids),
+        **({"params": params} if params is not None else {}),
     )
 
 

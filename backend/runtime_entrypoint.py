@@ -440,6 +440,12 @@ def caddyfile(*, listener: Listener, api_prefix: str) -> str:
             "\t}",
         ]
     lines += [
+        # The machine-only routes are for the `hybro` command, which calls the
+        # backend inside the container; nothing reaches them through this port.
+        f"\t@machine path {api_prefix}/machine {api_prefix}/machine/*",
+        "\thandle @machine {",
+        "\t\trespond 404",
+        "\t}",
         f"\t@backend path {api_prefix} {api_prefix}/* /health",
         "\thandle @backend {",
         "\t\treverse_proxy 127.0.0.1:8000 {",
@@ -565,6 +571,19 @@ def write_diagnostics_handoff(api_prefix: str) -> None:
         json.dumps(
             {
                 "base_url": f"{BACKEND_ORIGIN}{api_prefix}/diagnostics",
+                "token": token_hex(32),
+            }
+        ),
+    )
+
+
+def write_machine_handoff(api_prefix: str) -> None:
+    """Hand the `hybro` command and the backend the machine-only routes' token."""
+    replace_private(
+        RUN_DIR / "machine.json",
+        json.dumps(
+            {
+                "base_url": f"{BACKEND_ORIGIN}{api_prefix}/machine",
                 "token": token_hex(32),
             }
         ),
@@ -948,6 +967,7 @@ def user_phase() -> None:
         supervisord_conf(plan.programs, as_root=os.geteuid() == 0),
     )
     write_diagnostics_handoff(plan.api_prefix)
+    write_machine_handoff(plan.api_prefix)
     write_runtime_record(listener, plan)
     if plan.embedded_mongo and replica_set_recorded():
         # A temporary mongod start and stop costs seconds on every start; the

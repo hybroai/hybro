@@ -299,6 +299,9 @@ def test_phase9_route_inventory_matches_live_app_routes():
                 "get_current_user",
                 "get_current_user_with_query_token",
                 "get_optional_user",
+                "get_owner_session",
+                "get_optional_owner_session",
+                "get_machine_account",
             }
         ]
         live[(route.path, methods, route.name)] = {
@@ -333,6 +336,9 @@ def test_route_inventory_auth_dependencies_are_only_auth_dependencies():
         "get_current_user",
         "get_current_user_with_query_token",
         "get_optional_user",
+        "get_owner_session",
+        "get_optional_owner_session",
+        "get_machine_account",
     }
     routes = json.loads(Path("tests/fixtures/phase9_api_routes.json").read_text())
     violations = [

@@ -43,6 +43,10 @@ On every start the container also creates a diagnostics token in
 reads it through `docker exec`. It is replaced on the next start and is not a
 configuration field.
 
+The same holds for `/tmp/hybro/machine.json`: the token of the machine-only
+routes, through which the `hybro` command manages the owner account from
+inside the container. Caddy refuses those routes on the published port.
+
 The entrypoint also writes `/tmp/hybro/runtime.json` (mode 0600): this start's
 listener mode, public port, whether MongoDB is embedded, and the revision of the
 configuration the services were started with. The restart helper writes its

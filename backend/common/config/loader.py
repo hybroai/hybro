@@ -203,6 +203,10 @@ class Settings(BaseModel):
     # The per-start diagnostics handoff the image entrypoint writes; empty in a
     # checkout, which turns the token path of the diagnostics API off.
     diagnostics_handoff_file: str = ""
+    # The per-start token of the machine-only routes, written by the image
+    # entrypoint for the `hybro` command; empty in a checkout, which leaves
+    # those routes closed.
+    machine_handoff_file: str = ""
     # This start's transport record the image entrypoint writes (listen mode,
     # public port, services revision); empty in a checkout. Not a user setting.
     instance_runtime_file: str = ""
@@ -453,6 +457,7 @@ PRIVATE_FIELDS = frozenset(
         "clerk_secret_key",
         "default_agent_llm_token",
         "diagnostics_handoff_file",
+        "machine_handoff_file",
         "instance_runtime_file",
     }
 )
@@ -681,8 +686,10 @@ def _apply_image_defaults(values: dict) -> None:
     the entrypoint derived for this instance."""
     for key, value in image_defaults().items():
         values.setdefault(key, value)
-    # runtime_entrypoint.RUN_DIR / "diagnostics.json" and "runtime.json"
+    # runtime_entrypoint.RUN_DIR / "diagnostics.json", "machine.json" and
+    # "runtime.json"
     values["diagnostics_handoff_file"] = "/tmp/hybro/diagnostics.json"
+    values["machine_handoff_file"] = "/tmp/hybro/machine.json"
     values["instance_runtime_file"] = "/tmp/hybro/runtime.json"
     origins = os.environ.get("HYBRO_FRONTEND_ORIGINS")
     if origins:

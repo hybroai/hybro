@@ -65,6 +65,7 @@ flowchart TD
 | Core | `approval` | Human-in-the-loop requests, interactions, answers, cancellation, and reconciliation. |
 | Support | `agent`, `local_agents`, `delivery`, `context_memory`, `room_files`, `llm_gateway` | Agent directory, local discovery, SSE delivery, room memory, files, and model access. |
 | Support | `diagnostics` | The local store of system events and warnings (two capped collections). |
+| Support | `account` | The owner account: the instance's one user record, its password hash, the signed-in browsers, the setup code, and the attempt limit of sign-in and setup. |
 | Support | `instance_settings` | The admin settings API: the curated field registry, validated `config.json` writes, the live log level, and the in-place service restart trigger. |
 | Infrastructure | `api_gateway`, `jobs`, `dal`, `a2a_adapter`, `common`, `models` | Routes, workers, Mongo/Redis connections and generic clients, the A2A SDK boundary, and shared contracts. |
 
@@ -275,6 +276,7 @@ dependency globals, or define `bind_*` functions.
   `llm_gateway.agent_proxy._AgentLLMProxyPort`,
   `llm_gateway.setup_api.SetupAccess`,
   `diagnostics.protocols.DiagnosticsAccess`,
+  `account.protocols.OwnerAccount`,
   `instance_settings.protocols.SettingsAccess`, and from `common.protocols`
   `ExecutionEngine`, `HITLManager`, `SSERouteTransport`, `RoomRouteReader`,
   `SSEStateReader`, `RoomOwnershipReader`, `AgentRegistry`, `AgentMatcher`,
@@ -313,6 +315,20 @@ Route groups:
 - `diagnostics_routes.py`: read-only `/diagnostics` (`GET /snapshot`,
   `/events`, `/logs`) for administrators, anyone in mock mode, and
   `hybro doctor` with the per-start token in `X-Hybro-Diagnostics-Token`.
+- `auth_routes.py`: `/auth`, the owner's setup, sign-in and account pages
+  (see [Owner account API](#owner-account-api)).
+- `machine_routes.py`: `/machine`, the routes the `hybro` command uses inside
+  the container (see [Owner account API](#owner-account-api)).
+
+Three more files hold request checks. `owner_session.py` names the owner's
+sign-in cookie (`hybro_session`) and defines `get_owner_session`, the
+dependency that resolves it; only the `/auth` routes use it so far.
+`cross_site.py` is `CrossSiteCheckMiddleware`, which `main.create_app` installs
+inside the CORS middleware (see
+[Requests from other websites](#requests-from-other-websites)).
+`errors.QuietValidationRoute` is the route class of `/auth` and `/machine`: its
+422 body is a fixed message, because FastAPI's default repeats the rejected
+input and these bodies carry passwords and setup codes.
 
 Frontend-facing and agent-network routes use Clerk auth when
 `backend.auth_mode="clerk"`. In local `backend.auth_mode="mock"`, `main.py`
@@ -653,6 +669,90 @@ cross-instance fan-out (see [Room stream and delivery](#room-stream-and-delivery
 
 Delivery never calls back into Execution.
 
+### `account`
+
+The instance's one account, the owner's. It imports only `common`;
+`container.create_owner_account` builds `account.service.AccountService` over
+`account.repository.mongo.MongoAccountRepository` and binds it on
+`app.state.owner_account`. Nothing enforces it yet: every route outside
+`/auth` and `/machine` still resolves its user through `common.auth`.
+
+- Writes: `users` (the owner record: `user_id`, `role`, `name`, `email`, the
+  password hash with its parameters, `password_id`, `created_at`,
+  `updated_at`),
+  `user_sessions` (one document per signed-in browser: `session_id`,
+  `user_id`, `token_hash`, `created_at`, `last_used_at`, `user_agent`) and
+  `setup_codes` (one document: the hash of the valid setup code and when it
+  was issued).
+- Exposes: `OwnerAccount` to `api_gateway`; declares `AccountStore`,
+  implemented by `MongoAccountRepository`.
+- Consumes: `MongoDAL`.
+
+Behaviour:
+
+- **Owner id.** The record takes `user_local_developer`
+  (`account.models.OWNER_USER_ID`), the id the stored rooms, sessions and
+  agents of an install already carry, so nothing stored is rewritten. Only
+  when `backend.auth_mode` is `clerk` and `backend.admin_user_ids` is not
+  empty does it take one of those ids: the only one, or the one the request
+  names in `owner_id` when several are listed (`OwnerIdRequired` otherwise,
+  with the choices). A unique partial index on `users.role` allows one owner,
+  so two creations at the same moment cannot both succeed.
+- **Password.** `account.passwords` uses `hashlib.scrypt` (`n=2**15`, `r=8`,
+  `p=3`, a 16-byte salt, a 32-byte key). `maxmem` is passed explicitly,
+  because those parameters need slightly more than the library's default of
+  32 MiB. The parameters are stored beside each hash; a hash made with other
+  parameters still verifies and is replaced at the next sign-in.
+  `password_id` is new whenever the password itself is set (creation, change,
+  reset) and stays when only the hash is upgraded. A write that follows a
+  check (that upgrade, and a password change) applies only while the stored
+  `password_id` is the one that was checked, and sign-in and setup look at it
+  once more after their session is stored and delete that session if it
+  changed. So a request that was already waiting never undoes a reset, a
+  sign-in whose password was changed or reset while it was being checked is
+  refused, and an upgrade is never mistaken for a change. If a
+  request fails or is cancelled after its session was stored, that session
+  is deleted on the way out; where that delete cannot run or the insert lands
+  after it, a row whose cookie value nobody received can remain in the
+  browser list until its 30-day expiry. Hashing runs in a worker
+  thread: sign-in's checks at most two at a time, and the hashes of setup, a
+  password change and the machine actions one at a time beside them, so
+  queued sign-ins do not hold those up. A password is 8 to 1024
+  characters.
+- **Browser sessions.** Sign-in and setup create a random value
+  (`secrets.token_urlsafe(32)`) and store only its SHA-256. A session that has
+  not been used for 30 days ends: `resolve` refuses it, and a TTL index on
+  `last_used_at` removes the document. `last_used_at` is written at most
+  every five minutes. A password change deletes the owner's other sessions,
+  and a password reset deletes all of them.
+- **Setup code.** `issue_setup_code` stores the SHA-256 of a new random code
+  under one fixed key, so a newer code replaces the older one. Setup accepts a
+  code for 24 hours and uses it up with one delete, so it works once. A
+  request that must still name `owner_id` does not use the code up.
+- **Attempt limit.** `account.attempts.AttemptLimiter` keeps counts in this
+  process's memory, per account (the submitted email) and per client address
+  for sign-in, per address for setup, and per account for a password change.
+  An attempt waits before it is checked: nothing after the first, then
+  0.5 s, doubling with each further attempt up to 10 s. Attempts on one key
+  take turns, each waiting for the one before it and then its own delay. No
+  attempt waits longer than 10 s and the limiter refuses none: it is a delay,
+  never a lockout, and the right password is accepted after the wait. The
+  price is that attempts sent at once beyond that 10 s horizon are checked
+  together when it ends. A success clears its keys; a count is forgotten 15
+  minutes after its last attempt, and at most 10,000 keys are kept.
+- **Bound on waiting requests.** At most 256 password checks (sign-in, setup
+  and password change) are held at one time, waiting ones included; a further
+  one is refused at once (`TooManyAttempts`, HTTP 429). This bounds what a
+  flood can make the backend hold and how many guesses can be sent at once.
+  While a flood keeps all 256 occupied, the owner's sign-in is refused too.
+- The address is the request's client address. uvicorn takes it from
+  `X-Forwarded-For` when the peer is `127.0.0.1` (its default), and Caddy sets
+  that header to the peer it sees. Where the container runtime or a proxy in
+  front presents every client under one address, all clients share one
+  address key.
+- Sign-in answers a wrong email and a wrong password the same way, and hashes
+  in both cases, so the timing does not tell them apart.
+
 ### `diagnostics`
 
 The local store of what the backend logged about itself. It imports only
@@ -977,6 +1077,7 @@ recreation, so coordinate index-shape changes with a maintenance window.
 | `orchestrator_agent_tool_bindings`, `orchestrator_agent_calls`, `orchestrator_a2a_observations`, `orchestrator_a2a_observation_conflicts`, `orchestrator_room_epochs`, `orchestrator_hitl_interactions` | `execution.repository.orchestrator.stores` and `.hitl` |
 | `diagnostic_system_events` | `diagnostics.repository.mongo.DiagnosticsMongoRepository` (capped, 16 MiB) |
 | `diagnostic_log_records` | `diagnostics.repository.mongo.DiagnosticsMongoRepository` (capped, 32 MiB) |
+| `users`, `user_sessions`, `setup_codes` | `account.repository.mongo.MongoAccountRepository` |
 
 Room-state deletion is per owner: `RoomFiles.delete_room_state` calls every bound
 `RoomStateOwner` (`MessageMongoRepository`, `RoomQuoteMongoRepository`,
@@ -991,7 +1092,9 @@ deleted per room epoch by the orchestrator epoch cleanup;
 `room_event_seq`, `sessions`, `migration_markers`, and `agent_capability_issues`
 are retained, with no deletion or TTL. `diagnostic_system_events` and
 `diagnostic_log_records` are capped: MongoDB evicts their oldest documents by
-size.
+size. `users` is retained; a `user_sessions` document is deleted at sign-out,
+at revocation, at a password change or reset, and by a TTL index 30 days after
+its last use; the `setup_codes` document is deleted when its code is used.
 
 Code, DTOs, HTTP, and SSE name the conversation `conversation_id`. Mongo stores
 it as `room_id` in every collection, including indexes, aggregation paths, and
@@ -1042,6 +1145,8 @@ port, or facade port, update the exact method inventory in
 | `_ContinuationCommand` | `a2a_adapter.orchestrator_direct_client` | attribute shape (records read by attribute) | internal to `a2a_adapter` |
 | `_DispatchCommand` | `a2a_adapter.orchestrator_direct_client` | attribute shape (records read by attribute) | internal to `a2a_adapter` |
 | `_ModelReplyCommand` | `a2a_adapter.orchestrator_direct_client` | attribute shape (records read by attribute) | internal to `a2a_adapter` |
+| `AccountStore` | `account.protocols` | `account.repository.mongo.MongoAccountRepository` | internal to `account` |
+| `OwnerAccount` | `account.protocols` | `account.service.AccountService` | crosses to `api_gateway` |
 | `AgentRepository` | `agent.facade` | `agent.repository.mongo.AgentMongoRepository` | crosses to composition root |
 | `AgentHealthRepositoryPort` | `agent.health` | `agent.repository.mongo.AgentMongoRepository` | internal to `agent` |
 | `AgentHealthProbe` | `agent.liveness` | `agent.health.AgentHealthService` | internal to `agent` |
@@ -1272,8 +1377,10 @@ means `public`), `HYBRO_PUBLIC_PORT`, and `HYBRO_INSECURE_NO_AUTH`. A public
 listener starts only with `auth_mode: clerk` and `frontend.server_url`, or with
 `HYBRO_INSECURE_NO_AUTH=1`, which logs a warning. It then writes each program's
 command and scoped environment to a private file under `/tmp/hybro/programs`,
-writes the Caddyfile and supervisor configuration, prepares MongoDB, and execs
-`supervisord` with only base variables. Each program starts through
+writes the Caddyfile and supervisor configuration, writes the two per-start
+handoff files (`/tmp/hybro/diagnostics.json` and `/tmp/hybro/machine.json`,
+each a loopback base URL and a fresh token, mode 0600), prepares MongoDB, and
+execs `supervisord` with only base variables. Each program starts through
 `runtime_entrypoint.py run <name>`, which applies its own environment, prefixes
 its log lines with the program name, and forwards stop signals. The
 entrypoint's own routine lines carry an `entrypoint | ` prefix; its warnings
@@ -1319,7 +1426,12 @@ and skips the embedded `mongod`.
 
 Caddy routes one port by path: `{api_prefix}` and `{api_prefix}/*` and
 `/health` to the backend, `/mcp` and `/mcp/*` to MCP (omitted on a public
-listener), and everything else to the frontend. On a loopback listener it
+listener), and everything else to the frontend. On every listener it answers
+`{api_prefix}/machine` and `{api_prefix}/machine/*` with 404 before the backend
+route, so the machine-only routes cannot be reached through the published
+port. The proxy blocks set no `header_up`: Caddy passes the browser's `Host`
+on and sets `X-Forwarded-Host`, `X-Forwarded-Proto` and `X-Forwarded-For`
+itself, ignoring the values an incoming request carries. On a loopback listener it
 answers any `Host` other than `localhost`, `127.0.0.1`, or `::1` (any port)
 with 421, which blocks DNS rebinding against the unauthenticated local API.
 Caddy writes a JSON access log to stdout (`caddy | ` in `hybro logs`), skipping
@@ -1687,6 +1799,82 @@ whose ID is in `backend.admin_user_ids`. The list is empty by default, which
 disables browser changes until an operator sets it in `config.json`. Headless
 setup remains possible by writing `config.json` and `auth.json` directly; the
 `ProviderRuntime` picks up the change without a restart.
+
+### Owner account API
+
+`api_gateway/routes/auth_routes.py` and `machine_routes.py` are thin adapters
+over `account.protocols.OwnerAccount` (see the [`account`](#account) module).
+Before startup binds the service, and after shutdown, every `/auth` route is
+a 503 `account_unavailable`, and every `/machine` route a 401, because no
+token is bound either. Errors are `{"detail": {"code", "message"}}`.
+
+Routes under `{api_prefix}/auth`:
+
+| Route | Credential | Does |
+|---|---|---|
+| `GET /status` | none | `{account_exists, owner}`; `owner` is set only for a request that carries a valid cookie. |
+| `POST /setup` | the setup code in the body | Creates the owner (`code`, `name`, `email`, `password`, optional `owner_id`) and signs in. 409 `account_exists`, 403 `invalid_setup_code`, 409 `owner_id_required` with `choices`. |
+| `POST /sign-in` | email and password | Sets the cookie and returns the owner. 401 `invalid_credentials`; 429 `too_many_attempts` when 256 password checks are already waiting, as for setup and a password change. |
+| `POST /sign-out` | the cookie, if any | Ends that browser's session and clears the cookie. Always 204. |
+| `PATCH /profile` | the cookie | Changes the name and the email. |
+| `POST /password` | the cookie | Needs the current password; signs out the other browsers. 401 `invalid_credentials`. |
+| `GET /browsers` | the cookie | The signed-in browsers: `id`, `created_at`, `last_used_at`, `user_agent`, `current`. |
+| `DELETE /browsers/{browser_id}` | the cookie | Signs that browser out. 404 `browser_not_found`. |
+
+A route that takes the cookie answers 401 `not_signed_in` without a valid one;
+an `Authorization` header counts for nothing there.
+
+The cookie is `hybro_session`: an opaque random value, `HttpOnly`,
+`SameSite=Lax`, `Path=/`, `Max-Age` 30 days, and `Secure` when the request
+arrived over HTTPS (the request's scheme, which uvicorn takes from
+`X-Forwarded-Proto` when the peer is `127.0.0.1`). It has no `Domain`, so the
+browser sends it to this host only, on every port of it.
+
+Routes under `{api_prefix}/machine`, for the `hybro` command:
+
+| Route | Does |
+|---|---|
+| `POST /setup-code` | Issues a setup code (`code`, `expires_at`). 409 `account_exists`. |
+| `POST /owner` | Creates the owner (`name`, `email`, `password`, optional `owner_id`). 201; 409 `account_exists` or `owner_id_required`. |
+| `POST /owner/password` | Sets a new password and signs out every browser. 204; 409 `no_account`. |
+
+They take the per-start token of `/tmp/hybro/machine.json` in the
+`X-Hybro-Machine-Token` header, which is read from the request and not
+declared in the schema; anything else is a 401 `machine_token_required`. The
+owner's cookie and a bearer token open nothing here.
+`Settings.machine_handoff_file` names the file in the image and is empty in a
+checkout, where no token exists and the routes refuse every request. The token
+is added to the public-text sanitizer's secret values. Caddy answers the path
+with 404, so only a process inside the container reaches these routes, on
+`127.0.0.1:8000`. No `hybro` command calls them yet.
+
+#### Requests from other websites
+
+`api_gateway.cross_site.CrossSiteCheckMiddleware` refuses, with 403
+`cross_site_request`, a request that another website made a browser send:
+
+- It checks a request whose method is not `GET`, `HEAD` or `OPTIONS` and that
+  carries the `hybro_session` cookie, and every `POST` to `/auth/sign-in` and
+  `/auth/setup`. A request without the cookie is not checked, so the MCP
+  server, the bundled agents, `curl` and scripts, which send no `Origin`, are
+  not affected.
+- A checked request must carry an `Origin` that names Hybro's own address; a
+  missing `Origin` is refused.
+- Hybro's own address is the first value of `X-Forwarded-Host` when the header
+  is present, else `Host`. Caddy sets `X-Forwarded-Host` to the browser's
+  host, and the Next rewrite proxy of `npm run dev` replaces `Host` with the
+  backend's address and puts the browser's host in `x-forwarded-host`. A web
+  page cannot set that header on a cross-site request without a preflight.
+- Host and port are compared; ports 80 and 443 count as no port, because an
+  `Origin` on a default port carries none. The scheme is not compared. An
+  `Origin` that is not `http://` or `https://` followed by exactly a host and
+  an optional port is refused.
+
+This is the only defence against a plain cross-site `POST`: FastAPI parses a
+body without a `Content-Type` as JSON, so no preflight protects these routes,
+and `SameSite` ignores ports. An outer reverse proxy that rewrites `Host`
+without setting `X-Forwarded-Host` makes the check refuse the owner's own
+requests.
 
 ### Settings API
 
@@ -3560,6 +3748,9 @@ Focused tests are organized by module and workflow:
 - `tests/test_orchestrator_*` and `tests/test_execution_*`: the orchestrator,
   A2A runtime, and execution flows.
 - `tests/test_hitl*` and `tests/test_session*`: HITL and sessions.
+- `tests/test_account_*`, `tests/test_api_auth.py`, `tests/test_api_machine.py`
+  and `tests/test_cross_site_check.py`: the owner account, its routes, and the
+  cross-site check.
 - `tests/test_context_memory_*`: projection, compaction, repository, events.
 - `tests/test_delivery_*`: SSE, event bus, delivery protocols.
 - `tests/test_module_boundaries.py`, `tests/test_module_protocol_inventory.py`,

@@ -157,6 +157,8 @@ py-modules = [
     "diagnostics_cli",
 ]
 packages = [
+    "account",
+    "account.repository",
     "agent",
     "approval",
     "approval.repository",
