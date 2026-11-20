@@ -233,9 +233,10 @@ Each route accepts one kind of credential. The owner's sign-in does not open
 the agent-facing routes, and their credentials open nothing else.
 
 - **A source token.** The owner creates a source in the Panel and receives its
-  token once. The source sends the token with each request. Hybro stores only
-  a hash of it, finds the source from it, and records that source on every
-  Step. A token never opens the Panel or the settings.
+  token once. The source sends the token with each request. Hybro stores a
+  hash of it and its last four characters, never the token itself. It finds
+  the source from the hash and records that source on every Step. A token
+  never opens the Panel or the settings.
 - **A token is required by default,** on every install, for a program on the
   same machine as well as one on another machine. The rule does not depend on
   how the instance was started or where a request comes from.
@@ -246,10 +247,10 @@ the agent-facing routes, and their credentials open nothing else.
 - **A bad token is always refused.** A request that carries an unknown or
   revoked token is refused, also while the requirement is off. It is never
   recorded under "No token", so revoking a token always takes effect.
-- **Trust needs a token.** A feature that limits or trusts a source by its
-  name, such as an access rule that matches on a source or the grant that lets
-  a source answer permission questions, applies to sources with a token. It
-  can never be given to "No token".
+- **Trust needs a token.** A feature that limits or trusts a source by
+  which source it is, such as an access rule that matches on a source or the
+  grant that lets a source answer permission questions, applies to sources
+  with a token. It can never be given to "No token".
 - **`client_label` is a claimed name, not an identity.** It is optional when a
   token is sent and required when a session is opened without one. The Panel
   shows it as text the client gave, apart from the source, and no decision
@@ -565,7 +566,7 @@ once, on the current run.
 
 | Feature | Community | Enterprise |
 |---|---|---|
-| Sources and the Source API | All of it, including verified source identity, authenticated remote access, and the event sources that come later. | Nothing |
+| Sources and the Source API | All of it, including source tokens, remote access with a token, and the event sources that come later. | Nothing |
 | Sessions, steps, agent calls, queue | All of it. | Nothing |
 | Routing | Named agent, owner route rules, match, LLM pick. | Nothing |
 | Questions and approvals | The agent's own permission questions, answered by the owner in the Panel. Owner check rules. The grant that lets a source answer. | Several approvers, and approval by role. |

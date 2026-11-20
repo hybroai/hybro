@@ -158,7 +158,9 @@ Nothing depends on an authentication mode or on how the instance was started.
 2. **The Sources tab.** The Connect page (named Access in today's UI) gains a
    Sources tab before MCP and API.
    - It lists each source: name, how it connects, last use, creation date and
-     the last four characters of its token.
+     the last four characters of its token. Hybro stores those four
+     characters beside the hash of the token, so that the owner can tell
+     tokens apart; the token itself is never stored.
    - A source can be renamed, its token rotated or revoked, and its sessions
      opened from there.
    - Creating a source shows the token once, with a ready-to-paste snippet that
@@ -276,7 +278,7 @@ Nothing depends on an authentication mode or on how the instance was started.
   frontend needs it is decided when the owner account is built.
 
 **What stays the same.** The `/sessions` routes and the MCP tools, with their
-request and response shapes. What a user sees change: the Panel asks for
+request and response shapes. What changes for a user: the Panel asks for
 sign-in on every install, and a fresh install asks a program for a token. A
 change to how a client connects follows the deprecation rule above.
 
@@ -480,7 +482,8 @@ community edition does.
 2. **The license key** that turns the enterprise features on.
 3. **The features**, each behind a small hook in the community code:
    - access rules and roles: who may use which agent or item. An access rule
-     that matches on a source relies on the verified source of phase 2.
+     that matches on a source needs a source with a token and can never
+     match "No token".
    - several approvers, and approval by role
    - saved standards that run on every step, with results over time
    - audit across sessions, and export
