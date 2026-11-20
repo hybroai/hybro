@@ -155,6 +155,7 @@ py-modules = [
     "runtime_entrypoint",
     "volume_migration",
     "diagnostics_cli",
+    "owner_cli",
 ]
 packages = [
     "account",
