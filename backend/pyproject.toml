@@ -156,6 +156,7 @@ py-modules = [
     "volume_migration",
     "diagnostics_cli",
     "owner_cli",
+    "source_cli",
 ]
 packages = [
     "account",
@@ -170,6 +171,8 @@ packages = [
     "room_files",
     "session",
     "session.repository",
+    "source",
+    "source.repository",
     "context_memory",
     "context_memory.repository",
     "dal",

@@ -900,6 +900,12 @@ LOCAL_AGENT_RECORDS_PRUNED = define(
     "local_agent_records_pruned", INFO, required={"pruned_record_count"}
 )
 
+# source
+
+SOURCE_LAST_USE_WRITE_FAILED = define(
+    "source_last_use_write_failed", WARNING, required={"source_id"}
+)
+
 # session
 
 SESSION_ORPHAN_CONTAINER_DELETE_FAILED = define(

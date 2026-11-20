@@ -1,10 +1,15 @@
-"""Session facade: client sends, checks, and closes; owner lists and reads.
+"""Session facade: a source sends, checks, and closes; the owner lists, reads
+and closes.
 
 A session sends each client message to one named agent through the
 passthrough execution mode (no orchestrator model turns), records every turn
 in a conversation container owned by the Session product, and lets the owner
 decide agent interactions in the Hybro app. The client sees only the session
 state; it never sees the container id or the approval question.
+
+A session belongs to the source that opened it: only a request from that
+source reaches it, and every other source gets "not found". The owner reaches
+every session.
 """
 
 from __future__ import annotations
@@ -46,6 +51,7 @@ from models.session import (
     SessionMessageResponse,
     SessionOwnerRecord,
     SessionReceiptStatus,
+    SessionSource,
     SessionState,
     SessionStatus,
     SessionSummary,
@@ -62,8 +68,10 @@ from session.protocols import (
     RoomRegistry,
     SessionOwner,
     SessionStore,
+    SourceDirectory,
 )
 from session.waiter import CorrelatedOutcome, SessionWaiter
+from source.protocols import NO_TOKEN_SOURCE_ID, SourceIdentity
 
 logger = get_logger(__name__)
 
@@ -106,6 +114,7 @@ class SessionFacade:
         engine: ExecutionEngine,
         approvals: HITLManager,
         waiter: SessionWaiter,
+        sources: SourceDirectory,
         now: Callable[[], datetime] = utcnow,
         id_factory: Callable[[], str] = new_session_id,
     ) -> None:
@@ -117,6 +126,7 @@ class SessionFacade:
         self._engine = engine
         self._approvals = approvals
         self._waiter = waiter
+        self._sources = sources
         self._now = now
         self._id_factory = id_factory
 
@@ -127,13 +137,16 @@ class SessionFacade:
         request: SessionMessageRequest,
         *,
         owner: SessionOwner,
+        source: SourceIdentity,
         resolver: AgentNetworkTargetResolver,
     ) -> SessionMessageResponse:
         client_request_id = _validated_request_id(request.client_request_id)
         text = _validated_text(request.text)
         await _resolve_agent(resolver, request.agent_id, request.subnet_id)
-        record = await self._session_for_send(request, owner, client_request_id, text)
-        record = await self._ensure_container(record, owner, text)
+        record = await self._session_for_send(
+            request, owner, source, client_request_id, text
+        )
+        record = await self._ensure_container(record, owner, source, text)
         conversation_id = record.conversation_id
         assert conversation_id is not None
 
@@ -158,7 +171,7 @@ class SessionFacade:
         execution_request = ExecutionRequest(
             conversation_id=conversation_id,
             sender_id=owner.user_id,
-            sender_name=record.client_label,
+            sender_name=record.client_label or source.name,
             # The chat send shape; the server assigns the message id.
             message={
                 "conversation_id": conversation_id,
@@ -192,7 +205,7 @@ class SessionFacade:
                 else record.last_send_event_seq
             )
             record, lost_to = await self._record_send_or_start(
-                record, execution_request, ack, client_request_id, after
+                record, execution_request, ack, client_request_id, source, after
             )
         # Only the engine call that created the message may start its run, and
         # it can still lose the record to a faster replay of the same request.
@@ -222,12 +235,27 @@ class SessionFacade:
             state=state,
         )
 
-    async def check(self, session_id: str, *, owner: SessionOwner) -> SessionStatus:
-        record = await self._owned(session_id, owner)
+    async def check(
+        self, session_id: str, *, owner: SessionOwner, source: SourceIdentity
+    ) -> SessionStatus:
+        record = await self._reachable(session_id, owner, source)
         return await self._client_status(record)
 
-    async def close(self, session_id: str, *, owner: SessionOwner) -> SessionClosed:
-        record = await self._owned(session_id, owner)
+    async def close(
+        self, session_id: str, *, owner: SessionOwner, source: SourceIdentity
+    ) -> SessionClosed:
+        return await self._close(
+            await self._reachable(session_id, owner, source), owner
+        )
+
+    # -- Owner ---------------------------------------------------------------
+
+    async def close_for_owner(
+        self, session_id: str, *, owner: SessionOwner
+    ) -> SessionClosed:
+        return await self._close(await self._owned(session_id, owner), owner)
+
+    async def _close(self, record: SessionRecord, owner: SessionOwner) -> SessionClosed:
         if record.status == "closed":
             return SessionClosed(session_id=record.session_id, status="closed")
         if record.conversation_id:
@@ -238,17 +266,19 @@ class SessionFacade:
             status=closed.status if closed is not None else "closed",
         )
 
-    # -- Owner ---------------------------------------------------------------
-
     async def list_for_owner(self, *, owner: SessionOwner) -> SessionListResponse:
         records = await self._with_waiting(
             await self._store.list_for_owner(owner.user_id, _LIST_LIMIT), owner
         )
-        statuses = await asyncio.gather(*(self._owner_record(r) for r in records))
+        sources = await self._source_names(records)
+        statuses = await asyncio.gather(
+            *(self._owner_record(r, sources) for r in records)
+        )
         return SessionListResponse(
             sessions=[
                 SessionSummary(
                     session_id=record.session_id,
+                    source=status.source,
                     client_label=record.client_label,
                     title=record.title,
                     agents=status.agents,
@@ -267,7 +297,7 @@ class SessionFacade:
         self, session_id: str, *, owner: SessionOwner
     ) -> SessionOwnerRecord:
         record = await self._owned(session_id, owner)
-        return await self._owner_record(record)
+        return await self._owner_record(record, await self._source_names([record]))
 
     # -- Internals -------------------------------------------------------------
 
@@ -297,30 +327,42 @@ class SessionFacade:
         self,
         request: SessionMessageRequest,
         owner: SessionOwner,
+        source: SourceIdentity,
         client_request_id: str,
         text: str,
     ) -> SessionRecord:
         if request.session_id is None:
-            label = (request.client_label or "").strip()
-            if not label:
+            label = (request.client_label or "").strip() or None
+            if label is None and not source.has_token:
                 raise _error(
-                    "invalid_request", "client_label is required to open a session"
+                    "invalid_request",
+                    "client_label is required to open a session without a source token",
                 )
-            record = await self._open(owner, label, client_request_id, text)
+            record = await self._open(owner, source, label, client_request_id, text)
+            # The reserved record may be an earlier one; it must be this
+            # source's too.
+            if not _reaches(record, owner, source):
+                raise _error("session_not_found", "Session not found")
         else:
-            record = await self._owned(request.session_id, owner)
+            record = await self._reachable(request.session_id, owner, source)
         if record.status == "closed":
             raise _error("session_closed", "The session is closed")
         return record
 
     async def _open(
-        self, owner: SessionOwner, label: str, client_request_id: str, text: str
+        self,
+        owner: SessionOwner,
+        source: SourceIdentity,
+        label: str | None,
+        client_request_id: str,
+        text: str,
     ) -> SessionRecord:
         now = self._now()
         return await self._store.reserve(
             SessionRecord(
                 session_id=self._id_factory(),
                 owner_user_id=owner.user_id,
+                source_id=source.source_id,
                 client_label=label,
                 title=_title(text),
                 creation_request_id=client_request_id,
@@ -335,8 +377,40 @@ class SessionFacade:
             raise _error("session_not_found", "Session not found")
         return record
 
+    async def _reachable(
+        self, session_id: str, owner: SessionOwner, source: SourceIdentity
+    ) -> SessionRecord:
+        """The session, if this source opened it; "not found" for any other."""
+        record = await self._store.get(session_id)
+        if record is None or not _reaches(record, owner, source):
+            raise _error("session_not_found", "Session not found")
+        return record
+
+    async def _source_names(
+        self, records: list[SessionRecord]
+    ) -> dict[str, SessionSource]:
+        ids = list(dict.fromkeys(_source_id(record) for record in records))
+        known = await self._sources.identities(ids)
+        return {
+            source_id: (
+                SessionSource(
+                    source_id=identity.source_id,
+                    name=identity.name,
+                    has_token=identity.has_token,
+                )
+                if (identity := known.get(source_id)) is not None
+                # Sources are never deleted; show an unknown id as it is.
+                else SessionSource(source_id=source_id, name=source_id, has_token=False)
+            )
+            for source_id in ids
+        }
+
     async def _ensure_container(
-        self, record: SessionRecord, owner: SessionOwner, text: str
+        self,
+        record: SessionRecord,
+        owner: SessionOwner,
+        source: SourceIdentity,
+        text: str,
     ) -> SessionRecord:
         if record.conversation_id:
             return record
@@ -344,7 +418,7 @@ class SessionFacade:
             CreateRoomRequest(
                 owner_id=owner.user_id,
                 owner_name=owner.name or owner.user_id,
-                room_name=_room_name(record.client_label, text),
+                room_name=_room_name(record.client_label or source.name, text),
                 # Agents join the container only after an accepted send.
                 membership_seed=MembershipSeed(mode="manual", agent_ids=[]),
                 owner_product="session",
@@ -399,13 +473,14 @@ class SessionFacade:
         execution_request: ExecutionRequest,
         ack: ExecutionAck,
         client_request_id: str,
+        source: SourceIdentity,
         event_seq: int,
     ) -> tuple[SessionRecord, SessionRequest | None]:
         """Record the send; if the write fails, still start the stored message."""
         assert ack.message_id
         try:
             return await self._record_send(
-                record, client_request_id, ack.message_id, event_seq
+                record, client_request_id, ack.message_id, source, event_seq
             )
         except Exception:
             # The message is stored; without a run it would stay processing.
@@ -418,6 +493,7 @@ class SessionFacade:
         record: SessionRecord,
         client_request_id: str,
         user_message_id: str,
+        source: SourceIdentity,
         seq_before: int,
     ) -> tuple[SessionRecord, SessionRequest | None]:
         """Record a new send; also return the request if another send won."""
@@ -426,6 +502,7 @@ class SessionFacade:
                 record.session_id,
                 client_request_id=client_request_id,
                 user_message_id=user_message_id,
+                source_id=source.source_id,
                 event_seq=seq_before,
                 at=self._now(),
             )
@@ -563,7 +640,9 @@ class SessionFacade:
         times.extend(o.last_event_at for o in outcomes if o and o.last_event_at)
         return max(times)
 
-    async def _owner_record(self, record: SessionRecord) -> SessionOwnerRecord:
+    async def _owner_record(
+        self, record: SessionRecord, sources: dict[str, SessionSource]
+    ) -> SessionOwnerRecord:
         outcome = await self._outcome(record)
         closed = record.status == "closed"
         state, reason = self._resolve(
@@ -574,6 +653,7 @@ class SessionFacade:
         )
         return SessionOwnerRecord(
             session_id=record.session_id,
+            source=sources[_source_id(record)],
             client_label=record.client_label,
             title=record.title,
             state=state,
@@ -766,6 +846,19 @@ class SessionFacade:
                     conversation_id=conversation_id,
                     run_id=run.run_id,
                 )
+
+
+def _source_id(record: SessionRecord) -> str:
+    # A session from before sources counts as "No token".
+    return record.source_id or NO_TOKEN_SOURCE_ID
+
+
+def _reaches(
+    record: SessionRecord, owner: SessionOwner, source: SourceIdentity
+) -> bool:
+    return (
+        record.owner_user_id == owner.user_id and _source_id(record) == source.source_id
+    )
 
 
 def _validated_request_id(value: str | None) -> str:

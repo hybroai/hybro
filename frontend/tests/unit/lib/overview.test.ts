@@ -14,7 +14,7 @@ const agents = [
 const networks = [{ group_id: 'R', name: 'R', agents: ['a', 'b'], type: 'user', owner_id: 'u' }] as AgentGroup[]
 const rooms = [room('r1', 'awaiting_input'), room('r2', 'processing'), room('r3', 'idle')]
 const session = (id: string, state: SessionSummary['state']): SessionSummary => ({
-  session_id: id, client_label: `Client ${id}`, agents: [], state, paused_agent_id: null,
+  session_id: id, client_label: `Client ${id}`, source: { source_id: 'no_token', name: 'No token', has_token: false }, agents: [], state, paused_agent_id: null,
   conversation_id: null, opened_at: '2026-10-10T00:00:00Z', last_activity_at: '2026-10-10T00:00:00Z', closed_at: null,
 })
 const sessions = [session('s1', 'waiting_on_owner'), session('s2', 'working'), session('s3', 'closed')]

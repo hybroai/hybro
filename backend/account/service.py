@@ -18,6 +18,7 @@ from typing import Literal
 from account.attempts import AttemptLimiter
 from account.models import (
     OWNER_USER_ID,
+    ActingOwner,
     BrowserList,
     BrowserSession,
     NewSession,
@@ -105,6 +106,19 @@ class AccountService:
 
     async def exists(self) -> bool:
         return await self._store.get_owner() is not None
+
+    async def acting_owner(self) -> ActingOwner:
+        """The owner a Source API request acts for.
+
+        The owner record once it exists, else the identity it will take.
+        ``OwnerIdRequired`` when that is not known yet: in Clerk mode with
+        several administrators listed and no account.
+        """
+        owner = await self._store.get_owner()
+        if owner is not None:
+            return ActingOwner(user_id=owner.user_id, name=owner.name)
+        user_id = self._owner_id(None)
+        return ActingOwner(user_id=user_id, name=user_id)
 
     async def issue_setup_code(self) -> SetupCode:
         if await self.exists():

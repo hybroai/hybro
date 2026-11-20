@@ -23,7 +23,7 @@ import { useSessionListUrlState } from '@/hooks/useSessionListUrlState'
 import type { SessionState, SessionSummary } from '@/lib/api/session'
 import { useUser } from '@/lib/auth'
 import { routes } from '@/lib/routes'
-import { formatSessionTime } from '@/lib/session-format'
+import { formatSessionTime, sessionRequester } from '@/lib/session-format'
 import {
   DEFAULT_SESSION_LIST_STATE,
   SESSION_LIST_QUERY_STORAGE_KEY,
@@ -121,12 +121,12 @@ function SessionRow({ session }: { session: SessionSummary }) {
           {sessionName(session)}
         </Link>
         <span className="mt-0.5 block truncate text-xs text-muted-foreground md:hidden">
-          {session.client_label}
+          {sessionRequester(session)}
           <span className="sm:hidden"> · {formatSessionTime(session.last_activity_at)}</span>
         </span>
       </td>
       <td className="whitespace-nowrap px-3 py-3"><StatusIndicator view={sessionStateView(session.state)} /></td>
-      <td className="hidden max-w-0 truncate px-3 py-3 md:table-cell">{session.client_label}</td>
+      <td className="hidden max-w-0 truncate px-3 py-3 md:table-cell">{sessionRequester(session)}</td>
       <td className="hidden whitespace-nowrap px-3 py-3 tabular-nums text-muted-foreground lg:table-cell">
         <time dateTime={session.opened_at}>{formatSessionTime(session.opened_at)}</time>
       </td>
@@ -144,7 +144,7 @@ export function SessionsTablePage() {
   const all = query.data?.sessions
   const sessions = useMemo(() => applySessionListState(all ?? [], state), [all, state])
   const requesters = useMemo(
-    () => [...new Set((all ?? []).map(session => session.client_label))].sort((a, b) => a.localeCompare(b, 'en')),
+    () => [...new Set((all ?? []).map(sessionRequester))].sort((a, b) => a.localeCompare(b, 'en')),
     [all],
   )
   const filtering = hasActiveFilters(state)

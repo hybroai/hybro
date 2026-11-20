@@ -19,7 +19,7 @@ import { useMcpStatus } from '@/hooks/useMcpStatus'
 import { useSetupStatus } from '@/hooks/useSetupStatus'
 import { useUser } from '@/lib/auth'
 import { routes } from '@/lib/routes'
-import { formatSessionTime, sessionAgentNames } from '@/lib/session-format'
+import { formatSessionTime, sessionAgentNames, sessionRequester } from '@/lib/session-format'
 import { sessionName } from '@/lib/session-list-state'
 import { gatewayStatusView, roomStatusView, sessionStateView, type StatusView } from '@/lib/status'
 import { overviewMetrics, recentRooms, recentSessions, topAgentsByCalls } from '@/lib/overview'
@@ -202,7 +202,7 @@ export function OverviewPage() {
                 key={session.session_id}
                 href={routes.session(session.session_id)}
                 title={sessionName(session)}
-                meta={[session.client_label, sessionAgentNames(session.agents), formatSessionTime(session.last_activity_at)].filter(Boolean).join(' · ')}
+                meta={[sessionRequester(session), sessionAgentNames(session.agents), formatSessionTime(session.last_activity_at)].filter(Boolean).join(' · ')}
                 status={sessionStateView(session.state)}
               />
             ))}

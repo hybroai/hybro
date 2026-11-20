@@ -25,8 +25,8 @@ vi.mock('@/hooks/useSessions', () => ({
 import { SessionsTablePage } from '@/components/sessions/session-table'
 import { SESSION_LIST_QUERY_STORAGE_KEY } from '@/lib/session-list-state'
 
-const summary = (id: string, title: string | null, label: string, state: string, updated: string) => ({
-  session_id: id, client_label: label, title, agents: [{ agent_id: 'travel', name: 'Travel Planner Agent' }], state,
+const summary = (id: string, title: string | null, label: string | null, state: string, updated: string) => ({
+  session_id: id, client_label: label, source: { source_id: 'src_ci', name: 'CI bot', has_token: true }, title, agents: [{ agent_id: 'travel', name: 'Travel Planner Agent' }], state,
   paused_agent_id: null, conversation_id: `conv-${id}`, opened_at: updated, last_activity_at: updated, closed_at: null,
 })
 
@@ -98,6 +98,15 @@ describe('SessionsTablePage', () => {
       'Blossom Lettings client',
       'Northside buyer agent',
     ])
+  })
+
+  it('names a session without a label by its source', async () => {
+    data.sessions = [...data.sessions, summary('d', 'From CI', null, 'completed', '2026-10-15T10:00:00Z')]
+    render(<SessionsTablePage />)
+    const row = screen.getByRole('link', { name: 'From CI' }).closest('tr')!
+    expect(within(row).getAllByText('CI bot').length).toBeGreaterThan(0)
+    await userEvent.click(screen.getByRole('button', { name: 'Filter by requester' }))
+    expect(screen.getAllByRole('menuitemcheckbox').map(item => item.textContent)).toContain('CI bot')
   })
 
   it('explains an empty result and clears the filters', () => {

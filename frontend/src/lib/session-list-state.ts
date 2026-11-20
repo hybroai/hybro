@@ -1,6 +1,7 @@
 // The Inbox ticket list's search, column filters, and sort, kept in the URL
 // so Back, refresh, and shared links return to the same view.
 import type { SessionState, SessionSummary } from '@/lib/api/session'
+import { sessionRequester } from '@/lib/session-format'
 
 export type SessionSortField = 'name' | 'status' | 'requester' | 'created' | 'updated'
 export type SessionSortDir = 'asc' | 'desc'
@@ -116,7 +117,7 @@ function matchesSearch(session: SessionSummary, needle: string): boolean {
   if (!needle) return true
   return [
     sessionName(session),
-    session.client_label,
+    sessionRequester(session),
     session.session_id,
     ...session.agents.flatMap(agent => [agent.name ?? '', agent.agent_id]),
   ].join('\n').toLowerCase().includes(needle)
@@ -127,7 +128,7 @@ function compare(a: SessionSummary, b: SessionSummary, field: SessionSortField):
     case 'name':
       return sessionName(a).localeCompare(sessionName(b), 'en')
     case 'requester':
-      return a.client_label.localeCompare(b.client_label, 'en')
+      return sessionRequester(a).localeCompare(sessionRequester(b), 'en')
     case 'status':
       return SESSION_STATES.indexOf(a.state) - SESSION_STATES.indexOf(b.state)
     case 'created':
@@ -150,7 +151,7 @@ export function applySessionListState(
       matchesSearch(session, needle)
       && (!name || sessionName(session).toLowerCase().includes(name))
       && (!state.status.length || state.status.includes(session.state))
-      && (!state.requester.length || state.requester.includes(session.client_label))
+      && (!state.requester.length || state.requester.includes(sessionRequester(session)))
       && within(session.opened_at, state.created, now)
       && within(session.last_activity_at, state.updated, now)
     ))

@@ -53,15 +53,30 @@ class SessionMessageRequest(BaseModel):
     text: SessionText
     subnet_id: SessionIdentifier | None = None
     client_request_id: ClientRequestId
-    client_label: ClientLabel | None = None
+    client_label: ClientLabel | None = Field(
+        default=None,
+        description=(
+            "The name the client gives itself. Required to open a session "
+            "without a source token; deprecated with a token, where the "
+            "source's name is used."
+        ),
+    )
 
     @model_validator(mode="after")
-    def _require_text_and_label(self) -> Self:
+    def _require_text(self) -> Self:
+        # client_label is checked by the session: it is required to open a
+        # session only without a source token.
         if not self.text.strip():
             raise ValueError("text must not be blank")
-        if self.session_id is None and self.client_label is None:
-            raise ValueError("client_label is required to open a session")
         return self
+
+
+class SessionSource(BaseModel):
+    """The source that opened a session. "No token" has no token."""
+
+    source_id: str
+    name: str
+    has_token: bool
 
 
 class SessionAgent(BaseModel):
@@ -145,7 +160,8 @@ class SessionSummary(BaseModel):
     """One row of the owner's session list."""
 
     session_id: str
-    client_label: str
+    source: SessionSource
+    client_label: str | None = None
     title: str | None = None
     agents: list[SessionAgent] = Field(default_factory=list)
     state: SessionState
@@ -164,7 +180,8 @@ class SessionOwnerRecord(BaseModel):
     """The owner's view of one session, including the conversation container."""
 
     session_id: str
-    client_label: str
+    source: SessionSource
+    client_label: str | None = None
     title: str | None = None
     state: SessionState
     reason: str | None = None
@@ -200,6 +217,7 @@ __all__ = [
     "SessionOwnerRecord",
     "SessionHistoryEntry",
     "SessionReceiptStatus",
+    "SessionSource",
     "SessionState",
     "SessionStatus",
     "SessionSummary",

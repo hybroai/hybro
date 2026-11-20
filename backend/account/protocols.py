@@ -12,6 +12,7 @@ from typing import Any, Protocol, runtime_checkable
 from account.models import (
     OWNER_USER_ID,
     AccountStatus,
+    ActingOwner,
     BrowserList,
     BrowserSession,
     NewSession,
@@ -64,6 +65,7 @@ class OwnerIdRequired(Exception):
 @runtime_checkable
 class OwnerAccount(Protocol):
     async def exists(self) -> bool: ...
+    async def acting_owner(self) -> ActingOwner: ...
     async def setup(
         self, request: SetupRequest, *, address: str, user_agent: str
     ) -> NewSession: ...
@@ -113,6 +115,7 @@ class AccountStore(Protocol):
 __all__ = [
     "OWNER_USER_ID",
     "AccountExists",
+    "ActingOwner",
     "AccountStatus",
     "AccountStore",
     "BrowserList",

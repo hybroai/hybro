@@ -40,6 +40,7 @@ DOMAIN_MODULES = frozenset(
         "local_agents",
         "room_files",
         "session",
+        "source",
     }
 )
 SHARED_ROOTS = ("common", "models")

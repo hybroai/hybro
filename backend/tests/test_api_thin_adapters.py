@@ -302,6 +302,9 @@ def test_phase9_route_inventory_matches_live_app_routes():
                 "get_owner_session",
                 "get_optional_owner_session",
                 "get_machine_account",
+                "get_machine_sources",
+                "get_owner_sources",
+                "get_request_source",
             }
         ]
         live[(route.path, methods, route.name)] = {
@@ -339,6 +342,9 @@ def test_route_inventory_auth_dependencies_are_only_auth_dependencies():
         "get_owner_session",
         "get_optional_owner_session",
         "get_machine_account",
+        "get_machine_sources",
+        "get_owner_sources",
+        "get_request_source",
     }
     routes = json.loads(Path("tests/fixtures/phase9_api_routes.json").read_text())
     violations = [
@@ -683,7 +689,8 @@ def test_route_owner_protocols_match_handler_calls():
         RoomRouteReader,
         SSEStateReader,
     )
-    from session.protocols import SessionAccess
+    from session.protocols import OwnerSessionAccess, SessionAccess
+    from source.protocols import SourceRegistry
 
     expected_by_protocol = {
         AgentCapabilityIssueStore: {
@@ -721,7 +728,9 @@ def test_route_owner_protocols_match_handler_calls():
             "resolve_target",
             "search",
         },
-        SessionAccess: {"check", "close", "get_record", "list_sessions", "send"},
+        SessionAccess: {"check", "close", "send"},
+        OwnerSessionAccess: {"close", "get_record", "list_sessions"},
+        SourceRegistry: {"create", "list_sources", "rename", "revoke", "rotate"},
         RoomRouteReader: {"get_room_by_room_id"},
         SSEStateReader: {
             "get_room_by_room_id",

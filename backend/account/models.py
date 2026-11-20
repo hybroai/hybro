@@ -39,6 +39,14 @@ OwnerId = Annotated[
 ]
 
 
+@dataclass(frozen=True, slots=True)
+class ActingOwner:
+    """The owner whose data a Source API request acts on."""
+
+    user_id: str
+    name: str
+
+
 class _Stored(BaseModel):
     model_config = ConfigDict(frozen=True)
 

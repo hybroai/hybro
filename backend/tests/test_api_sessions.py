@@ -10,7 +10,8 @@ from types import SimpleNamespace
 import httpx
 import pytest
 
-from api_gateway.dependencies import get_session_access
+from api_gateway.dependencies import get_owner_session_access, get_session_access
+from api_gateway.source_token import SourceCaller
 from common import auth
 from common.auth import ClerkUser, get_current_user
 from common.errors import AppError
@@ -23,13 +24,16 @@ from models.session import (
     SessionMessageRequest,
     SessionMessageResponse,
     SessionOwnerRecord,
+    SessionSource,
     SessionStatus,
     SessionSummary,
 )
-from session.access import BoundSessionAccess
-from session.protocols import SessionAccess
+from session.access import BoundOwnerSessionAccess, BoundSessionAccess
+from session.protocols import OwnerSessionAccess, SessionAccess, SessionOwner
+from source.protocols import NO_TOKEN
 
 NOW = datetime(2026, 10, 14, tzinfo=UTC)
+NO_TOKEN_SOURCE = SessionSource(source_id="no_token", name="No token", has_token=False)
 SEND = "/api/v1/sessions/messages"
 
 
@@ -103,6 +107,7 @@ class AccessStub:
             sessions=[
                 SessionSummary(
                     session_id="sess-1",
+                    source=NO_TOKEN_SOURCE,
                     client_label="Buyer agent",
                     state="waiting_on_owner",
                     conversation_id="conv-1",
@@ -116,6 +121,7 @@ class AccessStub:
         self._raise()
         return SessionOwnerRecord(
             session_id=session_id,
+            source=NO_TOKEN_SOURCE,
             client_label="Buyer agent",
             state="waiting_on_owner",
             paused_agent_id="agent-1",
@@ -142,6 +148,7 @@ def make_app():
     access = AccessStub()
     app = create_app()
     app.dependency_overrides[get_session_access] = lambda: access
+    app.dependency_overrides[get_owner_session_access] = lambda: access
     app.dependency_overrides[get_current_user] = lambda: ClerkUser(
         user_id="owner", session_id="s", claims={}
     )
@@ -155,8 +162,9 @@ def client_for(app):
     )
 
 
-def test_stub_satisfies_session_access():
+def test_stub_satisfies_both_session_surfaces():
     assert isinstance(AccessStub(), SessionAccess)
+    assert isinstance(AccessStub(), OwnerSessionAccess)
 
 
 async def test_send_returns_a_receipt():
@@ -185,7 +193,6 @@ async def test_send_returns_a_receipt():
         body(client_request_id="x" * 129),
         body(text="x" * 10_001),
         body(text="   "),
-        body(client_label=None),
         body(data={"a": 1}),
         body(files=[]),
     ],
@@ -247,6 +254,7 @@ async def test_check_close_list_and_record():
         record = await client.get("/api/v1/sessions/sess-1/record")
         listing = await client.get("/api/v1/sessions")
         close = await client.post("/api/v1/sessions/sess-1/close")
+        owner_close = await client.post("/api/v1/sessions/sess-1/record/close")
 
     assert check.status_code == 200
     client_view = check.json()
@@ -274,6 +282,22 @@ async def test_check_close_list_and_record():
     assert record.json()["conversation_id"] == "conv-1"
     assert listing.json()["sessions"][0]["conversation_id"] == "conv-1"
     assert close.json() == {"session_id": "sess-1", "status": "closed"}
+    assert owner_close.json() == {"session_id": "sess-1", "status": "closed"}
+    assert listing.json()["sessions"][0]["source"] == {
+        "source_id": "no_token",
+        "name": "No token",
+        "has_token": False,
+    }
+
+
+async def test_opening_without_a_label_reaches_the_session_check():
+    # Whether client_label is needed depends on the token, so the route passes
+    # it on and the session decides.
+    app, access = make_app()
+    async with client_for(app) as client:
+        response = await client.post(SEND, json=body(client_label=None))
+    assert response.status_code == 200
+    assert access.sent[0].client_label is None
 
 
 async def test_unknown_session_is_404_on_read_routes():
@@ -283,15 +307,17 @@ async def test_unknown_session_is_404_on_read_routes():
         check = await client.get("/api/v1/sessions/missing")
         close = await client.post("/api/v1/sessions/missing/close")
         record = await client.get("/api/v1/sessions/missing/record")
+        owner_close = await client.post("/api/v1/sessions/missing/record/close")
 
     assert check.status_code == close.status_code == record.status_code == 404
+    assert owner_close.status_code == 404
     assert check.json()["detail"]["session_id"] == "missing"
 
 
-async def test_clerk_anonymous_requests_fail_with_401(monkeypatch):
+async def test_clerk_anonymous_owner_requests_fail_with_401(monkeypatch):
     app, access = make_app()
     app.dependency_overrides.pop(get_current_user)
-    app.dependency_overrides.pop(get_session_access)
+    app.dependency_overrides.pop(get_owner_session_access)
     monkeypatch.setattr(auth, "_require_clerk_secret_key", lambda: "sk_test")
     monkeypatch.setattr(
         auth,
@@ -300,18 +326,16 @@ async def test_clerk_anonymous_requests_fail_with_401(monkeypatch):
     )
     async with client_for(app) as client:
         responses = [
-            await client.post(SEND, json=body()),
-            await client.get("/api/v1/sessions/sess-1"),
-            await client.post("/api/v1/sessions/sess-1/close"),
             await client.get("/api/v1/sessions"),
             await client.get("/api/v1/sessions/sess-1/record"),
+            await client.post("/api/v1/sessions/sess-1/record/close"),
         ]
 
-    assert [response.status_code for response in responses] == [401] * 5
+    assert [response.status_code for response in responses] == [401] * 3
     assert access.sent == []
 
 
-def test_get_session_access_binds_owner_and_resolver():
+def test_get_session_access_binds_source_owner_and_resolver():
     facade = object()
     deps = SimpleNamespace(
         session_facade=facade,
@@ -319,14 +343,26 @@ def test_get_session_access_binds_owner_and_resolver():
         agent_group_store=object(),
         agent_matcher=object(),
     )
-    user = ClerkUser(user_id="owner-1", session_id="s", claims={"username": "estate"})
+    caller = SourceCaller(
+        source=NO_TOKEN, owner=SessionOwner(user_id="owner-1", name="estate")
+    )
 
-    access = get_session_access(user, deps)
+    access = get_session_access(caller, deps)
 
     assert isinstance(access, BoundSessionAccess)
     assert access._owner.user_id == "owner-1"
-    assert access._owner.name == "estate"
+    assert access._source == NO_TOKEN
     assert access._resolver._requesting_user_id == "owner-1"
+
+
+def test_get_owner_session_access_binds_the_signed_in_owner():
+    deps = SimpleNamespace(session_facade=object())
+    owner = SessionOwner(user_id="owner-1", name="Ada")
+
+    access = get_owner_session_access(owner, deps)
+
+    assert isinstance(access, BoundOwnerSessionAccess)
+    assert access._owner == owner
 
 
 # -- Request limits -----------------------------------------------------------

@@ -26,6 +26,30 @@
       "get_current_user"
     ],
     "dependencies": [
+      "get_agent_selection_service",
+      "get_current_user"
+    ],
+    "methods": [
+      "POST"
+    ],
+    "module": "api_gateway.routes.room_routes",
+    "name": "suggest_agents",
+    "openapi_response_codes": [
+      "200",
+      "422"
+    ],
+    "owning_protocol": "agent.protocols.AgentSuggestionService",
+    "path": "/api/v1/agent-suggestions",
+    "response_class": null,
+    "response_model": null,
+    "status_code": null,
+    "streaming_response": null
+  },
+  {
+    "auth_dependencies": [
+      "get_current_user"
+    ],
+    "dependencies": [
       "get_agent_service",
       "get_capability_issue_service",
       "get_current_user"
@@ -381,7 +405,8 @@
       "401",
       "403",
       "404",
-      "422"
+      "422",
+      "503"
     ],
     "owning_protocol": "agent.protocols.AgentNetworkAccess",
     "path": "/api/v1/agents/discovery",
@@ -402,7 +427,9 @@
     "name": "list_network_groups",
     "openapi_response_codes": [
       "200",
-      "401"
+      "401",
+      "403",
+      "503"
     ],
     "owning_protocol": "agent.protocols.AgentNetworkAccess",
     "path": "/api/v1/agents/groups",
@@ -426,7 +453,8 @@
       "401",
       "403",
       "404",
-      "422"
+      "422",
+      "503"
     ],
     "owning_protocol": "agent.protocols.AgentNetworkAccess",
     "path": "/api/v1/agents/search",
@@ -449,7 +477,8 @@
       "200",
       "401",
       "404",
-      "422"
+      "422",
+      "503"
     ],
     "owning_protocol": "agent.protocols.AgentNetworkAccess",
     "path": "/api/v1/agents/{agent_id}/profile",
@@ -457,6 +486,197 @@
     "response_model": "AgentProfile",
     "status_code": null,
     "streaming_response": null
+  },
+  {
+    "auth_dependencies": [
+      "get_owner_session"
+    ],
+    "dependencies": [
+      "get_owner_account",
+      "get_owner_session"
+    ],
+    "methods": [
+      "GET"
+    ],
+    "module": "api_gateway.routes.auth_routes",
+    "name": "auth_list_browsers",
+    "openapi_response_codes": [
+      "200"
+    ],
+    "owning_protocol": "account.protocols.OwnerAccount",
+    "path": "/api/v1/auth/browsers",
+    "response_class": null,
+    "response_model": "BrowserList",
+    "status_code": null,
+    "streaming_response": null,
+    "supporting_protocols": []
+  },
+  {
+    "auth_dependencies": [
+      "get_owner_session"
+    ],
+    "dependencies": [
+      "get_owner_account",
+      "get_owner_session"
+    ],
+    "methods": [
+      "DELETE"
+    ],
+    "module": "api_gateway.routes.auth_routes",
+    "name": "auth_revoke_browser",
+    "openapi_response_codes": [
+      "204",
+      "422"
+    ],
+    "owning_protocol": "account.protocols.OwnerAccount",
+    "path": "/api/v1/auth/browsers/{browser_id}",
+    "response_class": "Response",
+    "response_model": null,
+    "status_code": 204,
+    "streaming_response": null,
+    "supporting_protocols": []
+  },
+  {
+    "auth_dependencies": [
+      "get_owner_session"
+    ],
+    "dependencies": [
+      "get_owner_account",
+      "get_owner_session"
+    ],
+    "methods": [
+      "POST"
+    ],
+    "module": "api_gateway.routes.auth_routes",
+    "name": "auth_change_password",
+    "openapi_response_codes": [
+      "204",
+      "422"
+    ],
+    "owning_protocol": "account.protocols.OwnerAccount",
+    "path": "/api/v1/auth/password",
+    "response_class": "Response",
+    "response_model": null,
+    "status_code": 204,
+    "streaming_response": null,
+    "supporting_protocols": []
+  },
+  {
+    "auth_dependencies": [
+      "get_owner_session"
+    ],
+    "dependencies": [
+      "get_owner_account",
+      "get_owner_session"
+    ],
+    "methods": [
+      "PATCH"
+    ],
+    "module": "api_gateway.routes.auth_routes",
+    "name": "auth_update_profile",
+    "openapi_response_codes": [
+      "200",
+      "422"
+    ],
+    "owning_protocol": "account.protocols.OwnerAccount",
+    "path": "/api/v1/auth/profile",
+    "response_class": null,
+    "response_model": "OwnerProfile",
+    "status_code": null,
+    "streaming_response": null,
+    "supporting_protocols": []
+  },
+  {
+    "auth_dependencies": [],
+    "dependencies": [
+      "get_owner_account"
+    ],
+    "methods": [
+      "POST"
+    ],
+    "module": "api_gateway.routes.auth_routes",
+    "name": "auth_setup",
+    "openapi_response_codes": [
+      "200",
+      "422"
+    ],
+    "owning_protocol": "account.protocols.OwnerAccount",
+    "path": "/api/v1/auth/setup",
+    "response_class": null,
+    "response_model": "OwnerProfile",
+    "status_code": null,
+    "streaming_response": null,
+    "supporting_protocols": []
+  },
+  {
+    "auth_dependencies": [],
+    "dependencies": [
+      "get_owner_account"
+    ],
+    "methods": [
+      "POST"
+    ],
+    "module": "api_gateway.routes.auth_routes",
+    "name": "auth_sign_in",
+    "openapi_response_codes": [
+      "200",
+      "422"
+    ],
+    "owning_protocol": "account.protocols.OwnerAccount",
+    "path": "/api/v1/auth/sign-in",
+    "response_class": null,
+    "response_model": "OwnerProfile",
+    "status_code": null,
+    "streaming_response": null,
+    "supporting_protocols": []
+  },
+  {
+    "auth_dependencies": [
+      "get_optional_owner_session"
+    ],
+    "dependencies": [
+      "get_optional_owner_session",
+      "get_owner_account"
+    ],
+    "methods": [
+      "POST"
+    ],
+    "module": "api_gateway.routes.auth_routes",
+    "name": "auth_sign_out",
+    "openapi_response_codes": [
+      "204"
+    ],
+    "owning_protocol": "account.protocols.OwnerAccount",
+    "path": "/api/v1/auth/sign-out",
+    "response_class": "Response",
+    "response_model": null,
+    "status_code": 204,
+    "streaming_response": null,
+    "supporting_protocols": []
+  },
+  {
+    "auth_dependencies": [
+      "get_optional_owner_session"
+    ],
+    "dependencies": [
+      "get_optional_owner_session",
+      "get_owner_account"
+    ],
+    "methods": [
+      "GET"
+    ],
+    "module": "api_gateway.routes.auth_routes",
+    "name": "auth_status",
+    "openapi_response_codes": [
+      "200"
+    ],
+    "owning_protocol": "account.protocols.OwnerAccount",
+    "path": "/api/v1/auth/status",
+    "response_class": null,
+    "response_model": "AccountStatus",
+    "status_code": null,
+    "streaming_response": null,
+    "supporting_protocols": []
   },
   {
     "auth_dependencies": [],
@@ -719,26 +939,96 @@
   },
   {
     "auth_dependencies": [
-      "get_current_user"
+      "get_machine_account"
     ],
     "dependencies": [
-      "get_chat_rooms",
-      "get_current_user"
+      "get_machine_account"
     ],
     "methods": [
       "POST"
     ],
-    "module": "api_gateway.routes.room_routes",
-    "name": "create_new_room",
+    "module": "api_gateway.routes.machine_routes",
+    "name": "machine_create_owner",
     "openapi_response_codes": [
-      "200",
+      "201",
       "422"
     ],
-    "owning_protocol": "chat.protocols.ChatRooms",
-    "path": "/api/v1/rooms",
+    "owning_protocol": "account.protocols.OwnerAccount",
+    "path": "/api/v1/machine/owner",
     "response_class": null,
+    "response_model": "OwnerProfile",
+    "status_code": 201,
+    "streaming_response": null,
+    "supporting_protocols": []
+  },
+  {
+    "auth_dependencies": [
+      "get_machine_account"
+    ],
+    "dependencies": [
+      "get_machine_account"
+    ],
+    "methods": [
+      "POST"
+    ],
+    "module": "api_gateway.routes.machine_routes",
+    "name": "machine_reset_password",
+    "openapi_response_codes": [
+      "204",
+      "422"
+    ],
+    "owning_protocol": "account.protocols.OwnerAccount",
+    "path": "/api/v1/machine/owner/password",
+    "response_class": "Response",
     "response_model": null,
+    "status_code": 204,
+    "streaming_response": null,
+    "supporting_protocols": []
+  },
+  {
+    "auth_dependencies": [
+      "get_machine_account"
+    ],
+    "dependencies": [
+      "get_machine_account"
+    ],
+    "methods": [
+      "POST"
+    ],
+    "module": "api_gateway.routes.machine_routes",
+    "name": "machine_issue_setup_code",
+    "openapi_response_codes": [
+      "200"
+    ],
+    "owning_protocol": "account.protocols.OwnerAccount",
+    "path": "/api/v1/machine/setup-code",
+    "response_class": null,
+    "response_model": "SetupCode",
     "status_code": null,
+    "streaming_response": null,
+    "supporting_protocols": []
+  },
+  {
+    "auth_dependencies": [
+      "get_machine_sources"
+    ],
+    "dependencies": [
+      "get_machine_sources"
+    ],
+    "methods": [
+      "POST"
+    ],
+    "module": "api_gateway.routes.machine_routes",
+    "name": "machine_create_source",
+    "openapi_response_codes": [
+      "201",
+      "422"
+    ],
+    "owning_protocol": "source.protocols.SourceRegistry",
+    "path": "/api/v1/machine/sources",
+    "response_class": null,
+    "response_model": "SourceWithToken",
+    "status_code": 201,
     "streaming_response": null
   },
   {
@@ -767,6 +1057,30 @@
     "supporting_protocols": [
       "common.protocols.ExecutionEngine"
     ]
+  },
+  {
+    "auth_dependencies": [
+      "get_current_user"
+    ],
+    "dependencies": [
+      "get_chat_rooms",
+      "get_current_user"
+    ],
+    "methods": [
+      "POST"
+    ],
+    "module": "api_gateway.routes.room_routes",
+    "name": "create_new_room",
+    "openapi_response_codes": [
+      "200",
+      "422"
+    ],
+    "owning_protocol": "chat.protocols.ChatRooms",
+    "path": "/api/v1/rooms",
+    "response_class": null,
+    "response_model": null,
+    "status_code": null,
+    "streaming_response": null
   },
   {
     "auth_dependencies": [
@@ -831,6 +1145,36 @@
     "dependencies": [
       "get_chat_rooms",
       "get_current_user",
+      "get_execution_engine",
+      "get_room_store"
+    ],
+    "methods": [
+      "GET"
+    ],
+    "module": "api_gateway.routes.room_routes",
+    "name": "inquiry_room_setting",
+    "openapi_response_codes": [
+      "200",
+      "422"
+    ],
+    "owning_protocol": "chat.protocols.ChatRooms",
+    "path": "/api/v1/rooms/{conversation_id}",
+    "response_class": null,
+    "response_model": null,
+    "status_code": null,
+    "streaming_response": null,
+    "supporting_protocols": [
+      "common.protocols.ExecutionEngine",
+      "common.protocols.RoomRouteReader"
+    ]
+  },
+  {
+    "auth_dependencies": [
+      "get_current_user"
+    ],
+    "dependencies": [
+      "get_chat_rooms",
+      "get_current_user",
       "get_room_store"
     ],
     "methods": [
@@ -879,118 +1223,6 @@
     "supporting_protocols": [
       "common.protocols.RoomRouteReader"
     ]
-  },
-  {
-    "auth_dependencies": [
-      "get_current_user"
-    ],
-    "dependencies": [
-      "get_chat_rooms",
-      "get_current_user",
-      "get_room_store"
-    ],
-    "methods": [
-      "GET"
-    ],
-    "module": "api_gateway.routes.room_routes",
-    "name": "inquiry_room_messages",
-    "openapi_response_codes": [
-      "200",
-      "422"
-    ],
-    "owning_protocol": "chat.protocols.ChatRooms",
-    "path": "/api/v1/rooms/{conversation_id}/messages",
-    "response_class": null,
-    "response_model": null,
-    "status_code": null,
-    "streaming_response": null,
-    "supporting_protocols": [
-      "common.protocols.RoomRouteReader"
-    ]
-  },
-  {
-    "auth_dependencies": [
-      "get_current_user"
-    ],
-    "dependencies": [
-      "get_chat_rooms",
-      "get_current_user",
-      "get_execution_engine",
-      "get_room_store"
-    ],
-    "methods": [
-      "GET"
-    ],
-    "module": "api_gateway.routes.room_routes",
-    "name": "inquiry_room_setting",
-    "openapi_response_codes": [
-      "200",
-      "422"
-    ],
-    "owning_protocol": "chat.protocols.ChatRooms",
-    "path": "/api/v1/rooms/{conversation_id}",
-    "response_class": null,
-    "response_model": null,
-    "status_code": null,
-    "streaming_response": null,
-    "supporting_protocols": [
-      "common.protocols.ExecutionEngine",
-      "common.protocols.RoomRouteReader"
-    ]
-  },
-  {
-    "auth_dependencies": [
-      "get_current_user"
-    ],
-    "dependencies": [
-      "get_chat_rooms",
-      "get_current_user",
-      "get_execution_engine",
-      "get_room_store"
-    ],
-    "methods": [
-      "POST"
-    ],
-    "module": "api_gateway.routes.room_routes",
-    "name": "send_message",
-    "openapi_response_codes": [
-      "200",
-      "422"
-    ],
-    "owning_protocol": "common.protocols.ExecutionEngine",
-    "path": "/api/v1/rooms/{conversation_id}/messages",
-    "response_class": null,
-    "response_model": "RoomCenterUserMessageResponse",
-    "status_code": null,
-    "streaming_response": null,
-    "supporting_protocols": [
-      "common.protocols.RoomRouteReader",
-      "chat.protocols.ChatRooms"
-    ]
-  },
-  {
-    "auth_dependencies": [
-      "get_current_user"
-    ],
-    "dependencies": [
-      "get_agent_selection_service",
-      "get_current_user"
-    ],
-    "methods": [
-      "POST"
-    ],
-    "module": "api_gateway.routes.room_routes",
-    "name": "suggest_agents",
-    "openapi_response_codes": [
-      "200",
-      "422"
-    ],
-    "owning_protocol": "agent.protocols.AgentSuggestionService",
-    "path": "/api/v1/agent-suggestions",
-    "response_class": null,
-    "response_model": null,
-    "status_code": null,
-    "streaming_response": null
   },
   {
     "auth_dependencies": [
@@ -1100,6 +1332,682 @@
     "supporting_protocols": [
       "common.protocols.RoomOwnershipReader"
     ]
+  },
+  {
+    "auth_dependencies": [
+      "get_current_user"
+    ],
+    "dependencies": [
+      "get_chat_rooms",
+      "get_current_user",
+      "get_room_store"
+    ],
+    "methods": [
+      "GET"
+    ],
+    "module": "api_gateway.routes.room_routes",
+    "name": "inquiry_room_messages",
+    "openapi_response_codes": [
+      "200",
+      "422"
+    ],
+    "owning_protocol": "chat.protocols.ChatRooms",
+    "path": "/api/v1/rooms/{conversation_id}/messages",
+    "response_class": null,
+    "response_model": null,
+    "status_code": null,
+    "streaming_response": null,
+    "supporting_protocols": [
+      "common.protocols.RoomRouteReader"
+    ]
+  },
+  {
+    "auth_dependencies": [
+      "get_current_user"
+    ],
+    "dependencies": [
+      "get_chat_rooms",
+      "get_current_user",
+      "get_execution_engine",
+      "get_room_store"
+    ],
+    "methods": [
+      "POST"
+    ],
+    "module": "api_gateway.routes.room_routes",
+    "name": "send_message",
+    "openapi_response_codes": [
+      "200",
+      "422"
+    ],
+    "owning_protocol": "common.protocols.ExecutionEngine",
+    "path": "/api/v1/rooms/{conversation_id}/messages",
+    "response_class": null,
+    "response_model": "RoomCenterUserMessageResponse",
+    "status_code": null,
+    "streaming_response": null,
+    "supporting_protocols": [
+      "common.protocols.RoomRouteReader",
+      "chat.protocols.ChatRooms"
+    ]
+  },
+  {
+    "auth_dependencies": [],
+    "dependencies": [
+      "get_owner_session_access"
+    ],
+    "methods": [
+      "GET"
+    ],
+    "module": "api_gateway.routes.session_routes",
+    "name": "list_sessions",
+    "openapi_response_codes": [
+      "200",
+      "401",
+      "403",
+      "503"
+    ],
+    "owning_protocol": "session.protocols.OwnerSessionAccess",
+    "path": "/api/v1/sessions",
+    "response_class": null,
+    "response_model": "SessionListResponse",
+    "status_code": null,
+    "streaming_response": null
+  },
+  {
+    "auth_dependencies": [],
+    "dependencies": [
+      "get_session_access"
+    ],
+    "methods": [
+      "POST"
+    ],
+    "module": "api_gateway.routes.session_routes",
+    "name": "send_session_message",
+    "openapi_response_codes": [
+      "200",
+      "400",
+      "401",
+      "403",
+      "404",
+      "409",
+      "413",
+      "422",
+      "429",
+      "503"
+    ],
+    "owning_protocol": "session.protocols.SessionAccess",
+    "path": "/api/v1/sessions/messages",
+    "response_class": null,
+    "response_model": "SessionMessageResponse",
+    "status_code": null,
+    "streaming_response": null
+  },
+  {
+    "auth_dependencies": [],
+    "dependencies": [
+      "get_session_access"
+    ],
+    "methods": [
+      "GET"
+    ],
+    "module": "api_gateway.routes.session_routes",
+    "name": "check_session",
+    "openapi_response_codes": [
+      "200",
+      "400",
+      "401",
+      "403",
+      "404",
+      "409",
+      "422",
+      "503"
+    ],
+    "owning_protocol": "session.protocols.SessionAccess",
+    "path": "/api/v1/sessions/{session_id}",
+    "response_class": null,
+    "response_model": "SessionStatus",
+    "status_code": null,
+    "streaming_response": null
+  },
+  {
+    "auth_dependencies": [],
+    "dependencies": [
+      "get_session_access"
+    ],
+    "methods": [
+      "POST"
+    ],
+    "module": "api_gateway.routes.session_routes",
+    "name": "close_session",
+    "openapi_response_codes": [
+      "200",
+      "400",
+      "401",
+      "403",
+      "404",
+      "409",
+      "422",
+      "503"
+    ],
+    "owning_protocol": "session.protocols.SessionAccess",
+    "path": "/api/v1/sessions/{session_id}/close",
+    "response_class": null,
+    "response_model": "SessionClosed",
+    "status_code": null,
+    "streaming_response": null
+  },
+  {
+    "auth_dependencies": [],
+    "dependencies": [
+      "get_owner_session_access"
+    ],
+    "methods": [
+      "GET"
+    ],
+    "module": "api_gateway.routes.session_routes",
+    "name": "get_session_record",
+    "openapi_response_codes": [
+      "200",
+      "400",
+      "401",
+      "403",
+      "404",
+      "409",
+      "422",
+      "503"
+    ],
+    "owning_protocol": "session.protocols.OwnerSessionAccess",
+    "path": "/api/v1/sessions/{session_id}/record",
+    "response_class": null,
+    "response_model": "SessionOwnerRecord",
+    "status_code": null,
+    "streaming_response": null
+  },
+  {
+    "auth_dependencies": [],
+    "dependencies": [
+      "get_owner_session_access"
+    ],
+    "methods": [
+      "POST"
+    ],
+    "module": "api_gateway.routes.session_routes",
+    "name": "close_session_record",
+    "openapi_response_codes": [
+      "200",
+      "400",
+      "401",
+      "403",
+      "404",
+      "409",
+      "422",
+      "503"
+    ],
+    "owning_protocol": "session.protocols.OwnerSessionAccess",
+    "path": "/api/v1/sessions/{session_id}/record/close",
+    "response_class": null,
+    "response_model": "SessionClosed",
+    "status_code": null,
+    "streaming_response": null
+  },
+  {
+    "auth_dependencies": [],
+    "dependencies": [
+      "get_instance_settings"
+    ],
+    "methods": [
+      "GET"
+    ],
+    "module": "api_gateway.routes.settings_routes",
+    "name": "read_settings",
+    "openapi_response_codes": [
+      "200",
+      "403",
+      "409",
+      "422",
+      "503"
+    ],
+    "owning_protocol": "instance_settings.protocols.SettingsAccess",
+    "path": "/api/v1/settings",
+    "response_class": null,
+    "response_model": "SettingsView",
+    "status_code": null,
+    "streaming_response": null,
+    "supporting_protocols": []
+  },
+  {
+    "auth_dependencies": [],
+    "dependencies": [
+      "get_instance_settings"
+    ],
+    "methods": [
+      "PUT"
+    ],
+    "module": "api_gateway.routes.settings_routes",
+    "name": "update_settings",
+    "openapi_response_codes": [
+      "200",
+      "403",
+      "409",
+      "422",
+      "503"
+    ],
+    "owning_protocol": "instance_settings.protocols.SettingsAccess",
+    "path": "/api/v1/settings",
+    "response_class": null,
+    "response_model": "SettingsSaved",
+    "status_code": null,
+    "streaming_response": null,
+    "supporting_protocols": []
+  },
+  {
+    "auth_dependencies": [],
+    "dependencies": [
+      "get_instance_settings"
+    ],
+    "methods": [
+      "POST"
+    ],
+    "module": "api_gateway.routes.settings_routes",
+    "name": "restart_services",
+    "openapi_response_codes": [
+      "202",
+      "403",
+      "409",
+      "415",
+      "422",
+      "503"
+    ],
+    "owning_protocol": "instance_settings.protocols.SettingsAccess",
+    "path": "/api/v1/settings/restart",
+    "response_class": null,
+    "response_model": "RestartAccepted",
+    "status_code": 202,
+    "streaming_response": null,
+    "supporting_protocols": []
+  },
+  {
+    "auth_dependencies": [],
+    "dependencies": [
+      "get_setup"
+    ],
+    "methods": [
+      "POST"
+    ],
+    "module": "api_gateway.routes.setup_routes",
+    "name": "setup_api_key",
+    "openapi_response_codes": [
+      "200",
+      "400",
+      "403",
+      "404",
+      "409",
+      "422",
+      "503"
+    ],
+    "owning_protocol": "llm_gateway.setup_api.SetupAccess",
+    "path": "/api/v1/setup/api-key",
+    "response_class": null,
+    "response_model": "SetupSaved",
+    "status_code": null,
+    "streaming_response": null,
+    "supporting_protocols": []
+  },
+  {
+    "auth_dependencies": [],
+    "dependencies": [
+      "get_setup"
+    ],
+    "methods": [
+      "PUT"
+    ],
+    "module": "api_gateway.routes.setup_routes",
+    "name": "setup_image_size",
+    "openapi_response_codes": [
+      "200",
+      "400",
+      "403",
+      "404",
+      "409",
+      "422",
+      "503"
+    ],
+    "owning_protocol": "llm_gateway.setup_api.SetupAccess",
+    "path": "/api/v1/setup/image-size",
+    "response_class": null,
+    "response_model": "ImageSizeSaved",
+    "status_code": null,
+    "streaming_response": null,
+    "supporting_protocols": []
+  },
+  {
+    "auth_dependencies": [],
+    "dependencies": [
+      "get_setup"
+    ],
+    "methods": [
+      "GET"
+    ],
+    "module": "api_gateway.routes.setup_routes",
+    "name": "setup_models",
+    "openapi_response_codes": [
+      "200",
+      "400",
+      "403",
+      "404",
+      "409",
+      "422",
+      "503"
+    ],
+    "owning_protocol": "llm_gateway.setup_api.SetupAccess",
+    "path": "/api/v1/setup/models",
+    "response_class": null,
+    "response_model": "SetupModels",
+    "status_code": null,
+    "streaming_response": null,
+    "supporting_protocols": []
+  },
+  {
+    "auth_dependencies": [],
+    "dependencies": [
+      "get_setup"
+    ],
+    "methods": [
+      "POST"
+    ],
+    "module": "api_gateway.routes.setup_routes",
+    "name": "setup_oauth_complete",
+    "openapi_response_codes": [
+      "200",
+      "400",
+      "403",
+      "404",
+      "409",
+      "422",
+      "503"
+    ],
+    "owning_protocol": "llm_gateway.setup_api.SetupAccess",
+    "path": "/api/v1/setup/oauth/complete",
+    "response_class": null,
+    "response_model": "OAuthLoginView",
+    "status_code": null,
+    "streaming_response": null,
+    "supporting_protocols": []
+  },
+  {
+    "auth_dependencies": [],
+    "dependencies": [
+      "get_setup"
+    ],
+    "methods": [
+      "POST"
+    ],
+    "module": "api_gateway.routes.setup_routes",
+    "name": "setup_oauth_models",
+    "openapi_response_codes": [
+      "200",
+      "400",
+      "403",
+      "404",
+      "409",
+      "422",
+      "503"
+    ],
+    "owning_protocol": "llm_gateway.setup_api.SetupAccess",
+    "path": "/api/v1/setup/oauth/models",
+    "response_class": null,
+    "response_model": "SetupSaved",
+    "status_code": null,
+    "streaming_response": null,
+    "supporting_protocols": []
+  },
+  {
+    "auth_dependencies": [],
+    "dependencies": [
+      "get_setup"
+    ],
+    "methods": [
+      "POST"
+    ],
+    "module": "api_gateway.routes.setup_routes",
+    "name": "setup_oauth_start",
+    "openapi_response_codes": [
+      "200",
+      "400",
+      "403",
+      "404",
+      "409",
+      "422",
+      "503"
+    ],
+    "owning_protocol": "llm_gateway.setup_api.SetupAccess",
+    "path": "/api/v1/setup/oauth/start",
+    "response_class": null,
+    "response_model": "OAuthLoginView",
+    "status_code": null,
+    "streaming_response": null,
+    "supporting_protocols": []
+  },
+  {
+    "auth_dependencies": [],
+    "dependencies": [
+      "get_setup"
+    ],
+    "methods": [
+      "DELETE"
+    ],
+    "module": "api_gateway.routes.setup_routes",
+    "name": "setup_oauth_cancel",
+    "openapi_response_codes": [
+      "204",
+      "400",
+      "403",
+      "404",
+      "409",
+      "422",
+      "503"
+    ],
+    "owning_protocol": "llm_gateway.setup_api.SetupAccess",
+    "path": "/api/v1/setup/oauth/{login_id}",
+    "response_class": null,
+    "response_model": null,
+    "status_code": 204,
+    "streaming_response": null,
+    "supporting_protocols": []
+  },
+  {
+    "auth_dependencies": [],
+    "dependencies": [
+      "get_setup"
+    ],
+    "methods": [
+      "GET"
+    ],
+    "module": "api_gateway.routes.setup_routes",
+    "name": "setup_oauth_login",
+    "openapi_response_codes": [
+      "200",
+      "400",
+      "403",
+      "404",
+      "409",
+      "422",
+      "503"
+    ],
+    "owning_protocol": "llm_gateway.setup_api.SetupAccess",
+    "path": "/api/v1/setup/oauth/{login_id}",
+    "response_class": null,
+    "response_model": "OAuthLoginView",
+    "status_code": null,
+    "streaming_response": null,
+    "supporting_protocols": []
+  },
+  {
+    "auth_dependencies": [],
+    "dependencies": [
+      "get_setup_reader"
+    ],
+    "methods": [
+      "GET"
+    ],
+    "module": "api_gateway.routes.setup_routes",
+    "name": "setup_status",
+    "openapi_response_codes": [
+      "200",
+      "400",
+      "403",
+      "404",
+      "409",
+      "422",
+      "503"
+    ],
+    "owning_protocol": "llm_gateway.setup_api.SetupAccess",
+    "path": "/api/v1/setup/status",
+    "response_class": null,
+    "response_model": "SetupStatus",
+    "status_code": null,
+    "streaming_response": null,
+    "supporting_protocols": []
+  },
+  {
+    "auth_dependencies": [
+      "get_owner_sources"
+    ],
+    "dependencies": [
+      "get_owner_sources"
+    ],
+    "methods": [
+      "GET"
+    ],
+    "module": "api_gateway.routes.source_routes",
+    "name": "list_sources",
+    "openapi_response_codes": [
+      "200",
+      "401",
+      "403",
+      "404",
+      "409",
+      "503"
+    ],
+    "owning_protocol": "source.protocols.SourceRegistry",
+    "path": "/api/v1/sources",
+    "response_class": null,
+    "response_model": "SourceList",
+    "status_code": null,
+    "streaming_response": null
+  },
+  {
+    "auth_dependencies": [
+      "get_owner_sources"
+    ],
+    "dependencies": [
+      "get_owner_sources"
+    ],
+    "methods": [
+      "POST"
+    ],
+    "module": "api_gateway.routes.source_routes",
+    "name": "create_source",
+    "openapi_response_codes": [
+      "201",
+      "401",
+      "403",
+      "404",
+      "409",
+      "422",
+      "503"
+    ],
+    "owning_protocol": "source.protocols.SourceRegistry",
+    "path": "/api/v1/sources",
+    "response_class": null,
+    "response_model": "SourceWithToken",
+    "status_code": 201,
+    "streaming_response": null
+  },
+  {
+    "auth_dependencies": [
+      "get_owner_sources"
+    ],
+    "dependencies": [
+      "get_owner_sources"
+    ],
+    "methods": [
+      "PATCH"
+    ],
+    "module": "api_gateway.routes.source_routes",
+    "name": "rename_source",
+    "openapi_response_codes": [
+      "200",
+      "401",
+      "403",
+      "404",
+      "409",
+      "422",
+      "503"
+    ],
+    "owning_protocol": "source.protocols.SourceRegistry",
+    "path": "/api/v1/sources/{source_id}",
+    "response_class": null,
+    "response_model": "SourceView",
+    "status_code": null,
+    "streaming_response": null
+  },
+  {
+    "auth_dependencies": [
+      "get_owner_sources"
+    ],
+    "dependencies": [
+      "get_owner_sources"
+    ],
+    "methods": [
+      "POST"
+    ],
+    "module": "api_gateway.routes.source_routes",
+    "name": "revoke_source",
+    "openapi_response_codes": [
+      "200",
+      "401",
+      "403",
+      "404",
+      "409",
+      "422",
+      "503"
+    ],
+    "owning_protocol": "source.protocols.SourceRegistry",
+    "path": "/api/v1/sources/{source_id}/revoke",
+    "response_class": null,
+    "response_model": "SourceView",
+    "status_code": null,
+    "streaming_response": null
+  },
+  {
+    "auth_dependencies": [
+      "get_owner_sources"
+    ],
+    "dependencies": [
+      "get_owner_sources"
+    ],
+    "methods": [
+      "POST"
+    ],
+    "module": "api_gateway.routes.source_routes",
+    "name": "rotate_source_token",
+    "openapi_response_codes": [
+      "200",
+      "401",
+      "403",
+      "404",
+      "409",
+      "422",
+      "503"
+    ],
+    "owning_protocol": "source.protocols.SourceRegistry",
+    "path": "/api/v1/sources/{source_id}/rotate",
+    "response_class": null,
+    "response_model": "SourceWithToken",
+    "status_code": null,
+    "streaming_response": null
   },
   {
     "auth_dependencies": [
@@ -1307,713 +2215,5 @@
     "response_model": null,
     "status_code": null,
     "streaming_response": null
-  },
-  {
-    "auth_dependencies": [],
-    "dependencies": [
-      "get_session_access"
-    ],
-    "methods": [
-      "POST"
-    ],
-    "module": "api_gateway.routes.session_routes",
-    "name": "send_session_message",
-    "openapi_response_codes": [
-      "200",
-      "400",
-      "401",
-      "403",
-      "404",
-      "409",
-      "413",
-      "422",
-      "429"
-    ],
-    "owning_protocol": "session.protocols.SessionAccess",
-    "path": "/api/v1/sessions/messages",
-    "response_class": null,
-    "response_model": "SessionMessageResponse",
-    "status_code": null,
-    "streaming_response": null
-  },
-  {
-    "auth_dependencies": [],
-    "dependencies": [
-      "get_session_access"
-    ],
-    "methods": [
-      "GET"
-    ],
-    "module": "api_gateway.routes.session_routes",
-    "name": "list_sessions",
-    "openapi_response_codes": [
-      "200",
-      "401"
-    ],
-    "owning_protocol": "session.protocols.SessionAccess",
-    "path": "/api/v1/sessions",
-    "response_class": null,
-    "response_model": "SessionListResponse",
-    "status_code": null,
-    "streaming_response": null
-  },
-  {
-    "auth_dependencies": [],
-    "dependencies": [
-      "get_session_access"
-    ],
-    "methods": [
-      "GET"
-    ],
-    "module": "api_gateway.routes.session_routes",
-    "name": "check_session",
-    "openapi_response_codes": [
-      "200",
-      "400",
-      "401",
-      "403",
-      "404",
-      "409",
-      "422"
-    ],
-    "owning_protocol": "session.protocols.SessionAccess",
-    "path": "/api/v1/sessions/{session_id}",
-    "response_class": null,
-    "response_model": "SessionStatus",
-    "status_code": null,
-    "streaming_response": null
-  },
-  {
-    "auth_dependencies": [],
-    "dependencies": [
-      "get_session_access"
-    ],
-    "methods": [
-      "POST"
-    ],
-    "module": "api_gateway.routes.session_routes",
-    "name": "close_session",
-    "openapi_response_codes": [
-      "200",
-      "400",
-      "401",
-      "403",
-      "404",
-      "409",
-      "422"
-    ],
-    "owning_protocol": "session.protocols.SessionAccess",
-    "path": "/api/v1/sessions/{session_id}/close",
-    "response_class": null,
-    "response_model": "SessionClosed",
-    "status_code": null,
-    "streaming_response": null
-  },
-  {
-    "auth_dependencies": [],
-    "dependencies": [
-      "get_session_access"
-    ],
-    "methods": [
-      "GET"
-    ],
-    "module": "api_gateway.routes.session_routes",
-    "name": "get_session_record",
-    "openapi_response_codes": [
-      "200",
-      "400",
-      "401",
-      "403",
-      "404",
-      "409",
-      "422"
-    ],
-    "owning_protocol": "session.protocols.SessionAccess",
-    "path": "/api/v1/sessions/{session_id}/record",
-    "response_class": null,
-    "response_model": "SessionOwnerRecord",
-    "status_code": null,
-    "streaming_response": null
-  },
-  {
-    "auth_dependencies": [],
-    "dependencies": [
-      "get_instance_settings"
-    ],
-    "methods": [
-      "GET"
-    ],
-    "module": "api_gateway.routes.settings_routes",
-    "name": "read_settings",
-    "openapi_response_codes": [
-      "200",
-      "403",
-      "409",
-      "422",
-      "503"
-    ],
-    "owning_protocol": "instance_settings.protocols.SettingsAccess",
-    "path": "/api/v1/settings",
-    "response_class": null,
-    "response_model": "SettingsView",
-    "status_code": null,
-    "streaming_response": null,
-    "supporting_protocols": []
-  },
-  {
-    "auth_dependencies": [],
-    "dependencies": [
-      "get_instance_settings"
-    ],
-    "methods": [
-      "PUT"
-    ],
-    "module": "api_gateway.routes.settings_routes",
-    "name": "update_settings",
-    "openapi_response_codes": [
-      "200",
-      "403",
-      "409",
-      "422",
-      "503"
-    ],
-    "owning_protocol": "instance_settings.protocols.SettingsAccess",
-    "path": "/api/v1/settings",
-    "response_class": null,
-    "response_model": "SettingsSaved",
-    "status_code": null,
-    "streaming_response": null,
-    "supporting_protocols": []
-  },
-  {
-    "auth_dependencies": [],
-    "dependencies": [
-      "get_instance_settings"
-    ],
-    "methods": [
-      "POST"
-    ],
-    "module": "api_gateway.routes.settings_routes",
-    "name": "restart_services",
-    "openapi_response_codes": [
-      "202",
-      "403",
-      "409",
-      "415",
-      "422",
-      "503"
-    ],
-    "owning_protocol": "instance_settings.protocols.SettingsAccess",
-    "path": "/api/v1/settings/restart",
-    "response_class": null,
-    "response_model": "RestartAccepted",
-    "status_code": 202,
-    "streaming_response": null,
-    "supporting_protocols": []
-  },
-  {
-    "auth_dependencies": [],
-    "dependencies": [
-      "get_setup_reader"
-    ],
-    "methods": [
-      "GET"
-    ],
-    "module": "api_gateway.routes.setup_routes",
-    "name": "setup_status",
-    "openapi_response_codes": [
-      "200",
-      "400",
-      "403",
-      "404",
-      "409",
-      "422",
-      "503"
-    ],
-    "owning_protocol": "llm_gateway.setup_api.SetupAccess",
-    "path": "/api/v1/setup/status",
-    "response_class": null,
-    "response_model": "SetupStatus",
-    "status_code": null,
-    "streaming_response": null,
-    "supporting_protocols": []
-  },
-  {
-    "auth_dependencies": [],
-    "dependencies": [
-      "get_setup"
-    ],
-    "methods": [
-      "GET"
-    ],
-    "module": "api_gateway.routes.setup_routes",
-    "name": "setup_models",
-    "openapi_response_codes": [
-      "200",
-      "400",
-      "403",
-      "404",
-      "409",
-      "422",
-      "503"
-    ],
-    "owning_protocol": "llm_gateway.setup_api.SetupAccess",
-    "path": "/api/v1/setup/models",
-    "response_class": null,
-    "response_model": "SetupModels",
-    "status_code": null,
-    "streaming_response": null,
-    "supporting_protocols": []
-  },
-  {
-    "auth_dependencies": [],
-    "dependencies": [
-      "get_setup"
-    ],
-    "methods": [
-      "POST"
-    ],
-    "module": "api_gateway.routes.setup_routes",
-    "name": "setup_api_key",
-    "openapi_response_codes": [
-      "200",
-      "400",
-      "403",
-      "404",
-      "409",
-      "422",
-      "503"
-    ],
-    "owning_protocol": "llm_gateway.setup_api.SetupAccess",
-    "path": "/api/v1/setup/api-key",
-    "response_class": null,
-    "response_model": "SetupSaved",
-    "status_code": null,
-    "streaming_response": null,
-    "supporting_protocols": []
-  },
-  {
-    "auth_dependencies": [],
-    "dependencies": [
-      "get_setup"
-    ],
-    "methods": [
-      "POST"
-    ],
-    "module": "api_gateway.routes.setup_routes",
-    "name": "setup_oauth_start",
-    "openapi_response_codes": [
-      "200",
-      "400",
-      "403",
-      "404",
-      "409",
-      "422",
-      "503"
-    ],
-    "owning_protocol": "llm_gateway.setup_api.SetupAccess",
-    "path": "/api/v1/setup/oauth/start",
-    "response_class": null,
-    "response_model": "OAuthLoginView",
-    "status_code": null,
-    "streaming_response": null,
-    "supporting_protocols": []
-  },
-  {
-    "auth_dependencies": [],
-    "dependencies": [
-      "get_setup"
-    ],
-    "methods": [
-      "POST"
-    ],
-    "module": "api_gateway.routes.setup_routes",
-    "name": "setup_oauth_complete",
-    "openapi_response_codes": [
-      "200",
-      "400",
-      "403",
-      "404",
-      "409",
-      "422",
-      "503"
-    ],
-    "owning_protocol": "llm_gateway.setup_api.SetupAccess",
-    "path": "/api/v1/setup/oauth/complete",
-    "response_class": null,
-    "response_model": "OAuthLoginView",
-    "status_code": null,
-    "streaming_response": null,
-    "supporting_protocols": []
-  },
-  {
-    "auth_dependencies": [],
-    "dependencies": [
-      "get_setup"
-    ],
-    "methods": [
-      "POST"
-    ],
-    "module": "api_gateway.routes.setup_routes",
-    "name": "setup_oauth_models",
-    "openapi_response_codes": [
-      "200",
-      "400",
-      "403",
-      "404",
-      "409",
-      "422",
-      "503"
-    ],
-    "owning_protocol": "llm_gateway.setup_api.SetupAccess",
-    "path": "/api/v1/setup/oauth/models",
-    "response_class": null,
-    "response_model": "SetupSaved",
-    "status_code": null,
-    "streaming_response": null,
-    "supporting_protocols": []
-  },
-  {
-    "auth_dependencies": [],
-    "dependencies": [
-      "get_setup"
-    ],
-    "methods": [
-      "GET"
-    ],
-    "module": "api_gateway.routes.setup_routes",
-    "name": "setup_oauth_login",
-    "openapi_response_codes": [
-      "200",
-      "400",
-      "403",
-      "404",
-      "409",
-      "422",
-      "503"
-    ],
-    "owning_protocol": "llm_gateway.setup_api.SetupAccess",
-    "path": "/api/v1/setup/oauth/{login_id}",
-    "response_class": null,
-    "response_model": "OAuthLoginView",
-    "status_code": null,
-    "streaming_response": null,
-    "supporting_protocols": []
-  },
-  {
-    "auth_dependencies": [],
-    "dependencies": [
-      "get_setup"
-    ],
-    "methods": [
-      "DELETE"
-    ],
-    "module": "api_gateway.routes.setup_routes",
-    "name": "setup_oauth_cancel",
-    "openapi_response_codes": [
-      "204",
-      "400",
-      "403",
-      "404",
-      "409",
-      "422",
-      "503"
-    ],
-    "owning_protocol": "llm_gateway.setup_api.SetupAccess",
-    "path": "/api/v1/setup/oauth/{login_id}",
-    "response_class": null,
-    "response_model": null,
-    "status_code": 204,
-    "streaming_response": null,
-    "supporting_protocols": []
-  },
-  {
-    "auth_dependencies": [],
-    "dependencies": [
-      "get_setup"
-    ],
-    "methods": [
-      "PUT"
-    ],
-    "module": "api_gateway.routes.setup_routes",
-    "name": "setup_image_size",
-    "openapi_response_codes": [
-      "200",
-      "400",
-      "403",
-      "404",
-      "409",
-      "422",
-      "503"
-    ],
-    "owning_protocol": "llm_gateway.setup_api.SetupAccess",
-    "path": "/api/v1/setup/image-size",
-    "response_class": null,
-    "response_model": "ImageSizeSaved",
-    "status_code": null,
-    "streaming_response": null,
-    "supporting_protocols": []
-  },
-  {
-    "auth_dependencies": [
-      "get_optional_owner_session"
-    ],
-    "dependencies": [
-      "get_optional_owner_session",
-      "get_owner_account"
-    ],
-    "methods": [
-      "GET"
-    ],
-    "module": "api_gateway.routes.auth_routes",
-    "name": "auth_status",
-    "openapi_response_codes": [
-      "200"
-    ],
-    "owning_protocol": "account.protocols.OwnerAccount",
-    "path": "/api/v1/auth/status",
-    "response_class": null,
-    "response_model": "AccountStatus",
-    "status_code": null,
-    "streaming_response": null,
-    "supporting_protocols": []
-  },
-  {
-    "auth_dependencies": [],
-    "dependencies": [
-      "get_owner_account"
-    ],
-    "methods": [
-      "POST"
-    ],
-    "module": "api_gateway.routes.auth_routes",
-    "name": "auth_setup",
-    "openapi_response_codes": [
-      "200",
-      "422"
-    ],
-    "owning_protocol": "account.protocols.OwnerAccount",
-    "path": "/api/v1/auth/setup",
-    "response_class": null,
-    "response_model": "OwnerProfile",
-    "status_code": null,
-    "streaming_response": null,
-    "supporting_protocols": []
-  },
-  {
-    "auth_dependencies": [],
-    "dependencies": [
-      "get_owner_account"
-    ],
-    "methods": [
-      "POST"
-    ],
-    "module": "api_gateway.routes.auth_routes",
-    "name": "auth_sign_in",
-    "openapi_response_codes": [
-      "200",
-      "422"
-    ],
-    "owning_protocol": "account.protocols.OwnerAccount",
-    "path": "/api/v1/auth/sign-in",
-    "response_class": null,
-    "response_model": "OwnerProfile",
-    "status_code": null,
-    "streaming_response": null,
-    "supporting_protocols": []
-  },
-  {
-    "auth_dependencies": [
-      "get_optional_owner_session"
-    ],
-    "dependencies": [
-      "get_optional_owner_session",
-      "get_owner_account"
-    ],
-    "methods": [
-      "POST"
-    ],
-    "module": "api_gateway.routes.auth_routes",
-    "name": "auth_sign_out",
-    "openapi_response_codes": [
-      "204"
-    ],
-    "owning_protocol": "account.protocols.OwnerAccount",
-    "path": "/api/v1/auth/sign-out",
-    "response_class": "Response",
-    "response_model": null,
-    "status_code": 204,
-    "streaming_response": null,
-    "supporting_protocols": []
-  },
-  {
-    "auth_dependencies": [
-      "get_owner_session"
-    ],
-    "dependencies": [
-      "get_owner_account",
-      "get_owner_session"
-    ],
-    "methods": [
-      "PATCH"
-    ],
-    "module": "api_gateway.routes.auth_routes",
-    "name": "auth_update_profile",
-    "openapi_response_codes": [
-      "200",
-      "422"
-    ],
-    "owning_protocol": "account.protocols.OwnerAccount",
-    "path": "/api/v1/auth/profile",
-    "response_class": null,
-    "response_model": "OwnerProfile",
-    "status_code": null,
-    "streaming_response": null,
-    "supporting_protocols": []
-  },
-  {
-    "auth_dependencies": [
-      "get_owner_session"
-    ],
-    "dependencies": [
-      "get_owner_account",
-      "get_owner_session"
-    ],
-    "methods": [
-      "POST"
-    ],
-    "module": "api_gateway.routes.auth_routes",
-    "name": "auth_change_password",
-    "openapi_response_codes": [
-      "204",
-      "422"
-    ],
-    "owning_protocol": "account.protocols.OwnerAccount",
-    "path": "/api/v1/auth/password",
-    "response_class": "Response",
-    "response_model": null,
-    "status_code": 204,
-    "streaming_response": null,
-    "supporting_protocols": []
-  },
-  {
-    "auth_dependencies": [
-      "get_owner_session"
-    ],
-    "dependencies": [
-      "get_owner_account",
-      "get_owner_session"
-    ],
-    "methods": [
-      "GET"
-    ],
-    "module": "api_gateway.routes.auth_routes",
-    "name": "auth_list_browsers",
-    "openapi_response_codes": [
-      "200"
-    ],
-    "owning_protocol": "account.protocols.OwnerAccount",
-    "path": "/api/v1/auth/browsers",
-    "response_class": null,
-    "response_model": "BrowserList",
-    "status_code": null,
-    "streaming_response": null,
-    "supporting_protocols": []
-  },
-  {
-    "auth_dependencies": [
-      "get_owner_session"
-    ],
-    "dependencies": [
-      "get_owner_account",
-      "get_owner_session"
-    ],
-    "methods": [
-      "DELETE"
-    ],
-    "module": "api_gateway.routes.auth_routes",
-    "name": "auth_revoke_browser",
-    "openapi_response_codes": [
-      "204",
-      "422"
-    ],
-    "owning_protocol": "account.protocols.OwnerAccount",
-    "path": "/api/v1/auth/browsers/{browser_id}",
-    "response_class": "Response",
-    "response_model": null,
-    "status_code": 204,
-    "streaming_response": null,
-    "supporting_protocols": []
-  },
-  {
-    "auth_dependencies": [
-      "get_machine_account"
-    ],
-    "dependencies": [
-      "get_machine_account"
-    ],
-    "methods": [
-      "POST"
-    ],
-    "module": "api_gateway.routes.machine_routes",
-    "name": "machine_issue_setup_code",
-    "openapi_response_codes": [
-      "200"
-    ],
-    "owning_protocol": "account.protocols.OwnerAccount",
-    "path": "/api/v1/machine/setup-code",
-    "response_class": null,
-    "response_model": "SetupCode",
-    "status_code": null,
-    "streaming_response": null,
-    "supporting_protocols": []
-  },
-  {
-    "auth_dependencies": [
-      "get_machine_account"
-    ],
-    "dependencies": [
-      "get_machine_account"
-    ],
-    "methods": [
-      "POST"
-    ],
-    "module": "api_gateway.routes.machine_routes",
-    "name": "machine_create_owner",
-    "openapi_response_codes": [
-      "201",
-      "422"
-    ],
-    "owning_protocol": "account.protocols.OwnerAccount",
-    "path": "/api/v1/machine/owner",
-    "response_class": null,
-    "response_model": "OwnerProfile",
-    "status_code": 201,
-    "streaming_response": null,
-    "supporting_protocols": []
-  },
-  {
-    "auth_dependencies": [
-      "get_machine_account"
-    ],
-    "dependencies": [
-      "get_machine_account"
-    ],
-    "methods": [
-      "POST"
-    ],
-    "module": "api_gateway.routes.machine_routes",
-    "name": "machine_reset_password",
-    "openapi_response_codes": [
-      "204",
-      "422"
-    ],
-    "owning_protocol": "account.protocols.OwnerAccount",
-    "path": "/api/v1/machine/owner/password",
-    "response_class": "Response",
-    "response_model": null,
-    "status_code": 204,
-    "streaming_response": null,
-    "supporting_protocols": []
   }
 ]

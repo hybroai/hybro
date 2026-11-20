@@ -84,6 +84,7 @@ Commands:
   logs          Show Hybro's logs; docker logs options such as -f pass through
   doctor        Check a running Hybro and list its problems
   owner         Create the owner account or set a new password for it
+  source        Create a source and print its token
   upgrade       Install the latest release, update the image, migrate 0.3 data
   cleanup-old   Remove the Hybro 0.3 containers, volumes, and images
   version       Print the version
@@ -124,6 +125,12 @@ Owner commands (Hybro must be running):
   standard input when that is not a terminal; it is never an option.
   Exit status: 0 done, 1 refused (nothing was changed), 2 the command could
   not run or its outcome is unknown.
+
+Source commands (Hybro must be running):
+  source create         Create a source; its token is printed once
+  --name <name>         The source's name, shown on its sessions
+  Send the token as "Authorization: Bearer <token>" on the Source API and MCP.
+  The exit status is as for the owner commands.
 
 Upgrade options:
   --check               Only report whether a newer release exists
@@ -816,23 +823,24 @@ cmd_doctor() {
 
 OWNER_HELPER=/app/backend/owner_cli.py
 
-# A usage error of hybro owner: exit 2 before Docker is used.
+# A usage error of hybro owner or hybro source: exit 2 before Docker is used.
 owner_usage() {
     err "$*"
     usage >&2
     exit 2
 }
 
-# Exits 2 unless the running container has the helper; an older image does not.
-require_owner_helper() {
+# require_cli_helper <path> <command>: exits 2 unless the running container has
+# the helper; an older image does not.
+require_cli_helper() {
     (require_docker) || exit 2
     state=$(container_state)
     if [ "$state" != running ]; then
         err "Hybro is not running${state:+ (container $CONTAINER is $state)}. Start it with: $CLI"
         exit 2
     fi
-    docker exec "$CONTAINER" test -f "$OWNER_HELPER" && return 0
-    err "this container runs an older image without the owner commands. Run $CLI stop, then $CLI start"
+    docker exec "$CONTAINER" test -f "$1" && return 0
+    err "this container runs an older image without the $2 commands. Run $CLI stop, then $CLI start"
     exit 2
 }
 
@@ -946,8 +954,52 @@ cmd_owner() {
     '') owner_usage "owner needs a command: create or reset-password" ;;
     *) owner_usage "unknown owner command: $action" ;;
     esac
-    require_owner_helper
+    require_cli_helper "$OWNER_HELPER" owner
     owner_helper "$@"
+}
+
+SOURCE_HELPER=/app/backend/source_cli.py
+
+cmd_source() {
+    action=${1:-}
+    [ $# -eq 0 ] || shift
+    case $action in
+    create)
+        name=""
+        while [ $# -gt 0 ]; do
+            case $1 in
+            --name)
+                [ $# -ge 2 ] || owner_usage "--name needs a value"
+                name=$2
+                shift
+                ;;
+            --name=*) name=${1#*=} ;;
+            -h | --help)
+                usage
+                exit 0
+                ;;
+            *) owner_usage "unknown source create option: $1" ;;
+            esac
+            [ -n "$name" ] || owner_usage "--name needs a value"
+            shift
+        done
+        [ -n "$name" ] || owner_usage "source create needs --name"
+        ;;
+    -h | --help)
+        usage
+        exit 0
+        ;;
+    '') owner_usage "source needs a command: create" ;;
+    *) owner_usage "unknown source command: $action" ;;
+    esac
+    require_cli_helper "$SOURCE_HELPER" source
+    # 0, 1 and 2 are the helper's answers; any other status is docker exec's.
+    docker exec "$CONTAINER" "$DIAG_PYTHON" "$SOURCE_HELPER" create --name "$name"
+    status=$?
+    case $status in
+    0 | 1 | 2) return "$status" ;;
+    *) exit 2 ;;
+    esac
 }
 
 sha256_of() {
@@ -1177,6 +1229,7 @@ status) cmd_status "$@" ;;
 logs) cmd_logs "$@" ;;
 doctor) cmd_doctor "$@" ;;
 owner) cmd_owner "$@" ;;
+source) cmd_source "$@" ;;
 upgrade) cmd_upgrade "$@" ;;
 cleanup-old) cmd_cleanup_old "$@" ;;
 version) say "hybro $HYBRO_VERSION" ;;

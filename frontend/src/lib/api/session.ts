@@ -16,9 +16,18 @@ export interface SessionAgent {
   name: string | null
 }
 
+/** The source a session came from; `no_token` for a request without a token. */
+export interface SessionSource {
+  source_id: string
+  name: string
+  has_token: boolean
+}
+
 export interface SessionSummary {
   session_id: string
-  client_label: string
+  /** The caller's label; null when a source token opened the session without one. */
+  client_label: string | null
+  source: SessionSource
   /** The first message, set when the session opened; null for older sessions. */
   title?: string | null
   agents: SessionAgent[]
@@ -42,7 +51,8 @@ export interface SessionRecord {
   agents: SessionAgent[]
   opened_at: string
   last_activity_at: string
-  client_label: string
+  client_label: string | null
+  source: SessionSource
   title?: string | null
   status: 'open' | 'closed'
   conversation_id: string | null
@@ -72,11 +82,12 @@ export function getSessionRecord(
   return apiGet<SessionRecord>(sessionUrl(sessionId, '/record'), getToken, signal)
 }
 
+/** Close the session as its owner; the client's own close route needs its token. */
 export function closeSession(
   sessionId: string,
   getToken?: () => Promise<string | null>,
 ): Promise<SessionClosed> {
-  return apiPost<SessionClosed>(sessionUrl(sessionId, '/close'), undefined, getToken)
+  return apiPost<SessionClosed>(sessionUrl(sessionId, '/record/close'), undefined, getToken)
 }
 
 export interface SessionEventsResponse {

@@ -33,7 +33,7 @@ import { getAgentAvatarUri } from '@/lib/agent-avatar'
 import { parseHitlPresentation } from '@/lib/hitl/presentation'
 import { routes } from '@/lib/routes'
 import { hitlLifecycleState } from '@/lib/selectors/select-hitl'
-import { formatSessionDuration, formatSessionTime, sessionAgentNames } from '@/lib/session-format'
+import { formatSessionDuration, formatSessionTime, sessionAgentNames, sessionRequester } from '@/lib/session-format'
 import { SESSION_LIST_QUERY_STORAGE_KEY, sessionName } from '@/lib/session-list-state'
 import { foldSessionEvents, type ExchangeItem, type SessionExchange } from '@/lib/session-record'
 import { sessionStateView } from '@/lib/status'
@@ -291,7 +291,7 @@ function DetailsPanel({ record, requests, closing, onClose }: {
       <h2 id="session-details" className="text-sm font-medium">Details</h2>
       <dl className="flex flex-col gap-3.5">
         <Detail label="Status"><StatusIndicator view={sessionStateView(record.state)} /></Detail>
-        <Detail label="Requester">{record.client_label}</Detail>
+        <Detail label="Requester">{sessionRequester(record)}</Detail>
         <Detail label="Agents">{sessionAgentNames(record.agents) || 'None yet'}</Detail>
         <Detail label="Created"><time dateTime={record.opened_at}>{formatSessionTime(record.opened_at)}</time></Detail>
         <Detail label="Updated"><time dateTime={record.last_activity_at}>{formatSessionTime(record.last_activity_at)}</time></Detail>
@@ -459,7 +459,7 @@ export function SessionRecordView({ sessionId }: { sessionId: string }) {
                   <ol className="flex flex-col gap-6">
                     <ExchangeEntries
                       exchange={exchange}
-                      requester={data.client_label}
+                      requester={sessionRequester(data)}
                       agents={data.agents}
                       waitingBelow={deciding && exchange.status === 'waiting'}
                     />

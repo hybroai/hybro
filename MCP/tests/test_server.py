@@ -29,6 +29,39 @@ async def call_with_transport(handler, tool, arguments):
             return await client.call_tool(tool, arguments)
 
 
+FAKE_TOKEN = "Bearer hybro_src_" + "f" * 43
+
+
+async def call_over_http(handler, tool, arguments, headers=None):
+    """Call one tool through the streamable HTTP app, as a real client does."""
+    async with httpx.AsyncClient(
+        base_url=server.BACKEND_API_URL, transport=httpx.MockTransport(handler)
+    ) as backend:
+        app = create_server(backend).streamable_http_app(
+            stateless_http=True, json_response=True
+        )
+        async with app.router.lifespan_context(app):
+            async with httpx.AsyncClient(
+                transport=httpx.ASGITransport(app), base_url="http://127.0.0.1:8001"
+            ) as client:
+                response = await client.post(
+                    "/mcp",
+                    json={
+                        "jsonrpc": "2.0",
+                        "id": 1,
+                        "method": "tools/call",
+                        "params": {"name": tool, "arguments": arguments},
+                    },
+                    headers={
+                        "accept": "application/json, text/event-stream",
+                        "mcp-protocol-version": "2025-06-18",
+                        **(headers or {}),
+                    },
+                )
+    assert response.status_code == 200, response.text
+    return response.json()["result"]
+
+
 def session_reply(status="created", state="working", **extra):
     """The backend's receipt for one message."""
     return {
@@ -568,15 +601,15 @@ async def test_non_json_upstream_failure_does_not_expose_response_body():
 @pytest.mark.parametrize(
     ("code", "body", "status"),
     [
-        (200, {"agents": [{"private": "card must not leak"}]}, "ready"),
-        (401, {"detail": "private auth diagnostics"}, "unsupported_auth"),
-        (403, {}, "unsupported_auth"),
-        (503, {}, "unavailable"),
+        (200, {"status": "ok", "private": "detail must not leak"}, "ready"),
+        (503, {"status": "degraded"}, "unavailable"),
+        (200, {"status": "degraded"}, "unavailable"),
+        (401, {"detail": "private auth diagnostics"}, "unavailable"),
         (200, {"other": []}, "unavailable"),
         (200, [], "unavailable"),
     ],
 )
-async def test_health_checks_discovery_without_exposing_cards(code, body, status):
+async def test_health_checks_the_backend_health_route(code, body, status):
     calls = []
 
     def handler(request):
@@ -591,10 +624,13 @@ async def test_health_checks_discovery_without_exposing_cards(code, body, status
         async with httpx.AsyncClient(
             transport=httpx.ASGITransport(app), base_url="http://127.0.0.1:8001"
         ) as client:
-            response = await client.get("/health")
+            response = await client.get(
+                "/health", headers={"authorization": "Bearer hybro_src_fake"}
+            )
     assert response.json() == {"service": "hybro-mcp", "status": status}
     assert response.headers["cache-control"] == "no-store"
-    assert str(calls[0].url) == "http://backend:8000/custom/v2/agents/discovery"
+    # The root health route needs no credential, so it says nothing about one.
+    assert str(calls[0].url) == "http://backend:8000/health"
     assert calls[0].method == "GET"
     assert "authorization" not in calls[0].headers
 
@@ -985,3 +1021,118 @@ async def test_main_configures_logging_before_building_the_server(monkeypatch):
         ),
         ("serve", app),
     ]
+
+
+# ---- source tokens ----
+
+TOOL_CALLS = [
+    ("list_subnets", {}, {"groups": []}),
+    ("find_agents", {"query": "weather"}, {"agents": []}),
+    (
+        "get_agent",
+        {"agent_id": "story"},
+        {
+            "agent_id": "story",
+            "status": "active",
+            "streaming": False,
+            "input_modes": [],
+            "output_modes": [],
+            "skills": [],
+            "groups": [],
+        },
+    ),
+    ("discover_agents", {}, {"agents": []}),
+    ("send_message", {"agent_id": "story", "text": "Go"}, session_reply()),
+    (
+        "check_session",
+        {"session_id": "sess-1"},
+        {
+            "session_id": "sess-1",
+            "state": "working",
+            "agents": [],
+            "created_at": "2026-10-15T21:52:37Z",
+            "updated_at": "2026-10-15T21:52:37Z",
+            "history": [],
+        },
+    ),
+    (
+        "close_session",
+        {"session_id": "sess-1"},
+        {"session_id": "sess-1", "status": "closed"},
+    ),
+]
+
+
+@pytest.mark.parametrize(("tool", "arguments", "reply"), TOOL_CALLS)
+async def test_every_tool_forwards_the_callers_authorization(tool, arguments, reply):
+    sent = []
+
+    def backend(request):
+        sent.append(request)
+        return httpx.Response(200, json=reply)
+
+    result = await call_over_http(
+        backend, tool, arguments, headers={"Authorization": FAKE_TOKEN}
+    )
+
+    assert not result["isError"], result
+    assert [request.headers["authorization"] for request in sent] == [FAKE_TOKEN]
+
+
+@pytest.mark.parametrize(("tool", "arguments", "reply"), TOOL_CALLS)
+async def test_a_call_without_authorization_sends_none(tool, arguments, reply):
+    sent = []
+
+    def backend(request):
+        sent.append(request)
+        return httpx.Response(200, json=reply)
+
+    result = await call_over_http(backend, tool, arguments)
+
+    assert not result["isError"], result
+    assert sent and all("authorization" not in r.headers for r in sent)
+
+
+async def test_the_default_label_applies_only_without_a_token():
+    payloads = []
+
+    def backend(request):
+        payloads.append(json.loads(request.content))
+        return httpx.Response(200, json=session_reply())
+
+    arguments = {"agent_id": "story", "text": "Go"}
+    await call_over_http(backend, "send_message", arguments)
+    await call_over_http(
+        backend, "send_message", arguments, headers={"Authorization": FAKE_TOKEN}
+    )
+    await call_over_http(
+        backend,
+        "send_message",
+        {**arguments, "client_label": "Laptop"},
+        headers={"Authorization": FAKE_TOKEN},
+    )
+
+    assert payloads[0]["client_label"] == "MCP client"
+    assert "client_label" not in payloads[1]
+    assert payloads[2]["client_label"] == "Laptop"
+
+
+@pytest.mark.parametrize("code", ["unknown_source_token", "source_token_required"])
+async def test_a_refused_token_names_the_fix(code):
+    error = {"detail": {"code": code, "message": "m"}}
+    result = await call_with_transport(
+        lambda _: httpx.Response(401, json=error),
+        "list_subnets",
+        {},
+    )
+    assert result.is_error
+    hint = result.structured_content["next_action"]
+    assert "source token" in hint
+    assert "mock auth" not in hint
+
+
+async def test_instructions_describe_source_tokens():
+    async with httpx.AsyncClient(base_url=server.BACKEND_API_URL) as http:
+        instructions = create_server(http).instructions
+    assert "source token" in instructions
+    assert "mock-auth" not in instructions

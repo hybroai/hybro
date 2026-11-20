@@ -16,8 +16,11 @@ from agent.protocols import (
     AgentNetworkAccess,
     AgentSuggestionService,
 )
+from api_gateway.source_token import (
+    RequestSourceDependency,
+    SignedInOwnerDependency,
+)
 from chat.protocols import ChatRooms
-from common.auth import ClerkUser, get_current_user
 from common.protocols import (
     AgentMatcher,
     AgentRegistry,
@@ -31,8 +34,12 @@ from common.protocols import (
 )
 from execution.ports import A2APushNotificationReceiver
 from local_agents.protocols import LocalAgentDiscovery
-from session.access import BoundSessionAccess
-from session.protocols import SessionAccess, SessionOwner, SessionService
+from session.access import BoundOwnerSessionAccess, BoundSessionAccess
+from session.protocols import (
+    OwnerSessionAccess,
+    SessionAccess,
+    SessionService,
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -196,14 +203,15 @@ A2APushReceiverDependency = Annotated[
 
 
 def get_agent_network(
-    user: Annotated[ClerkUser, Depends(get_current_user)],
+    caller: RequestSourceDependency,
     deps: APIGatewayDeps = _API_GATEWAY_DEPS_DEPENDENCY,
 ) -> AgentNetworkAccess:
+    """The owner's agent network, for a Source API request."""
     return AgentNetworkService(
         deps.agent_service,
         deps.agent_group_store,
         deps.agent_matcher,
-        requesting_user_id=user.user_id,
+        requesting_user_id=caller.owner.user_id,
     )
 
 
@@ -211,25 +219,38 @@ AgentNetworkDependency = Annotated[AgentNetworkAccess, Depends(get_agent_network
 
 
 def get_session_access(
-    user: Annotated[ClerkUser, Depends(get_current_user)],
+    caller: RequestSourceDependency,
     deps: APIGatewayDeps = _API_GATEWAY_DEPS_DEPENDENCY,
 ) -> SessionAccess:
-    """Bind the session facade to the authenticated owner for one request."""
+    """Bind the session facade to one source and its owner for one request."""
     return BoundSessionAccess(
         deps.session_facade,
-        owner=SessionOwner(
-            user_id=user.user_id,
-            name=getattr(user, "username", None)
-            or getattr(user, "email", None)
-            or user.user_id,
-        ),
+        owner=caller.owner,
+        source=caller.source,
         resolver=AgentNetworkService(
             deps.agent_service,
             deps.agent_group_store,
             deps.agent_matcher,
-            requesting_user_id=user.user_id,
+            requesting_user_id=caller.owner.user_id,
         ),
     )
 
 
 SessionAccessDependency = Annotated[SessionAccess, Depends(get_session_access)]
+
+
+def get_owner_session_access(
+    owner: SignedInOwnerDependency,
+    deps: APIGatewayDeps = _API_GATEWAY_DEPS_DEPENDENCY,
+) -> OwnerSessionAccess:
+    """Bind the session facade to the signed-in owner for one request.
+
+    It is the identity the Source API acts for, so the owner sees the
+    sessions that sources opened.
+    """
+    return BoundOwnerSessionAccess(deps.session_facade, owner=owner)
+
+
+OwnerSessionAccessDependency = Annotated[
+    OwnerSessionAccess, Depends(get_owner_session_access)
+]
