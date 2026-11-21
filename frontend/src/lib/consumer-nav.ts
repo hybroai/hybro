@@ -7,6 +7,6 @@ export const CONSUMER_NAV: NavAgentItem[] = [
   { name: 'Network', url: routes.network, icon: Globe, colorClass: 'text-icon-network' },
   { name: 'Chats', url: routes.chat, activePaths: ['/room'], icon: MessagesSquare, colorClass: 'text-icon-create' },
   { name: 'Inbox', url: routes.sessions, activePaths: ['/sessions'], icon: Inbox, colorClass: 'text-icon-create' },
-  { name: 'Access', url: routes.connectMcp, activePaths: ['/connect'], icon: Plug, colorClass: 'text-hybro-bro' },
+  { name: 'Access', url: routes.connectSources, activePaths: ['/connect'], icon: Plug, colorClass: 'text-hybro-bro' },
   { name: 'Settings', url: routes.settingsModelProvider, activePaths: [routes.settings], icon: Settings, colorClass: 'text-icon-moon' },
 ]

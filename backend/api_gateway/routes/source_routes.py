@@ -15,6 +15,7 @@ from api_gateway.registry import mark_declared_owner
 from api_gateway.source_token import (
     SignedInOwnerDependency,
     SourceRegistryDependency,
+    refuse_unset_requirement,
 )
 from source.protocols import (
     SourceCreate,
@@ -25,6 +26,10 @@ from source.protocols import (
     SourceRevoked,
     SourceView,
     SourceWithToken,
+    TokenRequirement,
+    TokenRequirementChange,
+    TokenRequirementLocked,
+    TokenRequirementUnset,
 )
 
 router = APIRouter(prefix="/sources", route_class=QuietValidationRoute)
@@ -35,6 +40,15 @@ _ERRORS = {
     503: {"description": "The owner is not known yet"},
     404: {"description": "No source has this id"},
     409: {"description": "The source is revoked"},
+}
+_REQUIREMENT_READ_ERRORS = {
+    401: {"description": "Authentication required"},
+    403: {"description": "Only the owner manages sources"},
+    503: {"description": "The owner is not known yet, or the switch is not set up"},
+}
+_REQUIREMENT_CHANGE_ERRORS = {
+    **_REQUIREMENT_READ_ERRORS,
+    409: {"description": "Clerk mode always requires a source token"},
 }
 
 
@@ -62,6 +76,32 @@ def _missing(exc: Exception) -> NoReturn:
 async def list_sources(sources: OwnerSourcesDependency) -> SourceList:
     """List every source, oldest first. Tokens are never returned here."""
     return await sources.list_sources()
+
+
+@router.get("/token-requirement", responses=_REQUIREMENT_READ_ERRORS)
+async def get_token_requirement(sources: OwnerSourcesDependency) -> TokenRequirement:
+    """Whether a Source API request needs a source token."""
+    try:
+        return await sources.token_requirement()
+    except TokenRequirementUnset:
+        refuse_unset_requirement()
+
+
+@router.put("/token-requirement", responses=_REQUIREMENT_CHANGE_ERRORS)
+async def set_token_requirement(
+    body: TokenRequirementChange, sources: OwnerSourcesDependency
+) -> TokenRequirement:
+    """Turn the requirement on or off; it applies to the next request."""
+    try:
+        return await sources.set_token_required(body.required)
+    except TokenRequirementUnset:
+        refuse_unset_requirement()
+    except TokenRequirementLocked:
+        _refuse(
+            409,
+            "token_required_by_auth_mode",
+            "backend.auth_mode is clerk, which always requires a source token.",
+        )
 
 
 @router.post("", status_code=201, responses=_ERRORS)

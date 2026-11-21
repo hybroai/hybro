@@ -13,7 +13,7 @@ from api_gateway.routes import machine_routes
 from api_gateway.routes.machine_routes import TOKEN_HEADER
 from source import SourceService
 from tests.fakes.account import build_service
-from tests.fakes.source import MemorySourceStore
+from tests.fakes.source import MemorySourceStore, store_with_requirement
 
 TOKEN = "a" * 64
 PASSWORD = "correct horse battery"
@@ -32,7 +32,9 @@ def _client(service=None, *, token: str = TOKEN) -> TestClient:
     app.add_middleware(CrossSiteCheckMiddleware, api_prefix="/api/v1")
     app.include_router(machine_routes.router, prefix="/api/v1")
     app.state.owner_account = service if service is not None else build_service()
-    app.state.source_registry = SourceService(MemorySourceStore(), auth_mode="mock")
+    app.state.source_registry = SourceService(
+        store_with_requirement(required=False), auth_mode="mock"
+    )
     app.state.machine_token = token
     return TestClient(app)
 
@@ -229,3 +231,42 @@ def test_the_source_route_is_unavailable_before_sources_are_bound():
     )
 
     assert response.status_code == 503
+
+
+REQUIREMENT = "/api/v1/machine/sources/token-requirement"
+
+
+def test_the_cli_reads_the_switch():
+    response = _client().get(REQUIREMENT, headers=AUTH)
+
+    assert response.status_code == 200
+    assert response.json()["required"] is False
+    assert response.json()["started_off"] is True
+
+
+@pytest.mark.parametrize(
+    "headers", [{}, {TOKEN_HEADER: "b" * 64}, {"Authorization": f"Bearer {TOKEN}"}]
+)
+def test_reading_the_switch_needs_the_machine_token(headers):
+    response = _client().get(REQUIREMENT, headers=headers)
+
+    assert response.status_code == 401
+    assert response.json()["detail"]["code"] == "machine_token_required"
+
+
+def test_the_machine_route_cannot_change_the_switch():
+    response = _client().put(REQUIREMENT, json={"required": True}, headers=AUTH)
+
+    assert response.status_code == 405
+
+
+def test_an_unseeded_switch_is_unavailable_to_the_cli():
+    client = _client()
+    client.app.state.source_registry = SourceService(
+        MemorySourceStore(), auth_mode="mock"
+    )
+
+    response = client.get(REQUIREMENT, headers=AUTH)
+
+    assert response.status_code == 503
+    assert response.json()["detail"]["code"] == "token_requirement_unavailable"

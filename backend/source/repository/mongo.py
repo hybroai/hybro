@@ -8,9 +8,11 @@ from typing import Any
 from pymongo import ReturnDocument
 
 from common.protocols import MongoDAL
-from source.models import SourceRecord
+from source.models import SourceRecord, TokenRequirement
 
 _PROJECTION = {"_id": 0}
+# The owner's switch is one document in its own collection.
+_REQUIREMENT = {"_id": "token_requirement"}
 
 SOURCE_INDEXES: tuple[dict[str, Any], ...] = (
     {"keys": [("source_id", 1)], "name": "source_id_unique", "unique": True},
@@ -27,6 +29,7 @@ SOURCE_INDEXES: tuple[dict[str, Any], ...] = (
 class MongoSourceRepository:
     def __init__(self, mongo: MongoDAL) -> None:
         self._sources = mongo.collection("sources")
+        self._settings = mongo.collection("source_settings")
 
     async def ensure_indexes(self) -> None:
         for index in SOURCE_INDEXES:
@@ -85,6 +88,41 @@ class MongoSourceRepository:
         await self._sources.update_one(
             {"source_id": source_id}, {"$set": {"last_used_at": at}}
         )
+
+    async def get_requirement(self) -> TokenRequirement | None:
+        return self._requirement(
+            await self._settings.find_one(_REQUIREMENT, projection=_PROJECTION)
+        )
+
+    async def seed_requirement(self, seed: TokenRequirement) -> TokenRequirement:
+        # Atomic: a document that exists already is returned unchanged.
+        stored = await self._settings.find_one_and_update(
+            _REQUIREMENT,
+            {"$setOnInsert": seed.model_dump()},
+            projection=_PROJECTION,
+            upsert=True,
+            return_document=ReturnDocument.AFTER,
+        )
+        requirement = self._requirement(stored)
+        if requirement is None:
+            raise RuntimeError("the token requirement upsert returned no document")
+        return requirement
+
+    async def set_requirement(
+        self, required: bool, at: datetime
+    ) -> TokenRequirement | None:
+        return self._requirement(
+            await self._settings.find_one_and_update(
+                _REQUIREMENT,
+                {"$set": {"required": required, "updated_at": at}},
+                projection=_PROJECTION,
+                return_document=ReturnDocument.AFTER,
+            )
+        )
+
+    @staticmethod
+    def _requirement(doc: dict[str, Any] | None) -> TokenRequirement | None:
+        return TokenRequirement.model_validate(doc) if doc is not None else None
 
     @staticmethod
     def _record(doc: dict[str, Any] | None) -> SourceRecord | None:

@@ -357,6 +357,18 @@ jobs:
             echo "HYBRO_TEST_OWNER_PASSWORD=$password"
           } >> "$GITHUB_ENV"
 
+      # A fresh install requires a source token on the Source API. The helper
+      # prints the token alone on its last line; it is masked before it can
+      # reach the log, and the later steps send it.
+      - name: Create a source token
+        env:
+          HYBRO_NO_UPDATE_CHECK: "1"
+        run: |
+          token=$(./scripts/hybro source create --name "CI" | tail -n 1)
+          echo "::add-mask::$token"
+          test -n "$token"
+          echo "HYBRO_TEST_SOURCE_TOKEN=$token" >> "$GITHUB_ENV"
+
       - name: Wait for the agents to register
         run: |
           export JAR="$RUNNER_TEMP/owner-cookies"
@@ -370,19 +382,31 @@ jobs:
           rm -f "$JAR"
           echo "Agents successfully registered!"
 
-      # MCP calls the Source API without a source token.
+      # MCP passes the caller's source token on to the Source API.
       - name: Verify default MCP startup and tools
         run: |
           uv run --project backend --frozen --extra mcp --no-env-file python - <<'PY'
           import asyncio
+          import os
           import httpx
+          import httpx2
           from mcp import Client
+          from mcp.client.streamable_http import streamable_http_client
 
           async def check():
               async with httpx.AsyncClient(timeout=5) as http:
                   panel = await http.get("http://localhost:3100/hybro-mcp")
                   assert panel.json() == {"service": "hybro-mcp", "status": "ready"}
-              async with Client("http://localhost:3100/mcp") as client:
+              token = os.environ["HYBRO_TEST_SOURCE_TOKEN"]
+              headers = {"Authorization": f"Bearer {token}"}
+              async with (
+                  httpx2.AsyncClient(headers=headers, timeout=30) as mcp_http,
+                  Client(
+                      streamable_http_client(
+                          "http://localhost:3100/mcp", http_client=mcp_http
+                      )
+                  ) as client,
+              ):
                   tools = await client.list_tools()
                   assert {tool.name for tool in tools.tools} == {
                       "list_subnets",

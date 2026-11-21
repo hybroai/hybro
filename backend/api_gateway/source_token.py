@@ -6,7 +6,8 @@ sent the request and whose data it acts on:
 - A request with ``Authorization: Bearer <token>`` is its source when the
   token is current. Any other ``Authorization`` value is refused, also while
   no token is required, so a revoked token never falls back to "No token".
-- A request without the header is refused while a token is required. Else it
+- A request without the header is refused while a token is required (the
+  owner's switch, stored by ``source``, read on each request). Else it
   is "No token", except when it carries an ``Origin`` that is not Hybro's own
   address: that is a web page making a browser send it, and it is refused.
 - The owner it acts for is the owner account's identity
@@ -92,6 +93,16 @@ def get_source_registry(request: Request) -> SourceRegistry:
 SourceRegistryDependency = Annotated[SourceRegistry, Depends(get_source_registry)]
 
 
+def refuse_unset_requirement() -> NoReturn:
+    """The switch is created at startup; without it nothing can read or change
+    it, and the Source API requires a token."""
+    _refuse(
+        503,
+        "token_requirement_unavailable",
+        "The token requirement is not set up yet; restart Hybro.",
+    )
+
+
 def _bearer_token(header: str) -> str | None:
     scheme, _, token = header.strip().partition(" ")
     token = token.strip()
@@ -142,4 +153,5 @@ __all__ = [
     "get_request_source",
     "get_signed_in_owner",
     "get_source_registry",
+    "refuse_unset_requirement",
 ]

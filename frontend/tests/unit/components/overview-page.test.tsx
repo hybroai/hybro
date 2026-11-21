@@ -70,7 +70,7 @@ describe('OverviewPage', () => {
     render(<OverviewPage />)
     const session = screen.getByRole('link', { name: /Generate a travel plan/ })
     expect(session).toHaveAttribute('href', '/sessions/s1')
-    expect(session).toHaveTextContent('Buyer agent · writer')
+    expect(session).toHaveTextContent('No token · writer')
     expect(session).toHaveTextContent('Needs you')
     const chat = screen.getByRole('link', { name: /Trip plan/ })
     expect(chat).toHaveAttribute('href', '/room/r1')

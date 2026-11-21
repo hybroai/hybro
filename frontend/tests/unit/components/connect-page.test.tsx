@@ -6,7 +6,7 @@ import { buildMcpConfig } from '@/lib/mcp'
 
 // A dev instance publishes MCP on its own port; the page must show that one.
 const MCP_URL = `${window.location.origin}/mcp`
-const MCP_CONFIG = buildMcpConfig(MCP_URL)
+const MCP_CONFIG = buildMcpConfig(MCP_URL, '<source token>')
 vi.mock('@/lib/config', () => ({ publicConfig: () => ({ api_base_url: 'https://hybro.example', api_prefix: '/api/v1' }) }))
 const push = vi.fn()
 vi.mock('next/navigation', () => ({ useRouter: () => ({ push }) }))
@@ -22,6 +22,12 @@ afterEach(() => {
   vi.unstubAllGlobals()
 })
 
+// The page reads only the token requirement, for its banner.
+const fetchedUrls = () => vi.mocked(fetch).mock.calls.map(([url]) => String(url))
+const onlyReadsTheRequirement = () => {
+  for (const url of fetchedUrls()) expect(url).toMatch(/\/api\/v1\/sources\/token-requirement$/)
+}
+
 const lastCopied = () => String(vi.mocked(navigator.clipboard.writeText).mock.lastCall?.[0] ?? '')
 
 describe('Access page', () => {
@@ -31,14 +37,14 @@ describe('Access page', () => {
     expect(screen.getByRole('tab', { name: 'MCP' })).toHaveAttribute('aria-selected', 'true')
     expect(screen.getByText(MCP_URL)).toBeInTheDocument()
     expect(screen.getByRole('tab', { name: 'Claude Code' })).toHaveAttribute('aria-selected', 'true')
-    expect(screen.getByLabelText('Claude Code command')).toHaveTextContent(`claude mcp add --transport http hybro ${MCP_URL}`)
+    expect(screen.getByLabelText('Claude Code command')).toHaveTextContent(`claude mcp add --transport http hybro ${MCP_URL} --header 'Authorization: Bearer <source token>'`)
     expect(screen.getByRole('heading', { name: 'Features' })).toBeInTheDocument()
     for (const tool of ['find_agents', 'list_subnets', 'get_agent', 'send_message', 'check_session']) {
       expect(screen.getByText(tool)).toBeInTheDocument()
     }
     expect(screen.queryByText(/send_agent_message/)).toBeNull()
     expect(screen.queryByText(/Open a terminal|Try asking|group_id|scope/i)).toBeNull()
-    expect(fetch).not.toHaveBeenCalled()
+    onlyReadsTheRequirement()
   })
 
   it('switches to the API route from the top tab', async () => {
@@ -68,18 +74,20 @@ describe('Access page', () => {
     expect(screen.queryByText('Command copied')).not.toBeInTheDocument()
   })
 
-  it('keeps the API tab token-free and scope-free', async () => {
+  it('shows the API tab with a token placeholder and no scope', async () => {
     render(<ConnectPage kind="api" />)
     expect(screen.getByRole('tab', { name: 'API' })).toHaveAttribute('aria-selected', 'true')
     expect(screen.getByText('https://hybro.example')).toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: 'Copy discovery request' }))
     await screen.findByText('Discovery request copied')
     expect(lastCopied()).toContain('https://hybro.example/api/v1/agents/discovery')
-    expect(lastCopied()).not.toMatch(/authorization|bearer|access_token|group_id/i)
+    expect(lastCopied()).toContain("--header 'Authorization: Bearer <source token>'")
+    expect(lastCopied()).not.toMatch(/hybro_src_|access_token|group_id/i)
     fireEvent.click(screen.getByRole('button', { name: 'Copy search request' }))
     await screen.findByText('Search request copied')
     expect(lastCopied()).toContain('https://hybro.example/api/v1/agents/search')
-    expect(lastCopied()).not.toMatch(/authorization|bearer|access_token|group_id/i)
+    expect(lastCopied()).toContain("--header 'Authorization: Bearer <source token>'")
+    expect(lastCopied()).not.toMatch(/hybro_src_|access_token|group_id/i)
     expect(screen.getByText('GET /api/v1/agents/groups')).toBeInTheDocument()
     expect(screen.getByLabelText('Message request')).toHaveTextContent('/api/v1/sessions/messages')
     expect(screen.getByLabelText('Message request')).not.toHaveTextContent('/api/v1/agents/messages')
@@ -87,6 +95,6 @@ describe('Access page', () => {
     expect(screen.getByText('GET /api/v1/sessions/{session_id}')).toBeInTheDocument()
     expect(screen.queryByText('POST /api/v1/agents/messages')).not.toBeInTheDocument()
     expect(screen.getByRole('heading', { name: 'Features' })).toBeInTheDocument()
-    expect(fetch).not.toHaveBeenCalled()
+    onlyReadsTheRequirement()
   })
 })

@@ -137,6 +137,7 @@ from room_files import LocalFileContentStore, RoomFiles, RoomLifecycleStore
 from session import MongoSessionRepository, SessionFacade, SessionWaiter
 from session.protocols import RoomManagement, RoomMessageStore, RoomRegistry
 from source import MongoSourceRepository, SourceService
+from source.models import TokenRequirement
 
 if TYPE_CHECKING:
     from dal.redis.streams import RedisStreamsImpl
@@ -740,6 +741,11 @@ async def _runtime_lifespan(app: Any, runtime: ApplicationRuntime):  # noqa: C90
             app.state.source_registry = create_source_registry(
                 settings=runtime.settings, mongo=mongo_dal
             )
+            # Before any request is served, so `hybro owner create` cannot run
+            # first and make a fresh install look like an existing one.
+            token_requirement = await seed_token_requirement(
+                sources=app.state.source_registry, mongo=mongo_dal
+            )
             # A checkout writes its own handoff file; the image's entrypoint
             # wrote it already.
             app.state.machine_token = machine_token_at_start(runtime.settings)
@@ -759,6 +765,9 @@ async def _runtime_lifespan(app: Any, runtime: ApplicationRuntime):  # noqa: C90
                     entrypoint=Path(__file__).resolve().parent
                     / "runtime_entrypoint.py",
                 ),
+            )
+            warn_if_tokens_off_on_public_listener(
+                token_requirement, app.state.instance_settings.listen()
             )
             agent_selection_llm_service = AgentSelectionLLMService(
                 llm_provider=llm_provider
@@ -2659,6 +2668,40 @@ def create_owner_account(
 def create_source_registry(*, settings: Any, mongo: MongoDAL) -> SourceService:
     """The sources of this instance, over their own collection."""
     return SourceService(MongoSourceRepository(mongo), auth_mode=settings.auth_mode)
+
+
+# The collections whose documents show the install was used before the switch.
+_INSTALL_DATA_COLLECTIONS = ("users", "rooms", "sessions")
+
+
+async def seed_token_requirement(
+    *, sources: SourceService, mongo: MongoDAL
+) -> TokenRequirement:
+    """Create the owner's switch at startup; a stored one is kept as it is.
+
+    It starts on when the database has no user, room or session, and off when
+    it has any (an install from before source tokens). Returns the switch as
+    the Source API applies it, so Clerk mode reads as on.
+    """
+    existing_install = False
+    for name in _INSTALL_DATA_COLLECTIONS:
+        if await mongo.collection(name).find_one({}, projection={"_id": 1}):
+            existing_install = True
+            break
+    await sources.seed_token_requirement(existing_install=existing_install)
+    return await sources.token_requirement()
+
+
+def warn_if_tokens_off_on_public_listener(
+    requirement: TokenRequirement, listen: str | None
+) -> None:
+    """Log once at startup when other machines can send work without a token.
+
+    The entrypoint cannot say so: it runs before the backend and does not read
+    the database. ``hybro`` prints the same warning on the host.
+    """
+    if listen == "public" and not requirement.required:
+        logger.emit(E.SOURCE_TOKEN_NOT_REQUIRED_ON_PUBLIC_LISTENER)
 
 
 def create_agent_capability_issue_repository(mongo: MongoDAL) -> Any:

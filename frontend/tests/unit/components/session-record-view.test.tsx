@@ -78,7 +78,7 @@ describe('SessionRecordView', () => {
 
     expect(await screen.findByRole('heading', { level: 1, name: 'Generate a travel plan' })).toBeInTheDocument()
     const record = await screen.findByRole('list', { name: 'Session record' })
-    expect(within(record).getByText('Buyer agent')).toBeInTheDocument()
+    expect(within(record).getByText('No token')).toBeInTheDocument()
     expect(within(record).getByText('asked Travel Planner Agent')).toBeInTheDocument()
     expect(within(record).getByText('needs your answer below')).toBeInTheDocument()
     // The question itself is only in the card, not repeated in the record.
@@ -104,7 +104,9 @@ describe('SessionRecordView', () => {
     render(<SessionRecordView sessionId="sess-1" />)
     const panel = await screen.findByRole('complementary', { name: 'Details' })
     expect(within(panel).getByText('Needs you')).toBeInTheDocument()
-    expect(within(panel).getByText('Buyer agent')).toBeInTheDocument()
+    expect(within(panel).getByText('No token')).toBeInTheDocument()
+    expect(within(panel).getByText('Client label')).toBeInTheDocument()
+    expect(within(panel).getByTitle('Name the client gave; not verified')).toHaveTextContent('Buyer agent')
     expect(within(panel).getByText('Travel Planner Agent')).toBeInTheDocument()
     expect(within(panel).getByText('sess-1')).toBeInTheDocument()
     expect(within(panel).getByRole('button', { name: 'Copy session ID' })).toBeInTheDocument()
@@ -119,6 +121,7 @@ describe('SessionRecordView', () => {
     render(<SessionRecordView sessionId="sess-1" />)
     const panel = await screen.findByRole('complementary', { name: 'Details' })
     expect(within(panel).getByText('CI bot')).toBeInTheDocument()
+    expect(within(panel).queryByText('Client label')).toBeNull()
     api.record = saved
   })
 

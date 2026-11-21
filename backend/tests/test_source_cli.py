@@ -135,3 +135,82 @@ def test_an_unreachable_backend_exits_2(handoff):
     )
     assert code == 2
     assert "cannot reach the backend" in err
+
+
+class FakeReader:
+    def __init__(self, status: int = 200, body: object = None) -> None:
+        self.calls: list[tuple[str, str]] = []
+        self.status = status
+        self.body = (
+            {
+                "required": False,
+                "started_off": True,
+                "updated_at": "2026-11-20T00:00:00Z",
+            }
+            if body is None
+            else body
+        )
+
+    def __call__(self, url: str, token: str) -> tuple[int, bytes]:
+        self.calls.append((url, token))
+        if isinstance(self.body, Exception):
+            raise self.body
+        return self.status, json.dumps(self.body).encode()
+
+
+def read(handoff, reader) -> tuple[int, str, str]:
+    stdout, stderr = io.StringIO(), io.StringIO()
+    code = cli.main(
+        ["requirement"],
+        stdout=stdout,
+        stderr=stderr,
+        handoff=handoff,
+        post=FakeBackend(),
+        get=reader,
+    )
+    return code, stdout.getvalue(), stderr.getvalue()
+
+
+@pytest.mark.parametrize(("required", "word"), [(False, "off"), (True, "on")])
+def test_requirement_prints_on_or_off(handoff, required, word):
+    reader = FakeReader(
+        body={"required": required, "started_off": False, "updated_at": "x"}
+    )
+
+    code, out, err = read(handoff, reader)
+
+    assert (code, out, err) == (0, f"{word}\n", "")
+    assert reader.calls == [(f"{BASE_URL}/sources/token-requirement", MACHINE_TOKEN)]
+
+
+@pytest.mark.parametrize(
+    ("status", "body"),
+    [
+        (503, {"detail": {"code": "token_requirement_unavailable"}}),
+        (401, {"detail": {"code": "machine_token_required"}}),
+        (200, {"required": "no"}),
+        (200, []),
+        (200, OSError("down")),
+        (200, TimeoutError()),
+    ],
+)
+def test_an_unreadable_requirement_exits_2_and_prints_nothing(handoff, status, body):
+    code, out, err = read(handoff, FakeReader(status, body))
+
+    assert code == 2
+    assert out == ""
+    assert MACHINE_TOKEN not in err
+
+
+def test_requirement_takes_no_options(handoff):
+    stdout, stderr = io.StringIO(), io.StringIO()
+    code = cli.main(
+        ["requirement", "--x"],
+        stdout=stdout,
+        stderr=stderr,
+        handoff=handoff,
+        post=FakeBackend(),
+        get=FakeReader(),
+    )
+    assert code == 2
+    assert "usage" in stderr.getvalue()

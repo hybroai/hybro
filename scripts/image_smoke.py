@@ -9,9 +9,11 @@ loopback listener, then:
 Checks: the UI, API, and MCP answer through Caddy; a foreign Host is refused;
 before the owner account exists the owner's routes and the Source API refuse;
 the owner is created with the container's ``hybro owner`` helper and signs in;
-the sample agents register, the LLM-backed ones inactive with
+a fresh install requires a source token, so a request without one is refused
+and a source is created with the container's ``hybro source`` helper; the
+sample agents register, the LLM-backed ones inactive with
 ``provider_not_configured``; Echo answers through the sessions API and MCP,
-which send no source token.
+which send that source token.
 """
 
 from __future__ import annotations
@@ -23,7 +25,9 @@ import subprocess
 import time
 
 import httpx
+import httpx2
 from mcp import Client
+from mcp.client.streamable_http import streamable_http_client
 
 API = "/api/v1"
 LLM_SAMPLES = {
@@ -37,6 +41,10 @@ OWNER_EMAIL = "smoke-owner@example.com"
 OWNER_CLI = (
     "/app/backend/.venv/bin/python",
     "/app/backend/owner_cli.py",
+)
+SOURCE_CLI = (
+    "/app/backend/.venv/bin/python",
+    "/app/backend/source_cli.py",
 )
 
 
@@ -59,6 +67,21 @@ def create_owner(container: str, password: str) -> None:
         text=True,
         check=True,
     )
+
+
+def create_source(container: str) -> str:
+    """``hybro source create`` inside the container; returns the new token.
+
+    The helper prints the token alone on its last line. It is kept in memory
+    and never printed here.
+    """
+    created = subprocess.run(
+        ["docker", "exec", container, *SOURCE_CLI, "create", "--name", "Smoke"],
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    return created.stdout.strip().splitlines()[-1]
 
 
 def wait_for(check, *, timeout: float, what: str):
@@ -97,8 +120,12 @@ def reply_of(http: httpx.Client, session_id: str) -> str | None:
     return session["history"][-1]["reply"]
 
 
-async def mcp_echo(url: str) -> str:
-    async with Client(url) as client:
+async def mcp_echo(url: str, token: str) -> str:
+    headers = {"Authorization": f"Bearer {token}"}
+    async with (
+        httpx2.AsyncClient(headers=headers, timeout=30) as http,
+        Client(streamable_http_client(url, http_client=http)) as client,
+    ):
         found = await client.call_tool("find_agents", {"query": "Echo"})
         echo = next(
             agent
@@ -130,7 +157,8 @@ def main() -> None:
     owner = httpx.Client(
         base_url=base, timeout=10, trust_env=False, headers={"Origin": base}
     )
-    # The Source API without a token, as connected programs call it.
+    # The Source API as connected programs call it: without a token first,
+    # then with the source token once it exists.
     with (
         owner as http,
         httpx.Client(base_url=base, timeout=10, trust_env=False) as source,
@@ -150,9 +178,10 @@ def main() -> None:
         assert status.json() == {"account_exists": False, "owner": None}, status
         refused = http.get(f"{API}/setup/status")
         assert refused.status_code == 401, refused.status_code
+        # A fresh install requires a source token, so that refusal comes first.
         refused = source.get(f"{API}/agents/discovery")
-        assert refused.status_code == 503, refused.status_code
-        assert refused.json()["detail"]["code"] == "no_account", refused.text
+        assert refused.status_code == 401, refused.status_code
+        assert refused.json()["detail"]["code"] == "source_token_required", refused.text
 
         password = secrets.token_urlsafe(24)
         create_owner(arguments.container, password)
@@ -162,6 +191,14 @@ def main() -> None:
         )
         assert signed_in.status_code == 200, signed_in.status_code
         assert http.get(f"{API}/setup/status").status_code == 200
+        requirement = http.get(f"{API}/sources/token-requirement").json()
+        assert requirement["required"] is True, requirement
+
+        refused = source.get(f"{API}/agents/discovery")
+        assert refused.status_code == 401, refused.status_code
+        token = create_source(arguments.container)
+        source.headers["Authorization"] = f"Bearer {token}"
+        assert source.get(f"{API}/agents/discovery").status_code == 200
 
         found = wait_for(
             lambda: samples_registered(http), timeout=120, what="sample agents"
@@ -189,7 +226,7 @@ def main() -> None:
         )
         assert "api smoke" in reply and SIGNATURE in reply, reply
 
-    reply = asyncio.run(mcp_echo(f"{base}/mcp"))
+    reply = asyncio.run(mcp_echo(f"{base}/mcp", token))
     assert "mcp smoke" in reply and SIGNATURE in reply, reply
     print("Image smoke test passed.")
 

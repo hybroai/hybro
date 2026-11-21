@@ -1,24 +1,36 @@
 import { describe, expect, it } from 'vitest'
-import { buildAccessMaterial } from '@/components/connect/access-material'
+import { API_AUTH_HELP, MCP_AUTH_HELP, buildAccessMaterial } from '@/components/connect/access-material'
+import { TOKEN_PLACEHOLDER } from '@/components/connect/client-setups'
 import { buildMcpConfig } from '@/lib/mcp'
 
 const scope = { id: 'g1', name: 'Research' }
 
 describe('access materials', () => {
-  it('names a source token, not a Clerk session, for Clerk mode', () => {
+  it('describes source tokens, not authentication modes', () => {
     for (const kind of ['api', 'mcp'] as const) {
       const { prompt } = buildAccessMaterial(kind, 'https://hybro.example', '/api/v1')
       expect(prompt).toContain('source token')
-      expect(prompt).toContain('hybro source create --name <name>')
-      expect(prompt).not.toMatch(/Clerk session|does not support Clerk/)
+      expect(prompt).toContain('Access, Sources')
+      expect(prompt).not.toMatch(/Clerk|auth_mode|mock|Local Developer Mode/)
     }
+    expect(API_AUTH_HELP).not.toMatch(/Clerk|auth_mode|mock/)
+    expect(MCP_AUTH_HELP).not.toMatch(/Clerk|auth_mode|mock/)
   })
 
-  it('omits group_id for whole-network discovery', () => {
+  it('sends the token header on every API request and omits group_id for the whole network', () => {
     const material = buildAccessMaterial('api', 'https://hybro.example', '/custom/api')
     expect(material.configuration).toContain('https://hybro.example/custom/api/agents/discovery')
     expect(material.configuration).not.toContain('group_id')
-    expect(material.configuration).not.toMatch(/authorization|bearer|access_token/i)
+    for (const request of [material.configuration, material.searchRequest, material.toolCalls]) {
+      expect(request).toContain(`--header 'Authorization: Bearer ${TOKEN_PLACEHOLDER}'`)
+    }
+    expect(material.toolCalls.match(/Authorization: Bearer/g)).toHaveLength(2)
+  })
+
+  it('puts a given token in the API requests', () => {
+    const material = buildAccessMaterial('api', 'https://hybro.example', '/api/v1', undefined, 'hybro_src_fake')
+    expect(material.configuration).toContain("--header 'Authorization: Bearer hybro_src_fake'")
+    expect(material.configuration).not.toContain(TOKEN_PLACEHOLDER)
   })
 
   it('builds requests from an empty same-origin base without parsing it as a URL', () => {
@@ -35,7 +47,7 @@ describe('access materials', () => {
 
   it('never puts the scope in the MCP connection configuration', () => {
     const url = 'http://127.0.0.1:8001/mcp'
-    expect(buildAccessMaterial('mcp', url, '/api/v1', scope).configuration).toBe(buildMcpConfig(url))
+    expect(buildAccessMaterial('mcp', url, '/api/v1', scope).configuration).toBe(buildMcpConfig(url, TOKEN_PLACEHOLDER))
     expect(buildAccessMaterial('mcp', url, '/api/v1', scope).configuration).not.toContain('g1')
   })
 
@@ -78,9 +90,11 @@ describe('access materials', () => {
     const material = buildAccessMaterial('api', 'https://hybro.example', '/api/v1')
     expect(material.toolCalls).toContain("'https://hybro.example/api/v1/sessions/messages'")
     expect(material.toolCalls).not.toContain('/agents/messages')
-    for (const field of ['"agent_id"', '"text"', '"client_request_id"', '"client_label"']) {
+    for (const field of ['"agent_id"', '"text"', '"client_request_id"']) {
       expect(material.toolCalls).toContain(field)
     }
+    // With a token the source names the caller; the label is not needed.
+    expect(material.toolCalls).not.toContain('"client_label"')
     expect(material.toolCalls).not.toContain('"message"')
     expect(material.toolCalls).not.toContain('subnet_id')
     expect(material.toolCalls).toContain("'https://hybro.example/api/v1/sessions/<session_id from the receipt>'")
@@ -88,7 +102,7 @@ describe('access materials', () => {
 
   it('builds an API search request with optional subnet scope', () => {
     const plain = buildAccessMaterial('api', 'https://hybro.example', '/api/v1')
-    expect(plain.searchRequest).toBe("curl --get \\\n  --data-urlencode 'query=<capability keywords>' \\\n  'https://hybro.example/api/v1/agents/search'")
+    expect(plain.searchRequest).toBe(`curl --get \\\n  --header 'Authorization: Bearer ${TOKEN_PLACEHOLDER}' \\\n  --data-urlencode 'query=<capability keywords>' \\\n  'https://hybro.example/api/v1/agents/search'`)
     const scoped = buildAccessMaterial('api', 'https://hybro.example', '/api/v1', scope)
     expect(scoped.searchRequest).toContain("--data-urlencode 'group_id=g1'")
   })

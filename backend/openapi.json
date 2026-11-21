@@ -4317,6 +4317,28 @@
         }
       }
     },
+    "/api/v1/machine/sources/token-requirement": {
+      "get": {
+        "tags": [
+          "machine"
+        ],
+        "summary": "Machine Get Token Requirement",
+        "description": "The owner's switch, for the warning ``hybro`` prints; read only.",
+        "operationId": "machine_get_token_requirement_api_v1_machine_sources_token_requirement_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TokenRequirement"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/sources": {
       "get": {
         "tags": [
@@ -4405,6 +4427,89 @@
           },
           "503": {
             "description": "The owner is not known yet"
+          }
+        }
+      }
+    },
+    "/api/v1/sources/token-requirement": {
+      "get": {
+        "tags": [
+          "sources"
+        ],
+        "summary": "Get Token Requirement",
+        "description": "Whether a Source API request needs a source token.",
+        "operationId": "get_token_requirement_api_v1_sources_token_requirement_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TokenRequirement"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required"
+          },
+          "403": {
+            "description": "Only the owner manages sources"
+          },
+          "503": {
+            "description": "The owner is not known yet, or the switch is not set up"
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "sources"
+        ],
+        "summary": "Set Token Requirement",
+        "description": "Turn the requirement on or off; it applies to the next request.",
+        "operationId": "set_token_requirement_api_v1_sources_token_requirement_put",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TokenRequirementChange"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TokenRequirement"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required"
+          },
+          "403": {
+            "description": "Only the owner manages sources"
+          },
+          "503": {
+            "description": "The owner is not known yet, or the switch is not set up"
+          },
+          "409": {
+            "description": "Clerk mode always requires a source token"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
           }
         }
       }
@@ -6686,6 +6791,45 @@
           "text"
         ],
         "title": "TextPart"
+      },
+      "TokenRequirement": {
+        "properties": {
+          "required": {
+            "type": "boolean",
+            "title": "Required"
+          },
+          "started_off": {
+            "type": "boolean",
+            "title": "Started Off"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Updated At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "required",
+          "started_off",
+          "updated_at"
+        ],
+        "title": "TokenRequirement",
+        "description": "Whether a Source API request needs a source token (the owner's switch).\n\nProduct state, not configuration: one document, created at backend\nstartup and changed by the owner in the Panel without a restart.\n``started_off`` is true when the install already had data when the switch\nwas created, so it began off; it never changes afterwards."
+      },
+      "TokenRequirementChange": {
+        "properties": {
+          "required": {
+            "type": "boolean",
+            "title": "Required"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "required"
+        ],
+        "title": "TokenRequirementChange"
       },
       "ToolCall": {
         "properties": {

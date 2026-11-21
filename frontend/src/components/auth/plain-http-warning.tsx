@@ -8,8 +8,10 @@ import { isPlainHttpFromAnotherMachine } from '@/lib/plain-http'
 // The page's address does not change while it is open.
 const subscribeNever = () => () => undefined
 
-/** Warns that a password typed here crosses the network unencrypted. */
-export function PlainHttpWarning() {
+const PASSWORD_WARNING = 'It is served over plain HTTP from another machine, so your password and sign-in travel the network readable. Use HTTPS, through a reverse proxy in front of Hybro, before signing in from another machine.'
+
+/** Warns that what is typed or shown here crosses the network unencrypted; the sign-in text by default. */
+export function PlainHttpWarning({ children = PASSWORD_WARNING }: { children?: string }) {
   const show = useSyncExternalStore(
     subscribeNever,
     () => isPlainHttpFromAnotherMachine(window.location),
@@ -20,11 +22,7 @@ export function PlainHttpWarning() {
     <Alert variant="destructive">
       <TriangleAlert aria-hidden="true" />
       <AlertTitle>This page is not encrypted</AlertTitle>
-      <AlertDescription>
-        It is served over plain HTTP from another machine, so your password and
-        sign-in travel the network readable. Use HTTPS, through a reverse proxy
-        in front of Hybro, before signing in from another machine.
-      </AlertDescription>
+      <AlertDescription>{children}</AlertDescription>
     </Alert>
   )
 }

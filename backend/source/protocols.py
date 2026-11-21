@@ -21,6 +21,8 @@ from source.models import (
     SourceRename,
     SourceView,
     SourceWithToken,
+    TokenRequirement,
+    TokenRequirementChange,
 )
 
 
@@ -30,6 +32,14 @@ class SourceNotFound(Exception):
 
 class SourceRevoked(Exception):
     """The source is revoked; its token cannot be rotated."""
+
+
+class TokenRequirementUnset(Exception):
+    """The switch was not created at startup, so it cannot be read or changed."""
+
+
+class TokenRequirementLocked(Exception):
+    """The deprecated Clerk mode always requires a token; it cannot be turned off."""
 
 
 @runtime_checkable
@@ -42,6 +52,11 @@ class SourceRegistry(Protocol):
     async def resolve(self, token: str) -> SourceIdentity | None: ...
     async def identities(self, source_ids: list[str]) -> dict[str, SourceIdentity]: ...
     async def token_required(self) -> bool: ...
+    async def token_requirement(self) -> TokenRequirement: ...
+    async def set_token_required(self, required: bool) -> TokenRequirement: ...
+    async def seed_token_requirement(
+        self, *, existing_install: bool
+    ) -> TokenRequirement: ...
 
 
 @runtime_checkable
@@ -56,6 +71,11 @@ class SourceStore(Protocol):
         self, source_id: str, fields: dict[str, Any], *, live_only: bool = False
     ) -> SourceRecord | None: ...
     async def touch(self, source_id: str, at: datetime) -> None: ...
+    async def get_requirement(self) -> TokenRequirement | None: ...
+    async def seed_requirement(self, seed: TokenRequirement) -> TokenRequirement: ...
+    async def set_requirement(
+        self, required: bool, at: datetime
+    ) -> TokenRequirement | None: ...
 
 
 __all__ = [
@@ -71,4 +91,8 @@ __all__ = [
     "SourceStore",
     "SourceView",
     "SourceWithToken",
+    "TokenRequirement",
+    "TokenRequirementChange",
+    "TokenRequirementLocked",
+    "TokenRequirementUnset",
 ]

@@ -347,8 +347,8 @@ input and these bodies carry passwords and setup codes.
 Every frontend-facing route needs the owner's sign-in cookie, in every
 `backend.auth_mode`; a bearer token, a Clerk token and the `?token=` query
 parameter open nothing. The Source API uses source tokens instead. Before the
-owner account exists the owner routes answer 401 and the Source API 503
-`no_account`. No production path installs a dependency override; the test
+owner account exists the owner routes answer 401 and the Source API 401
+`source_token_required` while a token is required, else 503 `no_account`. No production path installs a dependency override; the test
 `app` fixture installs its own user.
 
 Routes that make the backend fetch an owner-supplied URL require a signed-in
@@ -989,7 +989,8 @@ job or an MCP client. `SourceService` and `MongoSourceRepository` live here;
   characters), `name` (1 to 120 characters), `token_hash` (SHA-256 of the
   token), `token_last4`, `created_at`, `updated_at`, `last_used_at`,
   `revoked_at`. Indexes: `source_id_unique`, and `source_token_hash_unique`,
-  partial on a string hash.
+  partial on a string hash. `source_settings`, one document
+  (`_id` `token_requirement`): `required`, `started_off`, `updated_at`.
 - Exposes: `SourceRegistry` to `api_gateway` and, as `SourceDirectory`, to
   `session`; declares `SourceStore`.
 - Consumes: `MongoDAL`.
@@ -1005,9 +1006,20 @@ updates `last_used_at` at most once a minute; a failed write of it is logged
 (`source_last_use_write_failed`) and the request goes on. The built-in "No token" source
 (`source_id` `no_token`) is a constant, never a document.
 
-Whether a token is required is `token_required()`: true when
-the deprecated `backend.auth_mode="clerk"`, false otherwise. The stored switch the owner can
-change is not built yet.
+Whether a token is required is the stored switch, product state that the
+owner changes without a restart. `container.seed_token_requirement` creates it
+during startup, before the app serves, with an insert that never overwrites
+(`$setOnInsert`): on when no document exists in `users`, `rooms` or
+`sessions` (a fresh install), off with `started_off` true when one does (an
+install upgraded with data), and always on with the deprecated
+`backend.auth_mode="clerk"`. A switch set earlier is kept. With `clerk` a
+token is always required, and the switch reads as on, whatever was stored.
+`token_required()`
+reads it on every Source API request and is true when the document is
+missing, so a deleted switch fails closed. When the switch is off (never with
+`clerk`) and the
+runtime record says the listener is public (`InstanceSettings.listen()`), the
+backend logs `source_token_not_required_on_public_listener` once at startup.
 
 `get_request_source` (`api_gateway/source_token.py`) runs on the seven Source
 API routes: `GET /agents/discovery`, `/agents/groups`, `/agents/search`,
@@ -1039,9 +1051,14 @@ reach them.
 | `PATCH /sources/{source_id}` | Renames it (`name`). |
 | `POST /sources/{source_id}/rotate` | A new token, returned once. 409 `source_revoked`. |
 | `POST /sources/{source_id}/revoke` | Revokes it. |
+| `GET /sources/token-requirement` | The switch: `required`, `started_off`, `updated_at`. |
+| `PUT /sources/token-requirement` | Sets it (`required`, a strict boolean); returns the switch. 409 `token_required_by_auth_mode` for `false` with `backend.auth_mode="clerk"`. |
 
-An unknown id is 404 `source_not_found`. `POST /machine/sources` creates a
-source for `hybro source create` (see [Owner account API](#owner-account-api)).
+An unknown id is 404 `source_not_found`. Both switch routes are 503
+`token_requirement_unavailable` while the document is missing.
+`POST /machine/sources` creates a source for `hybro source create`, and
+`GET /machine/sources/token-requirement` reads the switch for the CLI (see
+[Owner account API](#owner-account-api)).
 
 ### `models`
 
@@ -1736,6 +1753,13 @@ updates and the release workflow compares with the tag.
   `owner_cli.py`'s transport, POSTs `{"name"}` to `/machine/sources` and
   prints the source's name and its token once on standard output. The exit
   status is as for the owner commands; it prints no token on a failure.
+- **Open listener warning.** `hybro` (after the ready line), the "already
+  running" path and `hybro status` run `source_cli.py requirement`, which
+  GETs `/machine/sources/token-requirement` and prints `on` or `off` (exit 2
+  on any failure, which prints nothing more). When the listener is public
+  (the container's `HYBRO_LISTEN` is not `loopback`) and the answer is `off`,
+  the script prints one warning line that anyone who can reach the port can
+  send work to the agents, and where to turn the requirement on.
 - **Tests.** `scripts/test_hybro_cli.py` runs the script and `install.sh` under
   sh, dash, and busybox sh against stub `docker`, `curl`, and `npm` (the
   `Shell CLI CI` job, with shellcheck).
@@ -1967,6 +1991,7 @@ Routes under `{api_prefix}/machine`, for the `hybro` command:
 | `POST /owner` | Creates the owner (`name`, `email`, `password`, optional `owner_id`). 201; 409 `account_exists` or `owner_id_required`. |
 | `POST /owner/password` | Sets a new password and signs out every browser. 204; 409 `no_account`. |
 | `POST /sources` | Creates a source (`name`). 201 with its token, returned once. |
+| `GET /sources/token-requirement` | The token requirement switch, read only. 503 `token_requirement_unavailable` while it is missing. |
 
 They take the per-start token of `/tmp/hybro/machine.json` in the
 `X-Hybro-Machine-Token` header, which is read from the request and not
@@ -2000,8 +2025,9 @@ reaches these routes, on `127.0.0.1:8000`; a checkout has no Caddy, and the
 token alone guards them. `hybro owner create` and `hybro owner reset-password`
 call the two owner routes through `owner_cli.py`, `hybro status` and
 `hybro start` call `/setup-code` through `owner_cli.py setup-code`, and
-`hybro source create` calls `/sources` through `source_cli.py` (see "Shell
-CLI").
+`hybro source create` calls `/sources` and the start output and
+`hybro status` read `/sources/token-requirement` through `source_cli.py` (see
+"Shell CLI").
 
 #### Requests from other websites
 
@@ -2179,9 +2205,9 @@ tabs; creation without a preset key keeps random IDs.
 Source API routes and read-only; work is sent through `/sessions`. Their
 `get_agent_network` dependency resolves `get_request_source` (see
 [`source`](#source)) and binds a network service to the acting owner.
-With the deprecated `auth_mode` `clerk`, requests without a source token
-receive `401`; before the owner account exists every request receives 503
-`no_account`. These routes use the
+While the token requirement is on, requests without a source token
+receive `401`; before the owner account exists every other request receives
+503 `no_account`. These routes use the
 public-or-owner visibility query, and saved groups require matching ownership.
 Private foreign targets return `404` without exposing status or Card.
 Deployments without a token requirement still need a trusted-network boundary;

@@ -493,3 +493,26 @@ def test_update_settings_gives_up_when_the_lock_stays_held(tmp_path, monkeypatch
     finally:
         os.close(holder)
     assert not (tmp_path / "home" / "config.json").exists()
+
+
+@pytest.mark.parametrize(
+    ("record", "expected"),
+    [
+        ({"listen": "public"}, "public"),
+        ({"listen": "loopback"}, "loopback"),
+        ({"listen": "everywhere"}, None),
+        (None, None),
+    ],
+)
+def test_listen_reads_the_runtime_record(tmp_path, record, expected):
+    runtime_file = tmp_path / "runtime.json"
+    if record is not None:
+        runtime_file.write_text(json.dumps(record))
+    settings = Settings(instance_runtime_file=str(runtime_file))
+    instance = service(tmp_path / "home", settings=settings)
+
+    assert instance.listen() == expected
+
+
+def test_listen_is_none_in_a_checkout(tmp_path):
+    assert service(tmp_path / "home").listen() is None

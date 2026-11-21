@@ -76,13 +76,15 @@ def helper():
     if state.get("exec_removes") in containers:
         containers.pop(state["exec_removes"])
     save()
-    sys.stdout.write(state.get("exec_out", ""))
+    # A per-command answer, keyed by the helper's last argument, else the shared one.
+    answer = state.get("exec_by", {}).get(args[-1], {})
+    sys.stdout.write(answer.get("out", state.get("exec_out", "")))
     sys.stdout.flush()
     if state.get("exec_block"):
         import signal, time
         signal.signal(signal.SIGINT, lambda *a: sys.exit(130))
         time.sleep(30)
-    sys.exit(state.get("exec_exit", 0))
+    sys.exit(answer.get("exit", state.get("exec_exit", 0)))
 if state.get("info_creates"):
     # Something else creates this file after the script checked for it.
     with open(state["info_creates"], "w") as handle:
@@ -1901,3 +1903,90 @@ def test_a_detached_start_points_to_status_for_the_link(cli):
     assert result.returncode == 0, cli.output
     assert setup_code_runs(cli) == []
     assert "When it is ready, run hybro status for its address and, until the owner account exists, the setup link." in result.stdout
+
+
+# ---- the warning for a public listener without the token requirement ----
+
+OPEN_WARNING = (
+    "WARNING: Hybro listens on an address other machines can reach, and its "
+    "Source API takes requests without a source token. Anyone who can reach this "
+    "port can send work to your agents. Turn the requirement on in Access, Sources."
+)
+
+
+def requirement_runs(cli: Cli) -> list[list[str]]:
+    return [call for call in source_runs(cli) if call[-1] == "requirement"]
+
+
+def listening(cli: Cli, mode: str | None, requirement: str = "off\n", code: int = 0) -> None:
+    container(cli)
+    if mode is not None:
+        cli.state["containers"]["hybro"]["env"] = [f"HYBRO_LISTEN={mode}"]
+    cli.state["exec_by"] = {"requirement": {"out": requirement, "exit": code}}
+
+
+@pytest.mark.parametrize("mode", ["public", None])
+def test_status_warns_on_a_public_listener_with_the_requirement_off(cli, mode):
+    # A container without HYBRO_LISTEN is public, as the entrypoint reads it.
+    listening(cli, mode)
+    result = cli.run("status")
+    assert result.returncode == 0, cli.output
+    assert result.stdout.splitlines().count(OPEN_WARNING) == 1
+    assert requirement_runs(cli) == [["exec", "hybro", PYTHON, SOURCE_HELPER, "requirement"]]
+
+
+def test_status_does_not_warn_when_the_requirement_is_on(cli):
+    listening(cli, "public", "on\n")
+    result = cli.run("status")
+    assert result.returncode == 0, cli.output
+    assert OPEN_WARNING not in result.stdout
+
+
+def test_a_loopback_listener_never_asks_for_the_requirement(cli):
+    listening(cli, "loopback")
+    result = cli.run("status")
+    assert result.returncode == 0, cli.output
+    assert OPEN_WARNING not in result.stdout
+    assert requirement_runs(cli) == []
+
+
+@pytest.mark.parametrize(("out", "code"), [("", 2), ("off\n", 2), ("maybe\n", 0)])
+def test_an_unreadable_requirement_prints_no_warning_and_blocks_nothing(cli, out, code):
+    listening(cli, "public", out, code)
+    result = cli.run("status")
+    assert result.returncode == 0, cli.output
+    assert OPEN_WARNING not in result.stdout
+
+
+def test_an_image_without_the_helper_prints_no_warning(cli):
+    listening(cli, "public")
+    cli.state["helper_missing"] = True
+    result = cli.run("status")
+    assert result.returncode == 0, cli.output
+    assert requirement_runs(cli) == []
+
+
+def test_the_already_running_path_warns_once(cli):
+    listening(cli, "public")
+    result = cli.run()
+    assert result.returncode == 0, cli.output
+    assert "Hybro is already running at" in result.stdout
+    assert result.stdout.splitlines().count(OPEN_WARNING) == 1
+
+
+def test_the_foreground_start_warns_after_ready_on_a_public_listener(cli):
+    cli.state["images"] = [IMAGE]
+    cli.state["exec_by"] = {"requirement": {"out": "off\n"}}
+    cli.run("--listen", "0.0.0.0", "--insecure-no-auth")
+    lines = cli.output.splitlines()
+    ready = next(i for i, line in enumerate(lines) if line.startswith("Hybro is ready at"))
+    assert lines.count(OPEN_WARNING) == 1
+    assert lines.index(OPEN_WARNING) > ready
+
+
+def test_the_foreground_start_on_loopback_does_not_ask(cli):
+    cli.state["images"] = [IMAGE]
+    cli.state["exec_by"] = {"requirement": {"out": "off\n"}}
+    cli.run()
+    assert OPEN_WARNING not in cli.output
+    assert requirement_runs(cli) == []

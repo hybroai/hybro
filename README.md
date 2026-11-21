@@ -151,9 +151,10 @@ with **Sign in again** for the last.
 
 `hybro` listens on `127.0.0.1` by default. `--listen <address>` serves the app on
 another address, for example `hybro start -d --listen 0.0.0.0 --port 443`. The
-Panel needs the owner's sign-in on every listener, but the Source API still
-takes requests without a source token, so a non-loopback listener needs the
-explicit `--insecure-no-auth`, for a trusted network only. MCP is served only on
+Panel needs the owner's sign-in on every listener, and a non-loopback listener
+still needs the explicit `--insecure-no-auth`, for a trusted network only. While
+the source token requirement is off on such a listener, `hybro` and
+`hybro status` print a warning. MCP is served only on
 a loopback listener. Without HTTPS the sign-in cookie and password cross the
 network in the clear; the setup and sign-in pages warn when they are opened
 over plain HTTP from another machine. Reached by a name (a domain, a LAN name
@@ -229,8 +230,11 @@ a ready-made multi-agent chat.
 
 MCP is part of the container and shares its address: `http://localhost:3000/mcp`
 for a released install, `http://localhost:3100/mcp` from a checkout. In the app,
-open **Access** (`/connect/mcp`) to copy the URL or a setup snippet for Claude
-Code, Cursor, Codex, VS Code, or another assistant. The Overview **MCP gateway**
+open **Access**, **MCP** (`/connect/mcp`) to copy the URL or a setup snippet
+for Claude Code, Cursor, Codex, VS Code, or another assistant. Each snippet
+carries an `Authorization: Bearer <source token>` header; create the token
+under **Access**, **Sources** (`/connect/sources`) and put it in place of
+`<source token>`. The Overview **MCP gateway**
 tile shows whether MCP is reachable. Add the server manually to your client;
 Hybro does not automatically discover or register MCP clients. Sessions that
 clients open this way appear under **Inbox**, where you answer any question or
@@ -243,15 +247,20 @@ approval an agent raises.
 ```json
 {
   "mcpServers": {
-    "hybro": { "type": "http", "url": "http://localhost:3000/mcp" }
+    "hybro": {
+      "type": "http",
+      "url": "http://localhost:3000/mcp",
+      "headers": { "Authorization": "Bearer <source token>" }
+    }
   }
 }
 ```
 
 The **Streamable HTTP** URL is for clients on the machine running Hybro. If you
 open the app remotely, loopback in your client still refers to that client's
-machine, not the Hybro host. MCP has no authentication or user isolation, so a
-non-loopback listener does not serve it. Do not expose it publicly.
+machine, not the Hybro host. MCP passes the client's source token on to the
+Source API, but a non-loopback listener does not serve MCP yet. Do not expose
+it publicly.
 See [MCP tools, health, and native startup](backend/README.md#local-mcp-access).
 
 ### 6. Send work from your own agent or code
@@ -260,6 +269,15 @@ See [MCP tools, health, and native startup](backend/README.md#local-mcp-access).
 same from outside, and the work shows up in the app. The four moves below work
 right after install, because Echo Agent needs no model provider. They use the
 released install's address; from a checkout, use port 3100.
+
+**Create a source token.** A source is a program that sends work, and its
+token says which one is calling. Create one under **Access**, **Sources** in
+the app, or with `hybro source create --name my-script`. The token is shown
+once; keep it in a variable for the calls below:
+
+```bash
+export HYBRO_TOKEN='<token>'
+```
 
 **Put an agent in the network.** Echo Agent is already there. To use your own
 A2A agent, run it on a port from 9000 to 9999 on the machine running Hybro,
@@ -270,20 +288,22 @@ agent** on the **Network** page.
 `agent_id` and its card.
 
 ```bash
-curl 'http://localhost:3000/api/v1/agents/discovery'
+curl --header "Authorization: Bearer $HYBRO_TOKEN" \
+  'http://localhost:3000/api/v1/agents/discovery'
 ```
 
-**Send it one piece of work.** `client_request_id` makes a retry safe, and
-`client_label` is the name your client appears under in the app.
+**Send it one piece of work.** `client_request_id` makes a retry safe. The
+session appears in the app under the source's name; an optional
+`client_label` is shown beside it, as text the client gave.
 
 ```bash
 curl --request POST 'http://localhost:3000/api/v1/sessions/messages' \
+  --header "Authorization: Bearer $HYBRO_TOKEN" \
   --header 'Content-Type: application/json' \
   --data '{
     "agent_id": "<agent_id from discovery>",
     "text": "Hello from my script",
-    "client_request_id": "quickstart-1",
-    "client_label": "my-script"
+    "client_request_id": "quickstart-1"
   }'
 ```
 
@@ -292,7 +312,8 @@ The answer is a receipt with a `session_id`. It does not wait for the agent.
 **Read the result.**
 
 ```bash
-curl 'http://localhost:3000/api/v1/sessions/<session_id>'
+curl --header "Authorization: Bearer $HYBRO_TOKEN" \
+  'http://localhost:3000/api/v1/sessions/<session_id>'
 ```
 
 `state` goes from `working` to `completed`, and `history` holds the agent's
@@ -306,10 +327,13 @@ earlier one is still active returns `busy`.
 From an MCP client, the same loop is three tools: `discover_agents`,
 `send_message`, and `check_session`.
 
-These calls need no token by default. They are refused with 503 `no_account`
-until the owner account exists. With the deprecated `backend.auth_mode` set to
-`clerk`, they need a source token in an `Authorization: Bearer` header; create
-one with `hybro source create --name <name>`.
+A new install requires a source token on these calls: without one they are
+refused with 401 `source_token_required`. An install that already had data when
+it was upgraded starts with the requirement off and says so once on the
+Overview; the owner turns it on under **Access**, **Sources**. While it is off,
+a call without a token acts as "No token" and needs a `client_label`, and calls
+are refused with 503 `no_account` until the owner account exists. Rotate or
+revoke a token there too; a revoked token is refused at once.
 
 ## Running
 

@@ -1,4 +1,5 @@
 import type { SetupStatus } from '@/lib/api/setup'
+import { createDismissalStore } from '@/lib/dismissal'
 
 /** What a banner says about the model provider, keyed by the error code it reports. */
 export interface SetupNotice {
@@ -64,35 +65,11 @@ export function setupNotice(status: SetupStatus | undefined): SetupNotice | null
 
 // Overview dismissal, per browser. Storing the dismissed code means a new error
 // code shows the banner again.
-const DISMISSED_KEY = 'hybro.setup-notice.dismissed'
-const listeners = new Set<() => void>()
+const dismissal = createDismissalStore('hybro.setup-notice.dismissed')
 
-export function subscribeDismissed(listener: () => void): () => void {
-  listeners.add(listener)
-  window.addEventListener('storage', listener)
-  return () => {
-    listeners.delete(listener)
-    window.removeEventListener('storage', listener)
-  }
-}
-
-export function readDismissed(): string | null {
-  try {
-    return window.localStorage.getItem(DISMISSED_KEY)
-  } catch {
-    return null
-  }
-}
-
-export function writeDismissed(code: string | null): void {
-  try {
-    if (code === null) window.localStorage.removeItem(DISMISSED_KEY)
-    else window.localStorage.setItem(DISMISSED_KEY, code)
-  } catch {
-    // Storage can be unavailable (private mode); the banner then stays visible.
-  }
-  listeners.forEach(listener => listener())
-}
+export const subscribeDismissed = dismissal.subscribe
+export const readDismissed = dismissal.read
+export const writeDismissed = dismissal.write
 
 export function isDismissed(notice: SetupNotice, dismissed: string | null): boolean {
   return dismissed === notice.code

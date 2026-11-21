@@ -6,7 +6,14 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Annotated
 
-from pydantic import BaseModel, ConfigDict, Field, StringConstraints, field_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    StrictBool,
+    StringConstraints,
+    field_validator,
+)
 
 from common.utils.time import ensure_utc
 
@@ -111,6 +118,30 @@ class SourceList(BaseModel):
     sources: list[SourceView] = Field(default_factory=list)
 
 
+class TokenRequirement(BaseModel):
+    """Whether a Source API request needs a source token (the owner's switch).
+
+    Product state, not configuration: one document, created at backend
+    startup and changed by the owner in the Panel without a restart.
+    ``started_off`` is true when the install already had data when the switch
+    was created, so it began off; it never changes afterwards.
+    """
+
+    model_config = ConfigDict(frozen=True)
+
+    required: bool
+    started_off: bool
+    updated_at: datetime
+
+    _utc_times = field_validator("updated_at")(_utc)
+
+
+class TokenRequirementChange(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    required: StrictBool
+
+
 __all__ = [
     "NO_TOKEN",
     "NO_TOKEN_NAME",
@@ -124,4 +155,6 @@ __all__ = [
     "SourceRename",
     "SourceView",
     "SourceWithToken",
+    "TokenRequirement",
+    "TokenRequirementChange",
 ]

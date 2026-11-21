@@ -1046,9 +1046,12 @@ segment.
   Details panel (status, requester, agents, created, updated, closed, request
   count, copyable session ID, Close session with confirmation, which calls the
   owner route `POST /sessions/{id}/record/close`). The requester is the
-  session's `client_label`, or its source's name when a source token opened
-  it without one (`sessionRequester`); the list, its search, sort and
-  requester filter use the same value. The record is
+  session's source, by name (`sessionRequester`; "No token" for a session
+  opened without a token). Its `client_label`, when it differs, shows beside
+  it in quotes as text the client gave, marked not verified (`ClientLabel`,
+  `sessionClientLabel`), in the list and as a "Client label" detail row. Sort
+  and the requester filter use the source (`source` in the URL, by
+  `source_id`); search also matches the client label. The record is
   built by `foldSessionEvents` (`src/lib/session-record.ts`) from the room
   event replay (`GET /sse/room/{id}/events`, paged 1000 events at a time up to
   the log's latest sequence) and reads as plain sentences with
@@ -1268,10 +1271,39 @@ that node's `fx/fy` until release. Node positions are transient and not persiste
 
 ### Access workspace
 
-`/connect/mcp` and `/connect/api` render one `ConnectPage`
+`/connect/sources`, `/connect/mcp` and `/connect/api` render one `ConnectPage`
 (`src/components/connect/connect-page.tsx`) titled "Access" with a top-level
-MCP / API tab that navigates between the two routes. The page is deliberately
-minimal and written for a non-technical reader.
+Sources / MCP / API tab that navigates between the three routes; the nav's
+Access entry opens Sources. The page is deliberately minimal and written for a
+non-technical reader. Opened over plain HTTP from another machine, it shows
+`PlainHttpWarning` with text about source tokens crossing the network in the
+clear.
+
+The Sources tab (`SourcesPanel`, `sources-panel.tsx`) lists the owner's
+sources through `useSources` (`GET {api_prefix}/sources`): name, the token's
+last four characters or "Revoked", last use ("Never"), creation date, and a
+**Sessions** link to `/sessions?source={source_id}`. Each row's menu renames
+(`PATCH /sources/{id}`), rotates (`POST /sources/{id}/rotate`) or revokes
+(`POST /sources/{id}/revoke`) after a confirmation. **Create source**
+(`POST /sources`) and a rotation show the new token once in `ShowOnceToken`
+(`show-once-token.tsx`, built on `useCopy`) with a Claude Code command (left
+out while `mcp_disabled`) and an API request that contain it. The token lives
+only in the dialog's component state: closing the dialog drops it, and it is
+never written to browser storage, a URL or a log.
+
+The same tab holds the token requirement switch (`RequirementSwitch`,
+`token-requirement.tsx`): `useTokenRequirement` reads
+`GET {api_prefix}/sources/token-requirement` (key
+`['sources', 'token-requirement']`), and a change asks for confirmation that
+states its consequence before `PUT` sends it. While the requirement is off,
+`TokenRequirementBanner` (a `NoticeBanner` from `setup-banner.tsx`) shows on
+every Access tab with a **Learn more** dialog that explains it and holds the
+switch; dismissing it stores the requirement's `updated_at` under
+`hybro.token-requirement.banner-dismissed` (`createDismissalStore`,
+`src/lib/dismissal.ts`), so turning it off again shows the banner again. The
+Overview shows `TokenRequirementNotice` once, for an install whose
+requirement started off (`started_off`), until dismissed
+(`hybro.token-requirement.notice-dismissed`).
 
 The MCP tab shows the MCP address (`mcpUrl(pageOrigin)`: `{origin}/mcp`), or
 only a notice when
@@ -1280,7 +1312,9 @@ only a notice when
 Claude Code, Cursor, Codex, VS Code, and Other. Each assistant tab holds only
 one snippet with a hint of where it goes and a copy button (a `claude mcp add`
 command for Claude Code, `mcpServers` or `servers` JSON, or Codex's
-`config.toml` lines), built by `client-setups.ts`. A **Features** section lists
+`config.toml` lines), built by `client-setups.ts`. Each snippet carries an
+`Authorization: Bearer <source token>` header, a placeholder the reader
+replaces with a token from the Sources tab. A **Features** section lists
 the two capabilities in plain language: discover agents and send tasks. There
 is no scope control, no status probe, and no step-by-step prose.
 
@@ -1289,13 +1323,14 @@ empty) with a copy button, the
 request examples built by `access-material.ts` (discovery via
 `GET {api_prefix}/agents/discovery`, and sending a message in a session via
 `POST {api_prefix}/sessions/messages` followed by the check
-`GET {api_prefix}/sessions/{session_id}`, each with a copy button), and the
-same Features section phrased for HTTP. The page reads no query parameters, and its
-examples carry no `group_id`.
+`GET {api_prefix}/sessions/{session_id}`, each with a copy button and the
+same `<source token>` header placeholder), and the same Features section
+phrased for HTTP. The page reads no query parameters, and its examples carry
+no `group_id`.
 
-Neither tab executes discovery, registers clients, sends messages, or invokes
-a model. Copy failures expose manual-copy instructions and select the text;
-copied text never includes a real session token. The Overview Gateway tile is
+The MCP and API tabs never execute discovery, register clients, send messages,
+or invoke a model. Copy failures expose manual-copy instructions and select the
+text; outside the show-once dialog, copied text never includes a real token. The Overview Gateway tile is
 the only place that probes `/hybro-mcp`, through `useMcpStatus`.
 
 ### Model provider setup

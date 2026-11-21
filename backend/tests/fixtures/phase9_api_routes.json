@@ -1033,6 +1033,28 @@
   },
   {
     "auth_dependencies": [
+      "get_machine_sources"
+    ],
+    "dependencies": [
+      "get_machine_sources"
+    ],
+    "methods": [
+      "GET"
+    ],
+    "module": "api_gateway.routes.machine_routes",
+    "name": "machine_get_token_requirement",
+    "openapi_response_codes": [
+      "200"
+    ],
+    "owning_protocol": "source.protocols.SourceRegistry",
+    "path": "/api/v1/machine/sources/token-requirement",
+    "response_class": null,
+    "response_model": "TokenRequirement",
+    "status_code": null,
+    "streaming_response": null
+  },
+  {
+    "auth_dependencies": [
       "get_current_user"
     ],
     "dependencies": [
@@ -1923,6 +1945,58 @@
     "response_class": null,
     "response_model": "SourceWithToken",
     "status_code": 201,
+    "streaming_response": null
+  },
+  {
+    "auth_dependencies": [
+      "get_owner_sources"
+    ],
+    "dependencies": [
+      "get_owner_sources"
+    ],
+    "methods": [
+      "GET"
+    ],
+    "module": "api_gateway.routes.source_routes",
+    "name": "get_token_requirement",
+    "openapi_response_codes": [
+      "200",
+      "401",
+      "403",
+      "503"
+    ],
+    "owning_protocol": "source.protocols.SourceRegistry",
+    "path": "/api/v1/sources/token-requirement",
+    "response_class": null,
+    "response_model": "TokenRequirement",
+    "status_code": null,
+    "streaming_response": null
+  },
+  {
+    "auth_dependencies": [
+      "get_owner_sources"
+    ],
+    "dependencies": [
+      "get_owner_sources"
+    ],
+    "methods": [
+      "PUT"
+    ],
+    "module": "api_gateway.routes.source_routes",
+    "name": "set_token_requirement",
+    "openapi_response_codes": [
+      "200",
+      "401",
+      "403",
+      "409",
+      "422",
+      "503"
+    ],
+    "owning_protocol": "source.protocols.SourceRegistry",
+    "path": "/api/v1/sources/token-requirement",
+    "response_class": null,
+    "response_model": "TokenRequirement",
+    "status_code": null,
     "streaming_response": null
   },
   {
