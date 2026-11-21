@@ -1839,7 +1839,9 @@ def test_owner_prompt_that_cannot_set_the_terminal_exits_2(cli, option):
 # ---- the setup link ----
 
 SETUP_CODE = "fake-setup-code_0123"
-SETUP_LINE = f"Create the owner account at: http://localhost:3000/setup#{SETUP_CODE}"
+SETUP_INTRO = "Create the owner account by opening this link:"
+SETUP_URL = f"http://localhost:3000/setup#{SETUP_CODE}"
+SETUP_HINT = "This is a new link. It replaces any earlier one, works once, and expires in 24 hours."
 
 
 def setup_code_runs(cli: Cli) -> list[list[str]]:
@@ -1852,7 +1854,9 @@ def test_status_prints_the_setup_link_while_no_account_exists(cli):
     result = cli.run("status")
     assert result.returncode == 0, cli.output
     lines = result.stdout.splitlines()
-    assert lines[lines.index(SETUP_LINE) + 1] == "Each new link replaces the earlier ones; it works once, for 24 hours."
+    url_at = lines.index(SETUP_URL)
+    assert lines[url_at - 1] == SETUP_INTRO
+    assert lines[url_at + 1] == SETUP_HINT
     assert setup_code_runs(cli) == [["exec", "hybro", PYTHON, OWNER_HELPER, "setup-code"]]
     # The code is in the output only, never in an argument.
     assert SETUP_CODE not in cli.calls_path.read_text()
@@ -1901,7 +1905,7 @@ def test_the_already_running_path_prints_the_setup_link(cli):
     result = cli.run()
     assert result.returncode == 0, cli.output
     assert "Hybro is already running at http://localhost:3000" in result.stdout
-    assert SETUP_LINE in result.stdout.splitlines()
+    assert SETUP_URL in result.stdout.splitlines()
 
 
 def test_the_foreground_start_prints_the_setup_link_after_ready(cli):
@@ -1910,7 +1914,9 @@ def test_the_foreground_start_prints_the_setup_link_after_ready(cli):
     cli.run()
     lines = cli.output.splitlines()
     ready = next(i for i, line in enumerate(lines) if line.startswith("Hybro is ready at"))
-    assert lines[ready + 1] == SETUP_LINE
+    assert lines[ready + 1] == SETUP_INTRO
+    assert lines[ready + 2] == SETUP_URL
+    assert lines[ready + 3] == SETUP_HINT
     assert SETUP_CODE not in cli.calls_path.read_text()
 
 

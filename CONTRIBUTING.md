@@ -76,8 +76,9 @@ on http://localhost:3100:
 ```
 
 The Panel needs the owner's sign-in. On a fresh volume `./scripts/hybro`
-prints a setup link (`./scripts/hybro status` prints it too); open it and
-create the owner account, or run
+prints a setup link; open it, or paste it on the setup page, and create the
+owner account. `./scripts/hybro status` prints a new link and replaces the
+earlier one. Without a browser, run
 `./scripts/hybro owner create --name <name> --email <email>`. Set up a model
 provider on the app's Settings page; it is saved to `~/.hybro/config.json` and
 `~/.hybro/auth.json`. See

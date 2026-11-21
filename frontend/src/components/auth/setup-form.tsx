@@ -1,7 +1,9 @@
 'use client'
 
-import { useState, useSyncExternalStore } from 'react'
+import { useEffect, useRef, useState, useSyncExternalStore } from 'react'
+import { Loader2 } from 'lucide-react'
 import { Input } from '@/components/ui/input'
+import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { FormGroup } from '@/components/settings/form-group'
 import { LoadingButton } from '@/components/settings/loading-button'
@@ -12,6 +14,7 @@ import { ApiError } from '@/lib/api-client'
 import { goTo } from '@/lib/navigation'
 
 const MIN_PASSWORD_LENGTH = 8
+const MISSING_CODE = 'That has no setup code. Paste the full link, including the part after #, or paste the code itself.'
 
 /** The code after the `#` of the setup link; the fragment never reaches a server. */
 function readSetupCode(): string {
@@ -27,16 +30,63 @@ function subscribeToHash(onChange: () => void): () => void {
   return () => window.removeEventListener('hashchange', onChange)
 }
 
-/** Creates the owner account through the one-time setup link. */
+/** Drops a trailing period or bracket copied from a sentence. */
+function tidyCode(code: string): string {
+  return code.trim().replace(/[.,);]+$/, '')
+}
+
+/**
+ * The code from a pasted setup URL or a bare code. A URL with nothing after
+ * `#`, or other text, yields an empty string.
+ */
+function codeFromPaste(value: string): string {
+  const lines = value.split(/\r?\n/).map((line) => line.trim()).filter(Boolean)
+  const source = lines.find((line) => line.includes('#')) ?? lines[0] ?? ''
+  const hashAt = source.lastIndexOf('#')
+  if (hashAt >= 0) {
+    try {
+      return tidyCode(decodeURIComponent(source.slice(hashAt + 1)))
+    } catch {
+      return ''
+    }
+  }
+  if (source.includes('/') || source.includes(':') || /\s/.test(source)) return ''
+  return tidyCode(source)
+}
+
+/**
+ * Writes the address without adding a history entry. `replaceState` does not
+ * emit `hashchange`, so the fragment store is notified here.
+ */
+function replaceLocation(url: string) {
+  window.history.replaceState(null, '', url)
+  window.dispatchEvent(new HashChangeEvent('hashchange'))
+}
+
+/** Keeps the code in the fragment without adding a history entry. */
+function writeSetupCode(code: string) {
+  replaceLocation(`${window.location.pathname}${window.location.search}#${encodeURIComponent(code)}`)
+}
+
+/** Drops the code from the address and returns to the recovery screen. */
+function clearSetupCode() {
+  replaceLocation(`${window.location.pathname}${window.location.search}`)
+}
+
+function accountDetail(err: unknown): { code?: string; choices?: unknown } | undefined {
+  if (!(err instanceof ApiError)) return undefined
+  const detail = (err.details as { detail?: { code?: unknown; choices?: unknown } } | undefined)?.detail
+  if (typeof detail !== 'object' || detail === null) return undefined
+  return { code: typeof detail.code === 'string' ? detail.code : undefined, choices: detail.choices }
+}
+
 /**
  * The refusal to show. With several administrators listed, the browser cannot
  * choose one; `hybro owner create --owner-id` on the machine can.
  */
 function setupErrorMessage(err: unknown): string {
   const message = accountErrorMessage(err, 'Setup failed. Check that Hybro is running, then try again.')
-  const detail = err instanceof ApiError
-    ? (err.details as { detail?: { code?: unknown; choices?: unknown } } | undefined)?.detail
-    : undefined
+  const detail = accountDetail(err)
   if (detail?.code !== 'owner_id_required') return message
   const choices = Array.isArray(detail.choices) ? detail.choices.map(String).join(', ') : ''
   return `${message} Run on Hybro's machine: hybro owner create --name <name> --email <email> --owner-id <id>`
@@ -52,10 +102,31 @@ export function SetupForm() {
   const [confirm, setConfirm] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
+  const [paste, setPaste] = useState('')
+  const [pasteError, setPasteError] = useState<string | null>(null)
+  // A new code in the address bar is a new attempt, so the previous refusal goes.
+  const previousCode = useRef(code)
+  useEffect(() => {
+    if (previousCode.current === code) return
+    previousCode.current = code
+    if (code) setError(null)
+  }, [code])
 
   const passwordsMatch = password === confirm
   const longEnough = password.length >= MIN_PASSWORD_LENGTH
   const canSubmit = Boolean(code) && name.trim() !== '' && email.trim() !== '' && longEnough && passwordsMatch
+
+  function applyPaste(event: React.FormEvent) {
+    event.preventDefault()
+    const next = codeFromPaste(paste)
+    if (!next) {
+      setPasteError(MISSING_CODE)
+      return
+    }
+    setPasteError(null)
+    setError(null)
+    writeSetupCode(next)
+  }
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
@@ -70,52 +141,110 @@ export function SetupForm() {
     } catch (err: unknown) {
       setError(setupErrorMessage(err))
       setBusy(false)
+      // A dead code cannot be retried. Drop it so the recovery screen can take a new link.
+      if (accountDetail(err)?.code === 'invalid_setup_code') clearSetupCode()
     }
   }
 
   return (
-    <Card className="w-full max-w-sm">
-      <CardHeader>
-        <CardTitle>Create the owner account</CardTitle>
-        <CardDescription>The account that signs in to this Hybro. There is one.</CardDescription>
-      </CardHeader>
-      <CardContent className="space-y-4">
-        <PlainHttpWarning />
-        {code === null ? null : code === '' ? (
-          <p className="text-sm text-muted-foreground">
-            Open the setup link that <code>hybro</code> prints. To see it again, run{' '}
-            <code>hybro status</code> on the machine that runs Hybro. Without a browser, create the
-            account with <code>hybro owner create</code>.
-          </p>
-        ) : (
-          <form onSubmit={handleSubmit} className="space-y-4">
-            <FormGroup id="name" label="Name">
-              <Input id="name" value={name} onChange={(e) => setName(e.target.value)} autoComplete="name" required />
-            </FormGroup>
-            <FormGroup id="email" label="Email" hint="You sign in with it.">
-              <Input id="email" type="email" value={email} onChange={(e) => setEmail(e.target.value)} autoComplete="username" required />
-            </FormGroup>
-            <FormGroup
-              id="password"
-              label="Password"
-              error={password.length > 0 && !longEnough ? `At least ${MIN_PASSWORD_LENGTH} characters` : undefined}
-            >
-              <PasswordInput id="password" value={password} onChange={(e) => setPassword(e.target.value)} autoComplete="new-password" required />
-            </FormGroup>
-            <FormGroup
-              id="confirm"
-              label="Confirm password"
-              error={confirm.length > 0 && !passwordsMatch ? 'Passwords do not match' : undefined}
-            >
-              <PasswordInput id="confirm" value={confirm} onChange={(e) => setConfirm(e.target.value)} autoComplete="new-password" required />
-            </FormGroup>
+    <Card className="w-full max-w-md">
+      {code === null ? (
+        <CardContent className="flex min-h-32 items-center justify-center">
+          <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" aria-label="Loading" />
+        </CardContent>
+      ) : code === '' ? (
+        <>
+          <CardHeader>
+            <CardTitle>Open your setup link</CardTitle>
+            <CardDescription>Paste the setup link to continue.</CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <PlainHttpWarning />
             {error && <p role="alert" className="text-sm text-destructive">{error}</p>}
-            <LoadingButton type="submit" className="w-full" disabled={!canSubmit} loading={busy}>
-              Create account
-            </LoadingButton>
-          </form>
-        )}
-      </CardContent>
+            <p className="text-sm text-muted-foreground">
+              Copy the setup link from the terminal where Hybro is running and paste it here. It ends
+              with <code>/setup#…</code>.
+            </p>
+            <form onSubmit={applyPaste} className="space-y-4">
+              <FormGroup id="setup-link" label="Setup link" error={pasteError ?? undefined}>
+                <textarea
+                  id="setup-link"
+                  value={paste}
+                  rows={3}
+                  onChange={(e) => {
+                    setPaste(e.target.value)
+                    if (pasteError) setPasteError(null)
+                  }}
+                  onKeyDown={(event) => {
+                    if (event.key !== 'Enter' || event.shiftKey) return
+                    event.preventDefault()
+                    event.currentTarget.form?.requestSubmit()
+                  }}
+                  placeholder="http://localhost:3000/setup#…"
+                  autoComplete="off"
+                  spellCheck={false}
+                  required
+                  className="border-input placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-ring/50 flex min-h-20 w-full rounded-md border bg-transparent px-3 py-2 text-sm shadow-xs outline-none focus-visible:ring-[3px]"
+                />
+              </FormGroup>
+              <Button type="submit" className="w-full" disabled={paste.trim() === ''}>
+                Continue
+              </Button>
+            </form>
+            <p className="text-sm text-muted-foreground">
+              If you cannot find it, run <code>hybro status</code> on the machine that runs Hybro. That
+              prints a new link and replaces the earlier one.
+            </p>
+            <details className="text-sm text-muted-foreground">
+              <summary className="cursor-pointer">No browser on that machine?</summary>
+              <p className="mt-2">
+                Run <code>hybro owner create --name {'<name>'} --email {'<email>'}</code> there. It asks
+                for a password.
+              </p>
+            </details>
+          </CardContent>
+        </>
+      ) : (
+        <>
+          <CardHeader>
+            <CardTitle>Create your owner account</CardTitle>
+            <CardDescription>You will use this account to sign in to Hybro.</CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <PlainHttpWarning />
+            <form onSubmit={handleSubmit} className="space-y-4">
+              <FormGroup id="name" label="Name">
+                <Input id="name" value={name} onChange={(e) => setName(e.target.value)} autoComplete="name" required />
+              </FormGroup>
+              <FormGroup id="email" label="Email" hint="You sign in with it.">
+                <Input id="email" type="email" value={email} onChange={(e) => setEmail(e.target.value)} autoComplete="username" required />
+              </FormGroup>
+              <FormGroup
+                id="password"
+                label="Password"
+                error={password.length > 0 && !longEnough ? `At least ${MIN_PASSWORD_LENGTH} characters` : undefined}
+              >
+                <PasswordInput id="password" value={password} onChange={(e) => setPassword(e.target.value)} autoComplete="new-password" required />
+              </FormGroup>
+              <FormGroup
+                id="confirm"
+                label="Confirm password"
+                error={confirm.length > 0 && !passwordsMatch ? 'Passwords do not match' : undefined}
+              >
+                <PasswordInput id="confirm" value={confirm} onChange={(e) => setConfirm(e.target.value)} autoComplete="new-password" required />
+              </FormGroup>
+              {error && <p role="alert" className="text-sm text-destructive">{error}</p>}
+              <LoadingButton type="submit" className="w-full" disabled={!canSubmit} loading={busy}>
+                Create account
+              </LoadingButton>
+            </form>
+            <p className="text-xs text-muted-foreground">This link works once and expires in 24 hours.</p>
+            <Button type="button" variant="ghost" className="w-full" onClick={() => { setError(null); clearSetupCode() }}>
+              Use another link
+            </Button>
+          </CardContent>
+        </>
+      )}
     </Card>
   )
 }

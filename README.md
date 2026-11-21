@@ -173,11 +173,13 @@ a Caddy example.
 ### 3. Open the app
 
 Open the setup link that `hybro` prints and create the owner account: name,
-email and password. Hybro has one account, and the Panel asks for its sign-in
-on every install. Without a browser, `hybro owner create` creates it (see
-[Running](#running)); a forgotten password is reset with
-`hybro owner reset-password` on the machine. The menu at the bottom of the
-sidebar holds the profile, the password, the signed-in browsers, and sign out.
+email and password. Opening the address without that link asks you to paste
+it. `hybro status` prints a new link and replaces the earlier one. Hybro has
+one account, and the Panel asks for its sign-in on every install. Without a
+browser, `hybro owner create` creates it (see [Running](#running)); a forgotten
+password is reset with `hybro owner reset-password` on the machine. The menu
+at the bottom of the sidebar holds the profile, the password, the signed-in
+browsers, and sign out.
 
 The **Overview** page shows your chats,
 the five bundled agents, and whether the MCP gateway is ready. Until a model

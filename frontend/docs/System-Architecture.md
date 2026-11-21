@@ -1474,13 +1474,24 @@ password field and shows the backend's message; the page points to
 `hybro owner reset-password` for a forgotten password. After sign-in it goes to
 the `redirect_url` that `safeRedirect` allows, else `/`. `/setup` reads the
 one-time code from the URL fragment (`#<code>`, which the browser never
-sends), asks for name, email and a password of at least 8 characters twice,
-creates the account with `POST /auth/setup`, and removes the code from the
-address. Without a code it tells the user to run `hybro status` or
+sends). With a code it asks for name, email and a password of at least 8
+characters twice, creates the account with `POST /auth/setup`, and removes
+the code from the address. The form says the link works once and expires in
+24 hours. Without a code the page is a recovery screen: it asks the user to
+paste the setup link `hybro` printed, and says that `hybro status` prints a
+new link which replaces the earlier one. A pasted link or bare code is written
+into the fragment and the same form is shown. The fragment stays the only
+source of the code, so changing it replaces a pasted one and clears a refusal
+from the previous link. Enter in the paste field continues; Shift+Enter adds
+a line. A link with no code
+is refused on the page. A machine without a browser is pointed at
 `hybro owner create`. When several administrators are listed (the deprecated
 Clerk mode), the browser cannot choose one, so the refusal names
-`hybro owner create --owner-id <id>` and the choices. Both pages show a warning when they are on plain HTTP
-and the host is not this machine. There is no sign-up page.
+`hybro owner create --owner-id <id>` and the choices. An invalid or replaced
+code clears the fragment, returns to the recovery screen, and shows the
+message to run `hybro status` and open the new link.
+Both pages show a warning when they are on plain HTTP and the host is not
+this machine. There is no sign-up page.
 
 ### Visual system
 

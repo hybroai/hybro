@@ -130,7 +130,8 @@ def refuse_account_error(exc: Exception) -> NoReturn:
         _refuse(
             403,
             "invalid_setup_code",
-            "This setup link is not valid. Run `hybro` for a new one.",
+            "This setup link is no longer valid. It may have expired or been replaced. "
+            "On the machine that runs Hybro, run `hybro status` and open the new link.",
         )
     if isinstance(exc, InvalidCredentials):
         _refuse(401, "invalid_credentials", "The email or the password is wrong.")
