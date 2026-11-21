@@ -410,7 +410,7 @@ describe('RestartBanner', () => {
 })
 
 describe('SystemSection', () => {
-  it('shows how the instance runs, its notices and a restart button', async () => {
+  it('shows how the instance runs and a restart button, without notes or config notices', async () => {
     view = settingsView({ notices: [{ code: 'unlisted_fields', fields: ['backend.local_agent_discovery_excluded_ports'], message: 'These keys are set in config.json but cannot be edited on this page.' }] })
     renderWith(<SystemSection />)
     expect(await screen.findByText('Hybro 0.4.7')).toBeInTheDocument()
@@ -419,7 +419,11 @@ describe('SystemSection', () => {
     expect(screen.getByText('This computer only')).toBeInTheDocument()
     expect(screen.getByText('~/.hybro/config.json')).toBeInTheDocument()
     expect(screen.getByText('Owner account')).toBeInTheDocument()
-    expect(screen.getByText('backend.local_agent_discovery_excluded_ports')).toBeInTheDocument()
+    expect(screen.queryByText(/Reachable/)).not.toBeInTheDocument()
+    expect(screen.queryByText(/hybro --port/)).not.toBeInTheDocument()
+    expect(screen.queryByText(/auth\.json/)).not.toBeInTheDocument()
+    expect(screen.queryByText('Notices from config.json')).not.toBeInTheDocument()
+    expect(screen.queryByText('backend.local_agent_discovery_excluded_ports')).not.toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: 'Restart Hybro' }))
     await waitFor(() => expect(restarts).toBe(1))
   })

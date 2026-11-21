@@ -71,8 +71,8 @@ export function RequirementSwitch() {
           <label htmlFor="token-requirement" className="text-sm font-medium">Require a source token</label>
           <p id="token-requirement-state" className="text-sm text-muted-foreground">
             {required
-              ? 'On: every request to the Source API and MCP needs a current source token.'
-              : `Off: requests without a token are accepted and recorded under "No token". ${OPEN_RISK}`}
+              ? 'On: every Source API and MCP request needs a valid source token.'
+              : 'Off: requests without a token are accepted, so any program that can reach Hybro can use your agents.'}
           </p>
         </div>
         <Switch

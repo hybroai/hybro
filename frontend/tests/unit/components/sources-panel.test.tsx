@@ -252,6 +252,7 @@ describe('the token requirement', () => {
     render(<ConnectPage kind="sources" />)
     const toggle = await screen.findByRole('switch', { name: 'Require a source token' })
     expect(toggle).toBeChecked()
+    expect(toggle).toHaveAccessibleDescription('On: every Source API and MCP request needs a valid source token.')
     await user.click(toggle)
     const confirm = await screen.findByRole('alertdialog')
     expect(confirm).toHaveTextContent('Any program that can reach this Hybro can send work to your agents without a token.')
@@ -263,6 +264,9 @@ describe('the token requirement', () => {
     await user.click(within(await screen.findByRole('alertdialog')).getByRole('button', { name: 'Stop requiring' }))
     await waitFor(() => expect(state.puts).toEqual([{ required: false }]))
     await waitFor(() => expect(screen.getByRole('switch', { name: 'Require a source token' })).not.toBeChecked())
+    expect(screen.getByRole('switch', { name: 'Require a source token' })).toHaveAccessibleDescription(
+      'Off: requests without a token are accepted, so any program that can reach Hybro can use your agents.',
+    )
     // The banner shows once the requirement is off.
     expect(await screen.findByTestId('token-requirement-banner')).toBeInTheDocument()
   })
