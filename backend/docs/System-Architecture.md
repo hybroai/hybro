@@ -3560,7 +3560,10 @@ complete contiguous prefix. The snapshot holds `room_seq`, `messages`, `tasks`,
 `turns`. Stored `run_event` rows of retired non-canonical kinds are skipped. Canonical `turns` carry exact
 run/client/User root binding, offset-checked Assistant text, opaque Tool
 identity, child closure, and exact provisional-final/`agent_response`
-commitment. Messages and processing logs stay in their own sections and never
+commitment. A `turn_end` must name exactly the turn's Tool rows, all closed;
+it lists them in call order while the rows keep start order (a call asked
+about in a later pass starts after a later sibling), so the fold compares the
+two as sets. Messages and processing logs stay in their own sections and never
 become canonical Turn activity. Canonical roots emit only the content-free
 `processing_status` (allowlisted status, exact User/client roots,
 `details: null`, no Agent or free-text fields), which the snapshot folds into the

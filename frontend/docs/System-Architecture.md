@@ -505,7 +505,9 @@ an already assembled delta stream and `message_end.text`; a mismatch requests
 protocol recovery instead of truncating/replacing text. It also owns commentary/final
 classification, opaque Tool rows, retries, exact-root HITL interactions, the
 provisional final, its three-field `agent_response` commitment, child closure,
-and `run_settled`. Activity order is `room_seq`; no timestamp, prose, content,
+and `run_settled`. A `turn_end` must name exactly the internal turn's Tool
+rows, all closed, in any order: it lists them in call order, and the rows keep
+start order. Activity order is `room_seq`; no timestamp, prose, content,
 Agent-name, card-status, or recency inference participates.
 
 `CanonicalTurnRenderer` has explicit User → Trace → Final Answer → Agent Cards

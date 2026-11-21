@@ -1493,3 +1493,50 @@ async def test_a_restart_after_an_ask_user_call_was_deferred_asks_it_once():
     )
     assert done.outcome == "final_answer"
     assert (await settled_turn(room, done.run))["state"] == "completed"
+
+
+async def test_an_ask_user_call_after_an_executable_sibling_ends_the_turn_in_order():
+    ask_user = RecordingAskUser()
+    kernel, store, _m, tools, port, room, run_id = await room_chat(
+        [tool_events(("call-1", ECHO, '{"value":"one"}'), ASK_USER), final_events()],
+        ask={},
+        supervisor_hitl=ask_user,
+    )
+
+    asked = await start(kernel, room, run_id)
+
+    assert asked.outcome == "awaiting_user"
+    assert tools.execute_log == ["call-1"]
+    done = await observe(
+        kernel,
+        room,
+        run_id,
+        supervisor_answer_observation(run_id, "ask-1", "Shanghai", NOW),
+    )
+    assert done.outcome == "final_answer"
+    assert (await settled_turn(room, done.run))["state"] == "completed"
+
+
+async def test_a_held_call_asked_in_a_later_pass_ends_the_turn_in_order():
+    # h2 waits while h1 is asked and starts after c3, a later sibling.
+    kernel, store, tools, port, room, run_id = await agent_question_kernel(
+        [
+            tool_events(
+                ("h1", ECHO, '{"value":"one"}'),
+                ("h2", ECHO, '{"value":"two"}'),
+                ("c3", ECHO, '{"value":"three"}'),
+            ),
+            final_events(),
+        ],
+        {"h1", "h2"},
+    )
+    await start(kernel, room, run_id)
+    assert asked_calls(port) == ["h1"]
+    await observe(kernel, room, run_id, answer_of(run_id, "h1", "Approve"))
+    assert asked_calls(port) == ["h1", "h2"]
+
+    done = await observe(kernel, room, run_id, answer_of(run_id, "h2", "Approve"))
+
+    assert done.outcome == "final_answer"
+    assert sorted(tools.execute_log) == ["c3", "h1", "h2"]
+    assert (await settled_turn(room, done.run))["state"] == "completed"

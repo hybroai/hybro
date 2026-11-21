@@ -171,6 +171,51 @@ describe('canonical Turn contract and fold', () => {
     expect(tools[1]).toMatchObject({ toolCallId: 'inv_weather_0002' })
   })
 
+  it('accepts a turn_end naming exactly the turn tools in any order', () => {
+    const toolTurn = (turnEndIds: string[]) => {
+      let turns: TurnProjectionMap = {}
+      turns = apply(turns, runEvent(1, 'run_started', {
+        hybro_turn_id: 'run-1', user_message_id: 'user-1', started_at: TS, mode: 'fast',
+      }))
+      turns = apply(turns, runEvent(2, 'turn_start', { internal_turn_id: 'turn-1', attempt: 1 }))
+      turns = apply(turns, runEvent(3, 'message_start', {
+        internal_turn_id: 'turn-1', message_id: 'assistant-1', role: 'assistant',
+      }))
+      turns = apply(turns, runEvent(4, 'message_end', {
+        internal_turn_id: 'turn-1', message_id: 'assistant-1',
+        stop_reason: 'tool_use', disposition: 'commentary', text: '',
+      }))
+      // A call asked about in a later pass starts after a later sibling.
+      const startOrder = ['inv_tool_b_0001', 'inv_tool_a_0001']
+      for (const [index, id] of startOrder.entries()) {
+        turns = apply(turns, runEvent(5 + index, 'tool_execution_start', {
+          internal_turn_id: 'turn-1', tool_call_id: id, tool_name: 'Weather Agent', input: {},
+        }))
+      }
+      for (const [index, id] of startOrder.entries()) {
+        turns = apply(turns, runEvent(7 + index, 'tool_execution_end', {
+          internal_turn_id: 'turn-1', tool_call_id: id, tool_name: 'Weather Agent',
+          outcome: 'completed', result: 'ok', is_error: false, duration_ms: 1,
+        }))
+      }
+      return foldCanonicalEvent(turns, 'room-1', {
+        kind: 'run_event',
+        data: runEvent(9, 'turn_end', {
+          internal_turn_id: 'turn-1', message_id: 'assistant-1',
+          tool_call_ids: turnEndIds, status: 'completed',
+        }),
+      })
+    }
+
+    const inCallOrder = toolTurn(['inv_tool_a_0001', 'inv_tool_b_0001'])
+    expect(inCallOrder.ok).toBe(true)
+    const tools = inCallOrder.turns['run-1'].activity.filter((item) => item.kind === 'tool')
+    expect(tools.map((tool) => tool.toolCallId)).toEqual(['inv_tool_b_0001', 'inv_tool_a_0001'])
+    expect(toolTurn(['inv_tool_a_0001']).ok).toBe(false)
+    expect(toolTurn(['inv_tool_a_0001', 'inv_tool_c_0001']).ok).toBe(false)
+    expect(toolTurn(['inv_tool_a_0001', 'inv_tool_b_0001', 'inv_tool_c_0001']).ok).toBe(false)
+  })
+
   it('owns HITL only by the exact Turn root and complete request set', () => {
     let turns: TurnProjectionMap = {}
     turns = apply(turns, runEvent(1, 'run_started', {

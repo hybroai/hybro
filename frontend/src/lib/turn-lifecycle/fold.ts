@@ -447,9 +447,13 @@ function foldRunEvent(
     const tools = turn.activity.filter((item): item is Extract<TurnActivityItem, { kind: 'tool' }> => (
       item.kind === 'tool' && item.internalTurnId === internalTurnId
     ))
+    // turn_end names the turn's tools in call order; they start in pass
+    // order (a call asked about later starts after a sibling), so the
+    // inventory must match exactly as a set. The contract keeps the ids unique.
+    const listed = new Set(payload.tool_call_ids)
     if (tools.some((tool) => tool.status === 'running' || tool.status === 'suspended')
       || tools.length !== payload.tool_call_ids.length
-      || tools.some((tool, index) => tool.toolCallId !== payload.tool_call_ids[index])) {
+      || tools.some((tool) => !listed.has(tool.toolCallId))) {
       return failed(turns, 'turn_end Tool inventory is not exact and terminal')
     }
     const expectedMessageId = internal.messageIds[internal.messageIds.length - 1]
