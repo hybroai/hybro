@@ -235,6 +235,12 @@ function ExchangeEntries({ exchange, client, agents, waitingBelow }: {
           <p className="text-destructive">{exchange.failure ?? 'The request failed.'}</p>
         </Entry>,
       )
+    } else if (step.kind === 'denied') {
+      entries.push(
+        <Entry key={index} actor="owner" name="Your check rules" action="denied this agent call" at={step.at}>
+          {step.ruleId ? <p className="text-muted-foreground">Rule {step.ruleId}</p> : null}
+        </Entry>,
+      )
     } else if (step.kind === 'canceled') {
       entries.push(<Entry key={index} actor="agent" agentId={agentId} name={agent} action="stopped; the request was canceled" at={step.at} />)
     }

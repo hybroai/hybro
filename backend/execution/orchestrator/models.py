@@ -300,6 +300,15 @@ class ToolBatchEntry(ContractModel):
     result_flushed: bool = False
     # Runtime call identity of a parked interaction (join routing / closeout).
     suspended_call_record_id: str | None = None
+    # This call's Agent-call budget unit is stored, in the same checkpoint as
+    # this mark. A restart before the call is decided goes on to acceptance
+    # instead of reserving, and failing, a second unit.
+    budget_reserved: bool = False
+    # A check rule refused this call at acceptance. Only that refusal sets it;
+    # the ``agent_call_denied`` error code alone is no proof, because a remote
+    # Agent's own error code is copied into accepted, joined and surface
+    # entries' results.
+    denied_by_rule: bool = False
     # Parent call a ``surface_agent_questions`` entry forwards to the user.
     # Closed by ``observe_tool`` when that parent resolves, because the user's
     # answer flows through the parent continuation, not the surface entry.
@@ -786,6 +795,9 @@ class OrchestratorRunState(ContractModel):
     cancellation_command_id: str | None = None
     cancellation_requested_at: datetime | None = None
     cancellation_cause: CancellationCause | None = None
+    # The check rule that last refused a new Agent call in this Run. A
+    # passthrough Run settles with it as the reason it was denied.
+    denied_rule_id: str | None = None
     projection_state: Literal["pending", "settled", "blocked"]
     recovery_claim: RecoveryClaim
     projection_outbox: list[ProjectionIntent]

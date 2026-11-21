@@ -72,6 +72,7 @@ export function sessionStateView(state: SessionState): StatusView {
     case 'working': return view('Working', 'offline', 'spinner')
     case 'completed': return view('Completed', 'online', 'filled')
     case 'rejected': return view('Rejected', 'offline', 'hollow')
+    case 'denied': return view('Denied', 'offline', 'hollow')
     case 'failed': return view('Failed', 'error', 'filled')
     case 'closed': return view('Closed', 'offline', 'hollow')
   }

@@ -66,7 +66,7 @@ flowchart TD
 | Support | `agent`, `local_agents`, `delivery`, `context_memory`, `room_files`, `llm_gateway` | Agent directory, local discovery, SSE delivery, room memory, files, and model access. |
 | Support | `diagnostics` | The local store of system events and warnings (two capped collections). |
 | Support | `client` | The clients that send work through the Client API: their names, token hashes, rotation and revocation, and the token check. |
-| Support | `policy` | The owner's check rules: an ordered list that answers allow or deny for an agent. Stored and edited; not enforced yet. |
+| Support | `policy` | The owner's check rules: an ordered list that answers allow or deny for an agent. Asked before each new Agent call. |
 | Support | `account` | The owner account: the instance's one user record, its password hash, the signed-in browsers, the setup code, and the attempt limit of sign-in and setup. |
 | Support | `instance_settings` | The admin settings API: the curated field registry, validated `config.json` writes, the live log level, and the in-place service restart trigger. |
 | Infrastructure | `api_gateway`, `jobs`, `dal`, `a2a_adapter`, `common`, `models` | Routes, workers, Mongo/Redis connections and generic clients, the A2A SDK boundary, and shared contracts. |
@@ -1079,13 +1079,65 @@ deciding `rule_id`, or `None` when no rule matched). `policy` imports only
 `common`, calls no other module and never waits.
 `container.create_policy_rules` binds the service to `app.state.policy_rules`.
 
-Nothing calls `evaluate` yet, so the rules change no call path: an instance
-with rules behaves as one without.
+Enforcement. `PolicyService.check_agent_call(agent_id)` evaluates the stored
+rules and implements `execution`'s `AgentCallCheckPort`
+(`execution/orchestrator/a2a_runtime/ports.py`); the container passes
+`app.state.policy_rules` to `create_orchestrator_runtime` as
+`agent_call_check`. `A2AAgentToolRuntime.accept` asks it once for each new
+Agent call, after the binding, room epoch and Run checks and before
+authorization and the ledger insert, so one check covers Room chat and the
+`/sessions` routes. A replayed acceptance returns before the check, and a
+model reply, an answer continuation and a recovery re-dispatch never pass
+through `accept`: a call is checked once. Any answer other than `allow`
+raises `AgentCallDenied` with the deciding `rule_id` and no other text. With
+no rules, or none that matches, every call goes as before.
+
+- Room chat (`fast`, `ultimate`): the kernel ends the call's entry as a
+  refused tool result (`error_code` `agent_call_denied`, one fixed sentence)
+  and returns it to the model on the next turn, the path a schema-invalid
+  declaration takes. The Run goes on; sibling calls in the batch still run.
+  The Agent-call budget unit is reserved before `accept` and stays spent, so
+  `max_agent_calls` bounds a model that keeps calling a denied agent.
+- `/sessions` (`passthrough`): the Run ends `canceled` with the cause
+  `policy` and the terminal reason `agent_call_denied`. The Run records
+  `denied_rule_id`, and the `run_settled` payload carries it as `rule_id`
+  (allowed only with `cancellation_code: policy`). The session projection
+  maps that to the state `denied`.
+- The refused entry is marked `denied_by_rule`, written in the same
+  checkpoint as the Run's `denied_rule_id`. Restart and settlement read that
+  mark, never the error code alone: a remote Agent may return its own
+  `agent_call_denied` code, which then ends its call as an ordinary Agent
+  failure.
+- A restart inside a refused call ends it the same way: recovery never
+  re-asks the rules and never counts the budget unit twice. In `passthrough`
+  it closes the turn as an error and settles the Run as denied; in Room chat
+  it closes the turn as it does for any locally rejected declaration and the
+  model reads the refusal next. A Stop that reaches a Run first keeps its own
+  cause.
+- The budget unit and the entry's `budget_reserved` mark are stored in one
+  checkpoint. A restart after that checkpoint and before the call is decided
+  (Room chat or `passthrough`) goes on to `accept` instead of reserving a
+  second unit: `accept` asks the rules for a call it never accepted, and
+  replays an acceptance the ledger already holds. The
+  mark skips only the count check: a restart past the deadline still ends
+  the Run.
+- A failure to read the rules is not a deny: it fails the Run as any other
+  acceptance error does.
+
+Reorders: each `set_positions` claims the next value of a counter document in
+`rules` (`rule_id` and `kind` `order_revision`, never read as a rule), and a
+rule takes a position only from a revision newer than the `order_revision` it
+holds. Two reorders at the same moment so leave the later claim's whole
+order, never a mix. Update and delete match `kind: check`, so no route
+reaches the counter. The limit of 100 rules stays a non-atomic check: two
+creates at once can pass it by a few, which the unbounded read and the
+order's own bound (twice the limit) allow for.
 
 - Writes: `rules`, one document per rule: `rule_id` (`rule_` and 24 hex
   characters), `kind` (`check`), `agent_id` (null for any agent), `answer`,
   `enabled` (on or off; a rule that is off never matches), `position`,
-  `created_at`, `updated_at`. Indexes: `rule_id_unique`, and
+  `order_revision` (after a reorder), `created_at`, `updated_at`; and the one
+  reorder counter. Indexes: `rule_id_unique`, and
   `rule_kind_position` on `kind` and `position`. The list is ordered by
   `position`, then `created_at`; positions may have gaps after a delete.
 - Exposes: `RuleRegistry` to `api_gateway`; declares `RuleStore`.
@@ -1383,6 +1435,8 @@ port, or facade port, update the exact method inventory in
 | `AuthReferenceVerificationPort` | `execution.orchestrator.a2a_runtime.hitl` | `FailingAuthReferenceVerification`, local to `orchestrator_composition.create_orchestrator_runtime` (always refuses) | crosses to composition root |
 | `InvocationOutcomeCheckpointReader` | `execution.orchestrator.a2a_runtime.ingress` | `execution.orchestrator.a2a_runtime.in_memory.RunCheckpointReader` | internal to `execution` |
 | `A2ADispatchPort` | `execution.orchestrator.a2a_runtime.ports` | `execution.orchestrator.a2a_runtime.dispatch.DirectA2ADispatchAdapter` | internal to `execution` |
+| `AgentCallAnswer` | `execution.orchestrator.a2a_runtime.ports` | `policy.evaluate.RuleDecision` | crosses to `policy`; composition root |
+| `AgentCallCheckPort` | `execution.orchestrator.a2a_runtime.ports` | `policy.service.PolicyService` | crosses to `policy`; composition root |
 | `AgentCallLedgerStore` | `execution.orchestrator.a2a_runtime.ports` | `execution.repository.orchestrator.stores.MongoAgentCallLedgerStore` | internal to `execution` |
 | `AgentToolBindingStore` | `execution.orchestrator.a2a_runtime.ports` | `execution.repository.orchestrator.stores.MongoAgentToolBindingStore` | internal to `execution` |
 | `AuthorizationRefreshPort` | `execution.orchestrator.a2a_runtime.ports` | `execution.adapters.authorization.MembershipAuthorizationRefresh` | internal to `execution` |
@@ -3685,7 +3739,9 @@ durable room event log (`app.state.room_event_store`), matching run events by
 `correlation_id` (the request's `client_request_id`) and paging after the
 recorded sequence; nothing waits for a run. A request is `completed`, `rejected`
 (a `hitl_response` with `status: canceled` preceded a canceled settlement for the
-same run), or `failed` (the public `error_summary`) once `run_settled` arrives;
+same run), `denied` (a canceled settlement with `cancellation_code: policy`; the
+reason is one fixed sentence naming the settlement's `rule_id`, never text the
+owner wrote), or `failed` (the public `error_summary`) once `run_settled` arrives;
 `waiting_on_owner` while `run_waiting_input` is not yet followed by `run_resumed`
 or settlement; otherwise `working`. A request with no correlated run event
 `session_run_start_grace_seconds` after its send reports `failed` with

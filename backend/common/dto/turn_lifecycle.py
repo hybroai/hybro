@@ -293,6 +293,8 @@ class RunSettledPayload(CanonicalEventPayloadDTO):
     cancellation_code: (
         Literal["user_requested", "room_closed", "shutdown", "policy"] | None
     ) = None
+    # The check rule that denied the call; only on a ``policy`` cancel.
+    rule_id: PublicId | None = None
 
     @model_validator(mode="after")
     def _closed_settlement_shape(self) -> RunSettledPayload:
@@ -319,6 +321,8 @@ class RunSettledPayload(CanonicalEventPayloadDTO):
                 and self.error_summary is None
                 and self.cancellation_code is not None
             )
+        if self.rule_id is not None and self.cancellation_code != "policy":
+            valid = False
         if not valid:
             raise ValueError("invalid run_settled conditional fields")
         return self

@@ -24,6 +24,7 @@ from ..models import (
 )
 from ..persistence import TERMINAL_RUN_STATUSES
 from ..ports import (
+    AgentCallDenied,
     CancellationSignal,
     InvalidParkedInteractionTarget,
     InvocationCheckpointReader,
@@ -65,6 +66,7 @@ from .models import (
 )
 from .ports import (
     A2ADispatchPort,
+    AgentCallCheckPort,
     AgentCallLedgerStore,
     AuthorizationRefreshPort,
     HITLApplicationPort,
@@ -119,6 +121,7 @@ class A2AAgentToolRuntime:
         policy: A2ARuntimePolicy | None = None,
         worker_id: str = "a2a-runtime",
         push_registrar: A2APushRegistrar | None = None,
+        call_check: AgentCallCheckPort | None = None,
     ) -> None:
         self.ledger = ledger
         self.prepared_reader = prepared_reader
@@ -137,6 +140,7 @@ class A2AAgentToolRuntime:
         self.policy = policy or A2ARuntimePolicy()
         self.worker_id = worker_id
         self.push_registrar = push_registrar
+        self.call_check = call_check
 
     async def accept(self, invocation: ToolInvocation) -> ToolAcceptance:
         existing = await self.ledger.load(invocation.run_id, invocation.invocation_id)
@@ -166,6 +170,8 @@ class A2AAgentToolRuntime:
         ):
             raise A2AAcceptanceDenied("Room epoch is not active")
         await self._require_run_accepts_new_call(invocation.run_id)
+        # A replay returned above, so an accepted call is never re-checked.
+        await self._require_rules_allow_new_call(binding.agent_id)
         parsed = AgentToolInput.model_validate(invocation.arguments)
         resource_refs = [ref.ref_id for ref in prepared.resource_manifest.refs]
         decision = await self.authorization.authorize(
@@ -252,6 +258,14 @@ class A2AAgentToolRuntime:
     async def _require_run_accepts_new_call(self, run_id: str) -> None:
         if await self._run_blocks_new_call(run_id):
             raise A2AAcceptanceDenied("owning Run is not accepting Agent calls")
+
+    async def _require_rules_allow_new_call(self, agent_id: str) -> None:
+        """The owner's check rules gate a new Agent call, and only that."""
+        if self.call_check is None:
+            return
+        checked = await self.call_check.check_agent_call(agent_id)
+        if checked.answer != "allow":
+            raise AgentCallDenied(checked.rule_id)
 
     async def _fence_accepted_call(self, call: AgentCallLedgerRecord) -> None:
         if not await self._run_blocks_new_call(call.run_id):

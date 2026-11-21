@@ -34,6 +34,7 @@ from .models import (
 )
 from .persistence import SUSPENDED_RUN_STATUSES, TERMINAL_RUN_STATUSES
 from .ports import (
+    AgentCallDenied,
     CancellationSignal,
     ContextCompactor,
     InvalidParkedInteractionTarget,
@@ -48,8 +49,10 @@ from .public_text import (
     PublicTextSanitizer,
 )
 from .run_state import (
+    _AGENT_CALL_DENIED_TEXT,
     _JOIN_FAILURE_ERROR_CODES,
     _REQUEST_USER_INPUT_PENDING_AGENT_QUESTIONS_ERROR,
+    AGENT_CALL_DENIED,
     JOIN_DISPATCH_RETRY_BACKOFF_SECONDS,
     MAX_CONSECUTIVE_MODEL_JOINS,
     MAX_JOIN_DISPATCH_RETRIES,
@@ -88,6 +91,7 @@ from .run_state import (
     _parked_closeout_result,
     _parked_interaction_questions,
     _passthrough_answer_text,
+    _passthrough_denied,
     _presentation_id,
     _presented_targets,
     _request_user_input_choices,
@@ -302,7 +306,12 @@ class OrchestratorKernel:
                 recovered = await self._execute_tool_batch(
                     run, assistant, signal, lifecycle=lifecycle
                 )
-                if recovered == "decide":
+                if recovered == "retry" and run.profile.profile_id == "passthrough":
+                    # Restart inside a refused passthrough batch.
+                    return await self._passthrough_rejected(run_id)
+                if recovered == "decide" or recovered == "retry":
+                    # A refused declaration was flushed for the model to read;
+                    # the next decision turn takes it, as without a restart.
                     continue
                 if recovered is not None:
                     return recovered
@@ -1383,6 +1392,8 @@ class OrchestratorKernel:
                 ):
                     recoverable_declaration_failed = True
                     preacceptance_failed = True
+                elif entry.denied_by_rule:
+                    recoverable_declaration_failed = True
                 elif error_code == "acceptance_failed":
                     fatal_preacceptance_failed = True
                     preacceptance_failed = True
@@ -1598,22 +1609,29 @@ class OrchestratorKernel:
                     return await self._terminate(
                         run, status="budget_exhausted", reason=exc.reason
                     )
-                run = await self._update_entry(
+                # A unit this entry already reserved before a restart covers
+                # it; only the count check is skipped, never the deadline.
+                if not entry.budget_reserved:
+                    run = await self._update_entry(
+                        run,
+                        batch_index,
+                        entry_index,
+                        state="terminal",
+                        result=_tool_error(
+                            call, "tool_call_budget_exhausted", exc.reason
+                        ),
+                        command=f"tool-budget-exhausted:{call.call_id}",
+                    )
+                    continue
+            if not entry.budget_reserved:
+                run = await self._reserve_tool_budget(
                     run,
                     batch_index,
                     entry_index,
-                    state="terminal",
-                    result=_tool_error(call, "tool_call_budget_exhausted", exc.reason),
-                    command=f"tool-budget-exhausted:{call.call_id}",
+                    command=(
+                        f"tool-budget-reserve:{assistant.message_id}:{call.call_id}"
+                    ),
                 )
-                continue
-            run = await self._checkpoint(
-                run,
-                updates={"budget": self.budget_policy.record_tool_calls(run.budget, 1)},
-                command_id=(
-                    f"tool-budget-reserve:{assistant.message_id}:{call.call_id}"
-                ),
-            )
             invocation = ToolInvocation(
                 invocation_id=call.call_id,
                 run_id=run.run_id,
@@ -1697,6 +1715,28 @@ class OrchestratorKernel:
                     or acceptance.idempotency_key != invocation.idempotency_key
                 ):
                     raise ValueError("tool acceptance does not correlate")
+            except AgentCallDenied as denied:
+                # A check rule refused this new call. It is not a fault of the
+                # Run: the refusal returns to the model (Room chat), or ends a
+                # passthrough Run as denied. Its budget unit stays spent, which
+                # bounds a model that keeps calling a denied agent.
+                # The rule and the refused entry are written together, so a
+                # restart never finds one without the other.
+                run = await self._update_entry(
+                    run,
+                    batch_index,
+                    entry_index,
+                    state="terminal",
+                    invocation=invocation,
+                    result=_tool_error(
+                        call, AGENT_CALL_DENIED, _AGENT_CALL_DENIED_TEXT
+                    ),
+                    command=f"call-denied:{call.call_id}",
+                    denied_by_rule=True,
+                    run_updates={"denied_rule_id": denied.rule_id},
+                )
+                recoverable_declaration_failed = True
+                continue
             except Exception as exc:
                 run = await self._update_entry(
                     run,
@@ -2553,18 +2593,26 @@ class OrchestratorKernel:
                     # premature turn_end; the decision loop will close it once
                     # every entry is terminal.
                     return run, None
+                # A refused passthrough call closes its one turn as an error,
+                # as it does without a restart; the denied settlement needs it.
+                closed = (
+                    "error"
+                    if run.profile.profile_id == "passthrough"
+                    and _passthrough_denied(run)
+                    else "completed"
+                )
                 await self._emit(
                     lifecycle,
                     "turn_completed",
                     run,
                     {
                         "public_event_id": (
-                            f"public:{run.run_id}:{internal_turn_id}:turn_end:completed"
+                            f"public:{run.run_id}:{internal_turn_id}:turn_end:{closed}"
                         ),
                         "internal_turn_id": internal_turn_id,
                         "message_id": closure.message_id,
                         "tool_call_ids": list(closure.public_tool_call_ids),
-                        "status": "completed",
+                        "status": closed,
                     },
                 )
             run = await self._checkpoint(
@@ -2840,11 +2888,33 @@ class OrchestratorKernel:
             return await self._terminate(
                 run, status="failed", reason="passthrough_result_missing"
             )
+        if _passthrough_denied(run):
+            # Restart after the refused batch was flushed.
+            return await self._passthrough_rejected(run.run_id)
         if result.status != "completed":
             return await self._passthrough_fail(
                 run, reason=f"agent_{result.status}", lifecycle=lifecycle
             )
         return await self._passthrough_final(run, result, lifecycle=lifecycle)
+
+    async def _passthrough_rejected(self, run_id: str) -> KernelRunResult:
+        """End a passthrough Run whose call was refused before dispatch.
+
+        A check rule's refusal ends it as denied (canceled for ``policy``);
+        any other local rejection fails it, as there is no model to correct
+        the declaration.
+        """
+        current = await self._load(run_id)
+        if _passthrough_denied(current):
+            return await self._terminate(
+                current,
+                status="canceled",
+                reason=AGENT_CALL_DENIED,
+                cancellation_cause="policy",
+            )
+        return await self._terminate(
+            current, status="failed", reason="passthrough_call_rejected"
+        )
 
     async def _passthrough_fail(
         self,
@@ -3103,13 +3173,7 @@ class OrchestratorKernel:
                 ) from None
             raise
         if result == "retry":
-            # The synthetic declaration was rejected locally; there is no model
-            # to correct it.
-            return await self._terminate(
-                await self._load(run.run_id),
-                status="failed",
-                reason="passthrough_call_rejected",
-            )
+            return await self._passthrough_rejected(run.run_id)
         if result == "decide":
             return None
         if result is not None:
@@ -3454,7 +3518,10 @@ class OrchestratorKernel:
         ) = None,
     ) -> KernelRunResult:
         current = await self._load(run.run_id)
-        if current.status == "canceling" and status != "canceled":
+        if current.status == "canceling" and not _same_cancel(
+            current, status, cancellation_cause
+        ):
+            # A Stop got there first; its own cause settles the Run.
             return KernelRunResult("cancellation_pending", current)
         if current.status in TERMINAL_RUN_STATUSES:
             return KernelRunResult(_outcome_for_status(current.status), current)
@@ -3507,11 +3574,42 @@ class OrchestratorKernel:
         if stored.run is None:
             raise KernelConflict("terminal status store CAS failed")
         if stored.outcome not in {"accepted", "replayed"}:
-            if stored.run.status == "canceling" and status != "canceled":
+            if stored.run.status == "canceling" and not _same_cancel(
+                stored.run, status, cancellation_cause
+            ):
                 return KernelRunResult("cancellation_pending", stored.run)
             raise KernelConflict("terminal status store CAS lost")
         settled = await self.projection_driver.settle(run.run_id)
         return KernelRunResult(_outcome_for_status(status), settled)
+
+    async def _reserve_tool_budget(
+        self,
+        run: OrchestratorRunState,
+        batch_index: int,
+        entry_index: int,
+        *,
+        command: str,
+    ) -> OrchestratorRunState:
+        """Store one Agent-call unit and mark the entry in one checkpoint.
+
+        A restart before the call is decided finds the mark and goes on to
+        acceptance with the unit already spent, instead of counting it twice.
+        """
+        batches = list(run.tool_batches)
+        batch = batches[batch_index]
+        entries = list(batch.entries)
+        entries[entry_index] = entries[entry_index].model_copy(
+            update={"budget_reserved": True}
+        )
+        batches[batch_index] = batch.model_copy(update={"entries": entries})
+        return await self._checkpoint(
+            run,
+            updates={
+                "budget": self.budget_policy.record_tool_calls(run.budget, 1),
+                "tool_batches": batches,
+            },
+            command_id=command,
+        )
 
     async def _update_entry(
         self,
@@ -3527,7 +3625,10 @@ class OrchestratorKernel:
         result: ToolResult | None = None,
         public_update_index: int | None = None,
         public_terminal_emitted: bool | None = None,
+        denied_by_rule: bool | None = None,
+        run_updates: dict[str, object] | None = None,
     ) -> OrchestratorRunState:
+        """Write one tool entry, with any Run fields in the same checkpoint."""
         batches = list(run.tool_batches)
         batch = batches[batch_index]
         entries = list(batch.entries)
@@ -3546,12 +3647,16 @@ class OrchestratorKernel:
             update["public_update_index"] = public_update_index
         if public_terminal_emitted is not None:
             update["public_terminal_emitted"] = public_terminal_emitted
+        if denied_by_rule is not None:
+            update["denied_by_rule"] = denied_by_rule
         desired_entry = original_entry.model_copy(update=update)
         entries[entry_index] = desired_entry
         batches[batch_index] = batch.model_copy(update={"entries": entries})
         try:
             return await self._checkpoint(
-                run, updates={"tool_batches": batches}, command_id=command
+                run,
+                updates={**(run_updates or {}), "tool_batches": batches},
+                command_id=command,
             )
         except KernelConflict:
             current = await self._load(run.run_id)
@@ -3580,7 +3685,7 @@ class OrchestratorKernel:
             )
             return await self._checkpoint(
                 current,
-                updates={"tool_batches": current_batches},
+                updates={**(run_updates or {}), "tool_batches": current_batches},
                 command_id=command,
             )
 
@@ -3633,6 +3738,13 @@ class OrchestratorKernel:
     def _stable_id(self, run: OrchestratorRunState, *parts: object) -> str:
         raw = ":".join([run.run_id, *(str(part) for part in parts)])
         return sha256(raw.encode()).hexdigest()
+
+
+def _same_cancel(run: OrchestratorRunState, status: str, cause: str | None) -> bool:
+    """Whether this terminal status is the cancel the canceling Run awaits."""
+    return status == "canceled" and (cause or "user_requested") == (
+        run.cancellation_cause
+    )
 
 
 __all__ = [

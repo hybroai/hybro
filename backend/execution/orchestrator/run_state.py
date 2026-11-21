@@ -64,6 +64,10 @@ class KernelCancellationPending(RuntimeError):
 REQUEST_USER_INPUT_TOOL_NAME = "request_user_input"
 SURFACE_AGENT_QUESTIONS_TOOL_NAME = "surface_agent_questions"
 MAX_CONSECUTIVE_MODEL_JOINS = 4
+# A check rule refused a new Agent call in ``accept``. The text is fixed: no
+# rule text and no exception detail reaches the model.
+AGENT_CALL_DENIED = "agent_call_denied"
+_AGENT_CALL_DENIED_TEXT = "A check rule set by the owner denies this agent call."
 # Bounded in-kernel re-dispatch of a model-reply join after a recoverable
 # transport suspension. Exhausting the budget terminalizes the join with a
 # diagnostic failure instead of stalling the Run in waiting_external.
@@ -783,6 +787,13 @@ def _request_user_input_choices(arguments: dict[str, object]) -> list[str]:
         for choice in (arguments.get("choices") or [])
         if str(choice).strip()
     ]
+
+
+def _passthrough_denied(run: OrchestratorRunState) -> bool:
+    """Whether a check rule refused the passthrough Run's one Agent call."""
+    return any(
+        entry.denied_by_rule for batch in run.tool_batches for entry in batch.entries
+    )
 
 
 def _find_join_target(run: OrchestratorRunState, tool_name: str) -> str | None:
