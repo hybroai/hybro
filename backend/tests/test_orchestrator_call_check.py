@@ -84,6 +84,8 @@ async def test_a_denied_call_returns_to_the_model_and_the_run_survives():
     assert runtime.requests[1].messages[-1].role == "tool"
     assert turns == ["error", "completed"]
     assert result.run.denied_rule_id == "rule_deny_echo"
+    (entry,) = [e for batch in result.run.tool_batches for e in batch.entries]
+    assert entry.denied_by_rule
 
 
 async def test_a_denied_call_does_not_stop_its_allowed_sibling():

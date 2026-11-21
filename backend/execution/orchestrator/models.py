@@ -300,6 +300,11 @@ class ToolBatchEntry(ContractModel):
     result_flushed: bool = False
     # Runtime call identity of a parked interaction (join routing / closeout).
     suspended_call_record_id: str | None = None
+    # A check rule refused this call at acceptance. Only that refusal sets it;
+    # the ``agent_call_denied`` error code alone is no proof, because a remote
+    # Agent's own error code is copied into accepted, joined and surface
+    # entries' results.
+    denied_by_rule: bool = False
     # Parent call a ``surface_agent_questions`` entry forwards to the user.
     # Closed by ``observe_tool`` when that parent resolves, because the user's
     # answer flows through the parent continuation, not the surface entry.

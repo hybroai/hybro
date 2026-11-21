@@ -1392,7 +1392,7 @@ class OrchestratorKernel:
                 ):
                     recoverable_declaration_failed = True
                     preacceptance_failed = True
-                elif error_code == AGENT_CALL_DENIED:
+                elif entry.denied_by_rule:
                     recoverable_declaration_failed = True
                 elif error_code == "acceptance_failed":
                     fatal_preacceptance_failed = True
@@ -1728,6 +1728,7 @@ class OrchestratorKernel:
                         call, AGENT_CALL_DENIED, _AGENT_CALL_DENIED_TEXT
                     ),
                     command=f"call-denied:{call.call_id}",
+                    denied_by_rule=True,
                 )
                 recoverable_declaration_failed = True
                 continue
@@ -2882,7 +2883,7 @@ class OrchestratorKernel:
             return await self._terminate(
                 run, status="failed", reason="passthrough_result_missing"
             )
-        if result.error_code == AGENT_CALL_DENIED:
+        if _passthrough_denied(run):
             # Restart after the refused batch was flushed.
             return await self._passthrough_rejected(run.run_id)
         if result.status != "completed":
@@ -3590,6 +3591,7 @@ class OrchestratorKernel:
         result: ToolResult | None = None,
         public_update_index: int | None = None,
         public_terminal_emitted: bool | None = None,
+        denied_by_rule: bool | None = None,
     ) -> OrchestratorRunState:
         batches = list(run.tool_batches)
         batch = batches[batch_index]
@@ -3609,6 +3611,8 @@ class OrchestratorKernel:
             update["public_update_index"] = public_update_index
         if public_terminal_emitted is not None:
             update["public_terminal_emitted"] = public_terminal_emitted
+        if denied_by_rule is not None:
+            update["denied_by_rule"] = denied_by_rule
         desired_entry = original_entry.model_copy(update=update)
         entries[entry_index] = desired_entry
         batches[batch_index] = batch.model_copy(update={"entries": entries})

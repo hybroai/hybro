@@ -999,3 +999,80 @@ async def test_a_deny_during_a_user_cancel_leaves_the_cancel_to_finish(monkeypat
 
     assert result.outcome == "cancellation_pending"
     assert (await store.load(run_id)).cancellation_cause == "user_requested"
+
+
+@pytest.mark.parametrize("restart", [False, True])
+async def test_an_agent_failing_with_the_deny_code_is_an_agent_failure(
+    monkeypatch, restart
+):
+    # The remote Agent chooses its own error code. An accepted call that ran is
+    # never a rule's refusal, whatever code the Agent returns.
+    kernel, _store, model, runtime, history, run_id = await make_passthrough_kernel()
+    runtime.answers[AGENT] = [
+        answer("", status="failed", error_code="agent_call_denied")
+    ]
+    if restart:
+        real_terminate = kernel._terminate
+        crashed = False
+
+        async def terminate(run, **kwargs):
+            nonlocal crashed
+            if not crashed:
+                crashed = True
+                raise ProcessDied
+            return await real_terminate(run, **kwargs)
+
+        monkeypatch.setattr(kernel, "_terminate", terminate)
+        with pytest.raises(ProcessDied):
+            await kernel.run(
+                run_id, signal=NeverCancelled(), lifecycle=history.lifecycle
+            )
+
+    result = await kernel.run(
+        run_id, signal=NeverCancelled(), lifecycle=history.lifecycle
+    )
+
+    assert result.outcome == "failed"
+    assert result.run.status == "failed"
+    assert result.run.terminal_reason == "agent_failed"
+    assert result.run.cancellation_cause is None
+    assert len(runtime.execute_log) == 1
+    assert model.requests == []
+    assert history.fold(result.run)["state"] == "failed"
+
+
+async def test_an_agent_failing_with_the_deny_code_after_a_question_is_a_failure():
+    # The surface entry that forwarded the question is closed with a copy of
+    # the Agent's result, code included. It was never accepted either, yet no
+    # rule refused anything.
+    kernel, _store, model, runtime, history, run_id = await make_passthrough_kernel()
+    runtime.answers[AGENT] = [question()]
+    parked = await kernel.run(
+        run_id, signal=NeverCancelled(), lifecycle=history.lifecycle
+    )
+    entry = _agent_entry(parked.run)
+
+    done = await kernel.observe_tool(
+        run_id,
+        ToolObservation(
+            observation_id="obs-denied-code",
+            invocation_id=entry.invocation.invocation_id,
+            outcome=ToolResult(
+                call_id=entry.call_id,
+                tool_name=entry.tool_name,
+                status="failed",
+                content=[],
+                artifact_refs=[],
+                error_code="agent_call_denied",
+            ),
+            observed_at=NOW,
+        ),
+        signal=NeverCancelled(),
+        lifecycle=history.lifecycle,
+    )
+
+    assert done.outcome == "failed"
+    assert done.run.terminal_reason == "agent_failed"
+    assert done.run.cancellation_cause is None
+    assert model.requests == []
+    assert history.fold(done.run)["state"] == "failed"
