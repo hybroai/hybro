@@ -214,7 +214,7 @@ class ClientService:
         """Create the switch once, at backend startup, before any request.
 
         It starts on for an install with no data yet, and off for one that
-        already has some, so its connected programs keep working. It always
+        already has some, so its connected clients keep working. It always
         starts on in Clerk mode, which required a credential before. A switch
         that exists is returned unchanged.
         """

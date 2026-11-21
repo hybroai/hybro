@@ -35,7 +35,7 @@ const OPEN_RISK = 'Any app, assistant, or script that can reach this Hybro can s
 const CONFIRM = {
   on: {
     title: 'Require a client token?',
-    body: 'From the next request on, API and MCP clients without a token are refused until they send one created on this tab. Their earlier sessions stay, recorded under "No token".',
+    body: 'From the next request on, Client API and MCP clients without a token are refused until they send one created on this tab. Their earlier sessions stay, recorded under "No token".',
     action: 'Require tokens',
   },
   off: {
@@ -179,7 +179,7 @@ export function TokenRequirementNotice() {
       icon={ShieldAlert}
       testId="token-requirement-notice"
       title="New: client tokens"
-      body='This Hybro was in use before client tokens, so it still accepts requests without one. Create a token for each client on the Clients tab, then turn on "Require a client token".'
+      body='This Hybro was in use before client tokens, so it still accepts requests without one. Create a client for each app, assistant, or script on the Clients tab, then turn on "Require a client token".'
       action={(
         <Button size="sm" asChild>
           <Link href={routes.connectClients}>Open Clients</Link>

@@ -984,10 +984,10 @@ owner's agents (see [Sessions](#sessions)). `SessionFacade`, `BoundSessionAccess
 
 ### `client`
 
-A client is a program that sends work through the Client API, such as a CI
-job or an MCP client. `ClientService` and `MongoClientRepository` live here;
-`container.create_client_registry` binds the service to
-`app.state.client_registry`.
+A client is an external app, assistant, or script that sends work through the
+Client API, such as a CI job or an MCP client. `ClientService` and
+`MongoClientRepository` live here; `container.create_client_registry` binds
+the service to `app.state.client_registry`.
 
 - Writes: `clients`, one document per client: `client_id` (`client_` and 24 hex
   characters), `name` (1 to 120 characters), `token_hash` (SHA-256 of the

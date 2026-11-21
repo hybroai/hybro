@@ -151,9 +151,9 @@ with **Sign in again** for the last.
 
 `hybro` listens on `127.0.0.1` by default. `--listen <address>` serves the app on
 another address, for example `hybro start -d --listen 0.0.0.0 --port 443`, with
-no other flag. The Panel needs the owner's sign-in on every listener, and API
-and MCP requests need a client token unless the owner turned that off. While
-the client token requirement is off on such a listener, `hybro` and
+no other flag. The Panel needs the owner's sign-in on every listener, and
+Client API and MCP requests need a client token unless the owner turned that
+off. While the client token requirement is off on such a listener, `hybro` and
 `hybro status` print a warning. MCP is served on every listener, under the same
 address rules as the API. Without HTTPS the sign-in cookie and password cross the
 network in the clear; the setup and sign-in pages warn when they are opened
@@ -278,10 +278,11 @@ same from outside, and the work shows up in the app. The four moves below work
 right after install, because Echo Agent needs no model provider. They use the
 released install's address; from a checkout, use port 3100.
 
-**Create a client token.** A client is an external app, assistant, or script that sends work, and its
-token says which one is calling. Create one under **Access**, **Clients** in
-the app, or with `hybro client create --name my-script`. The token is shown
-once; keep it in a variable for the calls below:
+**Create a client token.** A client is an external app, assistant, or script
+that sends work, and its token says which one is calling. Create one under
+**Access**, **Clients** in the app, or with
+`hybro client create --name my-script`. The token is shown once; keep it in a
+variable for the calls below:
 
 ```bash
 export HYBRO_TOKEN='<token>'
@@ -448,7 +449,7 @@ changes these for every install:
 - Sign-in is required on every install. The first visit after the upgrade
   needs the setup link that `hybro` prints, once; no data moves, and the new
   account keeps the chats, sessions and settings of the install.
-- Connected clients (MCP assistants and scripts on the Client API) are refused
+- Connected clients (MCP clients and scripts on the Client API) are refused
   with 503 `no_account` until the account exists.
 - Clerk sign-in and the `?token=` query parameter on the event stream stop
   working; a Clerk token opens nothing. The Clerk settings are still accepted
