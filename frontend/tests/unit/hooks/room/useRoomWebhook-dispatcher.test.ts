@@ -204,14 +204,11 @@ describe('useRoomWebhook stream dispatcher', () => {
 
     let sent: Promise<boolean> = Promise.resolve(false)
     act(() => { sent = result.current.sendUserMessage({ userInput: 'hello', mode: 'direct', agentScope: { source: 'room_default' } }) })
+    // The response arrives in the same turn as the unmount, with no timer
+    // in between.
     unmount()
-    // The lifecycle is disposed one tick after unmount.
-    await new Promise((resolve) => setTimeout(resolve, 0))
-
-    await act(async () => {
-      resolveSend({ success: true, message_id: 'msg-1' } as unknown as SendResponse)
-      await sent
-    })
+    resolveSend({ success: true, message_id: 'msg-1' } as unknown as SendResponse)
+    await act(async () => { await sent })
 
     expect(useRoomUiStore.getState().rooms['room-1']?.processing ?? false).toBe(false)
   })
