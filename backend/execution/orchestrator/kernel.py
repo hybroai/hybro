@@ -91,6 +91,7 @@ from .run_state import (
     _has_presentable_interactions,
     _has_presented_interactions,
     _has_visible_input,
+    _has_working_call,
     _interaction_question_summary,
     _merge_artifact_refs,
     _new_tool_batch,
@@ -273,9 +274,15 @@ class OrchestratorKernel:
 
             if not _has_visible_input(run) and _has_presentable_interactions(run):
                 run = await self._present_interactions(run, lifecycle=lifecycle)
+                # As after a batch pass: a working Agent keeps the Run
+                # waiting, and the loop returns at the waiting status.
                 run = await self._checkpoint(
                     run,
-                    updates={"status": "running"},
+                    updates={
+                        "status": "waiting_external"
+                        if _has_working_call(run.tool_batches)
+                        else "running"
+                    },
                     command_id=f"present-interactions:sync:{run.state_version}",
                 )
                 continue
@@ -2528,15 +2535,21 @@ class OrchestratorKernel:
         # model as tool_interaction messages instead of suspending the Run into
         # awaiting_user. The same internal turn continues with the decision.
         run = await self._present_interactions(run, lifecycle=lifecycle)
+        # While another Agent still works, the Run waits on it; the model
+        # decides once only private decisions remain (observe_tool re-enters
+        # for presented questions then).
+        working = _has_working_call(run.tool_batches)
         run = await self._checkpoint(
             run,
             updates={
-                "status": "running",
+                "status": "waiting_external" if working else "running",
                 "tool_batches": run.tool_batches,
                 "transcript": run.transcript,
             },
             command_id=f"present-interactions:{assistant.message_id}",
         )
+        if working:
+            return KernelRunResult("waiting_external", run)
         return "decide"
 
     async def _emit_declaration_retry(

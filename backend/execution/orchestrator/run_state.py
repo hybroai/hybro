@@ -934,6 +934,15 @@ def _has_waiting_call(batches: list[ToolCallBatch]) -> bool:
     )
 
 
+def _has_working_call(batches: list[ToolCallBatch]) -> bool:
+    """Whether an Agent call of the Run is still at work remotely."""
+    return any(
+        entry.state in {"executing", "waiting_external"}
+        for batch in batches
+        for entry in batch.entries
+    )
+
+
 def _waiting_call_runs_next(batches: list[ToolCallBatch]) -> bool:
     """Whether the batch the run loop takes next holds a waiting call.
 

@@ -3181,7 +3181,9 @@ interaction inventory. The kernel writes a `tool_interaction` transcript message
 (deterministic `interaction:<call_id>:<fingerprint>`), assigns a private
 `presentation_id`, marks the batch entry `presented`, emits a redacted
 `model_decision` (`interaction_received`) event, and continues the same internal
-turn. The model either answers the Agent from existing evidence (a
+turn. While another Agent of the Run still works, the Run waits on it
+(`waiting_external`) after the presentation, and the model makes the decision
+once only private decisions remain. The model either answers the Agent from existing evidence (a
 continuation join through `A2AModelReplyCommand` on the same task/context, with
 the durable `command_id` as the remote message id, bounded per interaction
 fingerprint and per Run) or forwards the exact questions with

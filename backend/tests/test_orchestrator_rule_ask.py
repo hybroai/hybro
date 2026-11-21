@@ -1713,6 +1713,58 @@ async def test_a_passthrough_denial_ends_the_run_with_no_retry_row():
     assert not [item for item in turn["activity"] if item["kind"] == "retry"]
 
 
+WORKING = ("w", PAUSE, '{"status":"waiting_external"}')
+
+
+def working_result(text="done"):
+    return ToolObservation(
+        observation_id=f"w-{text}",
+        invocation_id="w",
+        outcome=ToolResult(
+            call_id="w",
+            tool_name=PAUSE,
+            status="completed",
+            content=[TextPart(text=text)],
+            artifact_refs=[],
+        ),
+        observed_at=NOW,
+    )
+
+
+def bound_checkpoints(kernel, limit=100) -> None:
+    """Fail, instead of hanging, when a pass replays its own writes forever."""
+    checkpoint = kernel._checkpoint
+    writes: list[str] = []
+
+    async def bounded(run, *, updates, command_id, **kwargs):
+        writes.append(command_id)
+        assert len(writes) < limit, writes[-6:]
+        return await checkpoint(run, updates=updates, command_id=command_id, **kwargs)
+
+    kernel._checkpoint = bounded
+
+
+async def test_an_agent_question_beside_a_working_agent_waits_for_it():
+    # call-1 asks the model a question while "w" still works. The Run waits
+    # on "w"; the model decides about the question once "w" ends.
+    kernel, store, tools, port, room, run_id = await agent_question_kernel(
+        [tool_events(PARK, WORKING), final_events()], set()
+    )
+    bound_checkpoints(kernel)
+
+    waiting = await start(kernel, room, run_id)
+
+    assert waiting.outcome == "waiting_external"
+    stored = await store.load(run_id)
+    assert stored.status == "waiting_external"
+    assert entry_of(stored, "call-1").presented
+
+    done = await observe(kernel, room, run_id, working_result())
+
+    assert done.outcome == "final_answer"
+    assert (await settled_turn(room, done.run))["state"] == "completed"
+
+
 async def test_a_restart_before_the_retry_row_writes_it():
     room = RoomLog()
     kernel, store, _m, _ = await make_kernel(
@@ -1734,3 +1786,56 @@ async def test_a_restart_before_the_retry_row_writes_it():
     assert turn["state"] == "completed"
     retries = [item for item in turn["activity"] if item["kind"] == "retry"]
     assert [item["error_class"] for item in retries] == ["tool_failure"]
+
+
+async def test_a_restart_presents_the_question_and_waits_for_the_working_agent():
+    kernel, store, tools, port, room, run_id = await agent_question_kernel(
+        [tool_events(PARK, WORKING), final_events()], set()
+    )
+    checkpoint = kernel._checkpoint
+
+    async def die_after_the_suspension(run, *, updates, command_id, **kwargs):
+        written = await checkpoint(
+            run, updates=updates, command_id=command_id, **kwargs
+        )
+        if command_id == "suspend-tool-batch:assistant-1":
+            raise ProcessDied
+        return written
+
+    kernel._checkpoint = die_after_the_suspension
+    with pytest.raises(ProcessDied):
+        await start(kernel, room, run_id)
+    kernel._checkpoint = checkpoint
+
+    restarted = await start(kernel, room, run_id)
+
+    assert restarted.outcome == "waiting_external"
+    stored = await store.load(run_id)
+    assert stored.status == "waiting_external"
+    assert entry_of(stored, "call-1").presented
+    done = await observe(kernel, room, run_id, working_result())
+    assert done.outcome == "final_answer"
+    assert (await settled_turn(room, done.run))["state"] == "completed"
+
+
+async def test_a_working_agent_that_ends_with_a_question_is_presented_too():
+    kernel, store, tools, port, room, run_id = await agent_question_kernel(
+        [tool_events(PARK, WORKING), final_events()], set()
+    )
+    bound_checkpoints(kernel)
+    await start(kernel, room, run_id)
+    # The fake runtime parks "w" under this record when it asks.
+    tools.parked_calls["parent-2"] = ("w", PAUSE)
+    asks = ToolObservation(
+        observation_id="w-asks",
+        invocation_id="w",
+        outcome=interaction_suspension(
+            "w", call_record_id="parent-2", interaction_id="interaction-2"
+        ),
+        observed_at=NOW,
+    )
+
+    done = await observe(kernel, room, run_id, asks)
+
+    assert done.outcome == "final_answer"
+    assert (await settled_turn(room, done.run))["state"] == "completed"
