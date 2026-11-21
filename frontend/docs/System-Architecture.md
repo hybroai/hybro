@@ -1061,7 +1061,8 @@ segment.
   external client or an unmatched agent; "You" for the owner): the client asked an agent, the agent asked you (each
   question under its header), you answered (your answer text) or rejected,
   the agent replied after its duration (long replies fold behind Show full
-  reply), or couldn't finish. A pending question appears at the end of the
+  reply), or couldn't finish; a Run canceled for `policy` reads as the
+  owner's check rules denying the agent call, with the rule's id. A pending question appears at the end of the
   record in the same `HitlResponseBar` card the chat composer uses (pending
   rows from `GET /rooms/{id}/hitl/pending` mapped with the shared
   `hitlLifecycleState`; Send calls `respondToHitlBatch`, Reject cancels through

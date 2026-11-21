@@ -9,9 +9,9 @@ export interface RoomEventRecord {
   payload_public: Record<string, unknown>
 }
 
-export type ExchangeStatus = 'working' | 'waiting' | 'completed' | 'rejected' | 'failed' | 'canceled'
+export type ExchangeStatus = 'working' | 'waiting' | 'completed' | 'rejected' | 'denied' | 'failed' | 'canceled'
 
-export type ExchangeStepKind = 'sent' | 'asked' | 'answered' | 'rejected' | 'replied' | 'failed' | 'canceled'
+export type ExchangeStepKind = 'sent' | 'asked' | 'answered' | 'rejected' | 'denied' | 'replied' | 'failed' | 'canceled'
 
 export interface ExchangeItem {
   /** The question's short header, when the agent gave one. */
@@ -25,6 +25,8 @@ export interface ExchangeStep {
   text?: string
   /** Questions asked, or the owner's answers, one per question. */
   items?: ExchangeItem[]
+  /** The owner's check rule that denied the agent call. */
+  ruleId?: string
 }
 
 export interface SessionExchange {
@@ -172,9 +174,16 @@ export function foldSessionEvents(events: readonly RoomEventRecord[]): SessionEx
         draft.status = 'completed'
         draft.reply = replies.get(text(payload.final_message_id) ?? '') ?? null
         draft.steps.push({ kind: 'replied', at: settledAt })
+      } else if (payload.status === 'canceled' && draft.rejected) {
+        draft.status = 'rejected'
+      } else if (payload.status === 'canceled' && payload.cancellation_code === 'policy') {
+        // One of the owner's check rules denied the agent call.
+        draft.status = 'denied'
+        const ruleId = text(payload.rule_id)
+        draft.steps.push(ruleId ? { kind: 'denied', at: settledAt, ruleId } : { kind: 'denied', at: settledAt })
       } else if (payload.status === 'canceled') {
-        draft.status = draft.rejected ? 'rejected' : 'canceled'
-        if (!draft.rejected) draft.steps.push({ kind: 'canceled', at: settledAt })
+        draft.status = 'canceled'
+        draft.steps.push({ kind: 'canceled', at: settledAt })
       } else {
         draft.status = 'failed'
         draft.failure = text(payload.error_summary) ?? text(payload.failure_code)
