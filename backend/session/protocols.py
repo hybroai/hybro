@@ -1,10 +1,10 @@
 """Session ports.
 
-``SessionAccess`` is the Source API surface, bound to one owner and one source
+``SessionAccess`` is the Client API surface, bound to one owner and one client
 per request; ``OwnerSessionAccess`` is the owner's surface in the Panel. Every
 parameter and return of both is a public DTO from ``models.session``.
 ``SessionService`` is the facade surface the gateway holds, ``SessionStore``
-the durable record, ``SourceDirectory`` the names of the sources on the
+the durable record, ``ClientDirectory`` the names of the clients on the
 owner's payloads, and ``ConversationEventsPort`` the durable room event log
 the bounded wait reads.
 """
@@ -15,6 +15,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Any, Protocol, runtime_checkable
 
+from client.protocols import ClientIdentity
 from common.dto import (
     AgentMessageInput,
     CreateRoomRequest,
@@ -34,7 +35,6 @@ from models.session import (
     SessionStatus,
 )
 from session.models import SessionRecord
-from source.protocols import SourceIdentity
 
 
 @runtime_checkable
@@ -93,8 +93,8 @@ class OwnerSessionAccess(Protocol):
 
 
 @runtime_checkable
-class SourceDirectory(Protocol):
-    async def identities(self, source_ids: list[str]) -> dict[str, SourceIdentity]: ...
+class ClientDirectory(Protocol):
+    async def identities(self, client_ids: list[str]) -> dict[str, ClientIdentity]: ...
 
 
 @runtime_checkable
@@ -104,14 +104,14 @@ class SessionService(Protocol):
         request: SessionMessageRequest,
         *,
         owner: SessionOwner,
-        source: SourceIdentity,
+        client: ClientIdentity,
         resolver: AgentNetworkTargetResolver,
     ) -> SessionMessageResponse: ...
     async def check(
-        self, session_id: str, *, owner: SessionOwner, source: SourceIdentity
+        self, session_id: str, *, owner: SessionOwner, client: ClientIdentity
     ) -> SessionStatus: ...
     async def close(
-        self, session_id: str, *, owner: SessionOwner, source: SourceIdentity
+        self, session_id: str, *, owner: SessionOwner, client: ClientIdentity
     ) -> SessionClosed: ...
     async def list_for_owner(self, *, owner: SessionOwner) -> SessionListResponse: ...
     async def record_for_owner(
@@ -135,7 +135,7 @@ class SessionStore(Protocol):
         *,
         client_request_id: str,
         user_message_id: str,
-        source_id: str,
+        client_id: str,
         event_seq: int,
         at: datetime,
     ) -> SessionRecord | None: ...
@@ -169,5 +169,5 @@ __all__ = [
     "SessionOwner",
     "SessionService",
     "SessionStore",
-    "SourceDirectory",
+    "ClientDirectory",
 ]

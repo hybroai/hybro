@@ -3,11 +3,11 @@ import { apiOrigin } from '../owner-sign-in'
 
 export const test = base.extend<{ roomPath: string }>({
   // API calls carry the owner's cookie from the saved state, so they also send
-  // the Origin the cross-site check expects. Source API calls send the source
-  // token from HYBRO_TEST_SOURCE_TOKEN; the owner's routes ignore it.
+  // the Origin the cross-site check expects. Client API calls send the client
+  // token from HYBRO_TEST_CLIENT_TOKEN; the owner's routes ignore it.
   request: [
     async ({ playwright, storageState }, use) => {
-      const token = process.env.HYBRO_TEST_SOURCE_TOKEN
+      const token = process.env.HYBRO_TEST_CLIENT_TOKEN
       const context = await playwright.request.newContext({
         storageState,
         extraHTTPHeaders: { Origin: apiOrigin(), ...(token ? { Authorization: `Bearer ${token}` } : {}) },

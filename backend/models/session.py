@@ -57,24 +57,24 @@ class SessionMessageRequest(BaseModel):
         default=None,
         description=(
             "The name the client gives itself. Required to open a session "
-            "without a source token; deprecated with a token, where the "
-            "source's name is used."
+            "without a client token; deprecated with a token, where the "
+            "client's name is used."
         ),
     )
 
     @model_validator(mode="after")
     def _require_text(self) -> Self:
         # client_label is checked by the session: it is required to open a
-        # session only without a source token.
+        # session only without a client token.
         if not self.text.strip():
             raise ValueError("text must not be blank")
         return self
 
 
-class SessionSource(BaseModel):
-    """The source that opened a session. "No token" has no token."""
+class SessionClient(BaseModel):
+    """The client that opened a session. "No token" has no token."""
 
-    source_id: str
+    client_id: str
     name: str
     has_token: bool
 
@@ -160,7 +160,7 @@ class SessionSummary(BaseModel):
     """One row of the owner's session list."""
 
     session_id: str
-    source: SessionSource
+    client: SessionClient
     client_label: str | None = None
     title: str | None = None
     agents: list[SessionAgent] = Field(default_factory=list)
@@ -180,7 +180,7 @@ class SessionOwnerRecord(BaseModel):
     """The owner's view of one session, including the conversation container."""
 
     session_id: str
-    source: SessionSource
+    client: SessionClient
     client_label: str | None = None
     title: str | None = None
     state: SessionState
@@ -217,7 +217,7 @@ __all__ = [
     "SessionOwnerRecord",
     "SessionHistoryEntry",
     "SessionReceiptStatus",
-    "SessionSource",
+    "SessionClient",
     "SessionState",
     "SessionStatus",
     "SessionSummary",

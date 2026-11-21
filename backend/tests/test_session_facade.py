@@ -15,6 +15,7 @@ from typing import Any
 
 import pytest
 
+from client.protocols import NO_TOKEN, ClientIdentity
 from common.dto import (
     CreateRoomRequest,
     ExecutionAck,
@@ -31,14 +32,13 @@ from models.session import SessionMessageRequest
 from session.facade import SessionFacade, SessionOwner
 from session.models import SessionRecord, SessionRequest
 from session.waiter import SessionWaiter
-from source.protocols import NO_TOKEN, SourceIdentity
 from tests.fakes.room_events import InMemoryRoomEventStore
 
 NOW = datetime(2026, 10, 14, 9, 0, tzinfo=UTC)
 OWNER = SessionOwner(user_id="owner-1", name="Estate Agent")
-SOURCE = NO_TOKEN
-CI = SourceIdentity(source_id="src_ci", name="CI bot", has_token=True)
-OTHER = SourceIdentity(source_id="src_other", name="Other bot", has_token=True)
+CLIENT = NO_TOKEN
+CI = ClientIdentity(client_id="client_ci", name="CI bot", has_token=True)
+OTHER = ClientIdentity(client_id="client_other", name="Other bot", has_token=True)
 AGENT = "agent-travel"
 OTHER_AGENT = "agent-other"
 
@@ -65,7 +65,7 @@ class FakeSessionStore:
         for existing in self.records.values():
             if (
                 existing.owner_user_id == record.owner_user_id
-                and existing.source_id == record.source_id
+                and existing.client_id == record.client_id
                 and existing.creation_request_id == record.creation_request_id
             ):
                 return existing
@@ -96,7 +96,7 @@ class FakeSessionStore:
         *,
         client_request_id: str,
         user_message_id: str,
-        source_id: str,
+        client_id: str,
         event_seq: int,
         at: datetime,
     ) -> SessionRecord | None:
@@ -114,7 +114,7 @@ class FakeSessionStore:
                     SessionRequest(
                         client_request_id=client_request_id,
                         user_message_id=user_message_id,
-                        source_id=source_id,
+                        client_id=client_id,
                         sent_at=at,
                     ),
                 ),
@@ -340,14 +340,14 @@ class FakeApprovals:
         raise AssertionError("session never answers approvals")
 
 
-class FakeSources:
-    """SourceDirectory over the identities a test uses."""
+class FakeClients:
+    """ClientDirectory over the identities a test uses."""
 
     def __init__(self) -> None:
-        self.known = {s.source_id: s for s in (NO_TOKEN, CI, OTHER)}
+        self.known = {s.client_id: s for s in (NO_TOKEN, CI, OTHER)}
 
-    async def identities(self, source_ids: list[str]) -> dict[str, SourceIdentity]:
-        return {i: self.known[i] for i in source_ids if i in self.known}
+    async def identities(self, client_ids: list[str]) -> dict[str, ClientIdentity]:
+        return {i: self.known[i] for i in client_ids if i in self.known}
 
 
 class FakeResolver:
@@ -441,7 +441,7 @@ class Harness:
     clock: VirtualClock
     resolver: FakeResolver
 
-    async def send(self, source: SourceIdentity = SOURCE, **values: Any):
+    async def send(self, client: ClientIdentity = CLIENT, **values: Any):
         data = {
             "agent_id": AGENT,
             "text": "Plan a weekend in Lyon",
@@ -452,15 +452,15 @@ class Harness:
         receipt = await self.facade.send(
             SessionMessageRequest(**data),
             owner=OWNER,
-            source=source,
+            client=client,
             resolver=self.resolver,
         )
         # The run proceeds after the receipt returns.
         await self.engine.flush()
         return receipt
 
-    async def check(self, session_id: str = "sess-1", source: SourceIdentity = SOURCE):
-        return await self.facade.check(session_id, owner=OWNER, source=source)
+    async def check(self, session_id: str = "sess-1", client: ClientIdentity = CLIENT):
+        return await self.facade.check(session_id, owner=OWNER, client=client)
 
 
 def make_harness(
@@ -486,7 +486,7 @@ def make_harness(
         engine=engine,
         approvals=approvals,
         waiter=waiter,
-        sources=FakeSources(),
+        clients=FakeClients(),
         now=lambda: NOW + timedelta(seconds=clock.now),
         id_factory=iter(f"sess-{n}" for n in range(1, 100)).__next__,
     )
@@ -695,7 +695,7 @@ async def test_retry_completes_a_reservation_left_without_container():
     h.store.records["sess-crashed"] = SessionRecord(
         session_id="sess-crashed",
         owner_user_id=OWNER.user_id,
-        source_id=SOURCE.source_id,
+        client_id=CLIENT.client_id,
         client_label="Buyer agent",
         creation_request_id="cr-1",
         opened_at=NOW,
@@ -791,7 +791,7 @@ async def test_client_request_id_is_required_and_bounded(client_request_id):
         await h.facade.send(
             _unvalidated(client_request_id=client_request_id),
             owner=OWNER,
-            source=SOURCE,
+            client=CLIENT,
             resolver=h.resolver,
         )
 
@@ -816,7 +816,7 @@ async def test_text_limit_is_enforced():
         await h.facade.send(
             _unvalidated(text="x" * 10_001),
             owner=OWNER,
-            source=SOURCE,
+            client=CLIENT,
             resolver=h.resolver,
         )
     assert exc_info.value.code == "invalid_request"
@@ -829,7 +829,7 @@ async def test_first_send_requires_client_label():
         await h.facade.send(
             _unvalidated(client_label=None),
             owner=OWNER,
-            source=SOURCE,
+            client=CLIENT,
             resolver=h.resolver,
         )
     assert exc_info.value.code == "invalid_request"
@@ -1285,7 +1285,7 @@ async def test_close_with_pending_approval_cancels_the_interaction():
     h.approvals.pending = [_pending(version=3)]
     h.engine.runs = [_run(RunState.AWAITING_INPUT)]
 
-    closed = await h.facade.close(first.session_id, owner=OWNER, source=SOURCE)
+    closed = await h.facade.close(first.session_id, owner=OWNER, client=CLIENT)
 
     assert closed.status == "closed"
     assert h.approvals.canceled == [("conv-1", "int-1", 3)]
@@ -1299,7 +1299,7 @@ async def test_close_without_approval_cancels_the_active_run():
     first = await h.send()
     h.engine.runs = [_run(RunState.PROCESSING, trigger="msg-1")]
 
-    await h.facade.close(first.session_id, owner=OWNER, source=SOURCE)
+    await h.facade.close(first.session_id, owner=OWNER, client=CLIENT)
 
     assert h.engine.canceled == [("conv-1", "msg-1", OWNER.user_id)]
 
@@ -1313,7 +1313,7 @@ async def test_close_tolerates_cancellation_errors():
         "local Agent-call cancellation remains pending"
     )
 
-    closed = await h.facade.close(first.session_id, owner=OWNER, source=SOURCE)
+    closed = await h.facade.close(first.session_id, owner=OWNER, client=CLIENT)
 
     assert closed.status == "closed"
 
@@ -1326,7 +1326,7 @@ async def test_close_cancels_the_run_when_no_interaction_cancel_succeeds():
     h.approvals.cancel_error = RuntimeError("version conflict")
     h.engine.runs = [_run(RunState.AWAITING_INPUT, trigger="msg-1")]
 
-    closed = await h.facade.close(first.session_id, owner=OWNER, source=SOURCE)
+    closed = await h.facade.close(first.session_id, owner=OWNER, client=CLIENT)
 
     assert closed.status == "closed"
     # The interaction could not be canceled, so the run itself is stopped.
@@ -1367,7 +1367,7 @@ async def test_close_tolerates_approval_version_conflict():
     h.approvals.pending = [_pending()]
     h.approvals.cancel_error = RuntimeError("version conflict")
 
-    closed = await h.facade.close(first.session_id, owner=OWNER, source=SOURCE)
+    closed = await h.facade.close(first.session_id, owner=OWNER, client=CLIENT)
 
     assert closed.status == "closed"
 
@@ -1383,7 +1383,7 @@ async def test_closed_session_refuses_sends_and_takes_state_precedence():
         ]
     )
     first = await h.send()
-    await h.facade.close(first.session_id, owner=OWNER, source=SOURCE)
+    await h.facade.close(first.session_id, owner=OWNER, client=CLIENT)
 
     status = await h.check(first.session_id)
     assert status.state == "closed"
@@ -1398,8 +1398,8 @@ async def test_close_is_idempotent():
     h = make_harness(on_schedule=[STARTED, settled("completed", final_message_id="f")])
     first = await h.send()
 
-    await h.facade.close(first.session_id, owner=OWNER, source=SOURCE)
-    again = await h.facade.close(first.session_id, owner=OWNER, source=SOURCE)
+    await h.facade.close(first.session_id, owner=OWNER, client=CLIENT)
+    again = await h.facade.close(first.session_id, owner=OWNER, client=CLIENT)
 
     assert again.status == "closed"
 
@@ -1629,8 +1629,8 @@ async def test_concurrent_sends_of_one_request_list_it_once():
     )
 
     receipts = await asyncio.gather(
-        h.facade.send(data, owner=OWNER, source=SOURCE, resolver=h.resolver),
-        h.facade.send(data, owner=OWNER, source=SOURCE, resolver=h.resolver),
+        h.facade.send(data, owner=OWNER, client=CLIENT, resolver=h.resolver),
+        h.facade.send(data, owner=OWNER, client=CLIENT, resolver=h.resolver),
     )
 
     record = h.store.records["sess-1"]
@@ -1704,8 +1704,8 @@ async def test_the_creating_send_schedules_its_run_even_when_it_loses_the_record
     )
 
     receipts = await asyncio.gather(
-        h.facade.send(data, owner=OWNER, source=SOURCE, resolver=h.resolver),
-        h.facade.send(data, owner=OWNER, source=SOURCE, resolver=h.resolver),
+        h.facade.send(data, owner=OWNER, client=CLIENT, resolver=h.resolver),
+        h.facade.send(data, owner=OWNER, client=CLIENT, resolver=h.resolver),
     )
 
     scheduled = [request.client_request_id for request, _ack in h.engine.scheduled]
@@ -1954,19 +1954,19 @@ async def test_waiter_history_reads_each_event_once_and_keeps_rejects_per_run(
     assert calls == 8
 
 
-# -- Sources ------------------------------------------------------------------
+# -- Clients ------------------------------------------------------------------
 
 
 @pytest.mark.asyncio
-async def test_a_session_and_each_step_name_the_source_that_sent_them():
+async def test_a_session_and_each_step_name_the_client_that_sent_them():
     h = make_harness(on_schedule=[STARTED, settled("completed", final_message_id="f1")])
 
-    first = await h.send(source=CI, client_label=None)
-    await h.send(source=CI, session_id=first.session_id, client_request_id="cr-2")
+    first = await h.send(client=CI, client_label=None)
+    await h.send(client=CI, session_id=first.session_id, client_request_id="cr-2")
 
     record = h.store.records[first.session_id]
-    assert record.source_id == CI.source_id
-    assert [r.source_id for r in record.requests] == [CI.source_id] * 2
+    assert record.client_id == CI.client_id
+    assert [r.client_id for r in record.requests] == [CI.client_id] * 2
 
 
 @pytest.mark.asyncio
@@ -1976,15 +1976,15 @@ async def test_a_no_token_session_is_recorded_under_no_token():
     first = await h.send()
 
     record = h.store.records[first.session_id]
-    assert record.source_id == NO_TOKEN.source_id
-    assert record.requests[0].source_id == NO_TOKEN.source_id
+    assert record.client_id == NO_TOKEN.client_id
+    assert record.requests[0].client_id == NO_TOKEN.client_id
 
 
 @pytest.mark.asyncio
 async def test_client_label_is_optional_with_a_token_and_names_fall_back():
     h = make_harness(on_schedule=[STARTED, settled("completed", final_message_id="f1")])
 
-    first = await h.send(source=CI, client_label=None)
+    first = await h.send(client=CI, client_label=None)
 
     record = h.store.records[first.session_id]
     assert record.client_label is None
@@ -1996,7 +1996,7 @@ async def test_client_label_is_optional_with_a_token_and_names_fall_back():
 async def test_client_label_is_kept_with_a_token_when_given():
     h = make_harness(on_schedule=[STARTED, settled("completed", final_message_id="f1")])
 
-    await h.send(source=CI, client_label="nightly job")
+    await h.send(client=CI, client_label="nightly job")
 
     assert h.engine.executed[0].sender_name == "nightly job"
 
@@ -2012,27 +2012,27 @@ async def test_opening_without_a_token_still_needs_client_label():
 
 
 @pytest.mark.asyncio
-async def test_another_source_cannot_read_send_to_or_close_a_session():
+async def test_another_client_cannot_read_send_to_or_close_a_session():
     h = make_harness(on_schedule=[STARTED, settled("completed", final_message_id="f1")])
-    first = await h.send(source=CI)
+    first = await h.send(client=CI)
 
-    for source in (OTHER, NO_TOKEN):
+    for client in (OTHER, NO_TOKEN):
         with pytest.raises(AppError) as read:
-            await h.check(first.session_id, source=source)
+            await h.check(first.session_id, client=client)
         with pytest.raises(AppError) as sent:
             await h.send(
-                source=source, session_id=first.session_id, client_request_id="x"
+                client=client, session_id=first.session_id, client_request_id="x"
             )
         with pytest.raises(AppError) as closed:
-            await h.facade.close(first.session_id, owner=OWNER, source=source)
+            await h.facade.close(first.session_id, owner=OWNER, client=client)
         assert read.value.code == sent.value.code == closed.value.code
         assert read.value.code == "session_not_found"
     assert h.store.records[first.session_id].status == "open"
-    assert (await h.check(first.session_id, source=CI)).session_id == first.session_id
+    assert (await h.check(first.session_id, client=CI)).session_id == first.session_id
 
 
 @pytest.mark.asyncio
-async def test_a_session_from_before_sources_counts_as_no_token():
+async def test_a_session_from_before_clients_counts_as_no_token():
     h = make_harness()
     h.store.records["old"] = SessionRecord(
         session_id="old",
@@ -2042,25 +2042,25 @@ async def test_a_session_from_before_sources_counts_as_no_token():
         last_activity_at=NOW,
     )
 
-    assert (await h.check("old", source=NO_TOKEN)).session_id == "old"
+    assert (await h.check("old", client=NO_TOKEN)).session_id == "old"
     with pytest.raises(AppError):
-        await h.check("old", source=CI)
+        await h.check("old", client=CI)
     listing = await h.facade.list_for_owner(owner=OWNER)
-    assert listing.sessions[0].source.source_id == NO_TOKEN.source_id
-    assert listing.sessions[0].source.name == "No token"
-    assert listing.sessions[0].source.has_token is False
+    assert listing.sessions[0].client.client_id == NO_TOKEN.client_id
+    assert listing.sessions[0].client.name == "No token"
+    assert listing.sessions[0].client.has_token is False
 
 
 @pytest.mark.asyncio
-async def test_a_reused_request_id_from_another_source_opens_a_new_session():
+async def test_a_reused_request_id_from_another_client_opens_a_new_session():
     h = make_harness(on_schedule=[STARTED, settled("completed", final_message_id="f1")])
 
-    first = await h.send(source=CI)
-    second = await h.send(source=OTHER)
+    first = await h.send(client=CI)
+    second = await h.send(client=OTHER)
 
     assert first.session_id != second.session_id
     assert second.status == "created"
-    assert h.store.records[second.session_id].source_id == OTHER.source_id
+    assert h.store.records[second.session_id].client_id == OTHER.client_id
 
 
 @pytest.mark.asyncio
@@ -2068,56 +2068,56 @@ async def test_reach_is_checked_after_reserve_too():
     h = make_harness()
 
     async def foreign(record):
-        return record.model_copy(update={"source_id": OTHER.source_id})
+        return record.model_copy(update={"client_id": OTHER.client_id})
 
     h.store.reserve = foreign
     with pytest.raises(AppError) as exc_info:
-        await h.send(source=CI)
+        await h.send(client=CI)
     assert exc_info.value.code == "session_not_found"
     assert h.engine.executed == []
 
 
 @pytest.mark.asyncio
-async def test_owner_payloads_carry_the_source():
+async def test_owner_payloads_carry_the_client():
     h = make_harness(on_schedule=[STARTED, settled("completed", final_message_id="f1")])
-    first = await h.send(source=CI, client_label=None)
+    first = await h.send(client=CI, client_label=None)
 
     listing = await h.facade.list_for_owner(owner=OWNER)
     record = await h.facade.record_for_owner(first.session_id, owner=OWNER)
 
     for view in (listing.sessions[0], record):
         assert view.client_label is None
-        assert view.source.model_dump() == {
-            "source_id": CI.source_id,
+        assert view.client.model_dump() == {
+            "client_id": CI.client_id,
             "name": "CI bot",
             "has_token": True,
         }
 
 
 @pytest.mark.asyncio
-async def test_an_unknown_stored_source_is_shown_by_its_id():
+async def test_an_unknown_stored_client_is_shown_by_its_id():
     h = make_harness()
     h.store.records["s"] = SessionRecord(
         session_id="s",
         owner_user_id=OWNER.user_id,
-        source_id="src_gone",
+        client_id="client_gone",
         opened_at=NOW,
         last_activity_at=NOW,
     )
 
     record = await h.facade.record_for_owner("s", owner=OWNER)
 
-    assert record.source.model_dump() == {
-        "source_id": "src_gone",
-        "name": "src_gone",
+    assert record.client.model_dump() == {
+        "client_id": "client_gone",
+        "name": "client_gone",
         "has_token": False,
     }
 
 
 @pytest.mark.asyncio
-async def test_the_owner_closes_any_source_session():
+async def test_the_owner_closes_any_client_session():
     h = make_harness(on_schedule=[STARTED, WAITING])
-    first = await h.send(source=CI)
+    first = await h.send(client=CI)
 
     closed = await h.facade.close_for_owner(first.session_id, owner=OWNER)
 

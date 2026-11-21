@@ -137,7 +137,7 @@ export function GroupSelector({
       return {
         icon: <Waypoints className="h-3.5 w-3.5 text-hybro-bro" />,
         label: selectedGroupName,
-        description: 'Room source subnet',
+        description: 'Room subnet',
       }
     }
 

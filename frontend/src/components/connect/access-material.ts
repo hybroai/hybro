@@ -1,17 +1,17 @@
 import { buildMcpConfig } from '@/lib/mcp'
 import { TOKEN_PLACEHOLDER } from './client-setups'
 
-export type AccessKind = 'sources' | 'mcp' | 'api'
+export type AccessKind = 'clients' | 'mcp' | 'api'
 export interface AccessScope { id: string; name: string }
 
-export const API_AUTH_HELP = 'Send a source token in an Authorization: Bearer header on every request. The owner creates a source and its token in Hybro under Access, Sources, or with hybro source create --name <name>. The token is shown once. If the owner turned the token requirement off, a request without a token is accepted and recorded under "No token"; a revoked or unknown token is always refused. Never share real tokens in prompts or logs.'
-export const MCP_AUTH_HELP = 'The bundled MCP adapter passes on the Authorization header your MCP client sends, and Hybro checks it. Set it to Bearer <source token>; the owner creates a source and its token in Hybro under Access, Sources, or with hybro source create --name <name>. The token is shown once. Never share real tokens in prompts or logs.'
+export const API_AUTH_HELP = 'Send a client token in an Authorization: Bearer header on every request. The owner creates a client and its token in Hybro under Access, Clients, or with hybro client create --name <name>. The token is shown once. If the owner turned the token requirement off, a request without a token is accepted and recorded under "No token"; a revoked or unknown token is always refused. Never share real tokens in prompts or logs.'
+export const MCP_AUTH_HELP = 'The bundled MCP adapter passes on the Authorization header your MCP client sends, and Hybro checks it. Set it to Bearer <client token>; the owner creates a client and its token in Hybro under Access, Clients, or with hybro client create --name <name>. The token is shown once. Never share real tokens in prompts or logs.'
 
 function shellQuote(value: string): string {
   return `'${value.replace(/'/g, `'"'"'`)}'`
 }
 
-export function buildAccessMaterial(kind: Exclude<AccessKind, 'sources'>, url: string, apiPrefix: string, scope?: AccessScope, token: string = TOKEN_PLACEHOLDER) {
+export function buildAccessMaterial(kind: Exclude<AccessKind, 'clients'>, url: string, apiPrefix: string, scope?: AccessScope, token: string = TOKEN_PLACEHOLDER) {
   const base = url.replace(/\/+$/, '')
   const authHeader = `--header ${shellQuote(`Authorization: Bearer ${token}`)}`
   const discoveryPath = `${apiPrefix}/agents/discovery`
@@ -25,7 +25,7 @@ export function buildAccessMaterial(kind: Exclude<AccessKind, 'sources'>, url: s
   const sendSubnetField = scope ? `,\n  "subnet_id": ${JSON.stringify(scope.id)}` : ''
   const sendCall = `send_message({\n  "agent_id": "<agent_id from find_agents>",\n  "text": "Your task"${sendSubnetField}\n})`
   const messagePath = `${apiPrefix}/sessions/messages`
-  // Without session_id the send opens a session; the token names the source.
+  // Without session_id the send opens a session; the token names the client.
   const messageBody = `{\n  "agent_id": "<agent_id from search or discovery>",\n  "text": "Your task",\n  "client_request_id": "<unique id for this message>"${sendSubnetField}\n}`
   const messageRequest = `curl --request POST \\\n  ${shellQuote(`${base}${messagePath}`)} \\\n  ${authHeader} \\\n  --header 'Content-Type: application/json' \\\n  --data ${shellQuote(messageBody)}`
   const checkRequest = `curl --request GET \\\n  ${authHeader} \\\n  ${shellQuote(`${base}${apiPrefix}/sessions/<session_id from the receipt>`)}`

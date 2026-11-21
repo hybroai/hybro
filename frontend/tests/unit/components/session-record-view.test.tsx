@@ -11,7 +11,7 @@ const api = vi.hoisted(() => ({
     opened_at: '2026-10-14T09:00:00Z',
     last_activity_at: '2026-10-14T09:05:00Z',
     client_label: 'Buyer agent',
-    source: { source_id: 'no_token', name: 'No token', has_token: false },
+    client: { client_id: 'no_token', name: 'No token', has_token: false },
     title: 'Generate a travel plan',
     status: 'open',
     conversation_id: 'conv-1',
@@ -89,13 +89,13 @@ describe('SessionRecordView', () => {
     expect(document.body.textContent).not.toMatch(/[\u4e00-\u9fff]/)
   })
 
-  it('shows each registered agent\'s own avatar and a generic one for the external requester', async () => {
+  it('shows each registered agent\'s own avatar and a generic one for the external client', async () => {
     render(<SessionRecordView sessionId="sess-1" />)
     const record = await screen.findByRole('list', { name: 'Session record' })
-    const [requesterEntry, agentEntry] = within(record).getAllByRole('listitem').filter(item => item.firstElementChild?.hasAttribute('data-avatar'))
+    const [clientEntry, agentEntry] = within(record).getAllByRole('listitem').filter(item => item.firstElementChild?.hasAttribute('data-avatar'))
 
-    expect(requesterEntry.querySelector('[data-avatar]')).toHaveAttribute('data-avatar', 'external-agent')
-    expect(requesterEntry.querySelector('img')).toBeNull()
+    expect(clientEntry.querySelector('[data-avatar]')).toHaveAttribute('data-avatar', 'external-agent')
+    expect(clientEntry.querySelector('img')).toBeNull()
     expect(agentEntry.querySelector('[data-avatar]')).toHaveAttribute('data-avatar', 'agent-1')
     expect(agentEntry.querySelector('img')?.getAttribute('src')).toMatch(/^data:image\/svg\+xml/)
   })
@@ -110,14 +110,14 @@ describe('SessionRecordView', () => {
     expect(within(panel).getByText('Travel Planner Agent')).toBeInTheDocument()
     expect(within(panel).getByText('sess-1')).toBeInTheDocument()
     expect(within(panel).getByRole('button', { name: 'Copy session ID' })).toBeInTheDocument()
-    for (const label of ['Status', 'Requester', 'Created', 'Updated', 'Requests']) {
+    for (const label of ['Status', 'Client', 'Created', 'Updated', 'Requests']) {
       expect(within(panel).getByText(label)).toBeInTheDocument()
     }
   })
 
-  it('names a requester without a label by its source', async () => {
+  it('names a client without a label by its name', async () => {
     const saved = api.record
-    api.record = { ...saved, client_label: null, source: { source_id: 'src_ci', name: 'CI bot', has_token: true } }
+    api.record = { ...saved, client_label: null, client: { client_id: 'client_ci', name: 'CI bot', has_token: true } }
     render(<SessionRecordView sessionId="sess-1" />)
     const panel = await screen.findByRole('complementary', { name: 'Details' })
     expect(within(panel).getByText('CI bot')).toBeInTheDocument()

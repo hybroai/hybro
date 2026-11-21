@@ -1010,33 +1010,33 @@
   },
   {
     "auth_dependencies": [
-      "get_machine_sources"
+      "get_machine_clients"
     ],
     "dependencies": [
-      "get_machine_sources"
+      "get_machine_clients"
     ],
     "methods": [
       "POST"
     ],
     "module": "api_gateway.routes.machine_routes",
-    "name": "machine_create_source",
+    "name": "machine_create_client",
     "openapi_response_codes": [
       "201",
       "422"
     ],
-    "owning_protocol": "source.protocols.SourceRegistry",
-    "path": "/api/v1/machine/sources",
+    "owning_protocol": "client.protocols.ClientRegistry",
+    "path": "/api/v1/machine/clients",
     "response_class": null,
-    "response_model": "SourceWithToken",
+    "response_model": "ClientWithToken",
     "status_code": 201,
     "streaming_response": null
   },
   {
     "auth_dependencies": [
-      "get_machine_sources"
+      "get_machine_clients"
     ],
     "dependencies": [
-      "get_machine_sources"
+      "get_machine_clients"
     ],
     "methods": [
       "GET"
@@ -1046,8 +1046,8 @@
     "openapi_response_codes": [
       "200"
     ],
-    "owning_protocol": "source.protocols.SourceRegistry",
-    "path": "/api/v1/machine/sources/token-requirement",
+    "owning_protocol": "client.protocols.ClientRegistry",
+    "path": "/api/v1/machine/clients/token-requirement",
     "response_class": null,
     "response_model": "TokenRequirement",
     "status_code": null,
@@ -2027,16 +2027,16 @@
   },
   {
     "auth_dependencies": [
-      "get_owner_sources"
+      "get_owner_clients"
     ],
     "dependencies": [
-      "get_owner_sources"
+      "get_owner_clients"
     ],
     "methods": [
       "GET"
     ],
-    "module": "api_gateway.routes.source_routes",
-    "name": "list_sources",
+    "module": "api_gateway.routes.client_routes",
+    "name": "list_clients",
     "openapi_response_codes": [
       "200",
       "401",
@@ -2045,25 +2045,25 @@
       "409",
       "503"
     ],
-    "owning_protocol": "source.protocols.SourceRegistry",
-    "path": "/api/v1/sources",
+    "owning_protocol": "client.protocols.ClientRegistry",
+    "path": "/api/v1/clients",
     "response_class": null,
-    "response_model": "SourceList",
+    "response_model": "ClientList",
     "status_code": null,
     "streaming_response": null
   },
   {
     "auth_dependencies": [
-      "get_owner_sources"
+      "get_owner_clients"
     ],
     "dependencies": [
-      "get_owner_sources"
+      "get_owner_clients"
     ],
     "methods": [
       "POST"
     ],
-    "module": "api_gateway.routes.source_routes",
-    "name": "create_source",
+    "module": "api_gateway.routes.client_routes",
+    "name": "create_client",
     "openapi_response_codes": [
       "201",
       "401",
@@ -2073,24 +2073,24 @@
       "422",
       "503"
     ],
-    "owning_protocol": "source.protocols.SourceRegistry",
-    "path": "/api/v1/sources",
+    "owning_protocol": "client.protocols.ClientRegistry",
+    "path": "/api/v1/clients",
     "response_class": null,
-    "response_model": "SourceWithToken",
+    "response_model": "ClientWithToken",
     "status_code": 201,
     "streaming_response": null
   },
   {
     "auth_dependencies": [
-      "get_owner_sources"
+      "get_owner_clients"
     ],
     "dependencies": [
-      "get_owner_sources"
+      "get_owner_clients"
     ],
     "methods": [
       "GET"
     ],
-    "module": "api_gateway.routes.source_routes",
+    "module": "api_gateway.routes.client_routes",
     "name": "get_token_requirement",
     "openapi_response_codes": [
       "200",
@@ -2098,8 +2098,8 @@
       "403",
       "503"
     ],
-    "owning_protocol": "source.protocols.SourceRegistry",
-    "path": "/api/v1/sources/token-requirement",
+    "owning_protocol": "client.protocols.ClientRegistry",
+    "path": "/api/v1/clients/token-requirement",
     "response_class": null,
     "response_model": "TokenRequirement",
     "status_code": null,
@@ -2107,15 +2107,15 @@
   },
   {
     "auth_dependencies": [
-      "get_owner_sources"
+      "get_owner_clients"
     ],
     "dependencies": [
-      "get_owner_sources"
+      "get_owner_clients"
     ],
     "methods": [
       "PUT"
     ],
-    "module": "api_gateway.routes.source_routes",
+    "module": "api_gateway.routes.client_routes",
     "name": "set_token_requirement",
     "openapi_response_codes": [
       "200",
@@ -2125,8 +2125,8 @@
       "422",
       "503"
     ],
-    "owning_protocol": "source.protocols.SourceRegistry",
-    "path": "/api/v1/sources/token-requirement",
+    "owning_protocol": "client.protocols.ClientRegistry",
+    "path": "/api/v1/clients/token-requirement",
     "response_class": null,
     "response_model": "TokenRequirement",
     "status_code": null,
@@ -2134,16 +2134,16 @@
   },
   {
     "auth_dependencies": [
-      "get_owner_sources"
+      "get_owner_clients"
     ],
     "dependencies": [
-      "get_owner_sources"
+      "get_owner_clients"
     ],
     "methods": [
       "PATCH"
     ],
-    "module": "api_gateway.routes.source_routes",
-    "name": "rename_source",
+    "module": "api_gateway.routes.client_routes",
+    "name": "rename_client",
     "openapi_response_codes": [
       "200",
       "401",
@@ -2153,25 +2153,25 @@
       "422",
       "503"
     ],
-    "owning_protocol": "source.protocols.SourceRegistry",
-    "path": "/api/v1/sources/{source_id}",
+    "owning_protocol": "client.protocols.ClientRegistry",
+    "path": "/api/v1/clients/{client_id}",
     "response_class": null,
-    "response_model": "SourceView",
+    "response_model": "ClientView",
     "status_code": null,
     "streaming_response": null
   },
   {
     "auth_dependencies": [
-      "get_owner_sources"
+      "get_owner_clients"
     ],
     "dependencies": [
-      "get_owner_sources"
+      "get_owner_clients"
     ],
     "methods": [
       "POST"
     ],
-    "module": "api_gateway.routes.source_routes",
-    "name": "revoke_source",
+    "module": "api_gateway.routes.client_routes",
+    "name": "revoke_client",
     "openapi_response_codes": [
       "200",
       "401",
@@ -2181,25 +2181,25 @@
       "422",
       "503"
     ],
-    "owning_protocol": "source.protocols.SourceRegistry",
-    "path": "/api/v1/sources/{source_id}/revoke",
+    "owning_protocol": "client.protocols.ClientRegistry",
+    "path": "/api/v1/clients/{client_id}/revoke",
     "response_class": null,
-    "response_model": "SourceView",
+    "response_model": "ClientView",
     "status_code": null,
     "streaming_response": null
   },
   {
     "auth_dependencies": [
-      "get_owner_sources"
+      "get_owner_clients"
     ],
     "dependencies": [
-      "get_owner_sources"
+      "get_owner_clients"
     ],
     "methods": [
       "POST"
     ],
-    "module": "api_gateway.routes.source_routes",
-    "name": "rotate_source_token",
+    "module": "api_gateway.routes.client_routes",
+    "name": "rotate_client_token",
     "openapi_response_codes": [
       "200",
       "401",
@@ -2209,10 +2209,10 @@
       "422",
       "503"
     ],
-    "owning_protocol": "source.protocols.SourceRegistry",
-    "path": "/api/v1/sources/{source_id}/rotate",
+    "owning_protocol": "client.protocols.ClientRegistry",
+    "path": "/api/v1/clients/{client_id}/rotate",
     "response_class": null,
-    "response_model": "SourceWithToken",
+    "response_model": "ClientWithToken",
     "status_code": null,
     "streaming_response": null
   },

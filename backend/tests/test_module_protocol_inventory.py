@@ -215,7 +215,7 @@ EXPECTED_METHODS = {
             "reserve",
             "set_conversation_if_unset",
         },
-        "SourceDirectory": {"identities"},
+        "ClientDirectory": {"identities"},
     },
     "policy.protocols": {
         "RuleRegistry": {"create", "delete", "list_rules", "reorder", "update"},
@@ -228,11 +228,11 @@ EXPECTED_METHODS = {
             "update",
         },
     },
-    "source.protocols": {
-        "SourceRegistry": {
+    "client.protocols": {
+        "ClientRegistry": {
             "create",
             "identities",
-            "list_sources",
+            "list_clients",
             "rename",
             "resolve",
             "revoke",
@@ -242,7 +242,7 @@ EXPECTED_METHODS = {
             "token_required",
             "token_requirement",
         },
-        "SourceStore": {
+        "ClientStore": {
             "ensure_indexes",
             "get",
             "get_by_token_hash",

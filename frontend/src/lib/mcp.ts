@@ -3,7 +3,7 @@ export function mcpUrl(pageOrigin: string): string {
   return `${pageOrigin}/mcp`
 }
 
-/** The standard `mcpServers` entry; with a token, it sends the source token header. */
+/** The standard `mcpServers` entry; with a token, it sends the client token header. */
 export function buildMcpConfig(url: string, token?: string): string {
   const headers = token ? { headers: { Authorization: `Bearer ${token}` } } : {}
   return JSON.stringify({

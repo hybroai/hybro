@@ -41,7 +41,7 @@ OwnerId = Annotated[
 
 @dataclass(frozen=True, slots=True)
 class ActingOwner:
-    """The owner whose data a Source API request acts on."""
+    """The owner whose data a Client API request acts on."""
 
     user_id: str
     name: str

@@ -54,7 +54,7 @@ describe('a session that ends while the page is open', () => {
     const listener = vi.fn()
     const stop = onSignedOut(listener)
     server.use(http.get(getApiUrl('agents/discovery'), () =>
-      HttpResponse.json({ detail: { code: 'unknown_source_token', message: 'm' } }, { status: 401 })))
+      HttpResponse.json({ detail: { code: 'unknown_client_token', message: 'm' } }, { status: 401 })))
     await expect(apiClient(getApiUrl('agents/discovery'))).rejects.toMatchObject({ status: 401 })
     stop()
     expect(listener).not.toHaveBeenCalled()

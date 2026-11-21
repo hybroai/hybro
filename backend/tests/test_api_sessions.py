@@ -10,31 +10,31 @@ from types import SimpleNamespace
 import httpx
 import pytest
 
+from api_gateway.client_token import ClientCaller
 from api_gateway.dependencies import get_owner_session_access, get_session_access
 from api_gateway.owner_session import get_current_user
-from api_gateway.source_token import SourceCaller
+from client.protocols import NO_TOKEN
 from common.auth import ClerkUser
 from common.errors import AppError
 from main import SESSION_MESSAGE_MAX_BYTES, SESSION_MESSAGE_MAX_CONCURRENT, create_app
 from models.session import (
     SessionAgent,
+    SessionClient,
     SessionClosed,
     SessionHistoryEntry,
     SessionListResponse,
     SessionMessageRequest,
     SessionMessageResponse,
     SessionOwnerRecord,
-    SessionSource,
     SessionStatus,
     SessionSummary,
 )
 from session.access import BoundOwnerSessionAccess, BoundSessionAccess
 from session.protocols import OwnerSessionAccess, SessionAccess, SessionOwner
-from source.protocols import NO_TOKEN
 from tests.fakes.account import sign_out
 
 NOW = datetime(2026, 10, 14, tzinfo=UTC)
-NO_TOKEN_SOURCE = SessionSource(source_id="no_token", name="No token", has_token=False)
+NO_TOKEN_CLIENT = SessionClient(client_id="no_token", name="No token", has_token=False)
 SEND = "/api/v1/sessions/messages"
 
 
@@ -108,7 +108,7 @@ class AccessStub:
             sessions=[
                 SessionSummary(
                     session_id="sess-1",
-                    source=NO_TOKEN_SOURCE,
+                    client=NO_TOKEN_CLIENT,
                     client_label="Buyer agent",
                     state="waiting_on_owner",
                     conversation_id="conv-1",
@@ -122,7 +122,7 @@ class AccessStub:
         self._raise()
         return SessionOwnerRecord(
             session_id=session_id,
-            source=NO_TOKEN_SOURCE,
+            client=NO_TOKEN_CLIENT,
             client_label="Buyer agent",
             state="waiting_on_owner",
             paused_agent_id="agent-1",
@@ -284,8 +284,8 @@ async def test_check_close_list_and_record():
     assert listing.json()["sessions"][0]["conversation_id"] == "conv-1"
     assert close.json() == {"session_id": "sess-1", "status": "closed"}
     assert owner_close.json() == {"session_id": "sess-1", "status": "closed"}
-    assert listing.json()["sessions"][0]["source"] == {
-        "source_id": "no_token",
+    assert listing.json()["sessions"][0]["client"] == {
+        "client_id": "no_token",
         "name": "No token",
         "has_token": False,
     }
@@ -330,7 +330,7 @@ async def test_anonymous_owner_requests_fail_with_401(monkeypatch):
     assert access.sent == []
 
 
-def test_get_session_access_binds_source_owner_and_resolver():
+def test_get_session_access_binds_client_owner_and_resolver():
     facade = object()
     deps = SimpleNamespace(
         session_facade=facade,
@@ -338,15 +338,15 @@ def test_get_session_access_binds_source_owner_and_resolver():
         agent_group_store=object(),
         agent_matcher=object(),
     )
-    caller = SourceCaller(
-        source=NO_TOKEN, owner=SessionOwner(user_id="owner-1", name="estate")
+    caller = ClientCaller(
+        client=NO_TOKEN, owner=SessionOwner(user_id="owner-1", name="estate")
     )
 
     access = get_session_access(caller, deps)
 
     assert isinstance(access, BoundSessionAccess)
     assert access._owner.user_id == "owner-1"
-    assert access._source == NO_TOKEN
+    assert access._client == NO_TOKEN
     assert access._resolver._requesting_user_id == "owner-1"
 
 

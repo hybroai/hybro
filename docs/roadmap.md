@@ -5,7 +5,7 @@ This is the order in which Hybro moves toward the [design](design.md).
 ```mermaid
 flowchart LR
     p0["0 Make the direction visible"] --> p1["1 Clean up and break down"]
-    p1 --> p2["2 Source identity and remote access"]
+    p1 --> p2["2 Client identity and remote access"]
     p2 --> p3["3 Owner check rules and the step view"]
     p3 --> p4["4 Move out"]
     p4 --> p5["5 Migrate to the target modules"]
@@ -17,17 +17,17 @@ flowchart LR
 |---|---|---|---|
 | 0 | Make the direction visible | The design, this roadmap, contributor rules and a quick start. | Done |
 | 1 | Clean up and break down | Remove what is dead, and split `execution` without changing behaviour. | Done |
-| 2 | Source identity and remote access | Each source has a token and the owner has an account, so Hybro knows which source sent a step, and a source on another machine can reach the Source API. | Done |
+| 2 | Client identity and remote access | Each client has a token and the owner has an account, so Hybro knows which client sent a step, and a client on another machine can reach the Client API. | Done |
 | 3 | Owner check rules and the step view | The owner gates agent calls with rules, and sees each step of a session. | Now |
-| 4 | Move out | The model loop leaves the core and becomes the bundled orchestrator, a source. | Next |
+| 4 | Move out | The model loop leaves the core and becomes the bundled orchestrator, a client. | Next |
 | 5 | Migrate to the target modules | The remaining modules and their stored collections take their target names, one at a time, with a data migration. | Later |
 | 6 | Build what does not exist yet | Routing without a named agent, and evaluation by hand. | Later |
 | 7 | The enterprise edition | The `enterprise/` folders, the license key, and the features a team or a company adds. | Later |
 
 ## How we move
 
-- Clean up first. Then come the foundations that an outside source and an
-  owner need: source identity, remote access, and the owner's check rules.
+- Clean up first. Then come the foundations that an outside client and an
+  owner need: client identity, remote access, and the owner's check rules.
   Then the model loop moves out of the core, the remaining modules take their
   target names, and the remaining features are built.
 - One small change at a time. There is no rewrite.
@@ -38,7 +38,7 @@ flowchart LR
 - Phases 2 and 3 ship features a user can see, before the larger structural
   work. Phases 1, 4 and 5 are structural and add no user features. The only
   new behaviour in phase 4 is what the orchestrator needs in order to become a
-  source.
+  client.
 
 How a phase is run:
 
@@ -130,48 +130,48 @@ does not change.
 
 Items that belong to a later phase are listed in that phase.
 
-## Phase 2: Source identity and remote access
+## Phase 2: Client identity and remote access
 
 **Status.** Done. What it leaves for later is under "Carried forward" at the
 end of this phase.
 
-**Goal.** Hybro knows which source sent a step, a source on another machine can
-reach the Source API safely, and only the owner can open the Panel.
+**Goal.** Hybro knows which client sent a step, a client on another machine can
+reach the Client API safely, and only the owner can open the Panel.
 
 This phase comes before the larger structural work because it does not depend
 on it. It builds on the `/sessions` routes that exist today, and later features
 build on it.
 
 **The model.** One install and one rule, on a laptop and on a server alike:
-the Panel needs the owner's sign-in, and a program needs a source token.
+the Panel needs the owner's sign-in, and a program needs a client token.
 Nothing depends on an authentication mode or on how the instance was started.
 [Who may use it](design.md#who-may-use-it) in the design has the details.
 
 **Work.**
 
-1. **Sources and their tokens.**
-   - The owner creates a source and receives its token once. Hybro stores a
-     hash, and every Step records the source that sent it.
-   - `hybro source create --name` creates a source on the machine that runs
+1. **Clients and their tokens.**
+   - The owner creates a client and receives its token once. Hybro stores a
+     hash, and every Step records the client that sent it.
+   - `hybro client create --name` creates a client on the machine that runs
      Hybro and prints its token once, for a headless install and for tests
      that run against a started image.
-   - A token reaches the Source API only.
+   - A token reaches the Client API only.
    - `client_label` stays accepted. It is optional with a token and required
      when a session is opened without one. It is marked as deprecated for
      requests that carry a token.
    - Sessions from before this phase keep their stored label, shown as not
      verified. No stored data is rewritten.
-2. **The Sources tab.** The Connect page (named Access in today's UI) gains a
-   Sources tab before MCP and API.
-   - It lists each source: name, how it connects, last use, creation date and
+2. **The Clients tab.** The Connect page (named Access in today's UI) gains a
+   Clients tab before MCP and API.
+   - It lists each client: name, how it connects, last use, creation date and
      the last four characters of its token. Hybro stores those four
      characters beside the hash of the token, so that the owner can tell
      tokens apart; the token itself is never stored.
-   - A source can be renamed, its token rotated or revoked, and its sessions
+   - A client can be renamed, its token rotated or revoked, and its sessions
      opened from there.
-   - Creating a source shows the token once, with a ready-to-paste snippet that
+   - Creating a client shows the token once, with a ready-to-paste snippet that
      already contains it.
-   - The Sessions page shows the source as the requester.
+   - The Sessions page shows the client of each session.
 3. **The owner account.**
    - On the first visit the owner creates the account: name, email, password.
      The setup page opens only through a one-time link that `hybro` prints,
@@ -187,9 +187,9 @@ Nothing depends on an authentication mode or on how the instance was started.
      or from standard input, never from an option. It works only while no
      account exists.
    - Until the account exists, the routes that need the owner's sign-in and
-     the Source API refuse requests.
+     the Client API refuse requests.
    - Sign-in is required on every install. Every route needs it except the
-     Source API, which takes a source token, and the routes that agents and
+     Client API, which takes a client token, and the routes that agents and
      probes call with their own credential or none: the model proxy
      (`/internal/llm`, the internal credential), `/a2a/push` (the push token
      of the call) and `/health`.
@@ -203,10 +203,10 @@ Nothing depends on an authentication mode or on how the instance was started.
    - There is one account. It is stored as a user record, so that the
      enterprise edition can add people later.
 4. **The token requirement and its switch.**
-   - A source token is required by default on every install.
-   - The owner can turn the requirement off with a switch on the Sources tab,
+   - A client token is required by default on every install.
+   - The owner can turn the requirement off with a switch on the Clients tab,
      after a confirmation that states the consequence. A request without a
-     token is then recorded under the built-in "No token" source.
+     token is then recorded under the built-in "No token" client.
    - A request with an unknown or revoked token is refused, also while the
      requirement is off. It is never recorded under "No token".
    - While it is off, the Connect page shows a banner that the owner can
@@ -214,7 +214,7 @@ Nothing depends on an authentication mode or on how the instance was started.
    - `hybro` prints a warning, and blocks nothing, when the instance listens on
      another address than this machine's while the requirement is off.
 5. **MCP with tokens.** `/mcp` is served on every install. A client sends its
-   source token, and the adapter passes it to the Source API, which checks it.
+   client token, and the adapter passes it to the Client API, which checks it.
    On a listener that other machines can reach, the MCP server's own check of
    the `Host` and `Origin` headers is off, and the token is the control; it
    passes the caller's address on, so the backend refuses a name it does not
@@ -258,7 +258,7 @@ Nothing depends on an authentication mode or on how the instance was started.
    `POST /agents/messages` is removed in this phase with no deprecation
    release, an exception to the deprecation rule in "How we move": nothing in
    the product calls it, and it sends work to an agent around the Step path,
-   with no record of which source sent it. `POST /sessions/messages` replaces
+   with no record of which client sent it. `POST /sessions/messages` replaces
    it.
 
 **Upgrading an existing install.**
@@ -276,31 +276,31 @@ Nothing depends on an authentication mode or on how the instance was started.
     `backend.admin_user_ids`. If several are listed, the owner chooses one;
     if none is, it takes the same identity as on every other install.
   - The token requirement is on, because the install required a credential
-    before. A program that sent a Clerk token needs a source token.
+    before. A program that sent a Clerk token needs a client token.
   - What other users stored stays in the database, unchanged and not shown.
     Nothing is deleted or rewritten.
-- No upgrade leaves an install more open than it was. A fresh install starts
-  with the token requirement on.
+- No upgrade from a released version leaves an install more open than it was.
+  A fresh install starts with the token requirement on.
 
 **Done when.**
 
-- Each Step records the source that sent it: a source with a token, or
+- Each Step records the client that sent it: a client with a token, or
   "No token" while the owner has the requirement off.
-- A source on another machine can send a step and read its result with its
+- A client on another machine can send a step and read its result with its
   token. Without a token the request is refused, unless the owner turned the
   requirement off.
-- The Panel and every route need the owner's sign-in, except the Source API
-  and the agent-facing routes and `/health` named above. A source token opens
-  only the Source API.
+- The Panel and every route need the owner's sign-in, except the Client API
+  and the agent-facing routes and `/health` named above. A client token opens
+  only the Client API.
 - A revoked token is refused whether the requirement is on or off.
 - The owner account can be created only through the setup link or
   `hybro owner create`, and only while none exists.
 - An install upgraded from mock mode keeps its data, and its connected
   programs keep working. A configuration with `auth_mode: clerk` gets an
   owner account that takes over the listed admin's data, and it requires a
-  source token.
+  client token.
 - The functional tests create the owner with `hybro owner create`.
-- An MCP client can connect from another machine with a source token, and the
+- An MCP client can connect from another machine with a client token, and the
   documents say so.
 
 **Carried from phase 1.** Where each item ends:
@@ -357,29 +357,41 @@ what each step did.
    coder agent". An "ask" becomes a Question that the owner answers in the
    Panel.
 2. **One place for the check.** Until phase 4, Room chat calls agents on its
-   own path and not through the Source API. A check rule must still apply to
+   own path and not through the Client API. A check rule must still apply to
    those calls, so the check sits where both paths send an agent call. If that
-   cannot be done, the rules apply to steps from the Source API only, and the
+   cannot be done, the rules apply to steps from the Client API only, and the
    Rules page says so until phase 4.
-3. **The grant.** The owner can grant one source the right to answer permission
-   questions. It relies on the source tokens of phase 2, and it can never be
-   given to the "No token" source. It also adds the first way for a source to
-   answer a Question through the Source API, for permission questions only.
+3. **The grant.** The owner can grant one client the right to answer permission
+   questions. It relies on the client tokens of phase 2, and it can never be
+   given to the "No token" client. It also adds the first way for a client to
+   answer a Question through the Client API, for permission questions only.
    Information questions follow in phase 4.
 4. **The Rules page** in the Panel, with the check rules.
 5. **The step view.** The Sessions page shows each step's input, output and
-   timing. Until phase 4 it covers sessions from the Source API only, because
+   timing. Until phase 4 it covers sessions from the Client API only, because
    Room chat's agent calls are not Steps yet.
+
+**Renamed: Source to Client** (issue #276). The concept that phase 2 called a
+Source is now a Client, everywhere: the design, the Panel, the CLI, the routes,
+the error codes, the token prefix (`hybro_client_`), the backend module and the
+stored names. The `hybro source` command, the `/sources` routes, their fields
+and their error codes are renamed with no deprecated release, an exception to
+the deprecation rule in "How we move": no release contains them. For the same
+reason the stored data is not moved: an install that ran an unreleased build
+starts with no clients, its old tokens are refused, its earlier sessions show
+as "No token", and the token requirement is seeded again, off when the
+database already has data. The rule "no upgrade leaves an install more open"
+is about released versions.
 
 **Done when.**
 
 - A check rule that answers "ask" stops a call until the owner answers, and a
   rule that answers "deny" ends the step with a reason.
 - The documents and the Rules page say which calls the rules cover.
-- A source with the grant can answer a permission question, and a source
+- A client with the grant can answer a permission question, and a client
   without it is refused.
 - The Sessions page shows the input, output and timing of each step sent
-  through the Source API.
+  through the Client API.
 - With no rules, every call goes as it does today.
 
 **Carried from phase 1.** Decide whether the step view reads
@@ -391,7 +403,7 @@ product feature reads it.
 ## Phase 4: Move out
 
 **Goal.** The core only runs steps. Room chat uses the same door as every other
-source.
+client.
 
 ```mermaid
 flowchart TB
@@ -404,7 +416,7 @@ flowchart TB
 
     subgraph after["After phase 4"]
         a_chat["Room chat"] --> a_orch["Bundled orchestrator"]
-        a_orch --> a_api["Source API"]
+        a_orch --> a_api["Client API"]
         a_clients["API and MCP clients"] --> a_api
         a_api --> a_core["Core: session and execution"]
         a_core --> a_agents["Agents"]
@@ -413,15 +425,15 @@ flowchart TB
 
 **Work.**
 
-1. **The Source API grows far enough to carry an orchestrator.** Today's
+1. **The Client API grows far enough to carry an orchestrator.** Today's
    `/sessions` routes take text only, run one request at a time in a session,
    and make the caller poll. The orchestrator needs four things:
    - a step can point at earlier results and files
-   - information questions go back to the source
+   - information questions go back to the client
    - several steps can run in one Session
-   - a source can follow events live
-2. **The bundled orchestrator becomes a source.** It receives a chat message,
-   plans, sends each agent call as a step through the Source API, and answers
+   - a client can follow events live
+2. **The bundled orchestrator becomes a client.** It receives a chat message,
+   plans, sends each agent call as a step through the Client API, and answers
    in the chat. `context_memory` moves with it, because its only reader is the
    orchestrator.
 3. **Room chat switches over.** The new path runs beside the old one behind a
@@ -430,7 +442,7 @@ flowchart TB
 
 **Done when.**
 
-- Every agent call that Room chat makes is a Step sent through the Source API.
+- Every agent call that Room chat makes is a Step sent through the Client API.
 - `execution` has one way to run a call, which is today's `passthrough`
   profile.
 - The core imports nothing from the orchestrator.
@@ -525,8 +537,8 @@ In this order:
 
 Later, with no fixed place yet:
 
-- event sources such as CI, chat apps and notifications, and timers that start
-  work
+- work that starts on an event: a CI system or a chat app is a client with its
+  own token, and a timer inside Hybro is a built-in client, like "No token"
 - built-in HTTPS: the image's Caddy obtains and renews a certificate for a
   domain the owner names
 - the MCP specification's own authorization flow, for MCP clients that cannot
@@ -545,7 +557,7 @@ community edition does.
 2. **The license key** that turns the enterprise features on.
 3. **The features**, each behind a small hook in the community code:
    - access rules and roles: who may use which agent or item. An access rule
-     that matches on a source needs a source with a token and can never
+     that matches on a client needs a client with a token and can never
      match "No token".
    - several approvers, and approval by role
    - saved standards that run on every step, with results over time
@@ -573,7 +585,7 @@ the state is read from the event log.
 
 It has five limits:
 
-- The source names itself, and the name is not verified. Phase 2 removes this.
+- The client names itself, and the name is not verified. Phase 2 removes this.
 - A message is text only. Phase 4 removes this.
 - A session runs one request at a time. Phase 4 removes this.
 - The client polls for the result. Phase 4 removes this.

@@ -1,7 +1,7 @@
 import { buildMcpConfig } from '@/lib/mcp'
 
 /** Stands for the token in a snippet shown before one is created. */
-export const TOKEN_PLACEHOLDER = '<source token>'
+export const TOKEN_PLACEHOLDER = '<client token>'
 
 export interface ClientSetup {
   id: string
@@ -13,7 +13,7 @@ export interface ClientSetup {
   hint: string
 }
 
-/** Each assistant's MCP setup, sending the source token as `Authorization: Bearer`. */
+/** Each assistant's MCP setup, sending the client token as `Authorization: Bearer`. */
 export function clientSetups(url: string, token: string = TOKEN_PLACEHOLDER): ClientSetup[] {
   const authorization = `Bearer ${token}`
   const headers = { Authorization: authorization }

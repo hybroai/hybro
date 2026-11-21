@@ -6,7 +6,7 @@ import { buildMcpConfig } from '@/lib/mcp'
 
 // A dev instance publishes MCP on its own port; the page must show that one.
 const MCP_URL = `${window.location.origin}/mcp`
-const MCP_CONFIG = buildMcpConfig(MCP_URL, '<source token>')
+const MCP_CONFIG = buildMcpConfig(MCP_URL, '<client token>')
 vi.mock('@/lib/config', () => ({ publicConfig: () => ({ api_base_url: 'https://hybro.example', api_prefix: '/api/v1' }) }))
 const push = vi.fn()
 vi.mock('next/navigation', () => ({ useRouter: () => ({ push }) }))
@@ -25,7 +25,7 @@ afterEach(() => {
 // The page reads only the token requirement, for its banner.
 const fetchedUrls = () => vi.mocked(fetch).mock.calls.map(([url]) => String(url))
 const onlyReadsTheRequirement = () => {
-  for (const url of fetchedUrls()) expect(url).toMatch(/\/api\/v1\/sources\/token-requirement$/)
+  for (const url of fetchedUrls()) expect(url).toMatch(/\/api\/v1\/clients\/token-requirement$/)
 }
 
 const lastCopied = () => String(vi.mocked(navigator.clipboard.writeText).mock.lastCall?.[0] ?? '')
@@ -37,7 +37,7 @@ describe('Access page', () => {
     expect(screen.getByRole('tab', { name: 'MCP' })).toHaveAttribute('aria-selected', 'true')
     expect(screen.getByText(MCP_URL)).toBeInTheDocument()
     expect(screen.getByRole('tab', { name: 'Claude Code' })).toHaveAttribute('aria-selected', 'true')
-    expect(screen.getByLabelText('Claude Code command')).toHaveTextContent(`claude mcp add --transport http hybro ${MCP_URL} --header 'Authorization: Bearer <source token>'`)
+    expect(screen.getByLabelText('Claude Code command')).toHaveTextContent(`claude mcp add --transport http hybro ${MCP_URL} --header 'Authorization: Bearer <client token>'`)
     expect(screen.getByRole('heading', { name: 'Features' })).toBeInTheDocument()
     for (const tool of ['find_agents', 'list_subnets', 'get_agent', 'send_message', 'check_session']) {
       expect(screen.getByText(tool)).toBeInTheDocument()
@@ -81,13 +81,13 @@ describe('Access page', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Copy discovery request' }))
     await screen.findByText('Discovery request copied')
     expect(lastCopied()).toContain('https://hybro.example/api/v1/agents/discovery')
-    expect(lastCopied()).toContain("--header 'Authorization: Bearer <source token>'")
-    expect(lastCopied()).not.toMatch(/hybro_src_|access_token|group_id/i)
+    expect(lastCopied()).toContain("--header 'Authorization: Bearer <client token>'")
+    expect(lastCopied()).not.toMatch(/hybro_client_|access_token|group_id/i)
     fireEvent.click(screen.getByRole('button', { name: 'Copy search request' }))
     await screen.findByText('Search request copied')
     expect(lastCopied()).toContain('https://hybro.example/api/v1/agents/search')
-    expect(lastCopied()).toContain("--header 'Authorization: Bearer <source token>'")
-    expect(lastCopied()).not.toMatch(/hybro_src_|access_token|group_id/i)
+    expect(lastCopied()).toContain("--header 'Authorization: Bearer <client token>'")
+    expect(lastCopied()).not.toMatch(/hybro_client_|access_token|group_id/i)
     expect(screen.getByText('GET /api/v1/agents/groups')).toBeInTheDocument()
     expect(screen.getByLabelText('Message request')).toHaveTextContent('/api/v1/sessions/messages')
     expect(screen.getByLabelText('Message request')).not.toHaveTextContent('/api/v1/agents/messages')

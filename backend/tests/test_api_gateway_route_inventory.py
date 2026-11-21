@@ -11,10 +11,10 @@ AUTH_DEPENDENCY_NAMES = {
     "get_owner_session",
     "get_optional_owner_session",
     "get_machine_account",
-    "get_machine_sources",
-    "get_owner_sources",
+    "get_machine_clients",
+    "get_owner_clients",
     "get_owner_rules",
-    "get_request_source",
+    "get_request_client",
 }
 
 

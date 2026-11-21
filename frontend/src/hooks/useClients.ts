@@ -3,24 +3,24 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   getTokenRequirement,
-  listSources,
+  listClients,
   setTokenRequirement,
-  type SourceList,
+  type ClientList,
   type TokenRequirement,
-} from '@/lib/api/source'
+} from '@/lib/api/clients'
 
-export const sourcesQueryKey = ['sources'] as const
-export const tokenRequirementQueryKey = ['sources', 'token-requirement'] as const
+export const clientsQueryKey = ['clients'] as const
+export const tokenRequirementQueryKey = ['clients', 'token-requirement'] as const
 
-export function useSources(enabled = true) {
-  return useQuery<SourceList>({
-    queryKey: sourcesQueryKey,
-    queryFn: ({ signal }) => listSources(signal),
+export function useClients(enabled = true) {
+  return useQuery<ClientList>({
+    queryKey: clientsQueryKey,
+    queryFn: ({ signal }) => listClients(signal),
     enabled,
   })
 }
 
-/** The owner's switch; the Connect banner, the Overview notice and the Sources tab share it. */
+/** The owner's switch; the Connect banner, the Overview notice and the Clients tab share it. */
 export function useTokenRequirement(enabled = true) {
   return useQuery<TokenRequirement>({
     queryKey: tokenRequirementQueryKey,

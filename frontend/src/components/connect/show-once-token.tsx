@@ -11,7 +11,7 @@ export interface TokenSnippet {
 }
 
 /**
- * A new source token, shown once with ready-to-paste snippets that contain it.
+ * A new client token, shown once with ready-to-paste snippets that contain it.
  * The token lives only in the caller's memory: it is never stored in the
  * browser, put in a URL or logged, and closing the dialog drops it.
  */
@@ -27,8 +27,8 @@ export function ShowOnceToken({ token, snippets }: { token: string; snippets: To
         </AlertDescription>
       </Alert>
       <div className="flex min-w-0 flex-col gap-2">
-        <p className="text-xs font-medium text-muted-foreground">Source token</p>
-        {copy.block('token', 'Source token', token)}
+        <p className="text-xs font-medium text-muted-foreground">Client token</p>
+        {copy.block('token', 'Client token', token)}
         <div className="flex flex-wrap items-center gap-2">
           {copy.button('token', token, 'Copy token', true)}
           {copy.state('token', 'Token')}

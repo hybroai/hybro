@@ -1,13 +1,13 @@
-"""The container side of ``hybro source``; run by ``scripts/hybro``::
+"""The container side of ``hybro client``; run by ``scripts/hybro``::
 
     docker exec <container> /app/backend/.venv/bin/python \\
-        /app/backend/source_cli.py create --name <name>
+        /app/backend/client_cli.py create --name <name>
     docker exec <container> /app/backend/.venv/bin/python \\
-        /app/backend/source_cli.py requirement
+        /app/backend/client_cli.py requirement
 
-``create`` creates a source through the machine-only route over loopback and
-prints the new source token once. ``requirement`` prints ``on`` or ``off``,
-whether a Source API request needs a source token; ``hybro`` reads it for its
+``create`` creates a client through the machine-only route over loopback and
+prints the new client token once. ``requirement`` prints ``on`` or ``off``,
+whether a Client API request needs a client token; ``hybro`` reads it for its
 public-listener warning. Exit status: 0 done, 1 refused (nothing was changed),
 2 the command could not run or its outcome is unknown. Standard library only;
 it reads neither ``config.json`` nor ``auth.json`` and never prints the machine
@@ -36,9 +36,9 @@ from owner_cli import (
     read_handoff,
 )
 
-USAGE = "usage: source_cli.py create --name <name> | requirement\n"
+USAGE = "usage: client_cli.py create --name <name> | requirement\n"
 # The switch is product state; only this helper and the backend read it.
-REQUIREMENT_PATH = "/sources/token-requirement"
+REQUIREMENT_PATH = "/clients/token-requirement"
 
 Get = Callable[[str, str], tuple[int, bytes]]
 
@@ -57,7 +57,7 @@ def http_get(url: str, token: str) -> tuple[int, bytes]:
 
 
 def parse(argv: list[str]) -> tuple[str, str] | None:
-    """The command and its source name, or None for a usage error."""
+    """The command and its client name, or None for a usage error."""
     if argv == ["requirement"]:
         return "requirement", ""
     if len(argv) != 3 or argv[0] != "create" or argv[1] != "--name":
@@ -71,7 +71,7 @@ def refusal(status: int, body: bytes) -> Failed:
     message = detail.get("message")
     if status >= 500 or 200 <= status < 300:
         return Failed(
-            f"the backend answered HTTP {status}; the source may have been "
+            f"the backend answered HTTP {status}; the client may have been "
             f"created. {LOG_HINT}",
             2,
         )
@@ -103,10 +103,10 @@ def run(name: str, *, stdout: IO[str], handoff: Path, post: Post) -> int:
     base_url, token = read_handoff(handoff)
     payload = json.dumps({"name": name}).encode()
     try:
-        status, body = post(base_url + "/sources", token, payload)
+        status, body = post(base_url + "/clients", token, payload)
     except TimeoutError as exc:
         raise Failed(
-            f"the backend did not answer within {TIMEOUT_SECONDS:g} s; the source "
+            f"the backend did not answer within {TIMEOUT_SECONDS:g} s; the client "
             f"may have been created. {LOG_HINT}",
             2,
         ) from exc
@@ -118,7 +118,7 @@ def run(name: str, *, stdout: IO[str], handoff: Path, post: Post) -> int:
     if created is None:
         raise refusal(status, body)
     stdout.write(
-        f"Created the source {created['name']}. Its token is shown once; "
+        f"Created the client {created['name']}. Its token is shown once; "
         "send it as 'Authorization: Bearer <token>':\n"
         f"{created['token']}\n"
     )
@@ -169,11 +169,11 @@ def main(
             return read_requirement(stdout=stdout, handoff=handoff, get=get)
         return run(name, stdout=stdout, handoff=handoff, post=post)
     except Failed as exc:
-        stderr.write(f"hybro source: {exc}\n")
+        stderr.write(f"hybro client: {exc}\n")
         return exc.code
     except Exception as exc:
         # The type only: an exception message could carry a token.
-        stderr.write(f"hybro source: unexpected {type(exc).__name__}\n")
+        stderr.write(f"hybro client: unexpected {type(exc).__name__}\n")
         return 2
 
 
