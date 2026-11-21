@@ -72,8 +72,30 @@ VIA_HEADER = "X-Hybro-Via"
 Listen = Literal["loopback", "public"]
 
 
-def transport_security_for(listen: Listen) -> TransportSecuritySettings:
-    return PUBLIC_TRANSPORT_SECURITY if listen == "public" else TRANSPORT_SECURITY
+def transport_security_for(
+    listen: Listen, proxied_host: str | None = None
+) -> TransportSecuritySettings:
+    """The Host and Origin check for this listener.
+
+    A loopback listener behind a same-machine proxy (backend.proxy_hops with
+    frontend.server_url) also answers to that one name, as Caddy does.
+    """
+    if listen == "public":
+        return PUBLIC_TRANSPORT_SECURITY
+    if proxied_host is None:
+        return TRANSPORT_SECURITY
+    host = f"[{proxied_host}]" if ":" in proxied_host else proxied_host
+    return TransportSecuritySettings(
+        allowed_hosts=[*TRANSPORT_SECURITY.allowed_hosts, host, f"{host}:*"],
+        allowed_origins=[
+            *TRANSPORT_SECURITY.allowed_origins,
+            *(
+                f"{scheme}://{host}{port}"
+                for scheme in ("http", "https")
+                for port in ("", ":*")
+            ),
+        ],
+    )
 
 
 SESSION_STATES = (
@@ -200,6 +222,11 @@ class ConnectionConfig(BaseModel):
     )
     # The listener Hybro serves on; it decides the Host and Origin check.
     listen: Listen = "loopback"
+    # On loopback with backend.proxy_hops: the frontend.server_url host Caddy
+    # also admits, lower-case and without brackets or port.
+    proxied_host: str | None = Field(
+        default=None, pattern=r"^(?:[a-z0-9._-]+|[0-9a-f:.]+)$", max_length=253
+    )
 
 
 class SubnetRef(BaseModel):
@@ -403,8 +430,9 @@ def caller_authorization(ctx: object) -> str | None:
 def caller_address(headers: Mapping[str, str] | None) -> dict[str, str]:
     """The address a caller used, for the backend's checks.
 
-    ``X-Forwarded-Host`` is the one Caddy sets (it drops a client's own), every
-    line of it; without one, the caller's ``Host``. ``Origin`` only when the
+    ``X-Forwarded-Host`` is the one Caddy passes on, every line of it: its own
+    copy of ``Host``, or with ``backend.proxy_hops`` the outer proxy's. Without
+    one, the caller's ``Host``. ``Origin`` only when the
     caller sent one: most MCP clients send none.
     """
     if headers is None:
@@ -477,7 +505,10 @@ def logged_tool(
 
 
 def create_server(
-    client: httpx.AsyncClient, *, listen: Listen = "loopback"
+    client: httpx.AsyncClient,
+    *,
+    listen: Listen = "loopback",
+    proxied_host: str | None = None,
 ) -> MCPServer:
     """Register network tools over a caller-owned HTTP client.
 
@@ -515,7 +546,9 @@ def create_server(
 
     @server.custom_route("/health", methods=["GET"])
     async def health(request: Request) -> Response:
-        security = TransportSecurityMiddleware(transport_security_for(listen))
+        security = TransportSecurityMiddleware(
+            transport_security_for(listen, proxied_host)
+        )
         rejected = await security.validate_request(request)
         if rejected is not None:
             return rejected
@@ -957,11 +990,15 @@ async def main(*, image: bool = False) -> None:
         follow_redirects=False,
         trust_env=False,
     ) as client:
-        app = create_server(client, listen=config.listen).streamable_http_app(
+        app = create_server(
+            client, listen=config.listen, proxied_host=config.proxied_host
+        ).streamable_http_app(
             streamable_http_path="/mcp",
             stateless_http=True,
             json_response=True,
-            transport_security=transport_security_for(config.listen),
+            transport_security=transport_security_for(
+                config.listen, config.proxied_host
+            ),
             host=MCP_HOST,
         )
         await serve(app)

@@ -259,6 +259,10 @@ def test_discovery_start_above_the_default_end_is_rejected() -> None:
         ("orchestrator_fast_max_agent_calls", 10_001),
         ("orchestrator_ultimate_max_agent_calls", 2**63),
         ("orchestrator_passthrough_max_transport_retries_per_call", 101),
+        ("proxy_hops", 11),
+        ("proxy_hops", -1),
+        ("proxy_hops", True),
+        ("proxy_hops", "1"),
     ],
 )
 def test_values_that_break_the_services_are_rejected_at_startup(field, value) -> None:
@@ -334,3 +338,8 @@ def test_machine_handoff_file_is_private_and_image_only() -> None:
     _apply_image_defaults(values)
     assert values["machine_handoff_file"] == "/tmp/hybro/machine.json"
     assert "machine_handoff_file" not in image_defaults()
+
+
+def test_proxy_hops_defaults_to_no_proxy_in_front() -> None:
+    assert Settings().proxy_hops == 0
+    assert Settings.model_validate({"proxy_hops": 10}).proxy_hops == 10

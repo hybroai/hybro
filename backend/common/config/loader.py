@@ -147,6 +147,14 @@ class Settings(BaseModel):
     # push-notification config with Agents whose card advertises
     # pushNotifications; polling remains the fallback. Empty disables push.
     a2a_push_callback_base_url: str = ""
+    # Reverse proxies in front of the image, for example 1 for one nginx that
+    # terminates TLS. With 0, Caddy believes no forwarded header; with a count,
+    # it believes the forwarded scheme and host from any peer and takes the
+    # client address that many entries from the end of X-Forwarded-For, and a
+    # loopback listener also answers to frontend.server_url. The entrypoint
+    # writes it into the Caddyfile; a checkout has no Caddy and ignores it. At
+    # most 10: no supported chain is longer.
+    proxy_hops: int = Field(default=0, ge=0, le=10)
     # Supervisor ask_user approval deadline; None means no deadline.
     approval_deadline_hours: float | None = Field(default=None, gt=0, le=87600)
 

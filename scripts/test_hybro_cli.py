@@ -473,16 +473,33 @@ def test_start_detached_with_an_existing_image(cli):
     assert "Stop it with: hybro stop" in result.stdout
 
 
-def test_public_listener_with_port_and_insecure_flag(cli):
+def test_a_public_listener_needs_no_flag(cli):
+    assert cli.run("-d", "--listen", "0.0.0.0", "--port=8443").returncode == 0
+    run = cli.started()
+    assert options(run, "-p")[0] == "0.0.0.0:8443:8080"
+    assert options(run, "-e") == ["HYBRO_LISTEN=public", "HYBRO_PUBLIC_PORT=8443"]
+    assert "<this machine's address>:8443" in cli.output
+    assert "deprecated" not in cli.output
+
+
+def test_the_insecure_flag_is_deprecated_and_changes_nothing(cli):
     assert cli.run("-d", "--listen", "0.0.0.0", "--port=8443", "--insecure-no-auth").returncode == 0
     run = cli.started()
     assert options(run, "-p")[0] == "0.0.0.0:8443:8080"
+    # Still passed on until its removal, so runtime.json keeps the field.
     assert options(run, "-e") == [
         "HYBRO_LISTEN=public",
         "HYBRO_PUBLIC_PORT=8443",
         "HYBRO_INSECURE_NO_AUTH=1",
     ]
-    assert "<this machine's address>:8443" in cli.output
+    notices = [line for line in cli.output.splitlines() if "--insecure-no-auth" in line]
+    assert notices == [DEPRECATED_INSECURE]
+
+
+def test_the_help_says_a_public_address_needs_no_flag(cli):
+    result = cli.run("--help")
+    assert "needs --insecure-no-auth" not in result.stdout
+    assert "Deprecated" in result.stdout.split("--insecure-no-auth", 1)[1].splitlines()[0]
 
 
 @pytest.mark.parametrize(
@@ -1907,6 +1924,10 @@ def test_a_detached_start_points_to_status_for_the_link(cli):
 
 # ---- the warning for a public listener without the token requirement ----
 
+DEPRECATED_INSECURE = (
+    "hybro: --insecure-no-auth is deprecated and does nothing: a public address needs no flag. "
+    "It will be removed in a later release."
+)
 OPEN_WARNING = (
     "WARNING: Hybro listens on an address other machines can reach, and its "
     "Source API takes requests without a source token. Anyone who can reach this "
@@ -1977,7 +1998,7 @@ def test_the_already_running_path_warns_once(cli):
 def test_the_foreground_start_warns_after_ready_on_a_public_listener(cli):
     cli.state["images"] = [IMAGE]
     cli.state["exec_by"] = {"requirement": {"out": "off\n"}}
-    cli.run("--listen", "0.0.0.0", "--insecure-no-auth")
+    cli.run("--listen", "0.0.0.0")
     lines = cli.output.splitlines()
     ready = next(i for i, line in enumerate(lines) if line.startswith("Hybro is ready at"))
     assert lines.count(OPEN_WARNING) == 1

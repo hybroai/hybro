@@ -155,6 +155,7 @@ def field(body: dict, key: str) -> dict:
         ),
         ("backend.log_format", "LOGFMT", "logfmt"),
         ("backend.local_agent_discovery_port_start", 9100, 9100),
+        ("backend.proxy_hops", 1, 1),
     ],
 )
 async def test_put_saves_each_kind_normalized(harness, key, submitted, stored):
@@ -234,6 +235,14 @@ def field_errors(response) -> list[tuple[str | None, str]]:
         (
             {"backend.local_agent_discovery_port_start": 70000},
             [("backend.local_agent_discovery_port_start", "less_than_equal")],
+        ),
+        (
+            {"backend.proxy_hops": 11},
+            [("backend.proxy_hops", "less_than_equal")],
+        ),
+        (
+            {"backend.proxy_hops": "1"},
+            [("backend.proxy_hops", "type_mismatch")],
         ),
         (
             {

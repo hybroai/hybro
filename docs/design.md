@@ -307,8 +307,9 @@ Hybro checks where a request came from:
 - A Source API request without a token is refused when its `Origin` names
   another address. A program sends no `Origin`, so programs are not affected.
 - Hybro's own address is the host and port the browser used. Behind a reverse
-  proxy that is the forwarded host, so the proxy must pass the browser's host
-  on.
+  proxy the proxy keeps the browser's host, or passes it on in
+  `X-Forwarded-Host` with `backend.proxy_hops` set (see
+  [behind a reverse proxy](reverse-proxy.md)).
 - A request without the cookie is not checked by the first rule. Scripts, the
   MCP adapter and agents are not affected.
 

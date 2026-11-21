@@ -7884,7 +7884,7 @@
               ]
             },
             "type": "object",
-            "maxProperties": 29,
+            "maxProperties": 30,
             "minProperties": 1,
             "title": "Values"
           }

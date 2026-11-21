@@ -62,6 +62,7 @@ EXPECTED_KEYS = {
     "backend.llm_gateway_stream_timeout_seconds",
     "backend.local_agent_discovery_interval_seconds",
     "frontend.inspection_timeout_ms",
+    "backend.proxy_hops",
 }
 
 _KIND_TYPES = {
@@ -161,6 +162,14 @@ def test_registry_bounds_come_from_the_models():
     calls = field_spec("backend.orchestrator_fast_max_agent_calls")
     assert (calls.exclusive_minimum, calls.minimum) == (0, None)
     assert field_spec("frontend.max_message_length").exclusive_minimum == 0
+    hops = field_spec("backend.proxy_hops")
+    assert (hops.kind, hops.minimum, hops.maximum, hops.apply) == (
+        "integer",
+        0,
+        10,
+        "restart",
+    )
+    assert field_default(hops, image=True) == 0
     assert field_spec("backend.log_level").options == (
         "DEBUG",
         "INFO",

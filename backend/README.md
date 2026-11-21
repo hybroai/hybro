@@ -280,7 +280,7 @@ The single image runs MCP as one of its programs and serves it at `/mcp` on the
 app's port, on every listener: `http://localhost:3000/mcp` for a released
 install, `http://localhost:3100/mcp` from a checkout. An MCP client on another
 machine connects with a source token to the address it reaches Hybro by, once
-Hybro listens there (for now with `--insecure-no-auth`).
+Hybro listens there (`--listen`; a public address needs no flag).
 
 Each tool passes the `Authorization` header of the MCP request on to the
 backend. Set `Authorization: Bearer <source token>` in your MCP client's
@@ -389,7 +389,9 @@ containing `api_prefix` and the listen mode (`listen`: `loopback` or
 `public`); it reaches the backend on loopback and listens on `127.0.0.1:8001`,
 behind Caddy's `/mcp` route. Native mode and a loopback listener keep the
 explicit Host/Origin DNS-rebinding check (only `localhost` and `127.0.0.1`, any
-port), on `/mcp` and `/health`. On a public listener that check is off, because
+port), on `/mcp` and `/health`; behind a same-machine proxy (`backend.proxy_hops`
+above 0 and `frontend.server_url` set) loopback also admits that one host, sent
+as `proxied_host`. On a public listener that check is off, because
 other machines reach Hybro by names the server cannot know. Instead each
 backend call carries the caller's address: the `X-Forwarded-Host` Caddy set (it
 drops a client's own), or the request's `Host` without one, and the caller's

@@ -114,6 +114,7 @@ Startup rules added with the Settings API (all under `backend` unless named
 - At most 10000: the Fast and Ultimate `max_model_turns` and `max_agent_calls`.
 - At most 100: `orchestrator_passthrough_max_transport_retries_per_call`.
 - At most 36500: `compaction_content_ttl_days`.
+- From 0 to 10: `proxy_hops`.
 - At most 9007199254740991 (2**53 - 1): any integer backend setting.
 - `frontend.max_message_length` at most 10000 (the backend refuses longer
   messages) and `frontend.inspection_timeout_ms` at most 2147483647 (what the
@@ -184,7 +185,8 @@ one logfmt summary line to `hybro logs` (`restart | level=info ...`, or
 `level=error` for a failure, which the foreground `hybro` view also shows).
 
 The port, listener mode, and sign-in are shown read-only. The port and
-listener are `hybro` flags (`--port`, `--listen`, `--insecure-no-auth`).
+listener are `hybro` flags (`--port`, `--listen`); a public listener needs no
+other flag.
 Sign-in shows `Owner account` on every install (`auth_mode` is `account` in
 the system information).
 
@@ -210,6 +212,9 @@ port. `/health` answers any name.
 
 In the image the entrypoint sets `frontend_origins`: `localhost` and
 `127.0.0.1` on a loopback listener, `frontend.server_url` on a public one. A
+loopback listener behind a proxy on the same machine (`backend.proxy_hops`
+above 0) also answers to the host of `frontend.server_url`, when it is set,
+and to no other name. A
 public install reached by a name, whether a domain, a LAN or mDNS name such
 as `nas.local`, or a MagicDNS name, sets `frontend.server_url` to the address
 people open; the image then trusts that one name:
@@ -221,6 +226,23 @@ people open; the image then trusts that one name:
 A checkout reached by a name other than `localhost` lists it in
 `backend.frontend_origins`. A name with characters such as `ß` is configured
 in its punycode form (`xn--...`).
+
+## Behind a reverse proxy
+
+| Field | Default | Meaning |
+|---|---|---|
+| `backend.proxy_hops` | `0` (no proxy in front) | How many reverse proxies forward to the image, from 0 to 10. With 0, Caddy believes no `X-Forwarded-*` header a client sends. With a count, it believes the forwarded scheme and host from any peer, and takes the client address that many entries from the end of `X-Forwarded-For`. The secure cookie, the cross-site check, the address check above and the per-address sign-in delay then use the browser's view. It writes the Caddyfile, so it applies after `hybro stop` and `hybro`, not after a restart from the Settings page. A checkout has no Caddy and ignores it. |
+
+With a count, anything that reaches Hybro's port directly, not through the
+proxy, can forge the forwarded scheme, host and client address, so Hybro must
+be reachable only through the proxy. The default loopback binding with the
+proxy on the same machine does that; on a public listener the entrypoint
+prints a warning at every start. The
+[reverse proxy guide](reverse-proxy.md#let-only-the-proxy-reach-the-port) says
+what such a client can and cannot do.
+`frontend.server_url` still names the address people open. The
+[reverse proxy guide](reverse-proxy.md) shows both settings with nginx and
+Caddy.
 
 ## Backend configuration fields
 
@@ -290,5 +312,7 @@ no configuration file fails to load, and are removed in a later release:
 | `clerk_secret_key`, `clerk_webhook_secret` (in `auth.json`) | Ignored. A Clerk token opens nothing. |
 | `frontend.clerk_*`, `frontend.enable_waitlist` | Ignored. |
 
-`frontend.server_url` no longer opens a public listener: a non-loopback
-`--listen` needs `--insecure-no-auth`.
+`hybro --insecure-no-auth` is deprecated too: it prints a notice and changes
+nothing, because a public listener needs no flag. `frontend.server_url` is not
+deprecated: it names the address a public install answers to (see
+[Addresses Hybro answers to](#addresses-hybro-answers-to)).

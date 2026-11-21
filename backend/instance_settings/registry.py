@@ -337,6 +337,19 @@ FIELDS: tuple[FieldSpec, ...] = (
         "Time between local agent scans.",
     ),
     _spec(
+        "backend",
+        "proxy_hops",
+        "advanced",
+        "advanced",
+        "integer",
+        "Reverse proxies in front",
+        "How many reverse proxies, such as nginx for HTTPS, forward to this "
+        "instance; 0 trusts no forwarded header. Above 0, anything that "
+        "reaches the port directly can forge the forwarded scheme, host and "
+        "client address, so only the proxy may reach it. Applies after "
+        "`hybro stop` and `hybro`.",
+    ),
+    _spec(
         "frontend",
         "inspection_timeout_ms",
         "advanced",
