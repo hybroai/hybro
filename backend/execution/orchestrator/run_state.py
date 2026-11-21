@@ -583,7 +583,13 @@ def _terminal_closure_plan(
                 entry.suspended_call_record_id is not None
                 or entry.interaction_id is not None
             )
-            if parked and not (entry.suspended_call_record_id and entry.interaction_id):
+            # A parked entry with no identity at all owns no Agent interaction
+            # (a run-level question); it closes like any open entry.
+            if (
+                parked
+                and parked_identity
+                and not (entry.suspended_call_record_id and entry.interaction_id)
+            ):
                 raise KernelConflict(
                     "parked Tool child has incomplete interaction identity"
                 )
