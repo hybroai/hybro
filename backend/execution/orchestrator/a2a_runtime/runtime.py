@@ -25,6 +25,7 @@ from ..models import (
 from ..persistence import TERMINAL_RUN_STATUSES
 from ..ports import (
     AgentCallDenied,
+    AgentCallNeedsAnswer,
     CancellationSignal,
     InvalidParkedInteractionTarget,
     InvocationCheckpointReader,
@@ -173,7 +174,9 @@ class A2AAgentToolRuntime:
             raise A2AAcceptanceDenied("Room epoch is not active")
         await self._require_run_accepts_new_call(invocation.run_id)
         # A replay returned above, so an accepted call is never re-checked.
-        await self._require_rules_allow_new_call(binding.agent_id)
+        await self._require_rules_allow_new_call(
+            binding.agent_id, rule_approved=rule_approved
+        )
         parsed = AgentToolInput.model_validate(invocation.arguments)
         resource_refs = [ref.ref_id for ref in prepared.resource_manifest.refs]
         decision = await self.authorization.authorize(
@@ -261,13 +264,22 @@ class A2AAgentToolRuntime:
         if await self._run_blocks_new_call(run_id):
             raise A2AAcceptanceDenied("owning Run is not accepting Agent calls")
 
-    async def _require_rules_allow_new_call(self, agent_id: str) -> None:
-        """The owner's check rules gate a new Agent call, and only that."""
-        if self.call_check is None:
+    async def _require_rules_allow_new_call(
+        self, agent_id: str, *, rule_approved: bool
+    ) -> None:
+        """The owner's check rules gate a new Agent call, and only that.
+
+        A call the owner approved at a rule's question skips only this check;
+        the Run fence, authorization and the ledger write still run.
+        """
+        if self.call_check is None or rule_approved:
             return
         checked = await self.call_check.check_agent_call(agent_id)
-        if checked.answer != "allow":
-            raise AgentCallDenied(checked.rule_id)
+        if checked.answer == "allow":
+            return
+        if checked.answer == "ask":
+            raise AgentCallNeedsAnswer(checked.rule_id)
+        raise AgentCallDenied(checked.rule_id)
 
     async def _fence_accepted_call(self, call: AgentCallLedgerRecord) -> None:
         if not await self._run_blocks_new_call(call.run_id):

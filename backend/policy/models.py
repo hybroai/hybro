@@ -16,8 +16,8 @@ from pydantic import (
 
 from common.utils.time import ensure_utc
 
-# What a check rule answers. "ask" arrives with the Questions it holds.
-RuleAnswer = Literal["allow", "deny"]
+# What a check rule answers. "ask" holds the call for the owner's answer.
+RuleAnswer = Literal["allow", "deny", "ask"]
 # The kind of rule. Route rules are a later phase.
 RuleKind = Literal["check"]
 

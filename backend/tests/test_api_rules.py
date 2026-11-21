@@ -112,10 +112,26 @@ async def test_create_is_refused_at_the_limit(monkeypatch):
     assert response.json()["detail"]["code"] == "rule_limit_reached"
 
 
+async def test_a_rule_can_answer_ask():
+    app = make_app()
+    async with client_for(app) as client:
+        created = await client.post(RULES, json={"agent_id": "writer", "answer": "ask"})
+        rule_id = created.json()["rule_id"]
+        replaced = await client.put(
+            f"{RULES}/{rule_id}",
+            json={"agent_id": None, "answer": "ask", "enabled": False},
+        )
+
+    assert created.status_code == 201
+    assert created.json()["answer"] == "ask"
+    assert replaced.status_code == 200
+    assert replaced.json()["answer"] == "ask"
+
+
 @pytest.mark.parametrize(
     ("body", "field"),
     [
-        ({"answer": "ask"}, "answer"),
+        ({"answer": "ASK"}, "answer"),
         ({"answer": "secret-answer-value"}, "answer"),
         ({}, "answer"),
         ({"answer": "deny", "agent_id": "   "}, "agent_id"),

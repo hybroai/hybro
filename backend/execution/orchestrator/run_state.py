@@ -215,6 +215,53 @@ def held_call_answer_observation(
     )
 
 
+def run_level_answer_disposition(
+    run: OrchestratorRunState, call_id: str
+) -> Literal["deliver", "busy", "applied"]:
+    """What the resume port does with the owner's answer to a run-level call.
+
+    Only a call a check rule held, on a Run that is running, differs: while
+    it is still asked another call's approved pass is running, so the answer
+    waits (``busy``); once answered, the answer is already durable
+    (``applied``) and the running pass, or recovery, carries it on.
+    """
+    if run.status != "running":
+        return "deliver"
+    hold = next(
+        (
+            entry.rule_hold
+            for batch in run.tool_batches
+            for entry in batch.entries
+            if entry.call_id == call_id and entry.rule_hold is not None
+        ),
+        None,
+    )
+    if hold is None:
+        return "deliver"
+    return "busy" if hold.state == "asked" else "applied"
+
+
+def run_level_answer_observation(
+    run: OrchestratorRunState,
+    call_id: str,
+    answers: str,
+    observed_at: datetime,
+) -> ToolObservation:
+    """The observation for the owner's answer to a run-level Question.
+
+    The entry decides: a call a check rule held takes a held-call answer,
+    anything else takes the answer text as ``request_user_input`` does.
+    """
+    held = any(
+        entry.call_id == call_id and entry.rule_hold is not None
+        for batch in run.tool_batches
+        for entry in batch.entries
+    )
+    if held:
+        return held_call_answer_observation(run.run_id, call_id, answers, observed_at)
+    return supervisor_answer_observation(run.run_id, call_id, answers, observed_at)
+
+
 @dataclass(frozen=True, slots=True)
 class KernelRunResult:
     outcome: KernelOutcome

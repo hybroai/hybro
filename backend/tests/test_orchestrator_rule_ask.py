@@ -825,8 +825,13 @@ async def test_crash_c_after_the_approve_before_accept(profile):
     assert entry_of(stored).state == "pending"
     assert entry_of(stored).rule_hold.state == "approved"
 
-    # The replayed answer goes on with the Run instead of raising.
-    done = await observe(kernel, room, run_id, approve)
+    # A replay never drives a running Run: another pass may still own it.
+    # The decision is durable, and recovery resumes the Run.
+    with pytest.raises(KernelConflict):
+        await observe(kernel, room, run_id, approve)
+    assert tools.execute_log == []
+
+    done = await start(kernel, room, run_id)
 
     assert done.outcome == "final_answer"
     assert tools.accept_calls[-1] == (call_id, True)
@@ -1153,6 +1158,32 @@ async def test_an_agents_own_agent_call_refused_code_does_not_end_as_refused():
     assert result.run.status == "failed"
     assert result.run.cancellation_cause is None
     assert (await settled_turn(room, result.run))["state"] == "failed"
+
+
+async def test_a_replayed_approve_while_the_approved_call_runs_starts_no_second_pass():
+    kernel, store, _m, tools, _p, room, run_id = await room_chat(
+        [tool_events(("call-1", ECHO, '{"value":"hi"}')), final_events()]
+    )
+    await start(kernel, room, run_id)
+    approve = answer_of(run_id, "call-1", "Approve")
+    replays: list[str] = []
+    original_execute = tools.execute
+
+    async def execute_while_the_answer_is_replayed(invocation, acceptance, *, signal):
+        try:
+            await observe(kernel, room, run_id, approve)
+        except KernelConflict:
+            replays.append((await store.load(run_id)).status)
+        return await original_execute(invocation, acceptance, signal=signal)
+
+    tools.execute = execute_while_the_answer_is_replayed
+
+    done = await observe(kernel, room, run_id, approve)
+
+    assert replays == ["running"]
+    assert done.outcome == "final_answer"
+    assert tools.execute_log == ["call-1"]
+    assert (await settled_turn(room, done.run))["state"] == "completed"
 
 
 async def test_a_refusal_asks_the_next_call_while_a_sibling_agent_still_works():

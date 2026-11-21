@@ -445,3 +445,81 @@ async def test_a_crash_after_the_reserve_still_runs_an_allowed_call(monkeypatch)
     assert result.run.budget.agent_calls_used == 1
     assert tools.execute_log == ["allowed"]
     assert [m.error_code for m in _tool_results(result.run)] == [None]
+
+
+# -- A rule that answers "ask" --------------------------------------------------
+
+
+async def test_accept_holds_a_call_a_rule_asks_about_before_any_ledger_record():
+    from execution.orchestrator.ports import AgentCallNeedsAnswer
+
+    agent_id = prepared().binding.agent_id
+    rules = await _rules(RuleCreate(agent_id=agent_id, answer="ask"))
+    (rule,) = (await rules.list_rules()).rules
+    runtime, ledger, authorization, dispatch, _ = await setup()
+    runtime.call_check = rules
+
+    with pytest.raises(AgentCallNeedsAnswer) as held:
+        await runtime.accept(invocation())
+
+    assert held.value.rule_id == rule.rule_id
+    assert await ledger.load("run-1", "call-1") is None
+    assert authorization.calls == 0
+    assert dispatch.commands == []
+
+
+@pytest.mark.parametrize("answer", ["ask", "deny"])
+async def test_an_approved_call_skips_only_the_rule_check(answer):
+    # The owner's answer decides this call even if the rule now says
+    # otherwise: changed to deny, or still ask (row 11).
+    runtime, ledger, authorization, _, _ = await setup()
+    runtime.call_check = await _rules(RuleCreate(answer=answer))
+
+    accepted = await runtime.accept(invocation(), rule_approved=True)
+
+    assert accepted.invocation_id == "call-1"
+    assert await ledger.load("run-1", "call-1") is not None
+    assert authorization.calls == 1
+
+
+async def test_an_approved_call_after_its_rule_was_deleted_is_accepted():
+    rules = await _rules(RuleCreate(answer="ask"))
+    (rule,) = (await rules.list_rules()).rules
+    await rules.delete(rule.rule_id)
+    runtime, ledger, _, _, _ = await setup()
+    runtime.call_check = rules
+
+    await runtime.accept(invocation(), rule_approved=True)
+
+    assert await ledger.load("run-1", "call-1") is not None
+
+
+async def test_an_approved_call_is_still_refused_when_the_run_is_canceling():
+    from types import SimpleNamespace
+    from unittest.mock import AsyncMock
+
+    from execution.orchestrator.a2a_runtime.runtime import A2AAcceptanceDenied
+
+    run_store = SimpleNamespace(
+        load=AsyncMock(return_value=SimpleNamespace(status="canceling"))
+    )
+    runtime, ledger, _, _, _ = await setup(run_store=run_store)
+    runtime.call_check = await _rules(RuleCreate(answer="ask"))
+
+    with pytest.raises(A2AAcceptanceDenied, match="not accepting"):
+        await runtime.accept(invocation(), rule_approved=True)
+
+    assert await ledger.load("run-1", "call-1") is None
+
+
+@pytest.mark.parametrize("auth", ["denied", "unavailable"])
+async def test_an_approved_call_is_still_refused_when_authorization_fails(auth):
+    from execution.orchestrator.a2a_runtime.runtime import A2AAcceptanceDenied
+
+    runtime, ledger, _, _, _ = await setup(auth=auth)
+    runtime.call_check = await _rules(RuleCreate(answer="ask"))
+
+    with pytest.raises(A2AAcceptanceDenied, match="authorization"):
+        await runtime.accept(invocation(), rule_approved=True)
+
+    assert await ledger.load("run-1", "call-1") is None

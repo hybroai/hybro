@@ -119,6 +119,8 @@ from .run_state import (
     _waiting_call_runs_next,
     _with_interaction_answers,
     held_call_answer_observation,
+    run_level_answer_disposition,
+    run_level_answer_observation,
     supervisor_answer_observation,
 )
 from .settlement import (
@@ -817,8 +819,9 @@ class OrchestratorKernel:
         if answer.invocation_id != entry.invocation.invocation_id:
             raise ValueError("held-call answer does not correlate")
         if observation.observation_id in entry.processed_observation_ids:
-            # A replayed answer: the decision is already durable. Go on with
-            # the Run, which a crash after the approval may have left running.
+            # A replayed answer: the decision is already durable. A running
+            # Run is never driven from here, since its own pass may still be
+            # going; after a crash the recovery watchdog resumes it.
             if run.status in TERMINAL_RUN_STATUSES:
                 return KernelRunResult(_outcome_for_status(run.status), run)
             if run.status in SUSPENDED_RUN_STATUSES:
@@ -828,7 +831,7 @@ class OrchestratorKernel:
                     else "waiting_external",
                     run,
                 )
-            return await self.run(run.run_id, signal=signal, lifecycle=lifecycle)
+            raise KernelConflict("a replayed answer does not drive a running Run")
         if held.state != "asked":
             raise KernelConflict("held call was already answered")
         if run.status in TERMINAL_RUN_STATUSES:
@@ -4154,6 +4157,8 @@ def _same_cancel(run: OrchestratorRunState, status: str, cause: str | None) -> b
 __all__ = [
     "KernelConflict",
     "held_call_answer_observation",
+    "run_level_answer_disposition",
+    "run_level_answer_observation",
     "KernelLifecycle",
     "KernelRunResult",
     "OrchestratorKernel",
