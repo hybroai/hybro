@@ -3,7 +3,7 @@ import { http, HttpResponse } from 'msw'
 import { server } from '../../setup/msw-server'
 import { getApiUrl } from '@/lib/utils'
 import { closeSession, fetchSessionEvents, getSessionRecord, listSessions } from '@/lib/api/session'
-import { sessionRequester } from '@/lib/session-format'
+import { sessionClientLabel, sessionRequester } from '@/lib/session-format'
 
 const base = getApiUrl('sessions')
 
@@ -32,10 +32,12 @@ describe('session api', () => {
     expect(seen[0]).toContain('/sessions/a%2Fb/record/close')
   })
 
-  it('names the requester by its label, else by its source', () => {
+  it('names the requester by its source and keeps the label apart', () => {
     const source = { source_id: 'src_1', name: 'CI bot', has_token: true }
-    expect(sessionRequester({ client_label: 'Laptop', source })).toBe('Laptop')
-    expect(sessionRequester({ client_label: null, source })).toBe('CI bot')
+    expect(sessionRequester({ source })).toBe('CI bot')
+    expect(sessionClientLabel({ client_label: 'Laptop', source })).toBe('Laptop')
+    expect(sessionClientLabel({ client_label: null, source })).toBeNull()
+    expect(sessionClientLabel({ client_label: ' CI bot ', source })).toBeNull()
   })
 
   it('reads the whole event log past one page', async () => {

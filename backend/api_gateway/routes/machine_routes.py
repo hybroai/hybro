@@ -28,8 +28,14 @@ from api_gateway.owner_session import (
     refuse_account_error,
 )
 from api_gateway.registry import mark_declared_owner
-from api_gateway.source_token import get_source_registry
-from source.protocols import SourceCreate, SourceRegistry, SourceWithToken
+from api_gateway.source_token import get_source_registry, refuse_unset_requirement
+from source.protocols import (
+    SourceCreate,
+    SourceRegistry,
+    SourceWithToken,
+    TokenRequirement,
+    TokenRequirementUnset,
+)
 
 TOKEN_HEADER = "X-Hybro-Machine-Token"
 
@@ -107,6 +113,17 @@ async def machine_create_source(
 ) -> SourceWithToken:
     """Create a source for ``hybro source create``; its token is returned once."""
     return await sources.create(body.name)
+
+
+@router.get("/sources/token-requirement")
+async def machine_get_token_requirement(
+    sources: MachineSourcesDependency,
+) -> TokenRequirement:
+    """The owner's switch, for the warning ``hybro`` prints; read only."""
+    try:
+        return await sources.token_requirement()
+    except TokenRequirementUnset:
+        refuse_unset_requirement()
 
 
 mark_declared_owner(router, "api_gateway.routes.machine_routes")

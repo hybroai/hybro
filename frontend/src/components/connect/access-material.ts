@@ -1,37 +1,40 @@
 import { buildMcpConfig } from '@/lib/mcp'
+import { TOKEN_PLACEHOLDER } from './client-setups'
 
-export type AccessKind = 'mcp' | 'api'
+export type AccessKind = 'sources' | 'mcp' | 'api'
 export interface AccessScope { id: string; name: string }
 
-export const API_AUTH_HELP = 'Local Developer Mode (backend.auth_mode="mock") does not require a token. Deployments with backend.auth_mode="clerk" require a source token in an Authorization: Bearer header; the owner creates one with hybro source create --name <name>. Never share real tokens in prompts or logs.'
-export const MCP_AUTH_HELP = 'The bundled MCP adapter passes on the Authorization header your MCP client sends. Local Developer Mode does not require one; with backend.auth_mode="clerk", set it to a source token (Bearer <token>), which the owner creates with hybro source create --name <name>.'
+export const API_AUTH_HELP = 'Send a source token in an Authorization: Bearer header on every request. The owner creates a source and its token in Hybro under Access, Sources, or with hybro source create --name <name>. The token is shown once. If the owner turned the token requirement off, a request without a token is accepted and recorded under "No token"; a revoked or unknown token is always refused. Never share real tokens in prompts or logs.'
+export const MCP_AUTH_HELP = 'The bundled MCP adapter passes on the Authorization header your MCP client sends, and Hybro checks it. Set it to Bearer <source token>; the owner creates a source and its token in Hybro under Access, Sources, or with hybro source create --name <name>. The token is shown once. Never share real tokens in prompts or logs.'
 
 function shellQuote(value: string): string {
   return `'${value.replace(/'/g, `'"'"'`)}'`
 }
 
-export function buildAccessMaterial(kind: AccessKind, url: string, apiPrefix: string, scope?: AccessScope) {
+export function buildAccessMaterial(kind: Exclude<AccessKind, 'sources'>, url: string, apiPrefix: string, scope?: AccessScope, token: string = TOKEN_PLACEHOLDER) {
   const base = url.replace(/\/+$/, '')
+  const authHeader = `--header ${shellQuote(`Authorization: Bearer ${token}`)}`
   const discoveryPath = `${apiPrefix}/agents/discovery`
   // The base may be empty while the page origin is unknown (server rendering),
   // so the address is joined as text rather than parsed with `new URL`.
   const discoveryQuery = scope ? `?${new URLSearchParams({ group_id: scope.id })}` : ''
   const endpoint = `${base}${discoveryPath}${discoveryQuery}`
-  const discoveryRequest = `curl --request GET \\\n  ${shellQuote(endpoint)}`
+  const discoveryRequest = `curl --request GET \\\n  ${authHeader} \\\n  ${shellQuote(endpoint)}`
   const subnetField = scope ? `, "subnet_id": ${JSON.stringify(scope.id)}` : ''
   const findCall = `find_agents({"query": "<capability keywords>"${subnetField}})`
   const sendSubnetField = scope ? `,\n  "subnet_id": ${JSON.stringify(scope.id)}` : ''
   const sendCall = `send_message({\n  "agent_id": "<agent_id from find_agents>",\n  "text": "Your task"${sendSubnetField}\n})`
   const messagePath = `${apiPrefix}/sessions/messages`
-  // Without session_id the send opens a session; client_label names the caller.
-  const messageBody = `{\n  "agent_id": "<agent_id from search or discovery>",\n  "text": "Your task",\n  "client_request_id": "<unique id for this message>",\n  "client_label": "<name of your program>"${sendSubnetField}\n}`
-  const messageRequest = `curl --request POST \\\n  ${shellQuote(`${base}${messagePath}`)} \\\n  --header 'Content-Type: application/json' \\\n  --data ${shellQuote(messageBody)}`
-  const checkRequest = `curl --request GET \\\n  ${shellQuote(`${base}${apiPrefix}/sessions/<session_id from the receipt>`)}`
+  // Without session_id the send opens a session; the token names the source.
+  const messageBody = `{\n  "agent_id": "<agent_id from search or discovery>",\n  "text": "Your task",\n  "client_request_id": "<unique id for this message>"${sendSubnetField}\n}`
+  const messageRequest = `curl --request POST \\\n  ${shellQuote(`${base}${messagePath}`)} \\\n  ${authHeader} \\\n  --header 'Content-Type: application/json' \\\n  --data ${shellQuote(messageBody)}`
+  const checkRequest = `curl --request GET \\\n  ${authHeader} \\\n  ${shellQuote(`${base}${apiPrefix}/sessions/<session_id from the receipt>`)}`
 
-  const configuration = kind === 'mcp' ? buildMcpConfig(url) : discoveryRequest
+  const configuration = kind === 'mcp' ? buildMcpConfig(url, token) : discoveryRequest
   const searchScope = scope ? ` \\
   --data-urlencode ${shellQuote(`group_id=${scope.id}`)}` : ''
   const searchRequest = `curl --get \\
+  ${authHeader} \\
   --data-urlencode 'query=<capability keywords>'${searchScope} \\
   ${shellQuote(`${base}${apiPrefix}/agents/search`)}`
   const checkCall = 'check_session({"session_id": "<session_id from send_message>"})'
@@ -49,7 +52,7 @@ export function buildAccessMaterial(kind: AccessKind, url: string, apiPrefix: st
     `Service URL: ${url}`,
     kind === 'mcp'
       ? `Add this configuration to a client that supports HTTP MCP:\n${configuration}\n\n${scopeLine}\n\n${MCP_AUTH_HELP}`
-      : `${scopeLine}\n\n${API_AUTH_HELP}\n\nLocal Developer Mode example (no access token):\n${discoveryRequest}`,
+      : `${scopeLine}\n\n${API_AUTH_HELP}\n\nDiscovery request:\n${discoveryRequest}`,
     kind === 'mcp'
       ? 'find_agents returns ranked agents with agent_id, skills, input modes and subnets. Only active public agents and the caller’s own private agents are visible. send_message opens a session and returns a session_id; pass it back to continue, and call check_session while the state is working or waiting_on_owner.'
       : 'Discovery returns an agents array containing agent_id and agent_card. Only active public agents and the caller’s own private agents are visible.',

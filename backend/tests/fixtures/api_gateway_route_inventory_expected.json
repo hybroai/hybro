@@ -873,6 +873,26 @@
     "include_in_schema": true
   },
   {
+    "path": "/api/v1/machine/sources/token-requirement",
+    "methods": [
+      "GET"
+    ],
+    "name": "machine_get_token_requirement",
+    "endpoint_module": "api_gateway.routes.machine_routes",
+    "declared_owner": "api_gateway.routes.machine_routes",
+    "tags": [
+      "machine"
+    ],
+    "status_code": null,
+    "dependencies": [
+      "get_machine_sources"
+    ],
+    "auth_dependencies": [
+      "get_machine_sources"
+    ],
+    "include_in_schema": true
+  },
+  {
     "path": "/api/v1/rooms",
     "methods": [
       "GET"
@@ -1517,6 +1537,46 @@
       "sources"
     ],
     "status_code": 201,
+    "dependencies": [
+      "get_owner_sources"
+    ],
+    "auth_dependencies": [
+      "get_owner_sources"
+    ],
+    "include_in_schema": true
+  },
+  {
+    "path": "/api/v1/sources/token-requirement",
+    "methods": [
+      "GET"
+    ],
+    "name": "get_token_requirement",
+    "endpoint_module": "api_gateway.routes.source_routes",
+    "declared_owner": "api_gateway.routes.source_routes",
+    "tags": [
+      "sources"
+    ],
+    "status_code": null,
+    "dependencies": [
+      "get_owner_sources"
+    ],
+    "auth_dependencies": [
+      "get_owner_sources"
+    ],
+    "include_in_schema": true
+  },
+  {
+    "path": "/api/v1/sources/token-requirement",
+    "methods": [
+      "PUT"
+    ],
+    "name": "set_token_requirement",
+    "endpoint_module": "api_gateway.routes.source_routes",
+    "declared_owner": "api_gateway.routes.source_routes",
+    "tags": [
+      "sources"
+    ],
+    "status_code": null,
     "dependencies": [
       "get_owner_sources"
     ],

@@ -79,11 +79,13 @@ authenticated REST/SSE workflow.
 **Security boundary:** these routes are part of the Source API and act for
 the instance owner on behalf of a source (see [Sources and
 tokens](#sources-and-tokens)). Until the owner account exists every Source
-API request is refused with `503 no_account`. With the deprecated
-`backend.auth_mode="clerk"`, callers need a source token: add
-`-H "Authorization: Bearer <source token>"` to the curl examples below.
-Otherwise a request without a token is accepted as the built-in "No token"
-source, so Hybro must stay on a trusted network. Discovery is limited to public agents and the owner's own
+API request is refused with `503 no_account`. A fresh install requires a
+source token: add `-H "Authorization: Bearer <source token>"` to the curl
+examples below, with a token from **Access > Sources** or
+`hybro source create --name <name>`. While the owner has turned the
+requirement off (an install upgraded with data starts with it off), a request
+without a token is accepted as the built-in "No token" source, so Hybro must
+stay on a trusted network. Discovery is limited to public agents and the owner's own
 private agents. Saved groups must belong to that caller. Discovery returns only the
 Card fields a client needs to choose an agent (name, description, version,
 protocol version, provider, documentation and icon URLs, capabilities, default
@@ -194,9 +196,10 @@ The Source API is the seven routes a source calls: `GET /agents/discovery`,
   (unknown, revoked, rotated, or a leftover header of another kind) is refused
   with `401 unknown_source_token`.
 - No header: the request is the built-in "No token" source. It is refused with
-  `401 source_token_required` when a token is required, which is the case with
-  `backend.auth_mode="clerk"`, and with `403 cross_site_request` when it comes
-  from a browser page on another site.
+  `401 source_token_required` when a token is required (the owner's switch
+  under **Access > Sources**, on for a fresh install and always with
+  `backend.auth_mode="clerk"`), and with `403 cross_site_request` when it
+  comes from a browser page on another site.
 
 A session belongs to the source that opened it: another source, or a request
 without a token, cannot read, continue or close it (`404 session_not_found`).
@@ -279,9 +282,9 @@ released install, `http://localhost:3100/mcp` from a checkout.
 
 Each tool passes the `Authorization` header of the MCP request on to the
 backend. Set `Authorization: Bearer <source token>` in your MCP client's
-server configuration to name it as a source; it is required with the
-deprecated `backend.auth_mode="clerk"`. Without the header the calls are the
-"No token" source. Until the owner account exists the tools fail with
+server configuration to name it as a source; it is required while the token
+requirement is on, as on a fresh install. Without the header, and with the
+requirement off, the calls are the "No token" source. Until the owner account exists the tools fail with
 `no_account`, and their `next_action` points the user to the setup link.
 
 Add a **Streamable HTTP** server manually to your MCP client using:

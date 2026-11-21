@@ -57,7 +57,8 @@ describe('SessionsTablePage', () => {
     }
     expect(rows()).toEqual(['Weather in Kyoto', 'Generate a travel plan', 'Untitled session'])
     const first = screen.getAllByRole('row')[1]
-    expect(within(first).getAllByText('Blossom Lettings client').length).toBeGreaterThan(0)
+    expect(within(first).getAllByText('CI bot').length).toBeGreaterThan(0)
+    expect(within(first).getAllByTitle('Name the client gave; not verified')[0]).toHaveTextContent('Blossom Lettings client')
     expect(within(first).getByText('Completed')).toBeInTheDocument()
     expect(screen.getByText('3 sessions')).toBeInTheDocument()
     expect(document.body.textContent).not.toMatch(/[一-鿿]/)
@@ -91,22 +92,29 @@ describe('SessionsTablePage', () => {
     expect(nav.replace).toHaveBeenCalledWith('/sessions?status=waiting_on_owner', { scroll: false })
   })
 
-  it('offers each requester once in the requester filter', async () => {
+  it('shows the source as the requester and the client label beside it, marked as given', () => {
     render(<SessionsTablePage />)
-    await userEvent.click(screen.getByRole('button', { name: 'Filter by requester' }))
-    expect(screen.getAllByRole('menuitemcheckbox').map(item => item.textContent)).toEqual([
-      'Blossom Lettings client',
-      'Northside buyer agent',
-    ])
+    const row = screen.getByRole('link', { name: 'Weather in Kyoto' }).closest('tr')!
+    expect(within(row).getAllByText('CI bot').length).toBeGreaterThan(0)
+    const label = within(row).getAllByTitle('Name the client gave; not verified')[0]
+    expect(label).toHaveTextContent('Blossom Lettings client')
   })
 
-  it('names a session without a label by its source', async () => {
-    data.sessions = [...data.sessions, summary('d', 'From CI', null, 'completed', '2026-10-15T10:00:00Z')]
+  it('offers each source once in the requester filter and filters by its id', async () => {
+    data.sessions = [...data.sessions, { ...summary('d', 'Unsigned', 'CI bot', 'completed', '2026-10-15T10:00:00Z'), source: { source_id: 'no_token', name: 'No token', has_token: false } }]
     render(<SessionsTablePage />)
-    const row = screen.getByRole('link', { name: 'From CI' }).closest('tr')!
-    expect(within(row).getAllByText('CI bot').length).toBeGreaterThan(0)
     await userEvent.click(screen.getByRole('button', { name: 'Filter by requester' }))
-    expect(screen.getAllByRole('menuitemcheckbox').map(item => item.textContent)).toContain('CI bot')
+    expect(screen.getAllByRole('menuitemcheckbox').map(item => item.textContent)).toEqual(['CI bot', 'No token'])
+    await userEvent.click(screen.getByRole('menuitemcheckbox', { name: 'No token' }))
+    expect(nav.replace).toHaveBeenCalledWith('/sessions?source=no_token', { scroll: false })
+  })
+
+  it('opens filtered to one source from a link', () => {
+    data.sessions = [...data.sessions, { ...summary('d', 'Unsigned', 'CI bot', 'completed', '2026-10-15T10:00:00Z'), source: { source_id: 'no_token', name: 'No token', has_token: false } }]
+    nav.query = 'source=no_token'
+    render(<SessionsTablePage />)
+    // A label that claims to be the CI bot does not put the session under it.
+    expect(rows()).toEqual(['Unsigned'])
   })
 
   it('explains an empty result and clears the filters', () => {

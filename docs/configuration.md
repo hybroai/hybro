@@ -68,6 +68,10 @@ progress to `/tmp/hybro/restart.json`. Both are runtime records inside the
 container, rewritten on each start or restart; neither is a configuration
 source.
 
+Whether the Source API requires a source token is product state, not
+configuration: the backend stores it in its database, the owner changes it
+under Access, Sources without a restart, and no file or variable sets it.
+
 ## Edit configuration
 
 Edit `~/.hybro/config.json` by hand, on the Settings page under
@@ -287,5 +291,4 @@ no configuration file fails to load, and are removed in a later release:
 | `frontend.clerk_*`, `frontend.enable_waitlist` | Ignored. |
 
 `frontend.server_url` no longer opens a public listener: a non-loopback
-`--listen` needs `--insecure-no-auth` while the Source API takes requests
-without a source token.
+`--listen` needs `--insecure-no-auth`.

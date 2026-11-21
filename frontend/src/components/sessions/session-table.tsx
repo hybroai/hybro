@@ -23,7 +23,8 @@ import { useSessionListUrlState } from '@/hooks/useSessionListUrlState'
 import type { SessionState, SessionSummary } from '@/lib/api/session'
 import { useUser } from '@/lib/auth'
 import { routes } from '@/lib/routes'
-import { formatSessionTime, sessionRequester } from '@/lib/session-format'
+import { formatSessionTime, sessionClientLabel, sessionRequester } from '@/lib/session-format'
+import { ClientLabel } from './client-label'
 import {
   DEFAULT_SESSION_LIST_STATE,
   SESSION_LIST_QUERY_STORAGE_KEY,
@@ -107,6 +108,7 @@ function toggle<T>(list: readonly T[], value: T): T[] {
 function SessionRow({ session }: { session: SessionSummary }) {
   const router = useRouter()
   const href = routes.session(session.session_id)
+  const label = sessionClientLabel(session)
   return (
     <tr
       onClick={() => router.push(href)}
@@ -126,7 +128,10 @@ function SessionRow({ session }: { session: SessionSummary }) {
         </span>
       </td>
       <td className="whitespace-nowrap px-3 py-3"><StatusIndicator view={sessionStateView(session.state)} /></td>
-      <td className="hidden max-w-0 truncate px-3 py-3 md:table-cell">{sessionRequester(session)}</td>
+      <td className="hidden max-w-0 px-3 py-3 md:table-cell">
+        <span className="block truncate">{sessionRequester(session)}</span>
+        {label ? <ClientLabel label={label} className="block" /> : null}
+      </td>
       <td className="hidden whitespace-nowrap px-3 py-3 tabular-nums text-muted-foreground lg:table-cell">
         <time dateTime={session.opened_at}>{formatSessionTime(session.opened_at)}</time>
       </td>
@@ -143,10 +148,12 @@ export function SessionsTablePage() {
   const [state, update, urlQuery] = useSessionListUrlState()
   const all = query.data?.sessions
   const sessions = useMemo(() => applySessionListState(all ?? [], state), [all, state])
-  const requesters = useMemo(
-    () => [...new Set((all ?? []).map(sessionRequester))].sort((a, b) => a.localeCompare(b, 'en')),
-    [all],
-  )
+  // Each source once, by id; two sources may share a name.
+  const sources = useMemo(() => {
+    const byId = new Map<string, string>()
+    for (const session of all ?? []) byId.set(session.source.source_id, session.source.name)
+    return [...byId].map(([id, name]) => ({ id, name })).sort((a, b) => a.name.localeCompare(b.name, 'en'))
+  }, [all])
   const filtering = hasActiveFilters(state)
 
   // The ticket page's back link returns to this exact view.
@@ -223,19 +230,19 @@ export function SessionsTablePage() {
               />
               <ColumnHeader
                 label="Requester"
-                field="requester"
+                field="source"
                 state={state}
                 update={update}
                 className="hidden w-[22%] md:table-cell"
-                filtered={state.requester.length > 0}
-                filter={requesters.length ? requesters.map(value => (
+                filtered={state.source.length > 0}
+                filter={sources.length ? sources.map(source => (
                   <DropdownMenuCheckboxItem
-                    key={value}
-                    checked={state.requester.includes(value)}
+                    key={source.id}
+                    checked={state.source.includes(source.id)}
                     onSelect={event => event.preventDefault()}
-                    onCheckedChange={() => update({ requester: toggle(state.requester, value) })}
+                    onCheckedChange={() => update({ source: toggle(state.source, source.id) })}
                   >
-                    <span className="truncate">{value}</span>
+                    <span className="truncate">{source.name}</span>
                   </DropdownMenuCheckboxItem>
                 )) : <p className="px-2 py-1.5 text-sm text-muted-foreground">No requesters yet</p>}
               />

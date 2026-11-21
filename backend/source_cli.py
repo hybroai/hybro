@@ -2,25 +2,33 @@
 
     docker exec <container> /app/backend/.venv/bin/python \\
         /app/backend/source_cli.py create --name <name>
+    docker exec <container> /app/backend/.venv/bin/python \\
+        /app/backend/source_cli.py requirement
 
-It creates a source through the machine-only route over loopback and prints
-the new source token once. Exit status: 0 done, 1 refused (nothing was
-changed), 2 the command could not run or its outcome is unknown. Standard
-library only; it reads neither ``config.json`` nor ``auth.json`` and never
-prints the machine token.
+``create`` creates a source through the machine-only route over loopback and
+prints the new source token once. ``requirement`` prints ``on`` or ``off``,
+whether a Source API request needs a source token; ``hybro`` reads it for its
+public-listener warning. Exit status: 0 done, 1 refused (nothing was changed),
+2 the command could not run or its outcome is unknown. Standard library only;
+it reads neither ``config.json`` nor ``auth.json`` and never prints the machine
+token.
 """
 
 from __future__ import annotations
 
 import json
 import sys
+import urllib.request
+from collections.abc import Callable
 from pathlib import Path
 from typing import IO, Any
+from urllib.error import HTTPError
 
 from owner_cli import (
     HANDOFF,
     LOG_HINT,
     TIMEOUT_SECONDS,
+    TOKEN_HEADER,
     Failed,
     Post,
     _detail,
@@ -28,14 +36,33 @@ from owner_cli import (
     read_handoff,
 )
 
-USAGE = "usage: source_cli.py create --name <name>\n"
+USAGE = "usage: source_cli.py create --name <name> | requirement\n"
+# The switch is product state; only this helper and the backend read it.
+REQUIREMENT_PATH = "/sources/token-requirement"
+
+Get = Callable[[str, str], tuple[int, bytes]]
 
 
-def parse(argv: list[str]) -> str | None:
-    """The source name, or None for a usage error."""
+def http_get(url: str, token: str) -> tuple[int, bytes]:
+    """The status and body of a GET; an HTTP error status is an answer too."""
+    request = urllib.request.Request(url, method="GET", headers={TOKEN_HEADER: token})
+    # No proxies: the loopback call and its token stay local.
+    opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+    try:
+        with opener.open(request, timeout=TIMEOUT_SECONDS) as response:
+            return response.status, response.read()
+    except HTTPError as exc:
+        with exc:
+            return exc.code, exc.read()
+
+
+def parse(argv: list[str]) -> tuple[str, str] | None:
+    """The command and its source name, or None for a usage error."""
+    if argv == ["requirement"]:
+        return "requirement", ""
     if len(argv) != 3 or argv[0] != "create" or argv[1] != "--name":
         return None
-    return argv[2]
+    return "create", argv[2]
 
 
 def refusal(status: int, body: bytes) -> Failed:
@@ -99,6 +126,30 @@ def run(name: str, *, stdout: IO[str], handoff: Path, post: Post) -> int:
     return 0
 
 
+def read_requirement(*, stdout: IO[str], handoff: Path, get: Get) -> int:
+    base_url, token = read_handoff(handoff)
+    try:
+        status, body = get(base_url + REQUIREMENT_PATH, token)
+    except OSError as exc:
+        # TimeoutError is an OSError too.
+        raise Failed(
+            f"cannot read the token requirement ({type(exc).__name__}). {LOG_HINT}",
+            2,
+        ) from exc
+    try:
+        data = json.loads(body) if status == 200 else None
+    except ValueError:
+        data = None
+    required = data.get("required") if isinstance(data, dict) else None
+    if not isinstance(required, bool):
+        raise Failed(
+            f"cannot read the token requirement (HTTP {status}). {LOG_HINT}", 2
+        )
+    stdout.write("on\n" if required else "off\n")
+    stdout.flush()
+    return 0
+
+
 def main(
     argv: list[str],
     *,
@@ -106,12 +157,16 @@ def main(
     stderr: IO[str],
     handoff: Path = HANDOFF,
     post: Post = http_post,
+    get: Get = http_get,
 ) -> int:
-    name = parse(argv)
-    if name is None:
+    parsed = parse(argv)
+    if parsed is None:
         stderr.write(USAGE)
         return 2
+    command, name = parsed
     try:
+        if command == "requirement":
+            return read_requirement(stdout=stdout, handoff=handoff, get=get)
         return run(name, stdout=stdout, handoff=handoff, post=post)
     except Failed as exc:
         stderr.write(f"hybro source: {exc}\n")

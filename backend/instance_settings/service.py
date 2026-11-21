@@ -17,6 +17,7 @@ import asyncio
 import json
 from collections.abc import Mapping
 from pathlib import Path
+from typing import Literal
 
 from pydantic import BaseModel, ValidationError
 
@@ -142,6 +143,12 @@ class InstanceSettings:
     @property
     def image(self) -> bool:
         return self._runtime_file is not None
+
+    def listen(self) -> Literal["loopback", "public"] | None:
+        """This start's listener from ``runtime.json``; None in a checkout."""
+        runtime = self._runtime_record()
+        listen = runtime.get("listen") if runtime is not None else None
+        return listen if listen in ("loopback", "public") else None
 
     async def view(self) -> SettingsView:
         try:

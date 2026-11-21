@@ -30,7 +30,7 @@ from session.protocols import SessionOwner
 from source import SourceService
 from source.protocols import NO_TOKEN, SourceIdentity
 from tests.fakes.account import build_service, sign_out, store_with_owner
-from tests.fakes.source import MemorySourceStore
+from tests.fakes.source import MemorySourceStore, store_with_requirement
 
 NOW = datetime(2026, 11, 20, tzinfo=UTC)
 API = "/api/v1"
@@ -93,11 +93,24 @@ class RecordingFacade:
         raise AssertionError("not used")
 
 
-def make_app(*, auth_mode: str = "mock", owner_id: str | None = OWNER_USER_ID):
-    """The app, with the owner account under ``owner_id`` (none for ``None``)."""
+def make_app(
+    *,
+    auth_mode: str = "mock",
+    owner_id: str | None = OWNER_USER_ID,
+    required: bool | None = None,
+):
+    """The app, with the owner account under ``owner_id`` (none for ``None``).
+
+    The switch is seeded as at startup: ``required``, or on in Clerk mode and
+    off otherwise, as for an install that already has data.
+    """
     app = create_app()
     facade = RecordingFacade()
-    sources = SourceService(MemorySourceStore(), auth_mode=auth_mode)
+    if required is None:
+        required = auth_mode == "clerk"
+    sources = SourceService(
+        store_with_requirement(required=required), auth_mode=auth_mode
+    )
     app.state.source_registry = sources
     store = store_with_owner(owner_id) if owner_id else None
     app.state.owner_account = build_service(store=store, auth_mode=auth_mode)
@@ -222,6 +235,51 @@ async def test_clerk_mode_requires_a_token():
     assert refused.status_code == 401
     assert refused.json()["detail"]["code"] == "source_token_required"
     assert accepted.status_code == 200
+    assert len(facade.calls) == 1
+
+
+@pytest.mark.parametrize("required", [True, False])
+async def test_a_revoked_token_is_refused_with_the_switch_on_and_off(required):
+    app, facade, sources = make_app(required=required)
+    revoked = await sources.create("old")
+    await sources.revoke(revoked.source_id)
+    async with client_for(app) as client:
+        response = await client.post(SEND, json=BODY, headers=bearer(revoked.token))
+
+    assert response.status_code == 401
+    assert response.json()["detail"]["code"] == "unknown_source_token"
+    assert facade.calls == []
+
+
+async def test_with_the_switch_on_no_token_is_refused_and_a_token_passes():
+    app, facade, sources = make_app(required=True)
+    created = await sources.create("CI bot")
+    async with client_for(app) as client:
+        refused = [
+            await client.request(method, path, json=body)
+            for method, path, body in SOURCE_ROUTES
+        ]
+        accepted = await client.post(SEND, json=BODY, headers=bearer(created.token))
+
+    assert {r.status_code for r in refused} == {401}
+    assert {r.json()["detail"]["code"] for r in refused} == {"source_token_required"}
+    assert refused[0].headers["www-authenticate"] == "Bearer"
+    assert accepted.status_code == 200
+    assert facade.calls[0][2].source_id == created.source_id
+
+
+async def test_the_switch_applies_at_once_without_a_restart():
+    app, facade, _ = make_app(required=False)
+    async with client_for(app) as client:
+        before = await client.post(SEND, json=BODY)
+        turned_on = await client.put(
+            f"{API}/sources/token-requirement", json={"required": True}
+        )
+        after = await client.post(SEND, json=BODY)
+
+    assert before.status_code == 200
+    assert turned_on.status_code == 200
+    assert after.status_code == 401
     assert len(facade.calls) == 1
 
 
@@ -428,6 +486,87 @@ async def test_a_source_token_does_not_open_the_sources_routes(monkeypatch):
         response = await client.get(f"{API}/sources", headers=bearer(created.token))
     # The owner routes take the owner's credential, never a source token.
     assert response.status_code == 401
+
+
+# -- The owner's switch -----------------------------------------------------------
+
+
+async def test_the_owner_reads_and_changes_the_switch():
+    app, _, _ = make_app(required=False)
+    async with client_for(app) as client:
+        read = await client.get(f"{API}/sources/token-requirement")
+        changed = await client.put(
+            f"{API}/sources/token-requirement", json={"required": True}
+        )
+        again = await client.get(f"{API}/sources/token-requirement")
+
+    assert read.status_code == 200
+    assert read.json()["required"] is False
+    assert read.json()["started_off"] is True
+    assert changed.json()["required"] is True
+    # How it started never changes; the one-time notice relies on it.
+    assert changed.json()["started_off"] is True
+    assert again.json() == changed.json()
+
+
+async def test_clerk_mode_shows_the_switch_on_and_refuses_to_turn_it_off():
+    app, _, sources = make_app(auth_mode="clerk", owner_id="user_abc")
+    sources._store.requirement = sources._store.requirement.model_copy(
+        update={"required": False}
+    )
+    async with client_for(app) as client:
+        read = await client.get(f"{API}/sources/token-requirement")
+        refused = await client.put(
+            f"{API}/sources/token-requirement", json={"required": False}
+        )
+        discovery = await client.get(f"{API}/agents/discovery")
+
+    assert read.json()["required"] is True
+    assert refused.status_code == 409
+    assert refused.json()["detail"]["code"] == "token_required_by_auth_mode"
+    assert discovery.status_code == 401
+
+
+@pytest.mark.parametrize("body", [{}, {"required": "yes"}, {"required": True, "x": 1}])
+async def test_the_switch_needs_a_boolean(body):
+    app, _, _ = make_app()
+    async with client_for(app) as client:
+        response = await client.put(f"{API}/sources/token-requirement", json=body)
+    assert response.status_code == 422
+
+
+async def test_the_switch_is_the_owners_only(monkeypatch):
+    app, _, sources = make_app(required=True)
+    created = await sources.create("CI bot")
+    sign_out(app, monkeypatch)
+    async with client_for(app) as client:
+        read = await client.get(
+            f"{API}/sources/token-requirement", headers=bearer(created.token)
+        )
+        change = await client.put(
+            f"{API}/sources/token-requirement",
+            json={"required": False},
+            headers=bearer(created.token),
+        )
+
+    assert (read.status_code, change.status_code) == (401, 401)
+    assert await sources.token_required() is True
+
+
+async def test_an_unseeded_switch_is_unavailable_and_requires_a_token():
+    app, facade, _ = make_app()
+    app.state.source_registry = SourceService(MemorySourceStore(), auth_mode="mock")
+    async with client_for(app) as client:
+        read = await client.get(f"{API}/sources/token-requirement")
+        change = await client.put(
+            f"{API}/sources/token-requirement", json={"required": False}
+        )
+        send = await client.post(SEND, json=BODY)
+
+    assert (read.status_code, change.status_code) == (503, 503)
+    assert read.json()["detail"]["code"] == "token_requirement_unavailable"
+    assert send.status_code == 401
+    assert facade.calls == []
 
 
 async def test_sources_are_unavailable_without_the_registry():

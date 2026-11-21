@@ -1,9 +1,9 @@
 // The Inbox ticket list's search, column filters, and sort, kept in the URL
 // so Back, refresh, and shared links return to the same view.
 import type { SessionState, SessionSummary } from '@/lib/api/session'
-import { sessionRequester } from '@/lib/session-format'
+import { sessionClientLabel, sessionRequester } from '@/lib/session-format'
 
-export type SessionSortField = 'name' | 'status' | 'requester' | 'created' | 'updated'
+export type SessionSortField = 'name' | 'status' | 'source' | 'created' | 'updated'
 export type SessionSortDir = 'asc' | 'desc'
 export type SessionTimeRange = 'any' | 'today' | '7d' | '30d'
 
@@ -11,7 +11,8 @@ export interface SessionListState {
   q: string
   name: string
   status: SessionState[]
-  requester: string[]
+  /** Source ids. */
+  source: string[]
   created: SessionTimeRange
   updated: SessionTimeRange
   sort: SessionSortField
@@ -22,7 +23,7 @@ export const DEFAULT_SESSION_LIST_STATE: SessionListState = {
   q: '',
   name: '',
   status: [],
-  requester: [],
+  source: [],
   created: 'any',
   updated: 'any',
   sort: 'updated',
@@ -49,7 +50,7 @@ export const TIME_RANGES: { value: SessionTimeRange; label: string }[] = [
 // The list's query string, kept per tab so a ticket's back link returns to it.
 export const SESSION_LIST_QUERY_STORAGE_KEY = 'hybro:sessions-list-query'
 
-const SORT_FIELDS: SessionSortField[] = ['name', 'status', 'requester', 'created', 'updated']
+const SORT_FIELDS: SessionSortField[] = ['name', 'status', 'source', 'created', 'updated']
 const UNTITLED = 'Untitled session'
 
 export function sessionName(session: Pick<SessionSummary, 'title'>): string {
@@ -69,8 +70,8 @@ export function parseSessionListState(params: URLSearchParams): SessionListState
     q: params.get('q') ?? '',
     name: params.get('name') ?? '',
     status,
-    // Requester labels may contain commas, so each one is its own parameter.
-    requester: params.getAll('requester').filter(Boolean),
+    // One source id per parameter.
+    source: params.getAll('source').filter(Boolean),
     created: timeRange(params.get('created')),
     updated: timeRange(params.get('updated')),
     sort: SORT_FIELDS.includes(sort as SessionSortField) ? sort as SessionSortField : 'updated',
@@ -83,7 +84,7 @@ export function serializeSessionListState(state: SessionListState): string {
   if (state.q) params.set('q', state.q)
   if (state.name) params.set('name', state.name)
   if (state.status.length) params.set('status', state.status.join(','))
-  for (const requester of state.requester) params.append('requester', requester)
+  for (const source of state.source) params.append('source', source)
   if (state.created !== 'any') params.set('created', state.created)
   if (state.updated !== 'any') params.set('updated', state.updated)
   if (state.sort !== 'updated') params.set('sort', state.sort)
@@ -93,7 +94,7 @@ export function serializeSessionListState(state: SessionListState): string {
 
 export function hasActiveFilters(state: SessionListState): boolean {
   return Boolean(
-    state.q || state.name || state.status.length || state.requester.length
+    state.q || state.name || state.status.length || state.source.length
     || state.created !== 'any' || state.updated !== 'any',
   )
 }
@@ -118,6 +119,7 @@ function matchesSearch(session: SessionSummary, needle: string): boolean {
   return [
     sessionName(session),
     sessionRequester(session),
+    sessionClientLabel(session) ?? '',
     session.session_id,
     ...session.agents.flatMap(agent => [agent.name ?? '', agent.agent_id]),
   ].join('\n').toLowerCase().includes(needle)
@@ -127,7 +129,7 @@ function compare(a: SessionSummary, b: SessionSummary, field: SessionSortField):
   switch (field) {
     case 'name':
       return sessionName(a).localeCompare(sessionName(b), 'en')
-    case 'requester':
+    case 'source':
       return sessionRequester(a).localeCompare(sessionRequester(b), 'en')
     case 'status':
       return SESSION_STATES.indexOf(a.state) - SESSION_STATES.indexOf(b.state)
@@ -151,7 +153,7 @@ export function applySessionListState(
       matchesSearch(session, needle)
       && (!name || sessionName(session).toLowerCase().includes(name))
       && (!state.status.length || state.status.includes(session.state))
-      && (!state.requester.length || state.requester.includes(sessionRequester(session)))
+      && (!state.source.length || state.source.includes(session.source.source_id))
       && within(session.opened_at, state.created, now)
       && within(session.last_activity_at, state.updated, now)
     ))

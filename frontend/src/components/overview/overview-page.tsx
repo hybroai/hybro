@@ -10,6 +10,7 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { StatusIndicator } from '@/components/status-indicator'
 import { MiniTopology } from './mini-topology'
 import { OverviewSetupBanner } from '@/components/setup/setup-banner'
+import { TokenRequirementNotice } from '@/components/connect/token-requirement'
 import { getAgentAvatarUri } from '@/lib/agent-avatar'
 import { cn } from '@/lib/utils'
 import { useNetworks } from '@/hooks/useNetworks'
@@ -132,6 +133,7 @@ export function OverviewPage() {
         </header>
 
         <OverviewSetupBanner />
+        <TokenRequirementNotice />
 
         {failed ? (
           <Alert variant="destructive">

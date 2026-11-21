@@ -1,8 +1,17 @@
 import type { SessionAgent, SessionSource } from '@/lib/api/session'
 
-/** Who sent the session: its label, else the name of its source. */
-export function sessionRequester(session: { client_label: string | null, source: SessionSource }): string {
-  return session.client_label ?? session.source.name
+/** Who sent the session: its source, which the token proves. */
+export function sessionRequester(session: { source: SessionSource }): string {
+  return session.source.name
+}
+
+/**
+ * The name the client gave itself, shown beside the source and never instead
+ * of it; null when there is none or it only repeats the source's name.
+ */
+export function sessionClientLabel(session: { client_label: string | null, source: SessionSource }): string | null {
+  const label = session.client_label?.trim()
+  return label && label !== session.source.name ? label : null
 }
 
 // Session times are always shown in English, whatever the browser locale.

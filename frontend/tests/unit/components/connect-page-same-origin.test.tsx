@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { renderToString } from 'react-dom/server'
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { cleanup, render, screen } from '../../utils/test-utils'
 import { ConnectPage } from '@/components/connect/connect-page'
 
@@ -11,7 +12,11 @@ afterEach(cleanup)
 
 describe('Access page with a same-origin API', () => {
   it('server-renders the API tab before the page origin is known', () => {
-    const html = renderToString(<ConnectPage kind="api" />)
+    const html = renderToString(
+      <QueryClientProvider client={new QueryClient()}>
+        <ConnectPage kind="api" />
+      </QueryClientProvider>,
+    )
     expect(html).toContain('/api/v1/agents/discovery')
   })
 

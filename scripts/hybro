@@ -423,6 +423,7 @@ follow_logs() {
     fi
     say "Hybro is ready at $url (${READY_SECONDS}s). Press Ctrl-C to stop."
     print_setup_link "$url"
+    print_open_listener_warning "$LISTEN_MODE"
     say "Full logs: $CLI logs -f"
     docker logs -f "$CONTAINER" 2>&1 | filter_logs "" "$(log_levels error)" ""
     trap - INT
@@ -515,6 +516,7 @@ cmd_start() {
             running=$(running_url)
             say "Hybro is already running at $running"
             print_setup_link "$running"
+            print_open_listener_warning "$(running_listen_mode)"
             say "To change its options, run $CLI stop first."
             return 0
         fi
@@ -553,6 +555,7 @@ cmd_status() {
         say "Hybro is running at $running"
         say "Container $CONTAINER, image $(docker container inspect -f '{{.Config.Image}}' "$CONTAINER"), volume $VOLUME"
         print_setup_link "$running"
+        print_open_listener_warning "$(running_listen_mode)"
         ;;
     '')
         say "Hybro is not running. Start it with: $CLI"
@@ -853,6 +856,29 @@ print_setup_link() {
     esac
     say "Create the owner account at: $1/setup#$setup_code"
     say "Each new link replaces the earlier ones; it works once, for 24 hours."
+}
+
+# The running container's listen mode; one without HYBRO_LISTEN is public, as
+# the entrypoint reads it.
+running_listen_mode() {
+    if docker container inspect -f '{{range .Config.Env}}{{println .}}{{end}}' "$CONTAINER" 2>/dev/null |
+        grep -qx 'HYBRO_LISTEN=loopback'; then
+        echo loopback
+    else
+        echo public
+    fi
+}
+
+# print_open_listener_warning <listen mode>: one line when other machines can
+# reach Hybro and the owner turned the source-token requirement off. It reads
+# the switch through the machine-only route and blocks nothing; an image
+# without the helper, or a switch it cannot read, prints nothing.
+print_open_listener_warning() {
+    [ "$1" = public ] || return 0
+    docker exec "$CONTAINER" test -f "$SOURCE_HELPER" >/dev/null 2>&1 || return 0
+    requirement=$(docker exec "$CONTAINER" "$DIAG_PYTHON" "$SOURCE_HELPER" requirement 2>/dev/null) || return 0
+    [ "$requirement" = off ] || return 0
+    say "WARNING: Hybro listens on an address other machines can reach, and its Source API takes requests without a source token. Anyone who can reach this port can send work to your agents. Turn the requirement on in Access, Sources."
 }
 
 # A usage error of hybro owner or hybro source: exit 2 before Docker is used.

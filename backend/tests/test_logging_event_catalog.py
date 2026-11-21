@@ -35,6 +35,7 @@ SYSTEM_EVENTS = frozenset(
         "sse_subscription_refused",
         "orchestrator_canary_threshold_breached",
         "redis_lock_operation_failed",
+        "source_token_not_required_on_public_listener",
     }
 )
 

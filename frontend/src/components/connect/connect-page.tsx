@@ -1,11 +1,9 @@
 'use client'
 
-import { useRef, useState, type ReactNode } from 'react'
 import { useRouter } from 'next/navigation'
-import { Check, Copy } from 'lucide-react'
+import { PlainHttpWarning } from '@/components/auth/plain-http-warning'
 import { PageHeader } from '@/components/page-header'
 import { Alert, AlertDescription } from '@/components/ui/alert'
-import { Button } from '@/components/ui/button'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { publicConfig } from '@/lib/config'
 import { mcpUrl } from '@/lib/mcp'
@@ -13,60 +11,17 @@ import { routes } from '@/lib/routes'
 import { usePageOrigin } from '@/hooks/usePageOrigin'
 import { buildAccessMaterial, type AccessKind } from './access-material'
 import { clientSetups } from './client-setups'
+import { SourcesPanel } from './sources-panel'
+import { TokenRequirementBanner } from './token-requirement'
+import { useCopy, type Copier } from './use-copy'
 
-const COPY_FAILED = 'Unable to copy. Select and copy the text manually.'
-
-function useCopy() {
-  const [feedback, setFeedback] = useState<{ id: string; failed: boolean } | null>(null)
-  const [copying, setCopying] = useState(false)
-  const blocks = useRef<Record<string, HTMLElement | null>>({})
-
-  async function copy(id: string, value: string) {
-    if (copying) return
-    setCopying(true)
-    try {
-      await navigator.clipboard.writeText(value)
-      setFeedback({ id, failed: false })
-    } catch {
-      setFeedback({ id, failed: true })
-      const block = blocks.current[id]
-      if (block) {
-        block.focus()
-        const range = document.createRange()
-        range.selectNodeContents(block)
-        const selection = window.getSelection()
-        selection?.removeAllRanges()
-        selection?.addRange(range)
-      }
-    } finally {
-      setCopying(false)
-    }
-  }
-
-  const button = (id: string, value: string, label: string, primary = false) => (
-    <Button variant={primary ? 'default' : 'secondary'} size="sm" disabled={copying} onClick={() => { void copy(id, value) }}>
-      {feedback?.id === id && !feedback.failed ? <Check data-icon="inline-start" aria-hidden="true" /> : <Copy data-icon="inline-start" aria-hidden="true" />}
-      {label}
-    </Button>
-  )
-  const state = (id: string, label: string): ReactNode => {
-    if (feedback?.id !== id) return null
-    return feedback.failed
-      ? <Alert variant="destructive"><AlertDescription>{COPY_FAILED}</AlertDescription></Alert>
-      : <p role="status" className="text-xs text-muted-foreground">{`${label} copied`}</p>
-  }
-  const block = (id: string, label: string, text: string) => (
-    <pre
-      ref={element => { blocks.current[id] = element }}
-      tabIndex={0}
-      aria-label={label}
-      className="min-w-0 select-text overflow-x-auto rounded-lg border bg-muted/40 p-4 font-mono text-xs leading-relaxed whitespace-pre-wrap wrap-anywhere"
-    >
-      {text}
-    </pre>
-  )
-  return { button, state, block }
+const TAB_ROUTES: Record<AccessKind, string> = {
+  sources: routes.connectSources,
+  mcp: routes.connectMcp,
+  api: routes.connectApi,
 }
+
+const TOKEN_IN_TRANSIT = 'This page is served over plain HTTP from another machine, so a token shown or pasted here, and every request a program sends with it, travels the network readable. Use HTTPS, through a reverse proxy in front of Hybro, before connecting from another machine.'
 
 function Features({ items }: { items: { title: string; detail: string; tool?: string }[] }) {
   return (
@@ -85,7 +40,7 @@ function Features({ items }: { items: { title: string; detail: string; tool?: st
   )
 }
 
-function AddressCard({ label, url, copy }: { label: string; url: string; copy: ReturnType<typeof useCopy> }) {
+function AddressCard({ label, url, copy }: { label: string; url: string; copy: Copier }) {
   return (
     <section aria-label={label} className="flex flex-col gap-3 rounded-xl border bg-card p-5">
       <p className="text-sm font-medium">{label}</p>
@@ -118,6 +73,7 @@ function McpSetup() {
       <AddressCard label="MCP address" url={url} copy={copy} />
       <section aria-labelledby="setup-heading" className="flex flex-col gap-3">
         <h2 id="setup-heading" className="text-[15px] font-semibold">Add Hybro to your assistant</h2>
+        <p className="text-sm text-muted-foreground">Replace &lt;source token&gt; with a token from the Sources tab. Each snippet sends it as an Authorization header.</p>
         <Tabs defaultValue={setups[0].id} className="gap-3">
           <TabsList aria-label="Assistants" className="h-auto max-w-full flex-wrap justify-start">
             {setups.map(setup => (
@@ -159,6 +115,7 @@ function ApiPanel() {
       <AddressCard label="API base URL" url={origin} copy={copy} />
       <section aria-labelledby="requests-heading" className="flex flex-col gap-3">
         <h2 id="requests-heading" className="text-[15px] font-semibold">Requests</h2>
+        <p className="text-sm text-muted-foreground">Replace &lt;source token&gt; with a token from the Sources tab. Every request sends it as Authorization: Bearer.</p>
         <div className="flex flex-col gap-2 rounded-xl border bg-card p-5">
           <p className="text-xs font-medium text-muted-foreground">Find agents for a task</p>
           {copy.block('search', 'Search request', material.searchRequest)}
@@ -202,11 +159,15 @@ export function ConnectPage({ kind }: { kind: AccessKind }) {
     <div className="page-container">
       <div className="page-content flex min-w-0 flex-col gap-6">
         <PageHeader title="Access" />
-        <Tabs value={kind} onValueChange={value => { if (value !== kind) router.push(value === 'mcp' ? routes.connectMcp : routes.connectApi, { scroll: false }) }} className="gap-6">
+        <PlainHttpWarning>{TOKEN_IN_TRANSIT}</PlainHttpWarning>
+        <TokenRequirementBanner />
+        <Tabs value={kind} onValueChange={value => { if (value !== kind) router.push(TAB_ROUTES[value as AccessKind], { scroll: false }) }} className="gap-6">
           <TabsList aria-label="Connection methods">
+            <TabsTrigger value="sources" className="min-h-9">Sources</TabsTrigger>
             <TabsTrigger value="mcp" className="min-h-9">MCP</TabsTrigger>
             <TabsTrigger value="api" className="min-h-9">API</TabsTrigger>
           </TabsList>
+          <TabsContent value="sources">{kind === 'sources' ? <SourcesPanel /> : null}</TabsContent>
           <TabsContent value="mcp">{kind === 'mcp' ? <McpPanel /> : null}</TabsContent>
           <TabsContent value="api">{kind === 'api' ? <ApiPanel /> : null}</TabsContent>
         </Tabs>

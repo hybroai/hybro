@@ -8,7 +8,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 from pymongo import ReturnDocument
 
-from source.models import SourceRecord
+from source.models import SourceRecord, TokenRequirement
 from source.repository import SOURCE_INDEXES, MongoSourceRepository
 
 NOW = datetime(2026, 11, 20, tzinfo=UTC)
@@ -38,7 +38,7 @@ def _repository() -> tuple[MongoSourceRepository, MagicMock]:
     names: list[str] = []
     mongo = SimpleNamespace(collection=lambda name: names.append(name) or collection)
     repository = MongoSourceRepository(mongo)
-    assert names == ["sources"]
+    assert names == ["sources", "source_settings"]
     return repository, collection
 
 
@@ -107,3 +107,35 @@ async def test_touch_sets_last_use():
     collection.update_one.assert_awaited_once_with(
         {"source_id": "src_1"}, {"$set": {"last_used_at": NOW}}
     )
+
+
+async def test_seed_requirement_inserts_only_when_absent():
+    repository, collection = _repository()
+    stored = {"required": False, "started_off": True, "updated_at": NOW}
+    collection.find_one_and_update = AsyncMock(return_value=stored)
+    seed = TokenRequirement(required=True, started_off=False, updated_at=NOW)
+
+    result = await repository.seed_requirement(seed)
+
+    query, update = collection.find_one_and_update.await_args.args
+    assert query == {"_id": "token_requirement"}
+    # An existing document wins: the seed is only $setOnInsert.
+    assert update == {"$setOnInsert": seed.model_dump()}
+    assert collection.find_one_and_update.await_args.kwargs["upsert"] is True
+    assert result == TokenRequirement(**stored)
+
+
+async def test_get_and_set_requirement():
+    repository, collection = _repository()
+    assert await repository.get_requirement() is None
+    assert collection.find_one.await_args.args[0] == {"_id": "token_requirement"}
+
+    stored = {"required": True, "started_off": True, "updated_at": NOW}
+    collection.find_one_and_update = AsyncMock(return_value=stored)
+    result = await repository.set_requirement(True, NOW)
+
+    query, update = collection.find_one_and_update.await_args.args
+    assert query == {"_id": "token_requirement"}
+    assert update == {"$set": {"required": True, "updated_at": NOW}}
+    assert "upsert" not in collection.find_one_and_update.await_args.kwargs
+    assert result == TokenRequirement(**stored)

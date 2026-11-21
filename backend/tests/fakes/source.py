@@ -5,13 +5,14 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any
 
-from source.models import SourceRecord
+from source.models import SourceRecord, TokenRequirement
 
 
 class MemorySourceStore:
     def __init__(self) -> None:
         self.records: dict[str, SourceRecord] = {}
         self.touched: list[tuple[str, datetime]] = []
+        self.requirement: TokenRequirement | None = None
 
     async def ensure_indexes(self) -> None:
         return None
@@ -49,3 +50,32 @@ class MemorySourceStore:
         record = self.records.get(source_id)
         if record is not None:
             self.records[source_id] = record.model_copy(update={"last_used_at": at})
+
+    async def get_requirement(self) -> TokenRequirement | None:
+        return self.requirement
+
+    async def seed_requirement(self, seed: TokenRequirement) -> TokenRequirement:
+        if self.requirement is None:
+            self.requirement = seed
+        return self.requirement
+
+    async def set_requirement(
+        self, required: bool, at: datetime
+    ) -> TokenRequirement | None:
+        if self.requirement is None:
+            return None
+        self.requirement = self.requirement.model_copy(
+            update={"required": required, "updated_at": at}
+        )
+        return self.requirement
+
+
+def store_with_requirement(*, required: bool) -> MemorySourceStore:
+    """A store whose switch was seeded at startup, as in a running backend."""
+    from common.utils.time import utcnow
+
+    store = MemorySourceStore()
+    store.requirement = TokenRequirement(
+        required=required, started_off=not required, updated_at=utcnow()
+    )
+    return store

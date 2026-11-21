@@ -908,6 +908,11 @@ LOCAL_AGENT_RECORDS_PRUNED = define(
 SOURCE_LAST_USE_WRITE_FAILED = define(
     "source_last_use_write_failed", WARNING, required={"source_id"}
 )
+# Once at startup: other machines can reach the port, and a request without a
+# source token is accepted.
+SOURCE_TOKEN_NOT_REQUIRED_ON_PUBLIC_LISTENER = define(
+    "source_token_not_required_on_public_listener", WARNING, system=True
+)
 
 # session
 

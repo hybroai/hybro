@@ -1,8 +1,8 @@
 'use client'
 
 import Link from 'next/link'
-import { useEffect, useSyncExternalStore } from 'react'
-import { Settings, X } from 'lucide-react'
+import { useEffect, useSyncExternalStore, type ReactNode } from 'react'
+import { Settings, X, type LucideIcon } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { useSetupStatus } from '@/hooks/useSetupStatus'
 import { routes } from '@/lib/routes'
@@ -14,29 +14,44 @@ const TONES: Record<SetupNotice['tone'], { frame: string; icon: string }> = {
   error: { frame: 'border-status-error/40 bg-status-error/[0.07]', icon: 'text-status-error' },
 }
 
-function NoticeBanner({ notice, body, onDismiss }: { notice: SetupNotice; body: string; onDismiss?: () => void }) {
-  const tone = TONES[notice.tone]
+/** A notice above a page's content, in the Overview banner's look. */
+export function NoticeBanner({ tone, title, body, action, onDismiss, icon: Icon = Settings, testId = 'setup-banner' }: {
+  tone: SetupNotice['tone']
+  title: string
+  body: ReactNode
+  action?: ReactNode
+  onDismiss?: () => void
+  icon?: LucideIcon
+  testId?: string
+}) {
+  const frame = TONES[tone]
   return (
     <div
       role="status"
-      data-testid="setup-banner"
-      data-tone={notice.tone}
-      className={cn('flex flex-wrap items-center gap-3 rounded-xl border py-3 pr-3 pl-4', tone.frame)}
+      data-testid={testId}
+      data-tone={tone}
+      className={cn('flex flex-wrap items-center gap-3 rounded-xl border py-3 pr-3 pl-4', frame.frame)}
     >
-      <Settings className={cn('size-[18px] shrink-0', tone.icon)} aria-hidden="true" />
+      <Icon className={cn('size-[18px] shrink-0', frame.icon)} aria-hidden="true" />
       <span className="flex min-w-0 flex-[1_1_280px] flex-col gap-0.5 text-left">
-        <span className="text-sm font-semibold text-foreground">{notice.title}</span>
+        <span className="text-sm font-semibold text-foreground">{title}</span>
         <span className="text-[13px] leading-[18px] text-muted-foreground">{body}</span>
       </span>
-      <Button size="sm" asChild>
-        <Link href={routes.settingsModelProvider}>{notice.action}</Link>
-      </Button>
+      {action}
       {onDismiss ? (
         <Button variant="ghost" size="icon" className="size-8 text-muted-foreground" aria-label="Dismiss" onClick={onDismiss}>
           <X aria-hidden="true" />
         </Button>
       ) : null}
     </div>
+  )
+}
+
+function SettingsLink({ label }: { label: string }) {
+  return (
+    <Button size="sm" asChild>
+      <Link href={routes.settingsModelProvider}>{label}</Link>
+    </Button>
   )
 }
 
@@ -53,12 +68,22 @@ export function OverviewSetupBanner() {
   }, [healthy])
 
   if (!notice || isDismissed(notice, dismissed)) return null
-  return <NoticeBanner notice={notice} body={notice.message} onDismiss={() => writeDismissed(notice.code)} />
+  return (
+    <NoticeBanner
+      tone={notice.tone}
+      title={notice.title}
+      body={notice.message}
+      action={<SettingsLink label={notice.action} />}
+      onDismiss={() => writeDismissed(notice.code)}
+    />
+  )
 }
 
 /** Room Chat banner: always shown above the composer while there is a notice. */
 export function SetupBanner({ notice }: { notice: SetupNotice | null }) {
-  return notice ? <NoticeBanner notice={notice} body={notice.chatMessage} /> : null
+  return notice
+    ? <NoticeBanner tone={notice.tone} title={notice.title} body={notice.chatMessage} action={<SettingsLink label={notice.action} />} />
+    : null
 }
 
 /** Composer placeholder while the setup notice blocks Room Chat. */

@@ -9,8 +9,14 @@ import pytest
 
 from source import SourceService
 from source.models import NO_TOKEN, NO_TOKEN_SOURCE_ID, TOKEN_PREFIX
-from source.protocols import SourceNotFound, SourceRegistry, SourceRevoked
-from tests.fakes.source import MemorySourceStore
+from source.protocols import (
+    SourceNotFound,
+    SourceRegistry,
+    SourceRevoked,
+    TokenRequirementLocked,
+    TokenRequirementUnset,
+)
+from tests.fakes.source import MemorySourceStore, store_with_requirement
 
 NOW = datetime(2026, 11, 20, 12, 0, tzinfo=UTC)
 
@@ -154,10 +160,77 @@ async def test_identities_include_no_token_and_skip_unknown_ids():
     assert "gone" not in found
 
 
-@pytest.mark.parametrize(("mode", "required"), [("mock", False), ("clerk", True)])
-async def test_the_requirement_is_on_only_in_clerk_mode(mode, required):
+@pytest.mark.parametrize(
+    ("mode", "existing", "required"),
+    [
+        ("mock", False, True),
+        ("mock", True, False),
+        ("clerk", False, True),
+        ("clerk", True, True),
+    ],
+)
+async def test_the_seed_is_on_for_a_fresh_install_and_in_clerk_mode(
+    mode, existing, required
+):
     service, _, _ = make(auth_mode=mode)
+
+    seeded = await service.seed_token_requirement(existing_install=existing)
+
+    assert seeded.required is required
+    assert seeded.started_off is (not required)
+    assert seeded.updated_at == NOW
     assert await service.token_required() is required
+    assert await service.token_requirement() == seeded
+
+
+async def test_a_second_seed_keeps_the_stored_switch():
+    service, _, clock = make()
+    await service.seed_token_requirement(existing_install=False)
+    changed = await service.set_token_required(False)
+    clock.now = NOW + timedelta(days=1)
+
+    again = await service.seed_token_requirement(existing_install=False)
+
+    assert again == changed
+    assert await service.token_required() is False
+
+
+async def test_the_owner_changes_the_switch_and_keeps_how_it_started():
+    service, _, clock = make()
+    await service.seed_token_requirement(existing_install=True)
+    clock.now = NOW + timedelta(minutes=5)
+
+    on = await service.set_token_required(True)
+
+    assert on.required is True
+    assert on.started_off is True
+    assert on.updated_at == NOW + timedelta(minutes=5)
+    assert await service.token_required() is True
+
+
+async def test_clerk_mode_always_requires_a_token_whatever_was_stored():
+    # Seeded off in mock mode, then started with clerk: the stored off stays,
+    # and Clerk mode must not become more open than it was.
+    store = store_with_requirement(required=False)
+    service = SourceService(store, auth_mode="clerk", now=Clock())
+
+    assert await service.token_required() is True
+    assert (await service.token_requirement()).required is True
+    with pytest.raises(TokenRequirementLocked):
+        await service.set_token_required(False)
+    assert store.requirement.required is False
+    assert (await service.set_token_required(True)).required is True
+
+
+async def test_an_unseeded_switch_requires_a_token_and_cannot_be_changed():
+    service, _, _ = make()
+
+    # Fails closed: no document means a token is required.
+    assert await service.token_required() is True
+    with pytest.raises(TokenRequirementUnset):
+        await service.token_requirement()
+    with pytest.raises(TokenRequirementUnset):
+        await service.set_token_required(False)
 
 
 async def test_a_failed_last_use_write_still_resolves_and_is_logged(

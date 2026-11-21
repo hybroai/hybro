@@ -18,7 +18,7 @@ from models.agent_group import AgentGroup
 from source import SourceService
 from tests.fakes.a2a_v1 import make_agent_card
 from tests.fakes.account import build_service, store_with_owner
-from tests.fakes.source import MemorySourceStore
+from tests.fakes.source import store_with_requirement
 from tests.test_agent_facade import Resolver, _doc
 from tests.test_agent_repository import _repo
 
@@ -64,7 +64,7 @@ async def network_api(monkeypatch, app):
     monkeypatch.setattr(
         app.state,
         "source_registry",
-        SourceService(MemorySourceStore(), auth_mode="mock"),
+        SourceService(store_with_requirement(required=False), auth_mode="mock"),
         raising=False,
     )
     monkeypatch.setattr(
@@ -180,7 +180,7 @@ async def clerk_source(monkeypatch, app, client, *, owner_id: str | None):
     ``owner_id`` None sends no token; otherwise the owner account took that
     administrator's id, and the request carries a source token and acts for it.
     """
-    sources = SourceService(MemorySourceStore(), auth_mode="clerk")
+    sources = SourceService(store_with_requirement(required=True), auth_mode="clerk")
     monkeypatch.setattr(app.state, "source_registry", sources)
     store = store_with_owner(owner_id or "user_local_developer")
     monkeypatch.setattr(

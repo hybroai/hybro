@@ -33,7 +33,8 @@ import { getAgentAvatarUri } from '@/lib/agent-avatar'
 import { parseHitlPresentation } from '@/lib/hitl/presentation'
 import { routes } from '@/lib/routes'
 import { hitlLifecycleState } from '@/lib/selectors/select-hitl'
-import { formatSessionDuration, formatSessionTime, sessionAgentNames, sessionRequester } from '@/lib/session-format'
+import { formatSessionDuration, formatSessionTime, sessionAgentNames, sessionClientLabel, sessionRequester } from '@/lib/session-format'
+import { ClientLabel } from './client-label'
 import { SESSION_LIST_QUERY_STORAGE_KEY, sessionName } from '@/lib/session-list-state'
 import { foldSessionEvents, type ExchangeItem, type SessionExchange } from '@/lib/session-record'
 import { sessionStateView } from '@/lib/status'
@@ -292,6 +293,9 @@ function DetailsPanel({ record, requests, closing, onClose }: {
       <dl className="flex flex-col gap-3.5">
         <Detail label="Status"><StatusIndicator view={sessionStateView(record.state)} /></Detail>
         <Detail label="Requester">{sessionRequester(record)}</Detail>
+        {sessionClientLabel(record) ? (
+          <Detail label="Client label"><ClientLabel label={sessionClientLabel(record)!} className="block text-sm" /></Detail>
+        ) : null}
         <Detail label="Agents">{sessionAgentNames(record.agents) || 'None yet'}</Detail>
         <Detail label="Created"><time dateTime={record.opened_at}>{formatSessionTime(record.opened_at)}</time></Detail>
         <Detail label="Updated"><time dateTime={record.last_activity_at}>{formatSessionTime(record.last_activity_at)}</time></Detail>

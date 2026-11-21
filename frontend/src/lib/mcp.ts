@@ -3,9 +3,11 @@ export function mcpUrl(pageOrigin: string): string {
   return `${pageOrigin}/mcp`
 }
 
-export function buildMcpConfig(url: string): string {
+/** The standard `mcpServers` entry; with a token, it sends the source token header. */
+export function buildMcpConfig(url: string, token?: string): string {
+  const headers = token ? { headers: { Authorization: `Bearer ${token}` } } : {}
   return JSON.stringify({
-    mcpServers: { hybro: { type: 'http', url } }
+    mcpServers: { hybro: { type: 'http', url, ...headers } }
   }, null, 2)
 }
 

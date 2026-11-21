@@ -21,8 +21,15 @@ from source.models import (
     SourceRecord,
     SourceView,
     SourceWithToken,
+    TokenRequirement,
 )
-from source.protocols import SourceNotFound, SourceRevoked, SourceStore
+from source.protocols import (
+    SourceNotFound,
+    SourceRevoked,
+    SourceStore,
+    TokenRequirementLocked,
+    TokenRequirementUnset,
+)
 
 logger = get_logger(__name__)
 
@@ -165,13 +172,49 @@ class SourceService:
         return found
 
     async def token_required(self) -> bool:
-        """Whether a Source API request needs a token.
+        """Whether a Source API request needs a token: the owner's switch.
 
-        The owner's switch is not stored yet, so the requirement is off,
-        except on a Clerk-mode configuration, which required a credential
-        before and must not become more open.
+        A switch that was never created requires one, so a failed startup
+        never leaves the Source API open. The deprecated Clerk mode always
+        requires one, whatever was stored before it was set.
         """
-        return self._auth_mode == "clerk"
+        if self._auth_mode == "clerk":
+            return True
+        requirement = await self._store.get_requirement()
+        return requirement is None or requirement.required
+
+    async def token_requirement(self) -> TokenRequirement:
+        requirement = await self._store.get_requirement()
+        if requirement is None:
+            raise TokenRequirementUnset
+        if self._auth_mode == "clerk":
+            return requirement.model_copy(update={"required": True})
+        return requirement
+
+    async def set_token_required(self, required: bool) -> TokenRequirement:
+        if self._auth_mode == "clerk" and not required:
+            raise TokenRequirementLocked
+        updated = await self._store.set_requirement(required, self._now())
+        if updated is None:
+            raise TokenRequirementUnset
+        return updated
+
+    async def seed_token_requirement(
+        self, *, existing_install: bool
+    ) -> TokenRequirement:
+        """Create the switch once, at backend startup, before any request.
+
+        It starts on for an install with no data yet, and off for one that
+        already has some, so its connected programs keep working. It always
+        starts on in Clerk mode, which required a credential before. A switch
+        that exists is returned unchanged.
+        """
+        required = self._auth_mode == "clerk" or not existing_install
+        return await self._store.seed_requirement(
+            TokenRequirement(
+                required=required, started_off=not required, updated_at=self._now()
+            )
+        )
 
 
 __all__ = ["SourceService"]
