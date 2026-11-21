@@ -1097,6 +1097,11 @@ no rules, or none that matches, every call goes as before.
   refused tool result (`error_code` `agent_call_denied`, one fixed sentence)
   and returns it to the model on the next turn, the path a schema-invalid
   declaration takes. The Run goes on; sibling calls in the batch still run.
+  Any locally rejected declaration closes its turn as `error` followed by a
+  `retry_scheduled` row (`error_class` `tool_failure`, attempt 2), because
+  the model is called again on a new turn; the Room fold settles a completed
+  Run only when every earlier `error` turn has such a row. `passthrough`
+  emits no retry row: the Run ends instead.
   The Agent-call budget unit is reserved before `accept` and stays spent, so
   `max_agent_calls` bounds a model that keeps calling a denied agent.
 - `/sessions` (`passthrough`): the Run ends `canceled` with the cause

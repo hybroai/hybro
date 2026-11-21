@@ -2,7 +2,9 @@
 
 The fixture holds the public event ids and the checkpoint command ids of
 each scenario as recorded before the rule answer "ask" was added. Every
-scenario here must still produce exactly those.
+scenario here must still produce exactly those. One later fix changed the
+record on purpose: a denied call's error turn is now followed by its
+``retry_scheduled`` event, which the Room fold needs to settle the Run.
 """
 
 from __future__ import annotations

@@ -2466,6 +2466,7 @@ class OrchestratorKernel:
                         "status": "error",
                     },
                 )
+                await self._emit_declaration_retry(run, turn_id, lifecycle)
                 run = await self._checkpoint(
                     run,
                     updates={
@@ -2537,6 +2538,34 @@ class OrchestratorKernel:
             command_id=f"present-interactions:{assistant.message_id}",
         )
         return "decide"
+
+    async def _emit_declaration_retry(
+        self,
+        run: OrchestratorRunState,
+        turn_id: str,
+        lifecycle: KernelLifecycle | None,
+    ) -> None:
+        """Record that the model is called again after a rejected declaration.
+
+        The turn closed as an error and the model reads the refusal on a new
+        turn. The Room records that as a retry of the failed turn, which a
+        completed settlement requires of every earlier error turn. A
+        passthrough Run ends instead, so it gets no retry.
+        """
+        if run.profile.profile_id == "passthrough":
+            return
+        await self._emit(
+            lifecycle,
+            "model_retry_scheduled",
+            run,
+            {
+                "public_event_id": f"public:{run.run_id}:{turn_id}:retry:tool_failure",
+                "internal_turn_id": turn_id,
+                "attempt": 2,
+                "error_class": "tool_failure",
+                "retry_delay_ms": 0,
+            },
+        )
 
     @staticmethod
     def _held_start_id(
@@ -2777,6 +2806,8 @@ class OrchestratorKernel:
         turn_started = False
         message_started = False
         turn_ended = False
+        turn_end_status: object = None
+        retried = False
         message_id = run.active_assistant_message_id
         for record in sorted(records, key=lambda item: int(item.get("room_seq") or 0)):
             data = record.get("payload_public")
@@ -2827,6 +2858,9 @@ class OrchestratorKernel:
                 text = terminal_text
             elif kind == "turn_end":
                 turn_ended = True
+                turn_end_status = payload.get("status")
+            elif kind == "retry_scheduled":
+                retried = True
 
         # The active-state CAS intentionally precedes public starts. Recovery
         # must adopt/restore those missing semantic parents before it emits any
@@ -2996,6 +3030,10 @@ class OrchestratorKernel:
                         "status": closed,
                     },
                 )
+            elif turn_end_status == "error" and not retried:
+                # A rejected declaration's turn ended as an error, and the
+                # process died before its retry row: write it now.
+                await self._emit_declaration_retry(run, internal_turn_id, lifecycle)
             run = await self._checkpoint(
                 run,
                 updates={

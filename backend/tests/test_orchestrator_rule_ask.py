@@ -965,9 +965,7 @@ async def test_a_denied_sibling_is_terminal_at_once():
     assert [m.error_code for m in tool_results(done.run)].count(
         "agent_call_denied"
     ) == 1
-    # The Room fold is not read here: a denial in Room chat closes its turn
-    # as an error with no retry row, which the fold already refuses at a
-    # completed settlement without any rule answering "ask".
+    assert (await settled_turn(room, done.run))["state"] == "completed"
 
 
 async def test_a_later_acceptance_failure_fails_the_run_and_closes_the_hold():
@@ -1649,3 +1647,90 @@ async def test_a_restart_between_two_ask_user_calls_asks_each_once():
     done = await answer_user(kernel, room, run_id, "ask-2")
     assert done.outcome == "final_answer"
     assert (await settled_turn(room, done.run))["state"] == "completed"
+
+
+class DenyingToolRuntime(AskingToolRuntime):
+    async def accept(self, invocation, *, rule_approved=False):
+        raise AgentCallDenied("rule_deny")
+
+
+async def rejected_declaration_turn(call, tools):
+    room = RoomLog()
+    kernel, store, _m, _ = await make_kernel(
+        [tool_events(call), final_events()], tool_runtime=tools
+    )
+    kernel.rule_question = RecordingRuleQuestion()
+    kernel.canonical_event_reader = room.read
+    run_id = next(iter(store.runs))
+    await room.lifecycle("run_started", store.runs[run_id], {"mode": "fast"})
+    done = await start(kernel, room, run_id)
+    assert done.outcome == "final_answer"
+    return await settled_turn(room, done.run)
+
+
+@pytest.mark.parametrize(
+    ("call", "tools"),
+    [
+        (("call-1", ECHO, '{"value":"hi"}'), DenyingToolRuntime({})),
+        (("call-1", "no_such_tool", "{}"), AskingToolRuntime({})),
+        (("call-1", ECHO, "{}"), AskingToolRuntime({})),
+    ],
+    ids=["rule-deny", "unknown-tool", "invalid-arguments"],
+)
+async def test_a_rejected_declaration_retries_the_model_and_settles(call, tools):
+    # The rejection goes back to the model on a new turn; the Room shows the
+    # failed turn's retry, so the completed settlement folds.
+    turn = await rejected_declaration_turn(call, tools)
+
+    assert turn["state"] == "completed"
+    first, second = turn["internal_turns"]
+    assert (first["status"], second["status"]) == ("error", "completed")
+    retries = [item for item in turn["activity"] if item["kind"] == "retry"]
+    assert [
+        (item["internal_turn_id"], item["error_class"], item["attempt"])
+        for item in retries
+    ] == [(first["internal_turn_id"], "tool_failure", 2)]
+
+
+async def test_a_passthrough_denial_ends_the_run_with_no_retry_row():
+    class DenyingAgentRuntime(AskingAgentRuntime):
+        async def accept(self, invocation, *, rule_approved=False):
+            raise AgentCallDenied("rule_deny")
+
+    room = RoomLog()
+    kernel, store, _model, _, _history, run_id = await make_passthrough_kernel(
+        runtime=DenyingAgentRuntime({})
+    )
+    kernel.rule_question = RecordingRuleQuestion()
+    kernel.canonical_event_reader = room.read
+    await room.lifecycle("run_started", store.runs[run_id], {"mode": "passthrough"})
+
+    result = await start(kernel, room, run_id)
+
+    assert result.run.status == "canceled"
+    assert "retry_scheduled" not in await room.public_types()
+    turn = await settled_turn(room, result.run)
+    assert not [item for item in turn["activity"] if item["kind"] == "retry"]
+
+
+async def test_a_restart_before_the_retry_row_writes_it():
+    room = RoomLog()
+    kernel, store, _m, _ = await make_kernel(
+        [tool_events(("call-1", ECHO, '{"value":"hi"}')), final_events()],
+        tool_runtime=DenyingToolRuntime({}),
+    )
+    kernel.rule_question = RecordingRuleQuestion()
+    kernel.canonical_event_reader = room.read
+    run_id = next(iter(store.runs))
+    await room.lifecycle("run_started", store.runs[run_id], {"mode": "fast"})
+    room.die_before.add("model_retry_scheduled")
+    with pytest.raises(ProcessDied):
+        await start(kernel, room, run_id)
+
+    done = await start(kernel, room, run_id)
+
+    assert done.outcome == "final_answer"
+    turn = await settled_turn(room, done.run)
+    assert turn["state"] == "completed"
+    retries = [item for item in turn["activity"] if item["kind"] == "retry"]
+    assert [item["error_class"] for item in retries] == ["tool_failure"]

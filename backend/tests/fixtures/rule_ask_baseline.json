@@ -51,6 +51,7 @@
       "public:run-1:tool_execution_start:45dfc13b3c3d2051efaffe1ded2bc83a1acf9f73db7a9ab7160b3a4710c3c05c:inv_afb42c5c9bb7cf47409e1dc8:tool_start",
       "public:run-1:tool_execution_end:public:run-1:inv_afb42c5c9bb7cf47409e1dc8:end",
       "public:run-1:turn_end:45dfc13b3c3d2051efaffe1ded2bc83a1acf9f73db7a9ab7160b3a4710c3c05c:turn_end:error",
+      "public:run-1:retry_scheduled:public:run-1:45dfc13b3c3d2051efaffe1ded2bc83a1acf9f73db7a9ab7160b3a4710c3c05c:retry:tool_failure",
       "public:run-1:turn_start:9a507a4067344d2b9b69ccc10cfba819e684b9fde53b2af7825f2a1c4d2fc6d0:turn_start:1",
       "public:run-1:message_start:9a507a4067344d2b9b69ccc10cfba819e684b9fde53b2af7825f2a1c4d2fc6d0:assistant-2:message_start",
       "public:run-1:message_update:public:text:c7f8790218687947e007b024ef3b321f866ecebf358ff2f06ec0aa1ba6c333b2",
