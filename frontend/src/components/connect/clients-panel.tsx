@@ -33,17 +33,17 @@ import {
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Skeleton } from '@/components/ui/skeleton'
-import { sourcesQueryKey, useSources } from '@/hooks/useSources'
+import { clientsQueryKey, useClients } from '@/hooks/useClients'
 import { usePageOrigin } from '@/hooks/usePageOrigin'
 import {
-  createSource,
-  renameSource,
-  revokeSource,
-  rotateSource,
-  sourceErrorMessage,
-  type SourceView,
-  type SourceWithToken,
-} from '@/lib/api/source'
+  createClient,
+  renameClient,
+  revokeClient,
+  rotateClient,
+  clientErrorMessage,
+  type ClientView,
+  type ClientWithToken,
+} from '@/lib/api/clients'
 import { publicConfig } from '@/lib/config'
 import { mcpUrl } from '@/lib/mcp'
 import { routes } from '@/lib/routes'
@@ -69,16 +69,16 @@ function useTokenSnippets(token: string): TokenSnippet[] {
 
 const VIA_LABEL = { api: 'API', mcp: 'MCP' } as const
 
-function TokenShown({ source }: { source: SourceWithToken }) {
-  return <ShowOnceToken token={source.token} snippets={useTokenSnippets(source.token)} />
+function TokenShown({ client }: { client: ClientWithToken }) {
+  return <ShowOnceToken token={client.token} snippets={useTokenSnippets(client.token)} />
 }
 
 function NameField({ value, onChange, autoFocus }: { value: string; onChange: (value: string) => void; autoFocus?: boolean }) {
   return (
     <div className="flex flex-col gap-2">
-      <Label htmlFor="source-name">Name</Label>
+      <Label htmlFor="client-name">Name</Label>
       <Input
-        id="source-name"
+        id="client-name"
         value={value}
         maxLength={NAME_MAX}
         autoFocus={autoFocus}
@@ -91,13 +91,13 @@ function NameField({ value, onChange, autoFocus }: { value: string; onChange: (v
   )
 }
 
-/** Name a new source; then its token, once. */
-function CreateSourceDialog({ open, onOpenChange }: { open: boolean; onOpenChange: (open: boolean) => void }) {
+/** Name a new client; then its token, once. */
+function CreateClientDialog({ open, onOpenChange }: { open: boolean; onOpenChange: (open: boolean) => void }) {
   const queryClient = useQueryClient()
   const [name, setName] = useState('')
   const create = useMutation({
-    mutationFn: (value: string) => createSource(value),
-    onSuccess: () => { void queryClient.invalidateQueries({ queryKey: sourcesQueryKey }) },
+    mutationFn: (value: string) => createClient(value),
+    onSuccess: () => { void queryClient.invalidateQueries({ queryKey: clientsQueryKey }) },
   })
   const close = (next: boolean) => {
     // Closing mid-request would drop a token nobody has seen.
@@ -118,22 +118,22 @@ function CreateSourceDialog({ open, onOpenChange }: { open: boolean; onOpenChang
     <Dialog open={open} onOpenChange={close}>
       <DialogContent className="sm:max-w-xl">
         <DialogHeader>
-          <DialogTitle>{created ? `Token for ${created.name}` : 'Create a source'}</DialogTitle>
+          <DialogTitle>{created ? `Token for ${created.name}` : 'Create a client'}</DialogTitle>
           <DialogDescription>
             {created
               ? 'Give this token to the program. It sends it as Authorization: Bearer on every request.'
-              : 'A source is one program that sends work to Hybro. It gets its own token, and its sessions carry its name.'}
+              : 'A client is one program that sends work to Hybro. It gets its own token, and its sessions carry its name.'}
           </DialogDescription>
         </DialogHeader>
         {created ? (
           <>
-            <TokenShown source={created} />
+            <TokenShown client={created} />
             <DialogFooter><Button onClick={() => close(false)}>Done</Button></DialogFooter>
           </>
         ) : (
           <form onSubmit={submit} className="flex flex-col gap-4">
             <NameField value={name} onChange={setName} autoFocus />
-            {create.isError ? <Alert variant="destructive"><AlertDescription>{sourceErrorMessage(create.error)}</AlertDescription></Alert> : null}
+            {create.isError ? <Alert variant="destructive"><AlertDescription>{clientErrorMessage(create.error)}</AlertDescription></Alert> : null}
             <DialogFooter>
               <Button type="button" variant="secondary" disabled={create.isPending} onClick={() => close(false)}>Cancel</Button>
               <Button type="submit" disabled={!name.trim() || create.isPending}>
@@ -148,13 +148,13 @@ function CreateSourceDialog({ open, onOpenChange }: { open: boolean; onOpenChang
   )
 }
 
-function RenameDialog({ source, onClose }: { source: SourceView; onClose: () => void }) {
+function RenameDialog({ client, onClose }: { client: ClientView; onClose: () => void }) {
   const queryClient = useQueryClient()
-  const [name, setName] = useState(source.name)
+  const [name, setName] = useState(client.name)
   const rename = useMutation({
-    mutationFn: (value: string) => renameSource(source.source_id, value),
+    mutationFn: (value: string) => renameClient(client.client_id, value),
     onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: sourcesQueryKey })
+      void queryClient.invalidateQueries({ queryKey: clientsQueryKey })
       onClose()
     },
   })
@@ -166,12 +166,12 @@ function RenameDialog({ source, onClose }: { source: SourceView; onClose: () => 
     <Dialog open onOpenChange={open => { if (!open) onClose() }}>
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>Rename source</DialogTitle>
+          <DialogTitle>Rename client</DialogTitle>
           <DialogDescription>Its sessions show the new name. The token stays the same.</DialogDescription>
         </DialogHeader>
         <form onSubmit={submit} className="flex flex-col gap-4">
           <NameField value={name} onChange={setName} autoFocus />
-          {rename.isError ? <Alert variant="destructive"><AlertDescription>{sourceErrorMessage(rename.error)}</AlertDescription></Alert> : null}
+          {rename.isError ? <Alert variant="destructive"><AlertDescription>{clientErrorMessage(rename.error)}</AlertDescription></Alert> : null}
           <DialogFooter>
             <Button type="button" variant="secondary" onClick={onClose}>Cancel</Button>
             <Button type="submit" disabled={!name.trim() || rename.isPending}>Save</Button>
@@ -183,12 +183,12 @@ function RenameDialog({ source, onClose }: { source: SourceView; onClose: () => 
 }
 
 /** Confirm rotating or revoking; a rotation then shows the new token once. */
-function TokenActionDialog({ source, action, onClose }: { source: SourceView; action: 'rotate' | 'revoke'; onClose: () => void }) {
+function TokenActionDialog({ client, action, onClose }: { client: ClientView; action: 'rotate' | 'revoke'; onClose: () => void }) {
   const queryClient = useQueryClient()
   const run = useMutation({
-    mutationFn: async (): Promise<SourceView | SourceWithToken> => (action === 'rotate' ? rotateSource(source.source_id) : revokeSource(source.source_id)),
+    mutationFn: async (): Promise<ClientView | ClientWithToken> => (action === 'rotate' ? rotateClient(client.client_id) : revokeClient(client.client_id)),
     onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: sourcesQueryKey })
+      void queryClient.invalidateQueries({ queryKey: clientsQueryKey })
       if (action === 'revoke') onClose()
     },
   })
@@ -196,7 +196,7 @@ function TokenActionDialog({ source, action, onClose }: { source: SourceView; ac
     run.reset()
     onClose()
   }
-  const rotated = action === 'rotate' && run.data && 'token' in run.data ? (run.data as SourceWithToken) : null
+  const rotated = action === 'rotate' && run.data && 'token' in run.data ? (run.data as ClientWithToken) : null
   if (rotated) {
     return (
       <Dialog open onOpenChange={open => { if (!open) close() }}>
@@ -205,15 +205,15 @@ function TokenActionDialog({ source, action, onClose }: { source: SourceView; ac
             <DialogTitle>{`New token for ${rotated.name}`}</DialogTitle>
             <DialogDescription>The old token stopped working. Give the program this one; its sessions stay.</DialogDescription>
           </DialogHeader>
-          <TokenShown source={rotated} />
+          <TokenShown client={rotated} />
           <DialogFooter><Button onClick={close}>Done</Button></DialogFooter>
         </DialogContent>
       </Dialog>
     )
   }
   const copy = action === 'rotate'
-    ? { title: `Rotate the token of ${source.name}?`, body: 'The current token stops working at once, and a new one is shown once. The source keeps its sessions.', label: 'Rotate token' }
-    : { title: `Revoke ${source.name}?`, body: 'Its token stops working for good, and its requests are refused. The source and its sessions stay listed. This cannot be undone.', label: 'Revoke' }
+    ? { title: `Rotate the token of ${client.name}?`, body: 'The current token stops working at once, and a new one is shown once. The client keeps its sessions.', label: 'Rotate token' }
+    : { title: `Revoke ${client.name}?`, body: 'Its token stops working for good, and its requests are refused. The client and its sessions stay listed. This cannot be undone.', label: 'Revoke' }
   // Closing mid-request would drop a rotated token nobody has seen.
   return (
     <AlertDialog open onOpenChange={open => { if (!open && !run.isPending) close() }}>
@@ -222,7 +222,7 @@ function TokenActionDialog({ source, action, onClose }: { source: SourceView; ac
           <AlertDialogTitle>{copy.title}</AlertDialogTitle>
           <AlertDialogDescription>{copy.body}</AlertDialogDescription>
         </AlertDialogHeader>
-        {run.isError ? <Alert variant="destructive"><AlertDescription>{sourceErrorMessage(run.error)}</AlertDescription></Alert> : null}
+        {run.isError ? <Alert variant="destructive"><AlertDescription>{clientErrorMessage(run.error)}</AlertDescription></Alert> : null}
         <AlertDialogFooter>
           <AlertDialogCancel disabled={run.isPending}>Cancel</AlertDialogCancel>
           <AlertDialogAction
@@ -240,47 +240,47 @@ function TokenActionDialog({ source, action, onClose }: { source: SourceView; ac
   )
 }
 
-type Pending = { source: SourceView; action: 'rename' | 'rotate' | 'revoke' }
+type Pending = { client: ClientView; action: 'rename' | 'rotate' | 'revoke' }
 
-function SourceRow({ source, onAction }: { source: SourceView; onAction: (pending: Pending) => void }) {
-  const revoked = !source.has_token
+function ClientRow({ client, onAction }: { client: ClientView; onAction: (pending: Pending) => void }) {
+  const revoked = !client.has_token
   return (
     <tr className="border-t">
       <td className="max-w-0 py-3 pr-3 pl-4">
-        <span className="block truncate font-medium">{source.name}</span>
+        <span className="block truncate font-medium">{client.name}</span>
         <span className="mt-0.5 block text-xs text-muted-foreground sm:hidden">
-          {revoked ? 'Revoked' : `…${source.token_last4 ?? ''}`}
+          {revoked ? 'Revoked' : `…${client.token_last4 ?? ''}`}
         </span>
       </td>
       <td className="hidden px-3 py-3 font-mono text-xs whitespace-nowrap sm:table-cell">
-        {revoked ? <span className="font-sans text-muted-foreground">Revoked</span> : <span aria-label={`Token ending in ${source.token_last4}`}>{`…${source.token_last4}`}</span>}
+        {revoked ? <span className="font-sans text-muted-foreground">Revoked</span> : <span aria-label={`Token ending in ${client.token_last4}`}>{`…${client.token_last4}`}</span>}
       </td>
       <td className="hidden px-3 py-3 whitespace-nowrap tabular-nums text-muted-foreground md:table-cell">
-        {source.last_used_at ? <time dateTime={source.last_used_at}>{formatSessionTime(source.last_used_at)}</time> : 'Never'}
+        {client.last_used_at ? <time dateTime={client.last_used_at}>{formatSessionTime(client.last_used_at)}</time> : 'Never'}
       </td>
-      <td data-testid="source-via" className="hidden px-3 py-3 whitespace-nowrap text-muted-foreground md:table-cell" aria-label={source.last_used_via ? undefined : 'Not known'}>
-        {source.last_used_via ? VIA_LABEL[source.last_used_via] : <span aria-hidden="true">—</span>}
+      <td data-testid="client-via" className="hidden px-3 py-3 whitespace-nowrap text-muted-foreground md:table-cell" aria-label={client.last_used_via ? undefined : 'Not known'}>
+        {client.last_used_via ? VIA_LABEL[client.last_used_via] : <span aria-hidden="true">—</span>}
       </td>
       <td className="hidden px-3 py-3 whitespace-nowrap tabular-nums text-muted-foreground lg:table-cell">
-        <time dateTime={source.created_at}>{formatSessionTime(source.created_at)}</time>
+        <time dateTime={client.created_at}>{formatSessionTime(client.created_at)}</time>
       </td>
       <td className="py-3 pr-4 pl-3 text-right whitespace-nowrap">
         <div className="flex items-center justify-end gap-1">
           <Button variant="ghost" size="sm" asChild>
-            <Link href={routes.sessionsFromSource(source.source_id)}>Sessions</Link>
+            <Link href={routes.sessionsFromClient(client.client_id)}>Sessions</Link>
           </Button>
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
-              <Button variant="ghost" size="iconSm" className="size-8" aria-label={`Actions for ${source.name}`}>
+              <Button variant="ghost" size="iconSm" className="size-8" aria-label={`Actions for ${client.name}`}>
                 <MoreHorizontal aria-hidden="true" />
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end">
-              <DropdownMenuItem onSelect={() => onAction({ source, action: 'rename' })}>Rename</DropdownMenuItem>
+              <DropdownMenuItem onSelect={() => onAction({ client, action: 'rename' })}>Rename</DropdownMenuItem>
               {revoked ? null : (
                 <>
-                  <DropdownMenuItem onSelect={() => onAction({ source, action: 'rotate' })}>Rotate token</DropdownMenuItem>
-                  <DropdownMenuItem variant="destructive" onSelect={() => onAction({ source, action: 'revoke' })}>Revoke</DropdownMenuItem>
+                  <DropdownMenuItem onSelect={() => onAction({ client, action: 'rotate' })}>Rotate token</DropdownMenuItem>
+                  <DropdownMenuItem variant="destructive" onSelect={() => onAction({ client, action: 'revoke' })}>Revoke</DropdownMenuItem>
                 </>
               )}
             </DropdownMenuContent>
@@ -291,13 +291,13 @@ function SourceRow({ source, onAction }: { source: SourceView; onAction: (pendin
   )
 }
 
-function SourcesTable({ onAction }: { onAction: (pending: Pending) => void }) {
-  const sources = useSources()
-  const list = sources.data?.sources
+function ClientsTable({ onAction }: { onAction: (pending: Pending) => void }) {
+  const clients = useClients()
+  const list = clients.data?.clients
   return (
     <div className="overflow-hidden rounded-lg border">
       <table className="w-full table-fixed text-sm">
-        <caption className="sr-only">Sources</caption>
+        <caption className="sr-only">Clients</caption>
         <thead className="bg-muted/30">
           <tr className="text-left text-muted-foreground">
             <th scope="col" className="py-2 pr-3 pl-4 font-medium">Name</th>
@@ -309,25 +309,25 @@ function SourcesTable({ onAction }: { onAction: (pending: Pending) => void }) {
           </tr>
         </thead>
         <tbody>
-          {sources.isError ? (
+          {clients.isError ? (
             <tr><td colSpan={6} className="p-4">
               <div className="flex flex-wrap items-center gap-3">
-                <span>Sources couldn&apos;t load.</span>
-                <Button variant="secondary" size="sm" onClick={() => { void sources.refetch() }}>
+                <span>Clients couldn&apos;t load.</span>
+                <Button variant="secondary" size="sm" onClick={() => { void clients.refetch() }}>
                   <RefreshCw data-icon="inline-start" aria-hidden="true" />Retry
                 </Button>
               </div>
             </td></tr>
-          ) : sources.isLoading ? (
+          ) : clients.isLoading ? (
             Array.from({ length: 3 }, (_, index) => (
               <tr key={index} className="border-t"><td colSpan={6} className="px-4 py-3"><Skeleton className="h-5" /></td></tr>
             ))
           ) : !list?.length ? (
             <tr><td colSpan={6} className="px-4 py-8 text-muted-foreground">
-              No sources yet. Create one for each program that sends work to Hybro, over the API or MCP.
+              No clients yet. Create one for each program that sends work to Hybro, over the API or MCP.
             </td></tr>
           ) : (
-            list.map(source => <SourceRow key={source.source_id} source={source} onAction={onAction} />)
+            list.map(client => <ClientRow key={client.client_id} client={client} onAction={onAction} />)
           )}
         </tbody>
       </table>
@@ -335,7 +335,7 @@ function SourcesTable({ onAction }: { onAction: (pending: Pending) => void }) {
   )
 }
 
-export function SourcesPanel() {
+export function ClientsPanel() {
   const [creating, setCreating] = useState(false)
   const [pending, setPending] = useState<Pending | null>(null)
   const close = () => setPending(null)
@@ -345,26 +345,26 @@ export function SourcesPanel() {
         <h2 id="requirement-heading" className="sr-only">Token requirement</h2>
         <RequirementSwitch />
       </section>
-      <section aria-labelledby="sources-heading" className="flex flex-col gap-3">
+      <section aria-labelledby="clients-heading" className="flex flex-col gap-3">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div className="flex flex-col gap-1">
-            <h2 id="sources-heading" className="text-[15px] font-semibold">Sources</h2>
+            <h2 id="clients-heading" className="text-[15px] font-semibold">Clients</h2>
             <p className="text-sm text-muted-foreground">Each program that sends work has its own token, and every step it sends is recorded under its name.</p>
           </div>
           <Button onClick={() => setCreating(true)}>
-            <Plus data-icon="inline-start" aria-hidden="true" />Create source
+            <Plus data-icon="inline-start" aria-hidden="true" />Create client
           </Button>
         </div>
-        <SourcesTable onAction={setPending} />
+        <ClientsTable onAction={setPending} />
         <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
           <KeyRound className="size-3.5" aria-hidden="true" />
-          On the machine that runs Hybro, <code className="font-mono">hybro source create --name &lt;name&gt;</code> creates one too.
+          On the machine that runs Hybro, <code className="font-mono">hybro client create --name &lt;name&gt;</code> creates one too.
         </p>
       </section>
-      <CreateSourceDialog open={creating} onOpenChange={setCreating} />
-      {pending?.action === 'rename' ? <RenameDialog key={pending.source.source_id} source={pending.source} onClose={close} /> : null}
+      <CreateClientDialog open={creating} onOpenChange={setCreating} />
+      {pending?.action === 'rename' ? <RenameDialog key={pending.client.client_id} client={pending.client} onClose={close} /> : null}
       {pending && pending.action !== 'rename' ? (
-        <TokenActionDialog key={`${pending.action}-${pending.source.source_id}`} source={pending.source} action={pending.action} onClose={close} />
+        <TokenActionDialog key={`${pending.action}-${pending.client.client_id}`} client={pending.client} action={pending.action} onClose={close} />
       ) : null}
     </div>
   )

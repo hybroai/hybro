@@ -16,18 +16,18 @@ export interface SessionAgent {
   name: string | null
 }
 
-/** The source a session came from; `no_token` for a request without a token. */
-export interface SessionSource {
-  source_id: string
+/** The client a session came from; `no_token` for a request without a token. */
+export interface SessionClient {
+  client_id: string
   name: string
   has_token: boolean
 }
 
 export interface SessionSummary {
   session_id: string
-  /** The caller's label; null when a source token opened the session without one. */
+  /** The caller's label; null when a client token opened the session without one. */
   client_label: string | null
-  source: SessionSource
+  client: SessionClient
   /** The first message, set when the session opened; null for older sessions. */
   title?: string | null
   agents: SessionAgent[]
@@ -52,7 +52,7 @@ export interface SessionRecord {
   opened_at: string
   last_activity_at: string
   client_label: string | null
-  source: SessionSource
+  client: SessionClient
   title?: string | null
   status: 'open' | 'closed'
   conversation_id: string | null

@@ -121,7 +121,7 @@ export function StructureView({ agents, networks, state, onChange, details }: {
           {sortButton('name', 'Agent')}
           {sortButton('status', 'Status')}
           <span className="text-xs font-medium text-muted-foreground">Subnets</span>
-          <span className="text-xs font-medium text-muted-foreground">Source</span>
+          <span className="text-xs font-medium text-muted-foreground">Origin</span>
           {sortButton('calls', 'Room calls', 'Direct MCP and API sends are not counted')}
         </div>
         {groups.map(group => (

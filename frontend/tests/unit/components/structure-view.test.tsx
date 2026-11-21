@@ -38,4 +38,11 @@ describe('StructureView', () => {
     expect(within(main).getByText('2 agents · 2 online')).toBeInTheDocument()
     expect(within(main).getByRole('button', { name: /Room calls/ })).toBeInTheDocument()
   })
+
+  it('labels the column for where an agent comes from as Origin', () => {
+    render(<StructureView agents={agents} networks={networks} state={{ ...DEFAULT_NETWORK_URL_STATE, view: 'structure' }} onChange={vi.fn()} details={null} />)
+    const main = screen.getByRole('region', { name: 'All agents' })
+    expect(within(main).getByText('Origin')).toBeInTheDocument()
+    expect(within(main).queryByText('Source')).not.toBeInTheDocument()
+  })
 })

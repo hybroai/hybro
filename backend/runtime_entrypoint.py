@@ -189,7 +189,7 @@ def read_listener(environment: Mapping[str, str]) -> Listener:
 def listener_line(listener: Listener) -> str | None:
     """The routine startup line for a public listener; none for loopback.
 
-    Whether a program needs a source token is product state in the database,
+    Whether a program needs a client token is product state in the database,
     which the entrypoint does not read; the backend and ``hybro`` warn when
     the requirement is off.
     """
@@ -197,7 +197,7 @@ def listener_line(listener: Listener) -> str | None:
         return None
     return (
         "listening for other machines: the Panel needs the owner's sign-in, "
-        "and whether a program needs a source token is set in Access, Sources"
+        "and whether a program needs a client token is set in Access, Clients"
     )
 
 
@@ -334,7 +334,7 @@ def projections(
             str(APP_DIR / "MCP"),
             {
                 # The listen mode decides the MCP server's own Host and Origin
-                # check: on for loopback, off for public, where the source
+                # check: on for loopback, off for public, where the client
                 # token is the control. Behind a same-machine proxy loopback
                 # also admits the server_url host, as Caddy does.
                 "HYBRO_MCP_CONFIG": json.dumps(
@@ -527,7 +527,7 @@ def caddyfile(
         "\t\treverse_proxy 127.0.0.1:8000 {",
         "\t\t\tflush_interval -1",
         # Only the MCP server, which calls the backend inside the image, marks
-        # a request as MCP; the Sources tab shows the mark.
+        # a request as MCP; the Clients tab shows the mark.
         "\t\t\theader_up -X-Hybro-Via",
         # uvicorn trusts only Caddy and reads one address from this header.
         *(
@@ -540,7 +540,7 @@ def caddyfile(
         ),
         "\t\t}",
         "\t}",
-        # MCP on every listener: a source token is the control on a public
+        # MCP on every listener: a client token is the control on a public
         # one, and the loopback host check above covers it on loopback.
         "\t@mcp path /mcp /mcp/*",
         "\thandle @mcp {",

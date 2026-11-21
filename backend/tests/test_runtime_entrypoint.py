@@ -131,12 +131,12 @@ def test_the_public_listener_line_names_what_guards_it(boot, monkeypatch, capsys
         if "listen" in line.lower()
     ]
     assert len(lines) == 1
-    # A routine line: the backend knows whether a source token is required
+    # A routine line: the backend knows whether a client token is required
     # and warns itself; the entrypoint does not read the database.
     assert lines[0].startswith("entrypoint | ")
     assert "sign-in" in lines[0]
-    assert "Access, Sources" in lines[0]
-    assert "without a source token" not in lines[0]
+    assert "Access, Clients" in lines[0]
+    assert "without a client token" not in lines[0]
 
 
 # ---- Projections ----

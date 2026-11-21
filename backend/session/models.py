@@ -23,8 +23,8 @@ class SessionRequest(BaseModel):
 
     client_request_id: str
     user_message_id: str
-    # The source that sent this step; null on a step from before sources.
-    source_id: str | None = None
+    # The client that sent this step; null on a step from before clients.
+    client_id: str | None = None
     sent_at: datetime
 
     @field_validator("sent_at")
@@ -42,9 +42,9 @@ class SessionRecord(BaseModel):
     ``last_send_event_seq`` is the room event sequence read before the last
     accepted send; state resolution pages events after it. ``requests`` lists
     every recorded client message, so retries of earlier requests and the
-    client's history do not depend on a run having started. ``source_id`` is
-    the source that opened the session, which alone may reach it; a session
-    from before sources has none and counts as "No token". ``client_label`` is
+    client's history do not depend on a run having started. ``client_id`` is
+    the client that opened the session, which alone may reach it; a session
+    from before clients has none and counts as "No token". ``client_label`` is
     the name the client gave, which a request with a token may leave out.
     """
 
@@ -52,7 +52,7 @@ class SessionRecord(BaseModel):
 
     session_id: str
     owner_user_id: str
-    source_id: str | None = None
+    client_id: str | None = None
     client_label: str | None = None
     title: str | None = None
     conversation_id: str | None = None

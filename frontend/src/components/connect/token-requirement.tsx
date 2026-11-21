@@ -19,8 +19,8 @@ import { Button, buttonVariants } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Switch } from '@/components/ui/switch'
-import { useSetTokenRequirement, useTokenRequirement } from '@/hooks/useSources'
-import { sourceErrorMessage, type TokenRequirement } from '@/lib/api/source'
+import { useSetTokenRequirement, useTokenRequirement } from '@/hooks/useClients'
+import { clientErrorMessage, type TokenRequirement } from '@/lib/api/clients'
 import { createDismissalStore } from '@/lib/dismissal'
 import { routes } from '@/lib/routes'
 
@@ -34,12 +34,12 @@ const OPEN_RISK = 'Any program that can reach this Hybro can send work to your a
 
 const CONFIRM = {
   on: {
-    title: 'Require a source token?',
+    title: 'Require a client token?',
     body: 'From the next request on, programs and MCP clients that send no token are refused until they send one created on this tab. Their earlier sessions stay, recorded under "No token".',
     action: 'Require tokens',
   },
   off: {
-    title: 'Stop requiring a source token?',
+    title: 'Stop requiring a client token?',
     body: `${OPEN_RISK} Their requests are recorded under "No token", and nothing tells them apart. A revoked or unknown token is still refused.`,
     action: 'Stop requiring',
   },
@@ -68,10 +68,10 @@ export function RequirementSwitch() {
     <div className="flex flex-col gap-3">
       <div className="flex items-start justify-between gap-4">
         <div className="flex min-w-0 flex-col gap-1">
-          <label htmlFor="token-requirement" className="text-sm font-medium">Require a source token</label>
+          <label htmlFor="token-requirement" className="text-sm font-medium">Require a client token</label>
           <p id="token-requirement-state" className="text-sm text-muted-foreground">
             {required
-              ? 'On: every Source API and MCP request needs a valid source token.'
+              ? 'On: every Client API and MCP request needs a valid client token.'
               : 'Off: requests without a token are accepted, so any program that can reach Hybro can use your agents.'}
           </p>
         </div>
@@ -84,7 +84,7 @@ export function RequirementSwitch() {
         />
       </div>
       {change.isError ? (
-        <Alert variant="destructive"><AlertDescription>{sourceErrorMessage(change.error)}</AlertDescription></Alert>
+        <Alert variant="destructive"><AlertDescription>{clientErrorMessage(change.error)}</AlertDescription></Alert>
       ) : null}
       <AlertDialog open={copy !== null} onOpenChange={open => { if (!open) setAsking(null) }}>
         {copy ? (
@@ -116,19 +116,19 @@ export function RequirementDialog({ open, onOpenChange }: { open: boolean; onOpe
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-lg">
         <DialogHeader>
-          <DialogTitle>Requests without a source token</DialogTitle>
+          <DialogTitle>Requests without a client token</DialogTitle>
           <DialogDescription>
-            A source token names the program that sends each step, and only you can create one.
+            A client token names the program that sends each step, and only you can create one.
           </DialogDescription>
         </DialogHeader>
         <div className="flex flex-col gap-3 text-sm text-muted-foreground">
           <p>
-            While the requirement is off, Hybro accepts a request that carries no token and records it under the built-in source &quot;No token&quot;. {OPEN_RISK} On a Hybro that other machines can reach, that includes anyone on the network.
+            While the requirement is off, Hybro accepts a request that carries no token and records it under the built-in client &quot;No token&quot;. {OPEN_RISK} On a Hybro that other machines can reach, that includes anyone on the network.
           </p>
           <p>
             A request with a revoked or unknown token is always refused, and a web page on another address can never send one without a token.
           </p>
-          <p>Create a source for each program on the Sources tab, give it its token, then turn the requirement on.</p>
+          <p>Create a client for each program on the Clients tab, give it its token, then turn the requirement on.</p>
         </div>
         <RequirementSwitch />
       </DialogContent>
@@ -157,7 +157,7 @@ export function TokenRequirementBanner() {
         tone="warning"
         icon={ShieldAlert}
         testId="token-requirement-banner"
-        title="Source tokens are not required"
+        title="Client tokens are not required"
         body={OPEN_RISK}
         action={<Button size="sm" onClick={() => setExplaining(true)}>Learn more</Button>}
         onDismiss={() => bannerDismissal.write(data.updated_at)}
@@ -178,11 +178,11 @@ export function TokenRequirementNotice() {
       tone="warning"
       icon={ShieldAlert}
       testId="token-requirement-notice"
-      title="New: source tokens"
-      body="This Hybro was in use before source tokens, so it still accepts programs without one. Give each program a token on the Sources tab, then require tokens."
+      title="New: client tokens"
+      body="This Hybro was in use before client tokens, so it still accepts programs without one. Give each program a token on the Clients tab, then require tokens."
       action={(
         <Button size="sm" asChild>
-          <Link href={routes.connectSources}>Open Sources</Link>
+          <Link href={routes.connectClients}>Open Clients</Link>
         </Button>
       )}
       onDismiss={() => noticeDismissal.write('1')}

@@ -36,7 +36,7 @@ integration lane is skipped locally.
   mock LLM, as the `functional-ci` lane does. The client signs in as the owner
   with `HYBRO_TEST_OWNER_EMAIL` and `HYBRO_TEST_OWNER_PASSWORD`; create that
   account first with `hybro owner create`, the password on standard input.
-  Its Source API calls send no source token.
+  Its Client API calls send no client token.
 - `asyncio`: explicit async marker retained where older tests already use it;
   pytest-asyncio also runs in auto mode.
 

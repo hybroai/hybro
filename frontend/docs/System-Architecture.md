@@ -1035,30 +1035,30 @@ segment.
   `POST /sessions/messages`, shown as a work-ticket system on two pages. The
   list (`SessionsTablePage`) is a table of Name (the session title, or
   "Untitled session" for sessions opened before titles existed), Status,
-  Requester, Created, and Updated. A top search covers names, requesters,
+  Client, Created, and Updated. A top search covers names, clients,
   agents, and session IDs; each column header sorts and has a filter menu
-  (name contains, status and requester checkboxes, time presets for Created
+  (name contains, status and client checkboxes, time presets for Created
   and Updated). The view lives in the URL (`src/lib/session-list-state.ts`,
   `useSessionListUrlState`), which builds each change on the last requested
   URL so quick successive changes are not lost; the query is also kept in
   `sessionStorage` so a ticket's back link returns to the same view. On narrow
-  screens the requester and update time move under the name. The ticket page
+  screens the client and update time move under the name. The ticket page
   (`SessionRecordView`) shows the title, a chronological record, and a
-  Details panel (status, requester, agents, created, updated, closed, request
+  Details panel (status, client, agents, created, updated, closed, request
   count, copyable session ID, Close session with confirmation, which calls the
-  owner route `POST /sessions/{id}/record/close`). The requester is the
-  session's source, by name (`sessionRequester`; "No token" for a session
+  owner route `POST /sessions/{id}/record/close`). The client column
+  names the session's client (`sessionClientName`; "No token" for a session
   opened without a token). Its `client_label`, when it differs, shows beside
   it in quotes as text the client gave, marked not verified (`ClientLabel`,
   `sessionClientLabel`), in the list and as a "Client label" detail row. Sort
-  and the requester filter use the source (`source` in the URL, by
-  `source_id`); search also matches the client label. The record is
+  and the client filter use the client (`client` in the URL, by
+  `client_id`); search also matches the client label. The record is
   built by `foldSessionEvents` (`src/lib/session-record.ts`) from the room
   event replay (`GET /sse/room/{id}/events`, paged 1000 events at a time up to
   the log's latest sequence) and reads as plain sentences with
   an avatar per actor (a registered agent's own `getAgentAvatarUri` avatar,
   matched by name to the session's agents; a generic agent avatar for the
-  external requester or an unmatched agent; "You" for the owner): the requester asked an agent, the agent asked you (each
+  external client or an unmatched agent; "You" for the owner): the client asked an agent, the agent asked you (each
   question under its header), you answered (your answer text) or rejected,
   the agent replied after its duration (long replies fold behind Show full
   reply), or couldn't finish. A pending question appears at the end of the
@@ -1230,7 +1230,7 @@ layout**, Display options.
 Structure view (`structure-view.tsx`, `src/lib/structure-groups.ts`): a scope
 list (**All agents**, **Unassigned**, then each subnet with a match count and an
 info button that selects the subnet) and an agent table with Agent, Status,
-Subnets, Source, and **Room calls** columns (tooltip: direct MCP and API sends
+Subnets, Origin, and **Room calls** columns (tooltip: direct MCP and API sends
 are not counted). Default sort is room calls descending; name and status sort
 too. **List** shows one row per agent in scope; **By subnet** groups rows under
 each subnet and an Unassigned group, so an agent in several subnets appears
@@ -1243,7 +1243,7 @@ Details panel: a subnet shows name, description, copyable ID (monospace),
 members with status indicators, and **Manage members**, **Access** (opens
 `/connect/mcp`), and **Delete subnet** (danger,
 confirmed in `SubnetDeleteDialog`). An agent shows avatar, name, version and
-provider, description, status, source, room calls, skills, subnet chips, **Open
+provider, description, status, origin, room calls, skills, subnet chips, **Open
 details**, and the **Add to subnet** menu (`add-to-subnet-menu.tsx`): each
 subnet is a checkbox item that adds or removes the agent with a membership-only
 `setMembers` write computed from the latest cached members, disabled while a
@@ -1272,31 +1272,31 @@ that node's `fx/fy` until release. Node positions are transient and not persiste
 
 ### Access workspace
 
-`/connect/sources`, `/connect/mcp` and `/connect/api` render one `ConnectPage`
+`/connect/clients`, `/connect/mcp` and `/connect/api` render one `ConnectPage`
 (`src/components/connect/connect-page.tsx`) titled "Access" with a top-level
-Sources / MCP / API tab that navigates between the three routes; the nav's
-Access entry opens Sources. The page is deliberately minimal and written for a
+Clients / MCP / API tab that navigates between the three routes; the nav's
+Access entry opens Clients. The page is deliberately minimal and written for a
 non-technical reader. Opened over plain HTTP from another machine, it shows
-`PlainHttpWarning` with text about source tokens crossing the network in the
+`PlainHttpWarning` with text about client tokens crossing the network in the
 clear.
 
-The Sources tab (`SourcesPanel`, `sources-panel.tsx`) lists the owner's
-sources through `useSources` (`GET {api_prefix}/sources`): name, the token's
+The Clients tab (`ClientsPanel`, `clients-panel.tsx`) lists the owner's
+clients through `useClients` (`GET {api_prefix}/clients`): name, the token's
 last four characters or "Revoked", last use ("Never"), how it last connected
 (**Connects through**: "API" or "MCP" from `last_used_via`, a dash labelled
 "Not known" before a recorded use), creation date, and a
-**Sessions** link to `/sessions?source={source_id}`. Each row's menu renames
-(`PATCH /sources/{id}`), rotates (`POST /sources/{id}/rotate`) or revokes
-(`POST /sources/{id}/revoke`) after a confirmation. **Create source**
-(`POST /sources`) and a rotation show the new token once in `ShowOnceToken`
+**Sessions** link to `/sessions?client={client_id}`. Each row's menu renames
+(`PATCH /clients/{id}`), rotates (`POST /clients/{id}/rotate`) or revokes
+(`POST /clients/{id}/revoke`) after a confirmation. **Create client**
+(`POST /clients`) and a rotation show the new token once in `ShowOnceToken`
 (`show-once-token.tsx`, built on `useCopy`) with a Claude Code command and an API request that contain it. The token lives
 only in the dialog's component state: closing the dialog drops it, and it is
 never written to browser storage, a URL or a log.
 
 The same tab holds the token requirement switch (`RequirementSwitch`,
 `token-requirement.tsx`): `useTokenRequirement` reads
-`GET {api_prefix}/sources/token-requirement` (key
-`['sources', 'token-requirement']`), and a change asks for confirmation that
+`GET {api_prefix}/clients/token-requirement` (key
+`['clients', 'token-requirement']`), and a change asks for confirmation that
 states its consequence before `PUT` sends it. While the requirement is off,
 `TokenRequirementBanner` (a `NoticeBanner` from `setup-banner.tsx`) shows on
 every Access tab with a **Learn more** dialog that explains it and holds the
@@ -1314,8 +1314,8 @@ Claude Code, Cursor, Codex, VS Code, and Other. Each assistant tab holds only
 one snippet with a hint of where it goes and a copy button (a `claude mcp add`
 command for Claude Code, `mcpServers` or `servers` JSON, or Codex's
 `config.toml` lines), built by `client-setups.ts`. Each snippet carries an
-`Authorization: Bearer <source token>` header, a placeholder the reader
-replaces with a token from the Sources tab. A **Features** section lists
+`Authorization: Bearer <client token>` header, a placeholder the reader
+replaces with a token from the Clients tab. A **Features** section lists
 the two capabilities in plain language: discover agents and send tasks. There
 is no scope control, no status probe, and no step-by-step prose.
 
@@ -1325,7 +1325,7 @@ request examples built by `access-material.ts` (discovery via
 `GET {api_prefix}/agents/discovery`, and sending a message in a session via
 `POST {api_prefix}/sessions/messages` followed by the check
 `GET {api_prefix}/sessions/{session_id}`, each with a copy button and the
-same `<source token>` header placeholder), and the same Features section
+same `<client token>` header placeholder), and the same Features section
 phrased for HTTP. The page reads no query parameters, and its examples carry
 no `group_id`.
 

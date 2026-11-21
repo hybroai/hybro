@@ -3,7 +3,7 @@ import { clientSetups, TOKEN_PLACEHOLDER } from '@/components/connect/client-set
 import { buildMcpConfig } from '@/lib/mcp'
 
 const url = 'http://127.0.0.1:8001/mcp'
-const TOKEN = 'hybro_src_fake-token-for-tests'
+const TOKEN = 'hybro_client_fake-token-for-tests'
 
 describe('clientSetups', () => {
   it('gives every supported assistant a snippet with the address and the token header', () => {

@@ -6,11 +6,11 @@ import { buildMcpConfig } from '@/lib/mcp'
 const scope = { id: 'g1', name: 'Research' }
 
 describe('access materials', () => {
-  it('describes source tokens, not authentication modes', () => {
+  it('describes client tokens, not authentication modes', () => {
     for (const kind of ['api', 'mcp'] as const) {
       const { prompt } = buildAccessMaterial(kind, 'https://hybro.example', '/api/v1')
-      expect(prompt).toContain('source token')
-      expect(prompt).toContain('Access, Sources')
+      expect(prompt).toContain('client token')
+      expect(prompt).toContain('Access, Clients')
       expect(prompt).not.toMatch(/Clerk|auth_mode|mock|Local Developer Mode/)
     }
     expect(API_AUTH_HELP).not.toMatch(/Clerk|auth_mode|mock/)
@@ -28,8 +28,8 @@ describe('access materials', () => {
   })
 
   it('puts a given token in the API requests', () => {
-    const material = buildAccessMaterial('api', 'https://hybro.example', '/api/v1', undefined, 'hybro_src_fake')
-    expect(material.configuration).toContain("--header 'Authorization: Bearer hybro_src_fake'")
+    const material = buildAccessMaterial('api', 'https://hybro.example', '/api/v1', undefined, 'hybro_client_fake')
+    expect(material.configuration).toContain("--header 'Authorization: Bearer hybro_client_fake'")
     expect(material.configuration).not.toContain(TOKEN_PLACEHOLDER)
   })
 
@@ -93,7 +93,7 @@ describe('access materials', () => {
     for (const field of ['"agent_id"', '"text"', '"client_request_id"']) {
       expect(material.toolCalls).toContain(field)
     }
-    // With a token the source names the caller; the label is not needed.
+    // With a token the client names the caller; the label is not needed.
     expect(material.toolCalls).not.toContain('"client_label"')
     expect(material.toolCalls).not.toContain('"message"')
     expect(material.toolCalls).not.toContain('subnet_id')

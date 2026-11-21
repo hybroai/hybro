@@ -1,6 +1,6 @@
 """Client sessions with the owner's agents, and the owner's session views.
 
-The three Source API routes (send, check, close) take a source token; the
+The three Client API routes (send, check, close) take a client token; the
 owner's views (the list, the record, and the owner's close) take the owner.
 """
 
@@ -41,13 +41,13 @@ _ERROR_STATUS = {
 _ERRORS = {
     status: {"model": SessionErrorResponse} for status in (400, 403, 404, 409, 422)
 }
-_SOURCE_AUTH = {
-    401: {"description": "Unknown, revoked or missing source token"},
+_CLIENT_AUTH = {
+    401: {"description": "Unknown, revoked or missing client token"},
     403: {
         "model": SessionErrorResponse,
         "description": "Refused, or sent without a token from another website",
     },
-    503: {"description": "Sources or the owner are unavailable"},
+    503: {"description": "Clients or the owner are unavailable"},
 }
 _OWNER_AUTH = {
     401: {"description": "Authentication required"},
@@ -79,7 +79,7 @@ def _http_error(
         413: {"description": "Request body exceeds 64 KiB"},
         429: {"description": "Session send concurrency limit reached"},
         **_ERRORS,
-        **_SOURCE_AUTH,
+        **_CLIENT_AUTH,
     },
 )
 async def send_session_message(
@@ -95,8 +95,8 @@ async def send_session_message(
     The agents' responses come from `GET /sessions/{session_id}`. Retrying
     with the same `client_request_id` returns the same receipt.
 
-    Send the source token as `Authorization: Bearer <token>`. The session
-    belongs to the source that opened it. `client_label` is required to open
+    Send the client token as `Authorization: Bearer <token>`. The session
+    belongs to the client that opened it. `client_label` is required to open
     a session without a token, and deprecated with one.
     """
     try:
@@ -120,7 +120,7 @@ async def list_sessions(
     return await sessions.list_sessions()
 
 
-@router.get("/sessions/{session_id}", responses={**_ERRORS, **_SOURCE_AUTH})
+@router.get("/sessions/{session_id}", responses={**_ERRORS, **_CLIENT_AUTH})
 async def check_session(
     session_id: SessionIdentifier, sessions: SessionAccessDependency
 ) -> SessionStatus:
@@ -132,7 +132,7 @@ async def check_session(
         raise _http_error(exc, session_id=session_id) from exc
 
 
-@router.post("/sessions/{session_id}/close", responses={**_ERRORS, **_SOURCE_AUTH})
+@router.post("/sessions/{session_id}/close", responses={**_ERRORS, **_CLIENT_AUTH})
 async def close_session(
     session_id: SessionIdentifier, sessions: SessionAccessDependency
 ) -> SessionClosed:
@@ -164,7 +164,7 @@ async def get_session_record(
 async def close_session_record(
     session_id: SessionIdentifier, sessions: OwnerSessionAccessDependency
 ) -> SessionClosed:
-    """Close any source's session as the owner, canceling a pending approval
+    """Close any client's session as the owner, canceling a pending approval
     or an active run first."""
     try:
         return await sessions.close(session_id)

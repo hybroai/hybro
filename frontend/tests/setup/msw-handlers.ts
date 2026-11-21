@@ -24,7 +24,7 @@ export const handlers = [
     sessions: [{
       session_id: 'sess-1',
       client_label: 'Buyer agent',
-      source: { source_id: 'no_token', name: 'No token', has_token: false },
+      client: { client_id: 'no_token', name: 'No token', has_token: false },
       agents: [{ agent_id: 'agent-1', name: 'Travel Planner' }],
       state: 'waiting_on_owner',
       paused_agent_id: 'agent-1',
@@ -41,7 +41,7 @@ export const handlers = [
     reason: null,
     agents: [{ agent_id: 'agent-1', name: 'Travel Planner' }],
     client_label: 'Buyer agent',
-    source: { source_id: 'no_token', name: 'No token', has_token: false },
+    client: { client_id: 'no_token', name: 'No token', has_token: false },
     status: 'open',
     conversation_id: 'conv-1',
     closed_at: null,

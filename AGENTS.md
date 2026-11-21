@@ -59,7 +59,7 @@ Do not inspect or treat paths outside this repository as product source unless t
 
 ## Design Direction
 
-`docs/design.md` describes the target design: the concepts, their names, the target modules, and the status of each of today's modules. `docs/roadmap.md` gives the order of work. The System-Architecture documents describe today's code. The target is a self-hosted control plane for A2A agents: sources plan, and Hybro runs, gates, and records each step.
+`docs/design.md` describes the target design: the concepts, their names, the target modules, and the status of each of today's modules. `docs/roadmap.md` gives the order of work. The System-Architecture documents describe today's code. The target is a self-hosted control plane for A2A agents: clients plan, and Hybro runs, gates, and records each step.
 
 - Read `docs/design.md` before changing module boundaries, public routes, or names.
 - Use the concept names from `docs/design.md` in new code, routes, and documents. Do not rename existing code outside the roadmap phase that migrates its module.
@@ -67,7 +67,7 @@ Do not inspect or treat paths outside this repository as product source unless t
 - Move toward the target only through the roadmap phase in progress. Do not restructure other modules toward it in passing.
 - Do not add planning or prompt rewriting to the core, and do not give the bundled orchestrator a private path into it.
 - Hybro is open core. Enterprise code lives in folders named `enterprise/`, one inside each part of the code it extends, under a commercial license; everything else is community code under Apache 2.0. Code outside an `enterprise/` folder never imports from one. Put a small hook in the community code and the logic in the `enterprise/` folder. `docs/design.md` lists which features are in which edition.
-- Keep existing public routes and MCP tools working. Add the new path first, mark the old one as deprecated in one release, and remove it in a later release.
+- Keep existing public routes and MCP tools working. Add the new path first, mark the old one as deprecated in one release, and remove it in a later release. The one exception is the rename of the concept Source to Client (#276): its routes, the `hybro source` command, its response fields and its error codes were renamed with no deprecated release, because no release contained them. `docs/roadmap.md` records it.
 - Update `docs/roadmap.md` when a phase starts or finishes, and `docs/design.md` when the target itself changes.
 
 ## Commands
@@ -101,7 +101,7 @@ Run commands from the directory that owns the relevant configuration.
 - The model provider is optional. Without one, Hybro starts, the provider-free agents work, and the UI directs the user to Settings, Model provider; never select a legacy Provider implicitly.
 - Services read a startup snapshot; other changes take effect after restart. Only the provider settings and `backend.log_level` apply live. The browser setup routes own `provider`, `models`, and `image_size`. The admin-only settings API is the only API for the curated `backend.*` and `frontend.*` registry fields, and the entrypoint owns the in-place service restart. Do not add other hot reload, configuration APIs, or a separate configuration-service process without a request.
 - In the image, the entrypoint (`backend/runtime_entrypoint.py`) owns the projections: it reads `config.json` and gives the frontend, MCP, and each agent only its scoped settings and internal credential, never the whole auth store, including during restart; the backend never writes them. Runtime records under `/tmp/hybro`, and the `run/machine.json` record a checkout's backend writes under `HYBRO_HOME`, are not configuration sources.
-- Whether a source token is required is product state, not configuration. It is stored in the database and owned by the `source` module, so that the owner can change it in the Panel without a restart. This is a confirmed exception to `config.json` as the single configuration source; do not add other settings to the database.
+- Whether a client token is required is product state, not configuration. It is stored in the database and owned by the `client` module, so that the owner can change it in the Panel without a restart. This is a confirmed exception to `config.json` as the single configuration source; do not add other settings to the database.
 - Do not broaden environment-variable, secret, workflow-permission, or container exposure without an explicit security reason.
 
 ## Code Review Rules
@@ -122,7 +122,7 @@ Contracts (see Architecture Contracts, Configuration and Secrets, and Design Dir
 - `default_agents/agents.yaml`, the agent uv workspace, or the root `Dockerfile` changes alone. Check that the other two match and `default_agents/tests/test_manifest_in_sync.py` still passes. Must fix.
 - A new `os.environ`/`process.env` read of a user setting, a dotenv load, a `.env.local` requirement, or a direct read of `config.json` or `auth.json` outside the configuration loader and the entrypoint. Must fix.
 - A file outside an `enterprise/` folder imports from one. Must fix.
-- A public route or MCP tool is removed or renamed without a deprecated release in between. Must fix.
+- A public route or MCP tool is removed or renamed without a deprecated release in between. Must fix. The rename of the concept Source to Client (#276) is the one exception, recorded in `docs/roadmap.md`.
 - A dependency manifest changes without its lockfile, or a lockfile changes without a manifest change. Check that `backend/uv.lock` was produced by the same uv version the image uses. Should fix.
 - Routes, schemas, data flow, streaming, persistence, or module boundaries change without an update to the matching `docs/System-Architecture.md`. Should fix.
 

@@ -1,4 +1,4 @@
-"""Mongo persistence for sources (collection ``sources``)."""
+"""Mongo persistence for clients (collection ``clients``)."""
 
 from __future__ import annotations
 
@@ -7,76 +7,76 @@ from typing import Any
 
 from pymongo import ReturnDocument
 
+from client.models import ClientRecord, TokenRequirement, Via
 from common.protocols import MongoDAL
-from source.models import SourceRecord, TokenRequirement, Via
 
 _PROJECTION = {"_id": 0}
 # The owner's switch is one document in its own collection.
 _REQUIREMENT = {"_id": "token_requirement"}
 
-SOURCE_INDEXES: tuple[dict[str, Any], ...] = (
-    {"keys": [("source_id", 1)], "name": "source_id_unique", "unique": True},
+CLIENT_INDEXES: tuple[dict[str, Any], ...] = (
+    {"keys": [("client_id", 1)], "name": "client_id_unique", "unique": True},
     {
-        # A revoked source keeps its record without a hash.
+        # A revoked client keeps its record without a hash.
         "keys": [("token_hash", 1)],
-        "name": "source_token_hash_unique",
+        "name": "client_token_hash_unique",
         "unique": True,
         "partialFilterExpression": {"token_hash": {"$type": "string"}},
     },
 )
 
 
-class MongoSourceRepository:
+class MongoClientRepository:
     def __init__(self, mongo: MongoDAL) -> None:
-        self._sources = mongo.collection("sources")
-        self._settings = mongo.collection("source_settings")
+        self._clients = mongo.collection("clients")
+        self._settings = mongo.collection("client_settings")
 
     async def ensure_indexes(self) -> None:
-        for index in SOURCE_INDEXES:
+        for index in CLIENT_INDEXES:
             options = {key: value for key, value in index.items() if key != "keys"}
-            await self._sources.create_index(index["keys"], **options)
+            await self._clients.create_index(index["keys"], **options)
 
-    async def insert(self, record: SourceRecord) -> None:
-        await self._sources.insert_one(record.model_dump())
+    async def insert(self, record: ClientRecord) -> None:
+        await self._clients.insert_one(record.model_dump())
 
-    async def get(self, source_id: str) -> SourceRecord | None:
+    async def get(self, client_id: str) -> ClientRecord | None:
         return self._record(
-            await self._sources.find_one(
-                {"source_id": source_id}, projection=_PROJECTION
+            await self._clients.find_one(
+                {"client_id": client_id}, projection=_PROJECTION
             )
         )
 
-    async def get_by_token_hash(self, token_hash: str) -> SourceRecord | None:
+    async def get_by_token_hash(self, token_hash: str) -> ClientRecord | None:
         return self._record(
-            await self._sources.find_one(
+            await self._clients.find_one(
                 {"token_hash": token_hash}, projection=_PROJECTION
             )
         )
 
-    async def list_all(self) -> list[SourceRecord]:
-        # The owner creates each source by hand, so the collection stays small;
-        # the list is every source, oldest first.
-        docs = await self._sources.find(
+    async def list_all(self) -> list[ClientRecord]:
+        # The owner creates each client by hand, so the collection stays small;
+        # the list is every client, oldest first.
+        docs = await self._clients.find(
             {}, projection=_PROJECTION, sort=[("created_at", 1)]
         )
-        return [SourceRecord.model_validate(doc) for doc in docs]
+        return [ClientRecord.model_validate(doc) for doc in docs]
 
-    async def list_by_ids(self, source_ids: list[str]) -> list[SourceRecord]:
-        if not source_ids:
+    async def list_by_ids(self, client_ids: list[str]) -> list[ClientRecord]:
+        if not client_ids:
             return []
-        docs = await self._sources.find(
-            {"source_id": {"$in": source_ids}}, projection=_PROJECTION
+        docs = await self._clients.find(
+            {"client_id": {"$in": client_ids}}, projection=_PROJECTION
         )
-        return [SourceRecord.model_validate(doc) for doc in docs]
+        return [ClientRecord.model_validate(doc) for doc in docs]
 
     async def update(
-        self, source_id: str, fields: dict[str, Any], *, live_only: bool = False
-    ) -> SourceRecord | None:
-        query: dict[str, Any] = {"source_id": source_id}
+        self, client_id: str, fields: dict[str, Any], *, live_only: bool = False
+    ) -> ClientRecord | None:
+        query: dict[str, Any] = {"client_id": client_id}
         if live_only:
             query["revoked_at"] = None
         return self._record(
-            await self._sources.find_one_and_update(
+            await self._clients.find_one_and_update(
                 query,
                 {"$set": fields},
                 projection=_PROJECTION,
@@ -84,9 +84,9 @@ class MongoSourceRepository:
             )
         )
 
-    async def touch(self, source_id: str, at: datetime, via: Via) -> None:
-        await self._sources.update_one(
-            {"source_id": source_id},
+    async def touch(self, client_id: str, at: datetime, via: Via) -> None:
+        await self._clients.update_one(
+            {"client_id": client_id},
             {"$set": {"last_used_at": at, "last_used_via": via}},
         )
 
@@ -126,8 +126,8 @@ class MongoSourceRepository:
         return TokenRequirement.model_validate(doc) if doc is not None else None
 
     @staticmethod
-    def _record(doc: dict[str, Any] | None) -> SourceRecord | None:
-        return SourceRecord.model_validate(doc) if doc is not None else None
+    def _record(doc: dict[str, Any] | None) -> ClientRecord | None:
+        return ClientRecord.model_validate(doc) if doc is not None else None
 
 
-__all__ = ["SOURCE_INDEXES", "MongoSourceRepository"]
+__all__ = ["CLIENT_INDEXES", "MongoClientRepository"]

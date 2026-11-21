@@ -216,7 +216,7 @@
 .structure-main { min-width: 0; overflow-x: auto; container-type: inline-size; }
 
 /* A narrow table (a small window or an open sidebar) drops the Subnets and
-   Source columns, so the fixed columns cannot squeeze agent names to a letter. */
+   Origin columns, so the fixed columns cannot squeeze agent names to a letter. */
 @container (max-width: 40rem) {
   :is(.structure-head, .structure-row) { grid-template-columns: minmax(0, 1fr) 6rem 5rem; }
   :is(.structure-head, .structure-row) > :nth-child(3),
@@ -224,7 +224,7 @@
 }
 
 /* With the details panel open on a narrower desktop, keep the table readable:
-   drop the Subnets and Source columns instead of squeezing every column. */
+   drop the Subnets and Origin columns instead of squeezing every column. */
 @media (min-width: 901px) and (max-width: 1280px) {
   /* Give the table room: collapse the scope list into its select on a full-width row. */
   .structure-view:has(> .network-details) { grid-template-columns: minmax(0, 1fr) auto; }

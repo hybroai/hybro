@@ -12,7 +12,7 @@ vi.mock('next/link', () => ({
 }))
 
 const answer = (requirement: { required: boolean; started_off: boolean }) =>
-  server.use(http.get(getApiUrl('sources/token-requirement'), () => HttpResponse.json({ ...requirement, updated_at: '2026-11-20T00:00:00Z' })))
+  server.use(http.get(getApiUrl('clients/token-requirement'), () => HttpResponse.json({ ...requirement, updated_at: '2026-11-20T00:00:00Z' })))
 
 const settle = () => new Promise(resolve => setTimeout(resolve, 20))
 
@@ -31,8 +31,8 @@ describe('TokenRequirementNotice', () => {
     const user = userEvent.setup()
     render(<TokenRequirementNotice />)
     const notice = await screen.findByTestId('token-requirement-notice')
-    expect(notice).toHaveTextContent('before source tokens')
-    expect(screen.getByRole('link', { name: 'Open Sources' })).toHaveAttribute('href', '/connect/sources')
+    expect(notice).toHaveTextContent('before client tokens')
+    expect(screen.getByRole('link', { name: 'Open Clients' })).toHaveAttribute('href', '/connect/clients')
     await user.click(screen.getByRole('button', { name: 'Dismiss' }))
     expect(screen.queryByTestId('token-requirement-notice')).toBeNull()
     cleanup()

@@ -23,7 +23,7 @@ import { useSessionListUrlState } from '@/hooks/useSessionListUrlState'
 import type { SessionState, SessionSummary } from '@/lib/api/session'
 import { useUser } from '@/lib/auth'
 import { routes } from '@/lib/routes'
-import { formatSessionTime, sessionClientLabel, sessionRequester } from '@/lib/session-format'
+import { formatSessionTime, sessionClientLabel, sessionClientName } from '@/lib/session-format'
 import { ClientLabel } from './client-label'
 import {
   DEFAULT_SESSION_LIST_STATE,
@@ -123,13 +123,13 @@ function SessionRow({ session }: { session: SessionSummary }) {
           {sessionName(session)}
         </Link>
         <span className="mt-0.5 block truncate text-xs text-muted-foreground md:hidden">
-          {sessionRequester(session)}
+          {sessionClientName(session)}
           <span className="sm:hidden"> · {formatSessionTime(session.last_activity_at)}</span>
         </span>
       </td>
       <td className="whitespace-nowrap px-3 py-3"><StatusIndicator view={sessionStateView(session.state)} /></td>
       <td className="hidden max-w-0 px-3 py-3 md:table-cell">
-        <span className="block truncate">{sessionRequester(session)}</span>
+        <span className="block truncate">{sessionClientName(session)}</span>
         {label ? <ClientLabel label={label} className="block" /> : null}
       </td>
       <td className="hidden whitespace-nowrap px-3 py-3 tabular-nums text-muted-foreground lg:table-cell">
@@ -148,10 +148,10 @@ export function SessionsTablePage() {
   const [state, update, urlQuery] = useSessionListUrlState()
   const all = query.data?.sessions
   const sessions = useMemo(() => applySessionListState(all ?? [], state), [all, state])
-  // Each source once, by id; two sources may share a name.
-  const sources = useMemo(() => {
+  // Each client once, by id; two clients may share a name.
+  const clients = useMemo(() => {
     const byId = new Map<string, string>()
-    for (const session of all ?? []) byId.set(session.source.source_id, session.source.name)
+    for (const session of all ?? []) byId.set(session.client.client_id, session.client.name)
     return [...byId].map(([id, name]) => ({ id, name })).sort((a, b) => a.name.localeCompare(b.name, 'en'))
   }, [all])
   const filtering = hasActiveFilters(state)
@@ -176,7 +176,7 @@ export function SessionsTablePage() {
           <Input
             type="search"
             aria-label="Search sessions"
-            placeholder="Find a session, requester, agent, or ID"
+            placeholder="Find a session, client, agent, or ID"
             value={state.q}
             onChange={event => update({ q: event.target.value })}
             className="h-9 rounded-lg pl-9"
@@ -229,22 +229,22 @@ export function SessionsTablePage() {
                 ))}
               />
               <ColumnHeader
-                label="Requester"
-                field="source"
+                label="Client"
+                field="client"
                 state={state}
                 update={update}
                 className="hidden w-[22%] md:table-cell"
-                filtered={state.source.length > 0}
-                filter={sources.length ? sources.map(source => (
+                filtered={state.client.length > 0}
+                filter={clients.length ? clients.map(client => (
                   <DropdownMenuCheckboxItem
-                    key={source.id}
-                    checked={state.source.includes(source.id)}
+                    key={client.id}
+                    checked={state.client.includes(client.id)}
                     onSelect={event => event.preventDefault()}
-                    onCheckedChange={() => update({ source: toggle(state.source, source.id) })}
+                    onCheckedChange={() => update({ client: toggle(state.client, client.id) })}
                   >
-                    <span className="truncate">{source.name}</span>
+                    <span className="truncate">{client.name}</span>
                   </DropdownMenuCheckboxItem>
-                )) : <p className="px-2 py-1.5 text-sm text-muted-foreground">No requesters yet</p>}
+                )) : <p className="px-2 py-1.5 text-sm text-muted-foreground">No clients yet</p>}
               />
               <ColumnHeader
                 label="Created"

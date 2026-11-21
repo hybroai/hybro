@@ -13,9 +13,9 @@ API_BASE_URL = os.environ.get("HYBRO_API_URL", "http://localhost:8000/api/v1")
 # The owner account the run signs in as; CI creates it with `hybro owner create`.
 OWNER_EMAIL_ENV = "HYBRO_TEST_OWNER_EMAIL"
 OWNER_PASSWORD_ENV = "HYBRO_TEST_OWNER_PASSWORD"
-# A source token; CI creates it with `hybro source create`. A fresh install
-# requires one on the Source API.
-SOURCE_TOKEN_ENV = "HYBRO_TEST_SOURCE_TOKEN"
+# A client token; CI creates it with `hybro client create`. A fresh install
+# requires one on the Client API.
+CLIENT_TOKEN_ENV = "HYBRO_TEST_CLIENT_TOKEN"
 DEFAULT_TRAVEL_PLANNER_ID = "575ee896f1e24823943a1e98aee111c9"
 DEFAULT_WEATHER_ID = "c13e753ad4f74c25bfb684de5572622a"
 FUNCTIONAL_SKIP_REASON = (
@@ -48,9 +48,9 @@ def own_origin(api_base_url: str) -> str:
 
 
 def client_headers(environ: Mapping[str, str]) -> dict[str, str]:
-    """Hybro's own Origin, and the source token when the run has one."""
+    """Hybro's own Origin, and the client token when the run has one."""
     headers = {"Origin": own_origin(API_BASE_URL)}
-    token = environ.get(SOURCE_TOKEN_ENV)
+    token = environ.get(CLIENT_TOKEN_ENV)
     if token:
         headers["Authorization"] = f"Bearer {token}"
     return headers
@@ -76,7 +76,7 @@ async def sign_in_as_owner(client: httpx.AsyncClient) -> None:
 async def functional_client() -> AsyncGenerator[httpx.AsyncClient, None]:
     """An AsyncClient signed in as the owner of the running Hybro.
 
-    Its Source API calls send the source token from ``HYBRO_TEST_SOURCE_TOKEN``;
+    Its Client API calls send the client token from ``HYBRO_TEST_CLIENT_TOKEN``;
     the owner's routes ignore it.
     """
     # Answering an agent question resumes the live A2A call inline, so a

@@ -17,7 +17,7 @@ import main
 from account.protocols import OwnerCreate
 from api_gateway.owner_session import SESSION_COOKIE
 from tests.fakes.account import MemoryAccountStore, build_service
-from tests.fakes.source import store_with_requirement
+from tests.fakes.client import store_with_requirement
 
 API = "/api/v1"
 PASSWORD = "correct horse battery"
@@ -44,7 +44,7 @@ class RecordingCatalog:
 
 
 async def make_app(*, with_owner: bool = True, **account_kwargs):
-    from source import SourceService
+    from client import ClientService
 
     app = main.create_app()
     store = account_kwargs.pop("store", None) or MemoryAccountStore()
@@ -52,7 +52,7 @@ async def make_app(*, with_owner: bool = True, **account_kwargs):
     if with_owner:
         await account.create_owner(OwnerCreate(**OWNER))
     app.state.owner_account = account
-    app.state.source_registry = SourceService(
+    app.state.client_registry = ClientService(
         store_with_requirement(required=False), auth_mode="mock"
     )
     catalog = RecordingCatalog()
@@ -112,7 +112,7 @@ def test_the_clerk_sign_in_and_query_token_are_gone():
         "/agent/getAgent/agent-1",
         "/rooms",
         "/sessions",
-        "/sources",
+        "/clients",
         "/setup/status",
         "/settings",
     ],
@@ -189,10 +189,10 @@ async def test_the_owner_keeps_an_identity_taken_over_in_clerk_mode():
     assert catalog.calls == [("list", "user_admin")]
 
 
-# -- The Source API ----------------------------------------------------------------
+# -- The Client API ----------------------------------------------------------------
 
 
-async def test_the_source_api_refuses_until_the_account_exists():
+async def test_the_client_api_refuses_until_the_account_exists():
     app, _, _ = await make_app(with_owner=False)
     async with client_for(app) as client:
         response = await client.get(f"{API}/agents/discovery")
@@ -201,7 +201,7 @@ async def test_the_source_api_refuses_until_the_account_exists():
     assert response.json()["detail"]["code"] == "no_account"
 
 
-async def test_the_source_api_acts_for_the_owner_record():
+async def test_the_client_api_acts_for_the_owner_record():
     from account.protocols import NoAccount
 
     store = MemoryAccountStore()
@@ -233,7 +233,7 @@ def rebound_client(app) -> httpx.AsyncClient:
 
 
 @pytest.mark.parametrize("method", ["GET", "POST"])
-async def test_a_rebound_page_cannot_reach_the_no_token_source_api(method):
+async def test_a_rebound_page_cannot_reach_the_no_token_client_api(method):
     app, _, catalog = await make_app()
     async with rebound_client(app) as client:
         response = await client.request(method, f"{API}/agents/discovery")

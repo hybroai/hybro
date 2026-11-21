@@ -1,4 +1,4 @@
-"""The sources of an instance and their tokens."""
+"""The clients of an instance and their tokens."""
 
 from __future__ import annotations
 
@@ -9,32 +9,32 @@ from collections.abc import Callable
 from datetime import datetime, timedelta
 from typing import Literal
 
-from common.observability import events as E
-from common.utils.logger import get_logger
-from common.utils.time import utcnow
-from source.models import (
+from client.models import (
     NO_TOKEN,
-    NO_TOKEN_SOURCE_ID,
+    NO_TOKEN_CLIENT_ID,
     TOKEN_PREFIX,
-    SourceIdentity,
-    SourceList,
-    SourceRecord,
-    SourceView,
-    SourceWithToken,
+    ClientIdentity,
+    ClientList,
+    ClientRecord,
+    ClientView,
+    ClientWithToken,
     TokenRequirement,
     Via,
 )
-from source.protocols import (
-    SourceNotFound,
-    SourceRevoked,
-    SourceStore,
+from client.protocols import (
+    ClientNotFound,
+    ClientRevoked,
+    ClientStore,
     TokenRequirementLocked,
     TokenRequirementUnset,
 )
+from common.observability import events as E
+from common.utils.logger import get_logger
+from common.utils.time import utcnow
 
 logger = get_logger(__name__)
 
-# Last use is shown to the owner; one write a minute per source is enough.
+# Last use is shown to the owner; one write a minute per client is enough.
 _TOUCH_INTERVAL = timedelta(minutes=1)
 
 
@@ -46,9 +46,9 @@ def _new_token() -> str:
     return TOKEN_PREFIX + secrets.token_urlsafe(32)
 
 
-def _view(record: SourceRecord) -> SourceView:
-    return SourceView(
-        source_id=record.source_id,
+def _view(record: ClientRecord) -> ClientView:
+    return ClientView(
+        client_id=record.client_id,
         name=record.name,
         has_token=record.has_token,
         token_last4=record.token_last4 if record.has_token else None,
@@ -59,14 +59,14 @@ def _view(record: SourceRecord) -> SourceView:
     )
 
 
-def _with_token(record: SourceRecord, token: str) -> SourceWithToken:
-    return SourceWithToken(**_view(record).model_dump(), token=token)
+def _with_token(record: ClientRecord, token: str) -> ClientWithToken:
+    return ClientWithToken(**_view(record).model_dump(), token=token)
 
 
-class SourceService:
+class ClientService:
     def __init__(
         self,
-        store: SourceStore,
+        store: ClientStore,
         *,
         auth_mode: Literal["mock", "clerk"],
         now: Callable[[], datetime] = utcnow,
@@ -75,11 +75,11 @@ class SourceService:
         self._auth_mode = auth_mode
         self._now = now
 
-    async def create(self, name: str) -> SourceWithToken:
+    async def create(self, name: str) -> ClientWithToken:
         token = _new_token()
         now = self._now()
-        record = SourceRecord(
-            source_id="src_" + secrets.token_hex(12),
+        record = ClientRecord(
+            client_id="client_" + secrets.token_hex(12),
             name=name,
             token_hash=_digest(token),
             token_last4=token[-4:],
@@ -89,21 +89,21 @@ class SourceService:
         await self._store.insert(record)
         return _with_token(record, token)
 
-    async def list_sources(self) -> SourceList:
-        return SourceList(sources=[_view(r) for r in await self._store.list_all()])
+    async def list_clients(self) -> ClientList:
+        return ClientList(clients=[_view(r) for r in await self._store.list_all()])
 
-    async def rename(self, source_id: str, name: str) -> SourceView:
+    async def rename(self, client_id: str, name: str) -> ClientView:
         updated = await self._store.update(
-            source_id, {"name": name, "updated_at": self._now()}
+            client_id, {"name": name, "updated_at": self._now()}
         )
         if updated is None:
-            raise SourceNotFound
+            raise ClientNotFound
         return _view(updated)
 
-    async def rotate(self, source_id: str) -> SourceWithToken:
+    async def rotate(self, client_id: str) -> ClientWithToken:
         token = _new_token()
         updated = await self._store.update(
-            source_id,
+            client_id,
             {
                 "token_hash": _digest(token),
                 "token_last4": token[-4:],
@@ -112,15 +112,15 @@ class SourceService:
             live_only=True,
         )
         if updated is None:
-            if await self._store.get(source_id) is None:
-                raise SourceNotFound
-            raise SourceRevoked
+            if await self._store.get(client_id) is None:
+                raise ClientNotFound
+            raise ClientRevoked
         return _with_token(updated, token)
 
-    async def revoke(self, source_id: str) -> SourceView:
+    async def revoke(self, client_id: str) -> ClientView:
         now = self._now()
         updated = await self._store.update(
-            source_id,
+            client_id,
             {
                 "token_hash": None,
                 "token_last4": None,
@@ -131,14 +131,14 @@ class SourceService:
         )
         if updated is None:
             # Already revoked: report it as it is.
-            current = await self._store.get(source_id)
+            current = await self._store.get(client_id)
             if current is None:
-                raise SourceNotFound
+                raise ClientNotFound
             return _view(current)
         return _view(updated)
 
-    async def resolve(self, token: str, *, via: Via = "api") -> SourceIdentity | None:
-        """The source of a current token; ``None`` for any other value.
+    async def resolve(self, token: str, *, via: Via = "api") -> ClientIdentity | None:
+        """The client of a current token; ``None`` for any other value.
 
         Its last use and how it connected (``via``) are recorded for the owner.
         """
@@ -160,31 +160,31 @@ class SourceService:
             or record.last_used_via != via
         ):
             try:
-                await self._store.touch(record.source_id, now, via)
+                await self._store.touch(record.client_id, now, via)
             except Exception as exc:
                 # The time is only shown to the owner; the request goes on.
                 logger.emit(
-                    E.SOURCE_LAST_USE_WRITE_FAILED, exc=exc, source_id=record.source_id
+                    E.CLIENT_LAST_USE_WRITE_FAILED, exc=exc, client_id=record.client_id
                 )
         return record.identity()
 
-    async def identities(self, source_ids: list[str]) -> dict[str, SourceIdentity]:
-        wanted = list(dict.fromkeys(source_ids))
+    async def identities(self, client_ids: list[str]) -> dict[str, ClientIdentity]:
+        wanted = list(dict.fromkeys(client_ids))
         found = {
-            record.source_id: record.identity()
+            record.client_id: record.identity()
             for record in await self._store.list_by_ids(
-                [i for i in wanted if i != NO_TOKEN_SOURCE_ID]
+                [i for i in wanted if i != NO_TOKEN_CLIENT_ID]
             )
         }
-        if NO_TOKEN_SOURCE_ID in wanted:
-            found[NO_TOKEN_SOURCE_ID] = NO_TOKEN
+        if NO_TOKEN_CLIENT_ID in wanted:
+            found[NO_TOKEN_CLIENT_ID] = NO_TOKEN
         return found
 
     async def token_required(self) -> bool:
-        """Whether a Source API request needs a token: the owner's switch.
+        """Whether a Client API request needs a token: the owner's switch.
 
         A switch that was never created requires one, so a failed startup
-        never leaves the Source API open. The deprecated Clerk mode always
+        never leaves the Client API open. The deprecated Clerk mode always
         requires one, whatever was stored before it was set.
         """
         if self._auth_mode == "clerk":
@@ -226,4 +226,4 @@ class SourceService:
         )
 
 
-__all__ = ["SourceService"]
+__all__ = ["ClientService"]

@@ -1,17 +1,17 @@
-import type { SessionAgent, SessionSource } from '@/lib/api/session'
+import type { SessionAgent, SessionClient } from '@/lib/api/session'
 
-/** Who sent the session: its source, which the token proves. */
-export function sessionRequester(session: { source: SessionSource }): string {
-  return session.source.name
+/** Who sent the session: its client, which the token proves. */
+export function sessionClientName(session: { client: SessionClient }): string {
+  return session.client.name
 }
 
 /**
- * The name the client gave itself, shown beside the source and never instead
- * of it; null when there is none or it only repeats the source's name.
+ * The name the client gave itself, shown beside the client and never instead
+ * of it; null when there is none or it only repeats the client's name.
  */
-export function sessionClientLabel(session: { client_label: string | null, source: SessionSource }): string | null {
+export function sessionClientLabel(session: { client_label: string | null, client: SessionClient }): string | null {
   const label = session.client_label?.trim()
-  return label && label !== session.source.name ? label : null
+  return label && label !== session.client.name ? label : null
 }
 
 // Session times are always shown in English, whatever the browser locale.

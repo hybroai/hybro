@@ -1418,76 +1418,76 @@ def test_install_script_is_valid_posix_sh():
 def test_help_lists_every_command():
     text = subprocess.run(["sh", str(SCRIPT), "help"], capture_output=True, text=True).stdout
     for command in (
-        "start", "stop", "status", "logs", "doctor", "owner", "source", "upgrade", "cleanup-old", "version",
-        "owner create", "owner reset-password", "source create",
+        "start", "stop", "status", "logs", "doctor", "owner", "client", "upgrade", "cleanup-old", "version",
+        "owner create", "owner reset-password", "client create",
     ):
         assert f"\n  {command} " in text
     for option in ("--service", "--level", "--trace", "--bundle", "--json", "--output", "--name", "--email", "--owner-id"):
         assert f"\n  {option} " in text
 
 
-# ---- source ----
+# ---- client ----
 
-SOURCE_HELPER = "/app/backend/source_cli.py"
+CLIENT_HELPER = "/app/backend/client_cli.py"
 
 
-def source_runs(cli: Cli) -> list[list[str]]:
-    return [call for call in cli.calls() if SOURCE_HELPER in call and call[-2:] != ["-f", SOURCE_HELPER]]
+def client_runs(cli: Cli) -> list[list[str]]:
+    return [call for call in cli.calls() if CLIENT_HELPER in call and call[-2:] != ["-f", CLIENT_HELPER]]
 
 
 @pytest.mark.parametrize("args", [["--name", "CI bot"], ["--name=CI bot"]])
-def test_source_create_runs_the_helper(cli, args):
+def test_client_create_runs_the_helper(cli, args):
     container(cli)
-    cli.state["exec_out"] = "Created the source CI bot.\nhybro_src_fake\n"
-    result = cli.run("source", "create", *args)
+    cli.state["exec_out"] = "Created the client CI bot.\nhybro_client_fake\n"
+    result = cli.run("client", "create", *args)
     assert result.returncode == 0, cli.output
     assert result.stdout == cli.state["exec_out"]
     calls = cli.calls()
-    probe = ["exec", "hybro", "test", "-f", SOURCE_HELPER]
-    run = ["exec", "hybro", PYTHON, SOURCE_HELPER, "create", "--name", "CI bot"]
+    probe = ["exec", "hybro", "test", "-f", CLIENT_HELPER]
+    run = ["exec", "hybro", PYTHON, CLIENT_HELPER, "create", "--name", "CI bot"]
     assert calls.index(probe) < calls.index(run)
-    assert source_runs(cli) == [run]
+    assert client_runs(cli) == [run]
 
 
 @pytest.mark.parametrize("code", [1, 2])
-def test_source_passes_the_helper_exit_status_through(cli, code):
+def test_client_passes_the_helper_exit_status_through(cli, code):
     container(cli)
     cli.state["exec_exit"] = code
-    assert cli.run("source", "create", "--name", "CI bot").returncode == code
+    assert cli.run("client", "create", "--name", "CI bot").returncode == code
 
 
-def test_source_docker_exec_failure_exits_2(cli):
+def test_client_docker_exec_failure_exits_2(cli):
     container(cli)
     cli.state["exec_exit"] = 126
-    assert cli.run("source", "create", "--name", "CI bot").returncode == 2
+    assert cli.run("client", "create", "--name", "CI bot").returncode == 2
 
 
 @pytest.mark.parametrize(
     "args",
     [[], ["frobnicate"], ["create"], ["create", "--name"], ["create", "--name="], ["create", "--name", "x", "--y", "z"]],
 )
-def test_source_usage_errors_exit_2_before_docker(cli, args):
+def test_client_usage_errors_exit_2_before_docker(cli, args):
     container(cli)
-    result = cli.run("source", *args)
+    result = cli.run("client", *args)
     assert result.returncode == 2, cli.output
     assert cli.calls() == []
     assert "Usage:" in result.stderr
 
 
-def test_source_help(cli):
-    result = cli.run("source", "--help")
-    assert result.returncode == 0 and "source create" in result.stdout
+def test_client_help(cli):
+    result = cli.run("client", "--help")
+    assert result.returncode == 0 and "client create" in result.stdout
     assert cli.calls() == []
 
 
 @pytest.mark.parametrize("case", ["stopped", "older_image"])
-def test_source_needs_a_running_container_with_the_helper(cli, case):
+def test_client_needs_a_running_container_with_the_helper(cli, case):
     container(cli, "exited" if case == "stopped" else "running")
     if case == "older_image":
         cli.state["helper_missing"] = True
-    result = cli.run("source", "create", "--name", "CI bot")
+    result = cli.run("client", "create", "--name", "CI bot")
     assert result.returncode == 2
-    assert source_runs(cli) == []
+    assert client_runs(cli) == []
     assert ("not running" if case == "stopped" else "older image") in result.stderr
 
 
@@ -1930,13 +1930,13 @@ DEPRECATED_INSECURE = (
 )
 OPEN_WARNING = (
     "WARNING: Hybro listens on an address other machines can reach, and its "
-    "Source API takes requests without a source token. Anyone who can reach this "
-    "port can send work to your agents. Turn the requirement on in Access, Sources."
+    "Client API takes requests without a client token. Anyone who can reach this "
+    "port can send work to your agents. Turn the requirement on in Access, Clients."
 )
 
 
 def requirement_runs(cli: Cli) -> list[list[str]]:
-    return [call for call in source_runs(cli) if call[-1] == "requirement"]
+    return [call for call in client_runs(cli) if call[-1] == "requirement"]
 
 
 def listening(cli: Cli, mode: str | None, requirement: str = "off\n", code: int = 0) -> None:
@@ -1953,7 +1953,7 @@ def test_status_warns_on_a_public_listener_with_the_requirement_off(cli, mode):
     result = cli.run("status")
     assert result.returncode == 0, cli.output
     assert result.stdout.splitlines().count(OPEN_WARNING) == 1
-    assert requirement_runs(cli) == [["exec", "hybro", PYTHON, SOURCE_HELPER, "requirement"]]
+    assert requirement_runs(cli) == [["exec", "hybro", PYTHON, CLIENT_HELPER, "requirement"]]
 
 
 def test_status_does_not_warn_when_the_requirement_is_on(cli):

@@ -1,6 +1,6 @@
-"""Caller-visible agent discovery on the Source API.
+"""Caller-visible agent discovery on the Client API.
 
-Each route takes a source token (``get_request_source``) and reads the
+Each route takes a client token (``get_request_client``) and reads the
 owner's agent network.
 """
 
@@ -42,8 +42,8 @@ def _http_error(error: AppError) -> HTTPException:
 @router.get(
     "/agents/discovery",
     responses={
-        401: {"description": "Unknown, revoked or missing source token"},
-        503: {"description": "Sources or the owner are unavailable"},
+        401: {"description": "Unknown, revoked or missing client token"},
+        503: {"description": "Clients or the owner are unavailable"},
         **{status: {"model": AgentNetworkErrorResponse} for status in (403, 404, 422)},
     },
 )
@@ -69,9 +69,9 @@ async def discover_agents(
 @router.get(
     "/agents/groups",
     responses={
-        401: {"description": "Unknown, revoked or missing source token"},
+        401: {"description": "Unknown, revoked or missing client token"},
         403: {"description": "Sent without a token from another website"},
-        503: {"description": "Sources or the owner are unavailable"},
+        503: {"description": "Clients or the owner are unavailable"},
     },
 )
 async def list_network_groups(
@@ -87,8 +87,8 @@ async def list_network_groups(
 @router.get(
     "/agents/search",
     responses={
-        401: {"description": "Unknown, revoked or missing source token"},
-        503: {"description": "Sources or the owner are unavailable"},
+        401: {"description": "Unknown, revoked or missing client token"},
+        503: {"description": "Clients or the owner are unavailable"},
         **{status: {"model": AgentNetworkErrorResponse} for status in (403, 404, 422)},
     },
 )
@@ -113,8 +113,8 @@ async def search_agents(
 @router.get(
     "/agents/{agent_id}/profile",
     responses={
-        401: {"description": "Unknown, revoked or missing source token"},
-        503: {"description": "Sources or the owner are unavailable"},
+        401: {"description": "Unknown, revoked or missing client token"},
+        503: {"description": "Clients or the owner are unavailable"},
         404: {"model": AgentNetworkErrorResponse},
     },
 )
