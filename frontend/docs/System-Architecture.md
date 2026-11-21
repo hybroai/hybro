@@ -1442,8 +1442,8 @@ during the restart.
   an error or a restart starts or runs.
 - System (`SystemSection`) shows the version, how Hybro runs, port, listen
   address, sign-in (`Owner account` for `auth_mode` `account`), MCP gateway, the configuration file, a **Restart
-  Hybro** card (`POST /settings/restart`, image only), the `config.json`
-  notices, and About links.
+  Hybro** card (`POST /settings/restart`, image only), and About links. The
+  view's `notices` are not shown.
 - `RestartBanner` shows a restart in progress, a failed restart with its error,
   saved changes waiting for a restart with **Restart now**, and, after each
   restart this page saw finish, a dismissible confirmation. When that restart

@@ -9,18 +9,17 @@ import { isRestarting, useInstanceSettings, useRestartServices, useRestartStarti
 import type { SystemInfo } from '@/lib/api/settings'
 import { routes } from '@/lib/routes'
 
-const LISTEN: Record<NonNullable<SystemInfo['listen']>, [string, string]> = {
-  loopback: ['This computer only', 'Reachable at localhost. Set when Hybro starts.'],
-  public: ['All network interfaces', 'Reachable from other computers on your network. Set when Hybro starts.'],
+const LISTEN: Record<NonNullable<SystemInfo['listen']>, string> = {
+  loopback: 'This computer only',
+  public: 'All network interfaces',
 }
 
-function Row({ label, value, note, mono }: { label: string; value: React.ReactNode; note?: React.ReactNode; mono?: boolean }) {
+function Row({ label, value, mono }: { label: string; value: React.ReactNode; mono?: boolean }) {
   return (
     <div className="flex flex-wrap justify-between gap-x-6 gap-y-1 border-t py-3.5 first:border-t-0">
       <dt className="flex-[1_1_200px] text-sm text-muted-foreground">{label}</dt>
       <dd className="flex flex-[1_1_280px] flex-col items-end text-right">
         <span className={mono ? 'font-mono text-[13px] font-medium' : 'text-sm font-medium'}>{value}</span>
-        {note ? <span className="mt-0.5 text-xs text-muted-foreground">{note}</span> : null}
       </dd>
     </div>
   )
@@ -43,9 +42,9 @@ export function SystemSection() {
           <Row label="Version" value={`Hybro ${system.version}`} />
           <Row label="Runs as" value={system.deployment === 'image' ? 'Docker image' : 'Source checkout'} />
           {system.port !== null ? (
-            <Row label="Port" value={String(system.port)} mono note={<>Set with <code className="font-mono">hybro --port</code>.</>} />
+            <Row label="Port" value={String(system.port)} mono />
           ) : null}
-          {system.listen ? <Row label="Listens on" value={LISTEN[system.listen][0]} note={LISTEN[system.listen][1]} /> : null}
+          {system.listen ? <Row label="Listens on" value={LISTEN[system.listen]} /> : null}
           <Row label="Sign-in" value={system.auth_mode === 'account' ? 'Owner account' : 'Local user'} />
           {system.mcp_available !== null ? (
             <Row
@@ -58,7 +57,7 @@ export function SystemSection() {
               )}
             />
           ) : null}
-          <Row label="Configuration file" value={system.config_location} mono note="Secrets stay in auth.json beside it and are never shown here." />
+          <Row label="Configuration file" value={system.config_location} mono />
         </dl>
       </section>
 
@@ -83,24 +82,6 @@ export function SystemSection() {
           </Button>
         ) : null}
       </section>
-
-      {view.notices.length ? (
-        <section aria-labelledby="system-notices" className="rounded-xl border bg-card px-5 pt-1">
-          <h3 id="system-notices" className="mt-4 mb-1 text-[15px] font-semibold">Notices from config.json</h3>
-          <p className="mb-1 text-[13px] text-muted-foreground">Found when Hybro last read the file. Nothing here stops Hybro from running.</p>
-          <ul>
-            {view.notices.map(notice => (
-              <li key={notice.code} className="flex gap-2.5 border-t py-3.5">
-                <span aria-hidden="true" className="mt-1.5 size-1.5 shrink-0 rounded-full bg-status-warning" />
-                <span className="flex min-w-0 flex-col gap-1">
-                  <span className="text-sm">{notice.message}</span>
-                  {notice.fields.map(key => <span key={key} className="font-mono text-xs break-all text-muted-foreground">{key}</span>)}
-                </span>
-              </li>
-            ))}
-          </ul>
-        </section>
-      ) : null}
 
       <section aria-labelledby="system-about" className="rounded-xl border bg-card p-5">
         <h3 id="system-about" className="mb-2 text-[15px] font-semibold">About</h3>
