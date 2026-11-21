@@ -730,9 +730,11 @@ a message entity already exists, and canceled/expired/error members hydrate as
 resolved so they cannot replace the normal composer.
 Live canonical requests also populate the incumbent HITL message projection so
 the existing dedicated response composer can render the validated request.
-The projection preserves HITL `source` as first-class message state. Agent
-requests therefore render the external agent name (for example,
-`Cyber Broker Agent · Needs Input`), while supervisor requests render HYBRO AI.
+The projection preserves HITL `source` (`agent`, `supervisor` or `system`) as
+first-class message state. Agent requests therefore render the external agent
+name (for example, `Cyber Broker Agent · Needs Input`), supervisor requests
+render HYBRO AI, and `system` requests, a check rule asking the owner about one
+Agent call, render "Your check rule" with the Approve and Reject buttons.
 Raw agent task states such as `input-required`, `auth-required`, and
 `policy-required` are not actionable UI state by themselves: until the message
 has a durable `hitlRequestId`, the timeline and agent header continue to show
@@ -1062,7 +1064,9 @@ segment.
   question under its header), you answered (your answer text) or rejected,
   the agent replied after its duration (long replies fold behind Show full
   reply), or couldn't finish; a Run canceled for `policy` reads as the
-  owner's check rules denying the agent call, with the rule's id. A pending question appears at the end of the
+  owner's check rules denying the agent call, with the rule's id, and a Run
+  canceled for `owner_refused` (the owner rejected a check rule's question)
+  reads as rejected. A pending question appears at the end of the
   record in the same `HitlResponseBar` card the chat composer uses (pending
   rows from `GET /rooms/{id}/hitl/pending` mapped with the shared
   `hitlLifecycleState`; Send calls `respondToHitlBatch`, Reject cancels through

@@ -66,7 +66,7 @@ flowchart TD
 | Support | `agent`, `local_agents`, `delivery`, `context_memory`, `room_files`, `llm_gateway` | Agent directory, local discovery, SSE delivery, room memory, files, and model access. |
 | Support | `diagnostics` | The local store of system events and warnings (two capped collections). |
 | Support | `client` | The clients that send work through the Client API: their names, token hashes, rotation and revocation, and the token check. |
-| Support | `policy` | The owner's check rules: an ordered list that answers allow or deny for an agent. Asked before each new Agent call. |
+| Support | `policy` | The owner's check rules: an ordered list that answers allow, deny or ask for an agent. Asked before each new Agent call. |
 | Support | `account` | The owner account: the instance's one user record, its password hash, the signed-in browsers, the setup code, and the attempt limit of sign-in and setup. |
 | Support | `instance_settings` | The admin settings API: the curated field registry, validated `config.json` writes, the live log level, and the in-place service restart trigger. |
 | Infrastructure | `api_gateway`, `jobs`, `dal`, `a2a_adapter`, `common`, `models` | Routes, workers, Mongo/Redis connections and generic clients, the A2A SDK boundary, and shared contracts. |
@@ -1071,7 +1071,7 @@ An unknown id is 404 `client_not_found`. Both switch routes are 503
 ### `policy`
 
 The owner's check rules. A check rule has a condition, one agent or any
-agent, and an answer, `allow` or `deny`. The rules are an ordered list: the
+agent, and an answer, `allow`, `deny` or `ask`. The rules are an ordered list: the
 first rule that is on and matches decides, and no match means allow.
 `PolicyService` and `MongoRuleRepository` live here, with the pure
 `evaluate(rules, agent_id)`, which returns a `RuleDecision` (the answer and the
@@ -1088,8 +1088,9 @@ Agent call, after the binding, room epoch and Run checks and before
 authorization and the ledger insert, so one check covers Room chat and the
 `/sessions` routes. A replayed acceptance returns before the check, and a
 model reply, an answer continuation and a recovery re-dispatch never pass
-through `accept`: a call is checked once. Any answer other than `allow`
-raises `AgentCallDenied` with the deciding `rule_id` and no other text. With
+through `accept`: a call is checked once. The answer `ask` raises
+`AgentCallNeedsAnswer` and any other answer than `allow` raises
+`AgentCallDenied`, each with the deciding `rule_id` and no other text. With
 no rules, or none that matches, every call goes as before.
 
 - Room chat (`fast`, `ultimate`): the kernel ends the call's entry as a
@@ -1124,6 +1125,91 @@ no rules, or none that matches, every call goes as before.
 - A failure to read the rules is not a deny: it fails the Run as any other
   acceptance error does.
 
+Ask. A rule that answers `ask` holds the call for the owner's answer. Nothing
+is recorded in the ledger for a held call.
+
+- Hold. The kernel creates the owner's Question through its `rule_question`
+  port (`container.rule_question_port`): a run-level interaction on the
+  `supervisor_run` route, source and evidence origin `system`, prompt type
+  `approval`, choices `Approve` and `Reject`, `source_step_id` the call id,
+  and the interaction id `sha256("{run}:rule-ask:{call}")`. The prompt is
+  "Allow this call to {agent}?" followed by the call's `task` text, passed
+  through the public text sanitizer and cut to 2,000 characters. Then one
+  checkpoint writes the entry `input_required` with its invocation, public
+  call id and `rule_hold` `{rule_id, state: asked}`, and only then the tool
+  row's start is emitted under the explicit event id
+  `public:{run}:{public call id}:start`. Every later pass, and the dispatch of
+  the approved call, emits that start again under the same id; the store
+  drops the repeat, which heals a restart between the checkpoint and the
+  start. The batch suspends as `awaiting_user`. A failure of the port logs
+  `rule_ask_creation_failed` (call and interaction ids through `log_id`) and
+  fails the Run with no tool row started.
+- One Question at a time. The Room's turn shows one open Question, so while
+  another call of the same batch has an owner Question open (a held call
+  still `asked`, a `request_user_input` call or a `surface_agent_questions`
+  forward), the rule's call stays `pending` and is marked `rule_deferred`:
+  no Question, no tool row, its budget unit kept. A valid
+  `request_user_input` call waits the same way while a held call is `asked`
+  and is marked `rule_deferred` too, so an Agent question presented while it
+  waited does not refuse it later. A valid `surface_agent_questions` forward
+  also waits. An invalid call of either kind is refused as before.
+- The answer to the open Question (approve, refuse, an ask_user answer, or
+  the parent Agent's answer that closes a forward) starts the next pass,
+  which reaches the waiting call and evaluates the rule again. After that
+  answer the Run reads `running`, not `waiting_external`, even if other
+  Agents of the waiting call's batch still work. A waiting call in a later batch waits
+  until the earlier batch ends, because the loop runs batches in order. A
+  `rule_deferred` call is a new call: it is never joined as a reply to
+  another parked call of the same Agent.
+- Answer. `approval` refuses any answer to such a question other than exactly
+  `Approve` or `Reject` (409) before it records anything, so the Question
+  stays pending. The resume port builds the observation with
+  `run_level_answer_observation`, which reads the entry: a held entry gets a
+  `HeldCallAnswer` (`approved` only for exactly `Approve`), anything else the
+  `request_user_input` answer. `HeldCallAnswer` is a `ToolObservation`
+  outcome only, never a tool result, so an Agent cannot produce one; its
+  observation id is a pure function of the Run, the call and the decision.
+  Before that, the port reads `run_level_answer_disposition`: while the Run
+  is `running` (the approved pass of the previous held call, which asks
+  about the next call before it runs the approved one), an answer to a call
+  still `asked` raises `HITLRunBusyError`, which `approval` treats as not yet
+  applied: the interaction stays `applying` (error `run_busy`), the route
+  answers `accepted`, and each HITL reconciler pass (`StaleTaskChecker`,
+  every 5 minutes by default) tries it again, so it applies at the first
+  pass after the Run suspends. An answer that loses the race to a pass that
+  starts after the port read the Run is treated the same way. A
+  replayed answer to a call already decided on a `running` Run returns as
+  applied without reaching the kernel.
+- `observe_tool` takes a `HeldCallAnswer` only for an entry whose
+  `rule_hold` is `asked`, and such an entry takes nothing else. A replayed
+  answer is recognised by the recorded observation id before the suspended
+  check; it returns the Run's state, and on a `running` Run it raises
+  `KernelConflict` instead of driving it, since that Run's own pass may still
+  run. After a crash between the approval and `accept`, the Run recovery
+  watchdog resumes the Run when its recovery is due; for a Run driven
+  through the run-addressed sink that is the time armed when the answer
+  arrived, at the latest the Run's deadline. Refuse ends the entry with a `rejected` tool result
+  (`agent_call_refused`, one fixed sentence) and `rule_hold` `refused` in one
+  checkpoint. Approve writes `rule_hold` `approved`, the entry `pending` and
+  the Run `running` in one checkpoint, emits the row's `running` update, and
+  runs the batch again: the approved entry skips join routing and calls
+  `accept(invocation, rule_approved=True)`, which skips only the rule check
+  (the Run fence, authorization and the ledger write still run). The owner's
+  answer decides the call even if the rule changed or was deleted meanwhile.
+- Refusal exits. Room chat returns the refused result to the model; the
+  budget unit stays spent. `passthrough` opens a turn of its own and ends the
+  Run `canceled` with the cause `owner_refused`, which the session
+  projection maps to `rejected`. Both decide from `rule_hold`, never from the
+  error code: an Agent's own `agent_call_refused` is an ordinary failure.
+- Each pass after an answered owner Question of the batch (a held call
+  approved or refused, an ended `request_user_input` or
+  `surface_agent_questions` call) writes its own suspend checkpoint
+  (`suspend-tool-batch:{message}:{answered questions}`), so an approved call
+  that then parks, or the next held call, is stored.
+- Stop, a canceled Question and expiry close a held entry like a parked
+  `request_user_input` entry: the terminal closure plan closes a parked entry
+  that has neither a ledger record id nor an interaction id.
+
 Reorders: each `set_positions` claims the next value of a counter document in
 `rules` (`rule_id` and `kind` `order_revision`, never read as a rule), and a
 rule takes a position only from a revision newer than the `order_revision` it
@@ -1157,7 +1243,7 @@ binds the service.
 An unknown id is 404 `rule_not_found`. A body that does not validate is 422
 `invalid_request` with `fields`, the names of the fields at fault (any other
 key is `unknown field`); the submitted values are never echoed. An `answer`
-other than `allow` or `deny`, such as `ask`, is refused this way.
+other than `allow`, `deny` or `ask` is refused this way.
 
 ### `models`
 
@@ -2900,7 +2986,14 @@ unresolvable evidence is rejected. Direct and inspection observation identities
 include the typed interaction-spec digest, and re-normalizing an unchanged
 observation excludes local `observed_at`, so it replays rather than conflicts.
 Exact-call wake queries use the denormalized `call_record_id` under a compound
-due-work index.
+due-work index. When the kernel refuses a delivered observation with a
+`KernelConflict`, the inbox reads the Run's status
+(`InvocationOutcomeCheckpointReader.is_run_running`), never the exception
+text: for any Run that is `running` (for example while an approved held call
+executes, see [`policy`](#policy)), it defers the row as pending, retried
+after `retry_backoff_initial_seconds`, without counting the attempt, so it is
+applied once the pass ends; any other refusal counts and quarantines at
+`max_transport_attempts`.
 
 The durable adapter boundary translates only retryable provider persistence
 failures into `RecoverableAdapterError`; checkpoint, authorization, epoch,
@@ -3193,7 +3286,7 @@ While `canceling`, store and settlement guards allow only an idempotent
 observations, dispatch, and HITL delivery stop after observing it. The
 process-local session signal only interrupts matching work and verifies the
 durable postcondition. Canceled Runs persist one typed cause (`user_requested`,
-`room_closed`, `shutdown`, or `policy`).
+`room_closed`, `shutdown`, `policy`, or `owner_refused`).
 
 Cancellation flow for `POST /api/v1/sse/message/{message_id}/cancel`:
 
