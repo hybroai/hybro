@@ -195,6 +195,29 @@ mock auth. Agents never receive Provider credentials or the setup directory.
 See [gateway architecture](../backend/docs/System-Architecture.md#llm_gateway) for
 the supported proxy subset and limits.
 
+## Addresses Hybro answers to
+
+The backend refuses with 421 `unknown_host` a request whose `Host` (or an
+entry of `X-Forwarded-Host`) is not one of its addresses, so a web
+page on a name pointed at this machine (DNS rebinding) reaches nothing.
+Trusted are `localhost`, `127.0.0.1`, `[::1]`, any IP address, and the hosts of
+`backend.frontend_origins` and `backend.a2a_push_callback_base_url`, on any
+port. `/health` answers any name.
+
+In the image the entrypoint sets `frontend_origins`: `localhost` and
+`127.0.0.1` on a loopback listener, `frontend.server_url` on a public one. A
+public install reached by a name, whether a domain, a LAN or mDNS name such
+as `nas.local`, or a MagicDNS name, sets `frontend.server_url` to the address
+people open; the image then trusts that one name:
+
+```json
+{ "frontend": { "server_url": "https://hybro.example.com" } }
+```
+
+A checkout reached by a name other than `localhost` lists it in
+`backend.frontend_origins`. A name with characters such as `ß` is configured
+in its punycode form (`xn--...`).
+
 ## Backend configuration fields
 
 Waits for the owner or for a remote Agent:

@@ -21,7 +21,18 @@ for key in ("OPENAI_API_KEY", "DEEPSEEK_API_KEY", "ANTHROPIC_API_KEY"):
             "version": 1,
             "provider": {"id": "openai", "auth": "api_key"},
             "models": {"text": "gpt-4o-mini"},
-            "backend": {"auth_mode": "mock"},
+            "backend": {
+                "auth_mode": "mock",
+                # The names the test clients send as Host are this instance's
+                # addresses, as frontend.server_url makes a domain one.
+                "frontend_origins": [
+                    "http://localhost:3000",
+                    "https://hybro.ai",
+                    "http://testserver",
+                    "http://test",
+                    "http://hybro.test",
+                ],
+            },
         }
     )
 )

@@ -11,6 +11,7 @@ from common.config.loader import settings
 
 import api_gateway
 from api_gateway.cross_site import CrossSiteCheckMiddleware
+from api_gateway.trusted_host import TrustedHostMiddleware, trusted_origins
 from api_gateway.errors import (
     provider_not_configured_handler,
     settings_request_error_handler,
@@ -174,6 +175,9 @@ def create_app(
         max_concurrent=A2A_PUSH_MAX_CONCURRENT,
         include_subpaths=True,
     )
+    # Added last, so the outermost: a request on a name this Hybro does not
+    # answer to (DNS rebinding) is refused before anything reads it.
+    app.add_middleware(TrustedHostMiddleware, origins=trusted_origins(settings))
 
     @app.get("/health")
     async def health_check(

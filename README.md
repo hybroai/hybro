@@ -156,9 +156,16 @@ takes requests without a source token, so a non-loopback listener needs the
 explicit `--insecure-no-auth`, for a trusted network only. MCP is served only on
 a loopback listener. Without HTTPS the sign-in cookie and password cross the
 network in the clear; the setup and sign-in pages warn when they are opened
-over plain HTTP from another machine. A reverse proxy in front of Hybro must
-keep the `Host` header (nginx replaces it by default): with another `Host`,
-every change in the Panel fails the cross-site check with 403
+over plain HTTP from another machine. Reached by a name (a domain, a LAN name
+such as `nas.local`, or a MagicDNS name), Hybro needs that address in `frontend.server_url` in `config.json` (for example
+`{"frontend": {"server_url": "https://hybro.example.com"}}`); without it every
+request on that name is refused with 421 `unknown_host`, which keeps other
+websites out through DNS rebinding. An IP address needs no setting. A reverse
+proxy in front of Hybro must keep the `Host` header (nginx replaces it by
+default): a `Host` replaced with a name (such as `hybro:3100`) is refused with
+421 on every request (`unknown_host` on a public listener; on a loopback
+listener Caddy answers first, with no body), and one replaced with an IP or
+loopback address fails every change in the Panel with 403
 `cross_site_request`.
 
 ### 3. Open the app
@@ -418,8 +425,12 @@ changes these for every install:
 - A configuration with `backend.auth_mode` set to `clerk` and a
   `frontend.server_url` no longer opens a public listener without
   `--insecure-no-auth`; such a start fails until the flag is passed.
-- A reverse proxy in front of Hybro must keep the `Host` header, or every
-  change in the Panel fails the cross-site check.
+- A reverse proxy in front of Hybro must keep the `Host` header, or requests
+  are refused: 421 `unknown_host` when it sends another name, 403
+  `cross_site_request` on changes when it sends an IP address.
+- An install reached by a name (a domain, a LAN or a MagicDNS name) must set
+  `frontend.server_url` to that address, or every request on it is refused with 421 `unknown_host`.
+  Loopback names and IP addresses need no setting.
 
 ### Upgrading from 0.3
 

@@ -215,3 +215,39 @@ async def test_the_source_api_acts_for_the_owner_record():
     owner = await mock.acting_owner()
 
     assert (owner.user_id, owner.name) == ("user_admin", "Ada")
+
+
+# -- DNS rebinding -------------------------------------------------------------
+
+
+def rebound_client(app) -> httpx.AsyncClient:
+    # A page on a name the attacker points at this machine: the browser sends
+    # that name as Host and as Origin, so the two match.
+    return httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=app, raise_app_exceptions=False),
+        base_url="http://rebound.example",
+        headers={"Origin": "http://rebound.example"},
+    )
+
+
+@pytest.mark.parametrize("method", ["GET", "POST"])
+async def test_a_rebound_page_cannot_reach_the_no_token_source_api(method):
+    app, _, catalog = await make_app()
+    async with rebound_client(app) as client:
+        response = await client.request(method, f"{API}/agents/discovery")
+
+    assert response.status_code == 421
+    assert response.json()["detail"]["code"] == "unknown_host"
+    assert catalog.calls == []
+
+
+async def test_a_rebound_page_cannot_sign_in():
+    app, _, _ = await make_app()
+    async with rebound_client(app) as client:
+        response = await client.post(
+            f"{API}/auth/sign-in",
+            json={"email": OWNER["email"], "password": PASSWORD},
+        )
+
+    assert response.status_code == 421
+    assert SESSION_COOKIE not in client.cookies

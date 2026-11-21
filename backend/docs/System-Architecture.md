@@ -337,7 +337,8 @@ dependency that resolves it (401 `not_signed_in` without a valid cookie), and
 signed-in owner as a `ClerkUser` (the name stays until Clerk mode is removed),
 with the owner record's id, email and name.
 `cross_site.py` is `CrossSiteCheckMiddleware`, which `main.create_app` installs
-inside the CORS middleware (see
+inside the CORS middleware, and `trusted_host.py` is `TrustedHostMiddleware`,
+the outermost middleware (see
 [Requests from other websites](#requests-from-other-websites)).
 `errors.QuietValidationRoute` is the route class of `/auth`, `/machine` and `/sources`: its
 422 body is a fixed message, because FastAPI's default repeats the rejected
@@ -1521,8 +1522,11 @@ port. The proxy blocks set no `header_up`: Caddy passes the browser's `Host`
 on and sets `X-Forwarded-Host`, `X-Forwarded-Proto` and `X-Forwarded-For`
 itself, ignoring the values an incoming request carries. On a loopback listener it
 answers any `Host` other than `localhost`, `127.0.0.1`, or `::1` (any port)
-with 421, which blocks DNS rebinding against the unauthenticated local API.
-Caddy writes a JSON access log to stdout (`caddy | ` in `hybro logs`), skipping
+with 421, which blocks DNS rebinding against the unauthenticated local API;
+the backend's own trusted-host check (see
+[Requests from other websites](#requests-from-other-websites)) refuses
+rebound names on every listener, while also accepting IP addresses and the
+configured address. Caddy writes a JSON access log to stdout (`caddy | ` in `hybro logs`), skipping
 `/_next/static/*`. It logs 1xx-4xx responses at `info` and 5xx at `error`.
 A filter drops `request.headers`, `request.uri` (query strings can carry
 tokens) and `resp_headers`, and each line gains `trace_id` and `path` (no
@@ -2001,6 +2005,37 @@ CLI").
 
 #### Requests from other websites
 
+`api_gateway.trusted_host.TrustedHostMiddleware`, the outermost middleware,
+refuses with 421 `unknown_host` a request on a name this Hybro does not answer
+to. A DNS rebinding page points its own name at this machine, so the browser
+sends that name as both `Host` and `Origin`, and the cross-site check below,
+which compares the two, would pass:
+
+- Trusted are the loopback names Caddy's loopback listener accepts
+  (`localhost`, `127.0.0.1`, `[::1]`; not names under `.localhost`, which not
+  every resolver pins to loopback), any IP literal, which cannot be rebound,
+  and the hosts of `frontend_origins` and `a2a_push_callback_base_url`, in
+  their ASCII (IDNA) form. A Unicode name that Python's IDNA 2003 codec maps
+  differently from browsers (such as one with `ß`) is not trusted; its
+  punycode form can be configured. In the image the
+  entrypoint sets `frontend_origins` from the listener: `localhost` and
+  `127.0.0.1` on loopback, `frontend.server_url` on a public listener. Any port
+  is allowed, so SSH and IDE port forwarding keep working.
+- `Host` and every entry of `X-Forwarded-Host` must be trusted: a rebinding page cannot change `Host` but can add the other header.
+- It covers every method and route except `/health`, which returns no data and
+  which probes call by any address. The refusal names `frontend.server_url`
+  and `backend.frontend_origins` and does not repeat the name the request
+  sent.
+- The MCP server and the bundled agents call `127.0.0.1:8000`, so they pass.
+  The Next dev proxy replaces `Host` with the backend's address and forwards
+  `localhost:3000`, so it passes with the default backend URL; a
+  `HYBRO_BACKEND_URL` that names the backend by another name needs that name
+  in `backend.frontend_origins`.
+- Any other name, a domain, a LAN or mDNS name (`nas.local`) or a MagicDNS
+  name, must be configured: `frontend.server_url` in the image, which then
+  trusts that one name besides loopback and IP addresses, and
+  `backend.frontend_origins` in a checkout.
+
 `api_gateway.cross_site.CrossSiteCheckMiddleware` refuses, with 403
 `cross_site_request`, a request that another website made a browser send:
 
@@ -2028,8 +2063,11 @@ through the visitor's browser.
 This is the only defence against a plain cross-site `POST`: FastAPI parses a
 body without a `Content-Type` as JSON, so no preflight protects these routes,
 and `SameSite` ignores ports. An outer reverse proxy that rewrites `Host`
-without setting `X-Forwarded-Host` makes the check refuse the owner's own
-requests.
+makes the owner's own requests fail: with a name, the trusted-host check
+refuses every request with 421; with an IP or loopback address, this check
+refuses every change with 403. In the image only keeping `Host` works: Caddy
+replaces an incoming `X-Forwarded-Host` with the `Host` it received. Setting
+`X-Forwarded-Host` helps only when the backend is reached without Caddy.
 
 ### Settings API
 
@@ -2192,6 +2230,7 @@ agents or refreshes Cards.
 | --- | --- |
 | `401` | `unknown_source_token`, or `source_token_required` when a token is required. |
 | `403` | `cross_site_request` (no token, foreign `Origin`), or the selected saved group belongs to another user. |
+| `421` | `unknown_host`: the request names an address this Hybro does not answer to (see [Requests from other websites](#requests-from-other-websites)). |
 | `503` | `no_account` (no owner account yet) or `sources_unavailable`. |
 | `404` | Selected group does not exist, or the agent is missing/not visible. |
 | `422` | Invalid query, or unsupported `room_team` scope. |
@@ -3929,9 +3968,9 @@ Focused tests are organized by module and workflow:
 - `tests/test_orchestrator_*` and `tests/test_execution_*`: the orchestrator,
   A2A runtime, and execution flows.
 - `tests/test_hitl*` and `tests/test_session*`: HITL and sessions.
-- `tests/test_account_*`, `tests/test_api_auth.py`, `tests/test_api_machine.py`
-  and `tests/test_cross_site_check.py`: the owner account, its routes, and the
-  cross-site check.
+- `tests/test_account_*`, `tests/test_api_auth.py`, `tests/test_api_machine.py`,
+  `tests/test_cross_site_check.py` and `tests/test_trusted_host.py`: the owner
+  account, its routes, the cross-site check and the trusted-host check.
 - `tests/test_context_memory_*`: projection, compaction, repository, events.
 - `tests/test_delivery_*`: SSE, event bus, delivery protocols.
 - `tests/test_module_boundaries.py`, `tests/test_module_protocol_inventory.py`,
