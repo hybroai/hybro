@@ -1713,11 +1713,8 @@ class OrchestratorKernel:
                 # Run: the refusal returns to the model (Room chat), or ends a
                 # passthrough Run as denied. Its budget unit stays spent, which
                 # bounds a model that keeps calling a denied agent.
-                run = await self._checkpoint(
-                    run,
-                    updates={"denied_rule_id": denied.rule_id},
-                    command_id=f"call-denied-rule:{call.call_id}",
-                )
+                # The rule and the refused entry are written together, so a
+                # restart never finds one without the other.
                 run = await self._update_entry(
                     run,
                     batch_index,
@@ -1729,6 +1726,7 @@ class OrchestratorKernel:
                     ),
                     command=f"call-denied:{call.call_id}",
                     denied_by_rule=True,
+                    run_updates={"denied_rule_id": denied.rule_id},
                 )
                 recoverable_declaration_failed = True
                 continue
@@ -3592,7 +3590,9 @@ class OrchestratorKernel:
         public_update_index: int | None = None,
         public_terminal_emitted: bool | None = None,
         denied_by_rule: bool | None = None,
+        run_updates: dict[str, object] | None = None,
     ) -> OrchestratorRunState:
+        """Write one tool entry, with any Run fields in the same checkpoint."""
         batches = list(run.tool_batches)
         batch = batches[batch_index]
         entries = list(batch.entries)
@@ -3618,7 +3618,9 @@ class OrchestratorKernel:
         batches[batch_index] = batch.model_copy(update={"entries": entries})
         try:
             return await self._checkpoint(
-                run, updates={"tool_batches": batches}, command_id=command
+                run,
+                updates={**(run_updates or {}), "tool_batches": batches},
+                command_id=command,
             )
         except KernelConflict:
             current = await self._load(run.run_id)
@@ -3647,7 +3649,7 @@ class OrchestratorKernel:
             )
             return await self._checkpoint(
                 current,
-                updates={"tool_batches": current_batches},
+                updates={**(run_updates or {}), "tool_batches": current_batches},
                 command_id=command,
             )
 
