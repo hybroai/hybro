@@ -319,6 +319,10 @@ describe('canonical Turn contract and fold', () => {
       final_committed: false,
     })).toBeNull()
     expect(validates({
+      ...base, state: 'canceled', settled_at: TS, duration_ms: 0,
+      terminal_code: 'owner_refused', terminal_summary: null,
+    })).not.toBeNull()
+    expect(validates({
       ...base, state: 'failed', settled_at: '2029-12-31T23:59:59.000Z', duration_ms: 0,
       terminal_code: 'internal_error', terminal_summary: 'Failed.',
     })).toBeNull()
@@ -669,6 +673,13 @@ describe('settlement of a call a check rule denied', () => {
     expect(validateCanonicalRunEventData(canceled({ cancellation_code: 'user_requested', rule_id: 'rule_1' })))
       .toMatchObject({ valid: false })
     expect(validateCanonicalRunEventData(canceled({ cancellation_code: 'policy', rule_id: '' })))
+      .toMatchObject({ valid: false })
+  })
+
+  it('accepts a cancel the owner refused, without a rule id', () => {
+    expect(validateCanonicalRunEventData(canceled({ cancellation_code: 'owner_refused' })))
+      .toMatchObject({ valid: true })
+    expect(validateCanonicalRunEventData(canceled({ cancellation_code: 'owner_refused', rule_id: 'rule_1' })))
       .toMatchObject({ valid: false })
   })
 })

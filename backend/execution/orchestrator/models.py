@@ -738,7 +738,9 @@ class CandidateScopeSnapshot(ContractModel):
     authorization_basis: AuthorizationBasis
 
 
-CancellationCause = Literal["user_requested", "room_closed", "shutdown", "policy"]
+CancellationCause = Literal[
+    "user_requested", "room_closed", "shutdown", "policy", "owner_refused"
+]
 
 
 RunStatus = Literal[

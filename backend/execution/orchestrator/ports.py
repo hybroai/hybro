@@ -212,7 +212,10 @@ class ModelLoopHost(Protocol):
         status: Literal["failed", "canceled", "budget_exhausted"],
         reason: str,
         cancellation_cause: (
-            Literal["user_requested", "room_closed", "shutdown", "policy"] | None
+            Literal[
+                "user_requested", "room_closed", "shutdown", "policy", "owner_refused"
+            ]
+            | None
         ) = None,
     ) -> KernelRunResult: ...
 

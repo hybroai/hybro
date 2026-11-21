@@ -373,7 +373,10 @@ class OrchestratorKernel:
         status: Literal["failed", "canceled", "budget_exhausted"],
         reason: str,
         cancellation_cause: (
-            Literal["user_requested", "room_closed", "shutdown", "policy"] | None
+            Literal[
+                "user_requested", "room_closed", "shutdown", "policy", "owner_refused"
+            ]
+            | None
         ) = None,
         lifecycle: KernelLifecycle | None = None,
     ) -> KernelRunResult:
@@ -3514,7 +3517,10 @@ class OrchestratorKernel:
         status: Literal["failed", "canceled", "budget_exhausted"],
         reason: str,
         cancellation_cause: (
-            Literal["user_requested", "room_closed", "shutdown", "policy"] | None
+            Literal[
+                "user_requested", "room_closed", "shutdown", "policy", "owner_refused"
+            ]
+            | None
         ) = None,
     ) -> KernelRunResult:
         current = await self._load(run.run_id)
