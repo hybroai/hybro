@@ -29,7 +29,7 @@ proxy on the machine that runs Hybro at `https://hybro.example.com`.
    `X-Forwarded-Host`, which Hybro reads only with `backend.proxy_hops` set. A `Host` replaced with another name, such as a
    container name, is refused with 421 whatever the proxy forwards.
 4. **The listener**: keep the default, `127.0.0.1`, with the proxy on the
-   same machine. That is the recommended arrangement: only programs on this
+   same machine. That is the recommended arrangement: only local processes on this
    machine reach Hybro's port. With `backend.proxy_hops` above 0 and
    `frontend.server_url` set, the loopback listener also answers to that one
    name. A proxy on another machine needs `--listen` (below).
@@ -51,7 +51,7 @@ restart button on the Settings page cannot apply it.
 ## Let only the proxy reach the port
 
 With `backend.proxy_hops` set, Hybro believes the forwarded headers of any
-program that connects to its port, not only the proxy's. A program that
+connection to its port, not only the proxy's. A caller that
 reaches the port directly, without going through the proxy, can then:
 
 - claim HTTPS, so the sign-in cookie it receives is marked `Secure`. That
@@ -62,13 +62,13 @@ reaches the port directly, without going through the proxy, can then:
   not answer to (421 `unknown_host`), so this gains nothing beyond what a
   correct `Host` already allows.
 - not pass the cross-site check for a browser: a web page cannot set these
-  headers on another site's request, and a program has no owner's cookie.
+  headers on another site's request, and an API client has no owner's cookie.
 
 So Hybro must be reachable only through the proxy:
 
 - **Recommended: the proxy on the same machine, Hybro on the default
   binding.** `hybro -d` publishes the port on `127.0.0.1` only, so other
-  machines cannot reach it. Programs on this machine still can; on a machine
+  machines cannot reach it. Local processes on this machine still can; on a machine
   you share, use the next option or keep the count at 0.
 
   ```bash
@@ -142,7 +142,7 @@ the `hybro_session` cookie is marked `Secure`. If something is wrong:
 | A cookie without `Secure` | `backend.proxy_hops` is 0, or the proxy does not send `X-Forwarded-Proto` as one value. |
 | The setup or sign-in page warns about plain HTTP | The page itself was opened over `http://`. |
 
-Programs and MCP clients use the same address, `https://hybro.example.com`
+API clients and MCP clients use the same address, `https://hybro.example.com`
 and `https://hybro.example.com/mcp`, with a client token.
 
 With `backend.proxy_hops` above 0, the `client_ip` in Hybro's own access log

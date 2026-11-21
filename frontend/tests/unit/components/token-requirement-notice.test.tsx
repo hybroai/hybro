@@ -32,6 +32,8 @@ describe('TokenRequirementNotice', () => {
     render(<TokenRequirementNotice />)
     const notice = await screen.findByTestId('token-requirement-notice')
     expect(notice).toHaveTextContent('before client tokens')
+    expect(notice).toHaveTextContent('accepts requests without one')
+    expect(notice).toHaveTextContent('Require a client token')
     expect(screen.getByRole('link', { name: 'Open Clients' })).toHaveAttribute('href', '/connect/clients')
     await user.click(screen.getByRole('button', { name: 'Dismiss' }))
     expect(screen.queryByTestId('token-requirement-notice')).toBeNull()

@@ -172,7 +172,7 @@ Implementation ownership and protocol inventory are documented in
 
 ## Clients and tokens
 
-A client is a program that sends work to Hybro, such as a CI job or an MCP
+A client is an external app, assistant, or script that sends work to Hybro, such as a CI job or an MCP
 client. The owner creates one and gets its token once:
 
 ```sh
