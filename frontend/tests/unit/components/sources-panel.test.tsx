@@ -252,7 +252,7 @@ describe('the token requirement', () => {
     render(<ConnectPage kind="sources" />)
     const toggle = await screen.findByRole('switch', { name: 'Require a source token' })
     expect(toggle).toBeChecked()
-    expect(toggle).toHaveAccessibleDescription('On: every API and MCP request needs a valid token.')
+    expect(toggle).toHaveAccessibleDescription('On: every Source API and MCP request needs a valid source token.')
     await user.click(toggle)
     const confirm = await screen.findByRole('alertdialog')
     expect(confirm).toHaveTextContent('Any program that can reach this Hybro can send work to your agents without a token.')
