@@ -86,7 +86,7 @@ function NameField({ value, onChange, autoFocus }: { value: string; onChange: (v
         placeholder="CI bot"
         onChange={event => onChange(event.target.value)}
       />
-      <p className="text-xs text-muted-foreground">The program this token is for, as you want to see it on its sessions.</p>
+      <p className="text-xs text-muted-foreground">The app, assistant, or script this token is for, as you want to see it on its sessions.</p>
     </div>
   )
 }
@@ -121,8 +121,8 @@ function CreateClientDialog({ open, onOpenChange }: { open: boolean; onOpenChang
           <DialogTitle>{created ? `Token for ${created.name}` : 'Create a client'}</DialogTitle>
           <DialogDescription>
             {created
-              ? 'Give this token to the program. It sends it as Authorization: Bearer on every request.'
-              : 'A client is one program that sends work to Hybro. It gets its own token, and its sessions carry its name.'}
+              ? 'Give this token to your app, assistant, or script. It sends it as Authorization: Bearer on every request.'
+              : 'A client is an app, assistant, or script that sends work to Hybro. It gets its own token, and its sessions carry its name.'}
           </DialogDescription>
         </DialogHeader>
         {created ? (
@@ -203,7 +203,7 @@ function TokenActionDialog({ client, action, onClose }: { client: ClientView; ac
         <DialogContent className="sm:max-w-xl">
           <DialogHeader>
             <DialogTitle>{`New token for ${rotated.name}`}</DialogTitle>
-            <DialogDescription>The old token stopped working. Give the program this one; its sessions stay.</DialogDescription>
+            <DialogDescription>The old token stopped working. Give the client this new token; its sessions stay.</DialogDescription>
           </DialogHeader>
           <TokenShown client={rotated} />
           <DialogFooter><Button onClick={close}>Done</Button></DialogFooter>
@@ -324,7 +324,7 @@ function ClientsTable({ onAction }: { onAction: (pending: Pending) => void }) {
             ))
           ) : !list?.length ? (
             <tr><td colSpan={6} className="px-4 py-8 text-muted-foreground">
-              No clients yet. Create one for each program that sends work to Hybro, over the API or MCP.
+              No clients yet. Create one for each app, assistant, or script that sends work to Hybro, over the API or MCP.
             </td></tr>
           ) : (
             list.map(client => <ClientRow key={client.client_id} client={client} onAction={onAction} />)
@@ -349,7 +349,7 @@ export function ClientsPanel() {
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div className="flex flex-col gap-1">
             <h2 id="clients-heading" className="text-[15px] font-semibold">Clients</h2>
-            <p className="text-sm text-muted-foreground">Each program that sends work has its own token, and every step it sends is recorded under its name.</p>
+            <p className="text-sm text-muted-foreground">Each connected app, assistant, or script has its own token, and every step it sends is recorded under its name.</p>
           </div>
           <Button onClick={() => setCreating(true)}>
             <Plus data-icon="inline-start" aria-hidden="true" />Create client

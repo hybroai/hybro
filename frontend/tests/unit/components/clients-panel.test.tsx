@@ -255,7 +255,7 @@ describe('the token requirement', () => {
     expect(toggle).toHaveAccessibleDescription('On: every Client API and MCP request needs a valid client token.')
     await user.click(toggle)
     const confirm = await screen.findByRole('alertdialog')
-    expect(confirm).toHaveTextContent('Any program that can reach this Hybro can send work to your agents without a token.')
+    expect(confirm).toHaveTextContent('Any app, assistant, or script that can reach this Hybro can send work to your agents without a token.')
     await user.click(within(confirm).getByRole('button', { name: 'Cancel' }))
     expect(state.puts).toEqual([])
     expect(toggle).toBeChecked()
@@ -265,19 +265,19 @@ describe('the token requirement', () => {
     await waitFor(() => expect(state.puts).toEqual([{ required: false }]))
     await waitFor(() => expect(screen.getByRole('switch', { name: 'Require a client token' })).not.toBeChecked())
     expect(screen.getByRole('switch', { name: 'Require a client token' })).toHaveAccessibleDescription(
-      'Off: requests without a token are accepted, so any program that can reach Hybro can use your agents.',
+      'Off: requests without a token are accepted, so any app, assistant, or script that can reach Hybro can use your agents.',
     )
     // The banner shows once the requirement is off.
     expect(await screen.findByTestId('token-requirement-banner')).toBeInTheDocument()
   })
 
-  it('asks before turning it on, saying programs without a token are refused', async () => {
+  it('asks before turning it on, saying clients without a token are refused', async () => {
     state.requirement = { required: false, started_off: true, updated_at: '2026-11-20T00:00:00Z' }
     const user = userEvent.setup()
     render(<ConnectPage kind="clients" />)
     await user.click(await screen.findByRole('switch', { name: 'Require a client token' }))
     const confirm = await screen.findByRole('alertdialog')
-    expect(confirm).toHaveTextContent('are refused')
+    expect(confirm).toHaveTextContent('Client API and MCP clients without a token are refused')
     await user.click(within(confirm).getByRole('button', { name: 'Require tokens' }))
     await waitFor(() => expect(state.puts).toEqual([{ required: true }]))
     await waitFor(() => expect(screen.queryByTestId('token-requirement-banner')).toBeNull())
@@ -291,6 +291,8 @@ describe('the token requirement', () => {
     expect(banner).toHaveTextContent('Client tokens are not required')
     await user.click(within(banner).getByRole('button', { name: 'Learn more' }))
     const dialog = await screen.findByRole('dialog', { name: 'Requests without a client token' })
+    expect(dialog).toHaveTextContent('A client token identifies the app, assistant, or script that sends each step')
+    expect(dialog).toHaveTextContent('Create a client on the Clients tab for each connected app, assistant, or script')
     expect(within(dialog).getByRole('switch', { name: 'Require a client token' })).not.toBeChecked()
     await user.keyboard('{Escape}')
     await user.click(within(screen.getByTestId('token-requirement-banner')).getByRole('button', { name: 'Dismiss' }))

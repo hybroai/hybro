@@ -20,7 +20,7 @@ const TAB_ROUTES: Record<AccessKind, string> = {
   api: routes.connectApi,
 }
 
-const TOKEN_IN_TRANSIT = 'This page is served over plain HTTP from another machine, so a token shown or pasted here, and every request a program sends with it, travels the network readable. Use HTTPS, through a reverse proxy in front of Hybro, before connecting from another machine.'
+const TOKEN_IN_TRANSIT = 'This page is served over plain HTTP from another machine, so a token shown or pasted here, and every request a client sends with it, travels the network readable. Use HTTPS, through a reverse proxy in front of Hybro, before connecting from another machine.'
 
 function Features({ items }: { items: { title: string; detail: string; tool?: string }[] }) {
   return (

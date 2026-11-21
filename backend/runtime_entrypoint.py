@@ -189,7 +189,7 @@ def read_listener(environment: Mapping[str, str]) -> Listener:
 def listener_line(listener: Listener) -> str | None:
     """The routine startup line for a public listener; none for loopback.
 
-    Whether a program needs a client token is product state in the database,
+    Whether requests need a client token is product state in the database,
     which the entrypoint does not read; the backend and ``hybro`` warn when
     the requirement is off.
     """
@@ -197,7 +197,7 @@ def listener_line(listener: Listener) -> str | None:
         return None
     return (
         "listening for other machines: the Panel needs the owner's sign-in, "
-        "and whether a program needs a client token is set in Access, Clients"
+        "and whether requests need a client token is set in Access, Clients"
     )
 
 
@@ -1047,7 +1047,7 @@ def user_phase() -> None:
     if listener.mode == "public" and plan.proxy_hops:
         print(
             "WARNING: backend.proxy_hops is set, so Hybro believes the forwarded "
-            "scheme, host and client address of any program that connects. "
+            "scheme, host and client address of every connection. "
             "Anything that reaches this port without going through the proxy "
             "can forge them; let only the proxy reach it.",
             file=sys.stderr,

@@ -1,4 +1,4 @@
-"""Clients: each program that asks for work, and its token.
+"""Clients: each external app, assistant, or script that asks for work, and its token.
 
 Imports only ``common``. ``api_gateway`` and ``session`` reach it through
 ``client.protocols``; the container builds the service.

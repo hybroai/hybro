@@ -30,12 +30,12 @@ import { routes } from '@/lib/routes'
 const bannerDismissal = createDismissalStore('hybro.token-requirement.banner-dismissed')
 const noticeDismissal = createDismissalStore('hybro.token-requirement.notice-dismissed')
 
-const OPEN_RISK = 'Any program that can reach this Hybro can send work to your agents without a token.'
+const OPEN_RISK = 'Any app, assistant, or script that can reach this Hybro can send work to your agents without a token.'
 
 const CONFIRM = {
   on: {
     title: 'Require a client token?',
-    body: 'From the next request on, programs and MCP clients that send no token are refused until they send one created on this tab. Their earlier sessions stay, recorded under "No token".',
+    body: 'From the next request on, Client API and MCP clients without a token are refused until they send one created on this tab. Their earlier sessions stay, recorded under "No token".',
     action: 'Require tokens',
   },
   off: {
@@ -72,7 +72,7 @@ export function RequirementSwitch() {
           <p id="token-requirement-state" className="text-sm text-muted-foreground">
             {required
               ? 'On: every Client API and MCP request needs a valid client token.'
-              : 'Off: requests without a token are accepted, so any program that can reach Hybro can use your agents.'}
+              : 'Off: requests without a token are accepted, so any app, assistant, or script that can reach Hybro can use your agents.'}
           </p>
         </div>
         <Switch
@@ -118,7 +118,7 @@ export function RequirementDialog({ open, onOpenChange }: { open: boolean; onOpe
         <DialogHeader>
           <DialogTitle>Requests without a client token</DialogTitle>
           <DialogDescription>
-            A client token names the program that sends each step, and only you can create one.
+            A client token identifies the app, assistant, or script that sends each step, and only you can create one.
           </DialogDescription>
         </DialogHeader>
         <div className="flex flex-col gap-3 text-sm text-muted-foreground">
@@ -128,7 +128,7 @@ export function RequirementDialog({ open, onOpenChange }: { open: boolean; onOpe
           <p>
             A request with a revoked or unknown token is always refused, and a web page on another address can never send one without a token.
           </p>
-          <p>Create a client for each program on the Clients tab, give it its token, then turn the requirement on.</p>
+          <p>Create a client on the Clients tab for each connected app, assistant, or script, give it its token, then turn the requirement on.</p>
         </div>
         <RequirementSwitch />
       </DialogContent>
@@ -179,7 +179,7 @@ export function TokenRequirementNotice() {
       icon={ShieldAlert}
       testId="token-requirement-notice"
       title="New: client tokens"
-      body="This Hybro was in use before client tokens, so it still accepts programs without one. Give each program a token on the Clients tab, then require tokens."
+      body='This Hybro was in use before client tokens, so it still accepts requests without one. Create a client for each app, assistant, or script on the Clients tab, then turn on "Require a client token".'
       action={(
         <Button size="sm" asChild>
           <Link href={routes.connectClients}>Open Clients</Link>
