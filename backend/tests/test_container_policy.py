@@ -8,7 +8,7 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
 
 import container
-from policy.models import RuleChange
+from policy.models import RuleCreate
 from policy.protocols import RuleRegistry
 from tests.test_module_boundaries import imported_modules
 
@@ -24,7 +24,7 @@ async def test_create_policy_rules_binds_the_rules_collection():
 
     assert isinstance(rules, RuleRegistry)
     assert names == ["rules"]
-    created = await rules.create(RuleChange(answer="deny"))
+    created = await rules.create(RuleCreate(answer="deny"))
     assert collection.insert_one.await_args.args[0]["rule_id"] == created.rule_id
 
 

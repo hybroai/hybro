@@ -17,19 +17,24 @@ from fastapi.routing import APIRoute
 from api_gateway.registry import mark_declared_owner
 from api_gateway.source_token import SignedInOwnerDependency
 from policy.protocols import (
-    RuleChange,
+    RuleCreate,
     RuleLimitReached,
     RuleList,
     RuleNotFound,
     RuleOrder,
     RuleOrderMismatch,
     RuleRegistry,
+    RuleReplace,
     RuleView,
 )
 
 # The body fields a validation error may name. Any other key is reported as
 # an unknown field, so nothing the caller wrote is echoed.
-_FIELDS = frozenset(RuleChange.model_fields) | frozenset(RuleOrder.model_fields)
+_FIELDS = (
+    frozenset(RuleCreate.model_fields)
+    | frozenset(RuleReplace.model_fields)
+    | frozenset(RuleOrder.model_fields)
+)
 
 
 def _invalid_fields(exc: RequestValidationError) -> list[str]:
@@ -119,7 +124,7 @@ async def list_rules(rules: OwnerRulesDependency) -> RuleList:
 
 
 @router.post("", status_code=201, responses=_CREATE_ERRORS)
-async def create_rule(body: RuleChange, rules: OwnerRulesDependency) -> RuleView:
+async def create_rule(body: RuleCreate, rules: OwnerRulesDependency) -> RuleView:
     """Add a check rule at the end of the list."""
     try:
         return await rules.create(body)
@@ -142,9 +147,10 @@ async def reorder_rules(body: RuleOrder, rules: OwnerRulesDependency) -> RuleLis
 
 @router.put("/{rule_id}", responses=_RULE_ERRORS)
 async def update_rule(
-    rule_id: str, body: RuleChange, rules: OwnerRulesDependency
+    rule_id: str, body: RuleReplace, rules: OwnerRulesDependency
 ) -> RuleView:
-    """Replace a rule's condition, answer and state. Its place stays."""
+    """Replace a rule's condition, answer and state; each is required. Its
+    place stays."""
     try:
         return await rules.update(rule_id, body)
     except RuleNotFound:

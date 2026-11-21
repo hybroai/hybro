@@ -8,7 +8,7 @@ import pytest
 from pydantic import ValidationError
 
 from policy import PolicyService
-from policy.models import MAX_RULES, RuleChange
+from policy.models import MAX_RULES, RuleCreate, RuleReplace
 from policy.protocols import (
     RuleLimitReached,
     RuleNotFound,
@@ -41,8 +41,8 @@ def test_the_service_is_a_rule_registry():
 
 async def test_create_appends_and_list_is_in_order():
     service, _ = _service()
-    first = await service.create(RuleChange(agent_id="coder", answer="deny"))
-    second = await service.create(RuleChange(answer="allow"))
+    first = await service.create(RuleCreate(agent_id="coder", answer="deny"))
+    second = await service.create(RuleCreate(answer="allow"))
 
     listing = await service.list_rules()
 
@@ -55,10 +55,10 @@ async def test_create_appends_and_list_is_in_order():
 
 async def test_update_replaces_condition_answer_and_state():
     service, _ = _service()
-    rule = await service.create(RuleChange(agent_id="coder", answer="deny"))
+    rule = await service.create(RuleCreate(agent_id="coder", answer="deny"))
 
     updated = await service.update(
-        rule.rule_id, RuleChange(agent_id=None, answer="allow", enabled=False)
+        rule.rule_id, RuleReplace(agent_id=None, answer="allow", enabled=False)
     )
 
     assert (updated.agent_id, updated.answer, updated.enabled) == (
@@ -73,14 +73,16 @@ async def test_update_replaces_condition_answer_and_state():
 async def test_update_and_delete_of_an_unknown_rule_are_refused():
     service, _ = _service()
     with pytest.raises(RuleNotFound):
-        await service.update("rule_nope", RuleChange(answer="deny"))
+        await service.update(
+            "rule_nope", RuleReplace(agent_id=None, answer="deny", enabled=True)
+        )
     with pytest.raises(RuleNotFound):
         await service.delete("rule_nope")
 
 
 async def test_delete_removes_the_rule():
     service, _ = _service()
-    rule = await service.create(RuleChange(answer="deny"))
+    rule = await service.create(RuleCreate(answer="deny"))
 
     await service.delete(rule.rule_id)
 
@@ -89,13 +91,13 @@ async def test_delete_removes_the_rule():
 
 async def test_reorder_sets_the_order_and_create_appends_after_it():
     service, _ = _service()
-    a = await service.create(RuleChange(agent_id="a", answer="deny"))
-    b = await service.create(RuleChange(agent_id="b", answer="deny"))
-    c = await service.create(RuleChange(agent_id="c", answer="deny"))
+    a = await service.create(RuleCreate(agent_id="a", answer="deny"))
+    b = await service.create(RuleCreate(agent_id="b", answer="deny"))
+    c = await service.create(RuleCreate(agent_id="c", answer="deny"))
     await service.delete(b.rule_id)
 
     reordered = await service.reorder([c.rule_id, a.rule_id])
-    d = await service.create(RuleChange(agent_id="d", answer="allow"))
+    d = await service.create(RuleCreate(agent_id="d", answer="allow"))
 
     assert [r.rule_id for r in reordered.rules] == [c.rule_id, a.rule_id]
     listing = await service.list_rules()
@@ -113,8 +115,8 @@ async def test_reorder_sets_the_order_and_create_appends_after_it():
 )
 async def test_reorder_must_name_every_rule_once(order):
     service, _ = _service()
-    a = await service.create(RuleChange(agent_id="a", answer="deny"))
-    b = await service.create(RuleChange(agent_id="b", answer="deny"))
+    a = await service.create(RuleCreate(agent_id="a", answer="deny"))
+    b = await service.create(RuleCreate(agent_id="b", answer="deny"))
 
     with pytest.raises(RuleOrderMismatch):
         await service.reorder(order(a.rule_id, b.rule_id))
@@ -126,28 +128,51 @@ async def test_reorder_must_name_every_rule_once(order):
 async def test_create_is_refused_at_the_limit():
     service, store = _service()
     for _ in range(MAX_RULES):
-        await service.create(RuleChange(answer="allow"))
+        await service.create(RuleCreate(answer="allow"))
 
     with pytest.raises(RuleLimitReached):
-        await service.create(RuleChange(answer="allow"))
+        await service.create(RuleCreate(answer="allow"))
     assert len(store.records) == MAX_RULES
 
 
 @pytest.mark.parametrize("answer", ["ask", "ALLOW", "", None])
 def test_only_allow_and_deny_are_answers(answer):
     with pytest.raises(ValidationError) as caught:
-        RuleChange(answer=answer)
+        RuleCreate(answer=answer)
     assert caught.value.errors()[0]["loc"] == ("answer",)
 
 
 @pytest.mark.parametrize("agent_id", ["", "   ", "x" * 257])
 def test_an_agent_id_is_not_blank_or_too_long(agent_id):
     with pytest.raises(ValidationError):
-        RuleChange(agent_id=agent_id, answer="deny")
+        RuleCreate(agent_id=agent_id, answer="deny")
 
 
 def test_a_change_takes_no_other_field():
     with pytest.raises(ValidationError):
-        RuleChange(answer="deny", position=3)
+        RuleCreate(answer="deny", position=3)
     with pytest.raises(ValidationError):
-        RuleChange(answer="deny", enabled="yes")
+        RuleCreate(answer="deny", enabled="yes")
+
+
+@pytest.mark.parametrize("missing", ["agent_id", "answer", "enabled"])
+def test_a_replace_names_every_field(missing):
+    # A replace that left a field out would take a default: an off rule would
+    # turn on, or a rule for one agent would cover any agent.
+    body = {"agent_id": "coder", "answer": "deny", "enabled": False}
+    del body[missing]
+    with pytest.raises(ValidationError) as caught:
+        RuleReplace(**body)
+    assert caught.value.errors()[0]["loc"] == (missing,)
+
+
+def test_a_replace_takes_null_for_any_agent_and_the_same_checks():
+    assert RuleReplace(agent_id=None, answer="allow", enabled=True).agent_id is None
+    for body in (
+        {"agent_id": "  ", "answer": "deny", "enabled": True},
+        {"agent_id": None, "answer": "ask", "enabled": True},
+        {"agent_id": None, "answer": "deny", "enabled": "yes"},
+        {"agent_id": None, "answer": "deny", "enabled": True, "position": 1},
+    ):
+        with pytest.raises(ValidationError):
+            RuleReplace(**body)

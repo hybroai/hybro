@@ -11,9 +11,10 @@ from typing import Any, Protocol, runtime_checkable
 
 from policy.models import (
     CheckRule,
-    RuleChange,
+    RuleCreate,
     RuleList,
     RuleOrder,
+    RuleReplace,
     RuleView,
 )
 
@@ -33,8 +34,8 @@ class RuleLimitReached(Exception):
 @runtime_checkable
 class RuleRegistry(Protocol):
     async def list_rules(self) -> RuleList: ...
-    async def create(self, change: RuleChange) -> RuleView: ...
-    async def update(self, rule_id: str, change: RuleChange) -> RuleView: ...
+    async def create(self, change: RuleCreate) -> RuleView: ...
+    async def update(self, rule_id: str, change: RuleReplace) -> RuleView: ...
     async def delete(self, rule_id: str) -> None: ...
     async def reorder(self, rule_ids: list[str]) -> RuleList: ...
 
@@ -52,12 +53,13 @@ class RuleStore(Protocol):
 
 
 __all__ = [
-    "RuleChange",
+    "RuleCreate",
     "RuleLimitReached",
     "RuleList",
     "RuleNotFound",
     "RuleOrder",
     "RuleOrderMismatch",
+    "RuleReplace",
     "RuleRegistry",
     "RuleStore",
     "RuleView",

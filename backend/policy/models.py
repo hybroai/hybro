@@ -61,15 +61,26 @@ class CheckRule(BaseModel):
     _utc_times = field_validator("created_at", "updated_at")(_utc)
 
 
-class RuleChange(BaseModel):
-    """A new rule, or the whole of an existing one: its condition, answer and
-    state. ``agent_id`` null or left out means any agent."""
+class RuleCreate(BaseModel):
+    """A new rule: its condition, answer and state. ``agent_id`` null or left
+    out means any agent; a new rule is on unless ``enabled`` says otherwise."""
 
     model_config = ConfigDict(extra="forbid")
 
     agent_id: AgentId | None = None
     answer: RuleAnswer
     enabled: StrictBool = True
+
+
+class RuleReplace(BaseModel):
+    """The whole of an existing rule. Every field is required, so a field left
+    out never falls back to a default: ``agent_id`` is null for any agent."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    agent_id: AgentId | None
+    answer: RuleAnswer
+    enabled: StrictBool
 
 
 class RuleOrder(BaseModel):
@@ -106,7 +117,8 @@ __all__ = [
     "AgentId",
     "CheckRule",
     "RuleAnswer",
-    "RuleChange",
+    "RuleCreate",
+    "RuleReplace",
     "RuleKind",
     "RuleList",
     "RuleOrder",

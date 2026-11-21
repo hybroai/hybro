@@ -7,7 +7,14 @@ from collections.abc import Callable
 from datetime import datetime
 
 from common.utils.time import utcnow
-from policy.models import MAX_RULES, CheckRule, RuleChange, RuleList, RuleView
+from policy.models import (
+    MAX_RULES,
+    CheckRule,
+    RuleCreate,
+    RuleList,
+    RuleReplace,
+    RuleView,
+)
 from policy.protocols import (
     RuleLimitReached,
     RuleNotFound,
@@ -42,7 +49,7 @@ class PolicyService:
     async def list_rules(self) -> RuleList:
         return _list(await self._store.list_all())
 
-    async def create(self, change: RuleChange) -> RuleView:
+    async def create(self, change: RuleCreate) -> RuleView:
         """Add a rule at the end of the list."""
         rules = await self._store.list_all()
         # Not atomic: concurrent creates may pass the cap by a few (see
@@ -62,7 +69,7 @@ class PolicyService:
         await self._store.insert(record)
         return _view(record)
 
-    async def update(self, rule_id: str, change: RuleChange) -> RuleView:
+    async def update(self, rule_id: str, change: RuleReplace) -> RuleView:
         updated = await self._store.update(
             rule_id,
             {

@@ -44,7 +44,8 @@ async def test_the_owner_creates_lists_updates_reorders_and_deletes_rules():
         second = await client.post(RULES, json={"answer": "allow", "enabled": False})
         a, b = first.json()["rule_id"], second.json()["rule_id"]
         updated = await client.put(
-            f"{RULES}/{a}", json={"agent_id": "reviewer", "answer": "allow"}
+            f"{RULES}/{a}",
+            json={"agent_id": "reviewer", "answer": "allow", "enabled": True},
         )
         reordered = await client.put(f"{RULES}/order", json={"rule_ids": [b, a]})
         listing = await client.get(RULES)
@@ -74,7 +75,10 @@ async def test_the_owner_creates_lists_updates_reorders_and_deletes_rules():
 async def test_unknown_rules_are_refused():
     app = make_app()
     async with client_for(app) as client:
-        updated = await client.put(f"{RULES}/rule_nope", json={"answer": "deny"})
+        updated = await client.put(
+            f"{RULES}/rule_nope",
+            json={"agent_id": None, "answer": "deny", "enabled": True},
+        )
         deleted = await client.delete(f"{RULES}/rule_nope")
 
     for response in (updated, deleted):
@@ -177,3 +181,24 @@ async def test_an_order_may_name_more_rules_than_create_allows():
     # exist.
     assert response.status_code == 409
     assert response.json()["detail"]["code"] == "rule_order_mismatch"
+
+
+@pytest.mark.parametrize("missing", ["agent_id", "answer", "enabled"])
+async def test_a_replace_that_leaves_a_field_out_is_refused(missing):
+    app = make_app()
+    async with client_for(app) as client:
+        created = await client.post(
+            RULES, json={"agent_id": "coder", "answer": "deny", "enabled": False}
+        )
+        rule_id = created.json()["rule_id"]
+        body = {"agent_id": "coder", "answer": "allow", "enabled": False}
+        del body[missing]
+        response = await client.put(f"{RULES}/{rule_id}", json=body)
+        listing = await client.get(RULES)
+
+    assert response.status_code == 422
+    assert response.json()["detail"]["fields"] == [missing]
+    # The stored rule is unchanged: still off, still for one agent.
+    assert listing.json()["rules"][0]["enabled"] is False
+    assert listing.json()["rules"][0]["agent_id"] == "coder"
+    assert listing.json()["rules"][0]["answer"] == "deny"

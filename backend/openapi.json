@@ -4738,7 +4738,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/RuleChange"
+                "$ref": "#/components/schemas/RuleCreate"
               }
             }
           },
@@ -4840,7 +4840,7 @@
           "rules"
         ],
         "summary": "Update Rule",
-        "description": "Replace a rule's condition, answer and state. Its place stays.",
+        "description": "Replace a rule's condition, answer and state; each is required. Its\nplace stays.",
         "operationId": "update_rule_api_v1_rules__rule_id__put",
         "parameters": [
           {
@@ -4858,7 +4858,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/RuleChange"
+                "$ref": "#/components/schemas/RuleReplace"
               }
             }
           }
@@ -10903,43 +10903,6 @@
         "title": "SourceWithToken",
         "description": "A source with its new token, returned once by create and rotate."
       },
-      "RuleChange": {
-        "properties": {
-          "agent_id": {
-            "anyOf": [
-              {
-                "type": "string",
-                "maxLength": 256,
-                "minLength": 1
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Agent Id"
-          },
-          "answer": {
-            "type": "string",
-            "enum": [
-              "allow",
-              "deny"
-            ],
-            "title": "Answer"
-          },
-          "enabled": {
-            "type": "boolean",
-            "title": "Enabled",
-            "default": true
-          }
-        },
-        "additionalProperties": false,
-        "type": "object",
-        "required": [
-          "answer"
-        ],
-        "title": "RuleChange",
-        "description": "A new rule, or the whole of an existing one: its condition, answer and\nstate. ``agent_id`` null or left out means any agent."
-      },
       "RuleList": {
         "properties": {
           "rules": {
@@ -11032,6 +10995,81 @@
         ],
         "title": "RuleView",
         "description": "A rule as the owner sees it. Its place is its place in the list."
+      },
+      "RuleCreate": {
+        "properties": {
+          "agent_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 256,
+                "minLength": 1
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Agent Id"
+          },
+          "answer": {
+            "type": "string",
+            "enum": [
+              "allow",
+              "deny"
+            ],
+            "title": "Answer"
+          },
+          "enabled": {
+            "type": "boolean",
+            "title": "Enabled",
+            "default": true
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "answer"
+        ],
+        "title": "RuleCreate",
+        "description": "A new rule: its condition, answer and state. ``agent_id`` null or left\nout means any agent; a new rule is on unless ``enabled`` says otherwise."
+      },
+      "RuleReplace": {
+        "properties": {
+          "agent_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 256,
+                "minLength": 1
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Agent Id"
+          },
+          "answer": {
+            "type": "string",
+            "enum": [
+              "allow",
+              "deny"
+            ],
+            "title": "Answer"
+          },
+          "enabled": {
+            "type": "boolean",
+            "title": "Enabled"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "agent_id",
+          "answer",
+          "enabled"
+        ],
+        "title": "RuleReplace",
+        "description": "The whole of an existing rule. Every field is required, so a field left\nout never falls back to a default: ``agent_id`` is null for any agent."
       }
     },
     "securitySchemes": {

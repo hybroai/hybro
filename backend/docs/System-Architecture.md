@@ -1098,7 +1098,7 @@ binds the service.
 |---|---|
 | `GET /rules` | The check rules in order: `rule_id`, `kind`, `agent_id`, `answer`, `enabled`, `created_at`, `updated_at`. |
 | `POST /rules` | Adds a rule at the end (`agent_id`, `answer`, `enabled`, default on); 201. 409 `rule_limit_reached` at 100 rules. |
-| `PUT /rules/{rule_id}` | Replaces its `agent_id`, `answer` and `enabled`; its place stays. |
+| `PUT /rules/{rule_id}` | Replaces its `agent_id` (null for any agent), `answer` and `enabled`, all three required so none falls back to a default; its place stays. |
 | `DELETE /rules/{rule_id}` | Deletes it; 204. |
 | `PUT /rules/order` | Sets the order (`rule_ids`). 409 `rule_order_mismatch` unless it names every rule exactly once. |
 
