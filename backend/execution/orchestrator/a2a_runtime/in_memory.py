@@ -56,6 +56,10 @@ class RunCheckpointReader:
         run = await self.run_store.load(run_id)
         return run is not None and run.status in TERMINAL_RUN_STATUSES
 
+    async def is_run_running(self, run_id: str) -> bool:
+        run = await self.run_store.load(run_id)
+        return run is not None and run.status == "running"
+
     async def is_outcome_checkpointed(
         self, run_id: str, invocation_id: str, outcome_digest: str
     ) -> bool:

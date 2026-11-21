@@ -59,6 +59,8 @@ ObservationNormalizer = Callable[
 class InvocationOutcomeCheckpointReader(Protocol):
     async def is_run_terminal(self, run_id: str) -> bool: ...
 
+    async def is_run_running(self, run_id: str) -> bool: ...
+
     async def is_outcome_checkpointed(
         self,
         run_id: str,
@@ -413,10 +415,8 @@ class A2AObservationProcessor:
                             _to_tool_observation(record, claimed.observation),
                         )
                     except KernelConflict:
-                        return await self.defer_poison(
-                            claimed.observation_id,
-                            error=_kernel_conflict_marker(),
-                            now=datetime.now(UTC),
+                        return await self._defer_kernel_conflict(
+                            record.run_id, claimed.observation_id
                         )
                     checkpointed = await self.outcome_reader.is_outcome_checkpointed(
                         record.run_id,
@@ -727,10 +727,8 @@ class A2AObservationProcessor:
             try:
                 await self.sink.deliver(record.run_id, tool_observation)
             except KernelConflict:
-                return await self.defer_poison(
-                    claimed.observation_id,
-                    error=_kernel_conflict_marker(),
-                    now=datetime.now(UTC),
+                return await self._defer_kernel_conflict(
+                    record.run_id, claimed.observation_id
                 )
             claimed = await self._renew_and_verify_epoch(claimed, record)
             if claimed is None:
@@ -816,6 +814,36 @@ class A2AObservationProcessor:
             state="quarantined" if quarantine else "pending",
             next_attempt_at=None if quarantine else now + timedelta(seconds=backoff),
             last_error=error[:500],
+        )
+
+    async def _defer_kernel_conflict(self, run_id: str, observation_id: str) -> str:
+        """Defer an observation the kernel refused.
+
+        A Run that is running, not suspended, refuses every observation until
+        its pass ends; an approved held call runs inside such a pass. That
+        refusal is not a fault of the observation, so it waits without
+        counting an attempt. Any other refusal counts and may quarantine.
+        """
+        now = datetime.now(UTC)
+        if not await self.outcome_reader.is_run_running(run_id):
+            return await self.defer_poison(
+                observation_id, error=_kernel_conflict_marker(), now=now
+            )
+        current = await self.inbox.load(observation_id)
+        if current is None:
+            return "error"
+        if current.state != "claimed" or current.claim_owner != self.worker_id:
+            return "conflict"
+        # The claim counted this attempt; give it back.
+        uncounted = current.model_copy(
+            update={"attempt_count": max(current.attempt_count - 1, 0)}
+        )
+        return await self._release_inbox(
+            uncounted,
+            state="pending",
+            next_attempt_at=now
+            + timedelta(seconds=self.policy.retry_backoff_initial_seconds),
+            last_error=_kernel_conflict_marker(),
         )
 
     async def _activate_interaction(

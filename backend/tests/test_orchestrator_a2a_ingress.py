@@ -87,6 +87,9 @@ class Outcomes:
     async def is_run_terminal(self, *args):
         return False
 
+    async def is_run_running(self, *args):
+        return False
+
     async def has_processed_observation(self, *args):
         return True
 
@@ -609,6 +612,25 @@ async def test_run_checkpoint_reader_proves_only_absorbing_run_statuses(
     assert await RunCheckpointReader(store).is_run_terminal(run.run_id) is expected
 
 
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "status,expected",
+    [
+        ("running", True),
+        ("waiting_external", False),
+        ("awaiting_user", False),
+        ("completed", False),
+    ],
+)
+async def test_run_checkpoint_reader_proves_only_a_running_run(status, expected):
+    store = InMemoryOrchestratorRunStore()
+    run = make_run().model_copy(update={"status": status})
+    assert (await store.create(run, command_id="create")).outcome == "accepted"
+
+    assert await RunCheckpointReader(store).is_run_running(run.run_id) is expected
+    assert await RunCheckpointReader(store).is_run_running("missing") is False
+
+
 async def test_processor_applies_terminal_once_and_uses_run_addressed_sink():
     processor, inbox, ledger, sink, _, _ = await setup_processor(observation())
     assert await processor.process("observation-1") == "accepted"
@@ -865,6 +887,9 @@ class _LateSuspensionOutcomes:
         self.checkpointed = False
 
     async def is_run_terminal(self, *args):
+        return False
+
+    async def is_run_running(self, *args):
         return False
 
     async def is_outcome_checkpointed(self, *args):
@@ -1453,3 +1478,79 @@ def test_resumed_call_observation_carries_the_users_answers():
     assert [
         (item.question_id, item.answer) for item in resumed.interaction_answers.answers
     ] == [("agent_question", "Morgan Reyes, CEO")]
+
+
+class RunningRunOutcomes(Outcomes):
+    """The Run is running while an approved held call executes (rule ask)."""
+
+    def __init__(self):
+        self.running = True
+
+    async def is_run_running(self, *args):
+        return self.running
+
+
+class RefusedWhileRunningSink(Sink):
+    def __init__(self, outcomes: RunningRunOutcomes):
+        super().__init__()
+        self.outcomes = outcomes
+        self.attempts = 0
+
+    async def deliver(self, run_id, observation):
+        self.attempts += 1
+        if self.outcomes.running:
+            # The kernel refuses an observation for a Run that is not
+            # suspended.
+            raise KernelConflict("tool observations require a suspended Run")
+        await super().deliver(run_id, observation)
+
+
+async def test_a_result_refused_because_the_run_is_running_is_deferred_uncounted():
+    outcomes = RunningRunOutcomes()
+    sink = RefusedWhileRunningSink(outcomes)
+    policy = A2ARuntimePolicy(
+        max_transport_attempts=1,
+        retry_backoff_initial_seconds=1,
+        retry_backoff_max_seconds=2,
+    )
+    processor, inbox, _, _, _, _ = await setup_processor(
+        observation(), sink=sink, policy=policy, outcomes=outcomes
+    )
+    recovery = A2AInboxRecoveryService(processor=processor, inbox=inbox, policy=policy)
+
+    assert await recovery.recover_due(due_at=NOW) == 0
+    deferred = await inbox.load("observation-1")
+    # One attempt is the whole budget here, yet the row is not quarantined.
+    assert deferred.state == "pending"
+    assert deferred.attempt_count == 0
+    assert deferred.next_attempt_at is not None
+
+    # The pass ends and the Run suspends.
+    outcomes.running = False
+    await asyncio.sleep(
+        max((deferred.next_attempt_at - datetime.now(UTC)).total_seconds(), 0) + 0.01
+    )
+    assert await recovery.recover_due(due_at=datetime.now(UTC)) == 1
+    completed = await inbox.load("observation-1")
+    assert completed.state == "completed"
+    assert sink.attempts == 2
+    assert len(sink.values) == 1
+
+
+async def test_a_real_conflict_on_a_suspended_run_still_counts_and_quarantines():
+    outcomes = RunningRunOutcomes()
+    outcomes.running = False
+    sink = ConflictSink(failures=99)
+    policy = A2ARuntimePolicy(
+        max_transport_attempts=1,
+        retry_backoff_initial_seconds=1,
+        retry_backoff_max_seconds=2,
+    )
+    processor, inbox, _, _, _, _ = await setup_processor(
+        observation(), sink=sink, policy=policy, outcomes=outcomes
+    )
+    recovery = A2AInboxRecoveryService(processor=processor, inbox=inbox, policy=policy)
+
+    await recovery.recover_due(due_at=NOW)
+
+    assert (await inbox.load("observation-1")).state == "quarantined"

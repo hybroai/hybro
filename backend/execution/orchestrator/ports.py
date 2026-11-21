@@ -93,8 +93,24 @@ class AgentCallDenied(Exception):
         self.rule_id = rule_id
 
 
+class AgentCallNeedsAnswer(Exception):
+    """``accept`` holds a new Agent call because a check rule answers "ask".
+
+    Nothing is recorded for the call. It carries the id of the rule that
+    decided and no other text.
+    """
+
+    def __init__(self, rule_id: str | None) -> None:
+        super().__init__("agent call needs the owner's answer")
+        self.rule_id = rule_id
+
+
 class ToolRuntime(Protocol):
-    async def accept(self, invocation: ToolInvocation) -> ToolAcceptance: ...
+    async def accept(
+        self, invocation: ToolInvocation, *, rule_approved: bool = False
+    ) -> ToolAcceptance:
+        """Accept a new call. ``rule_approved`` skips only the rule check."""
+        ...
 
     async def execute(
         self,

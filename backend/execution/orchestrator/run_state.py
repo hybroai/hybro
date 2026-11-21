@@ -16,6 +16,7 @@ from .models import (
     ArtifactRefPart,
     AssistantMessage,
     DataPart,
+    HeldCallAnswer,
     OrchestratorRunState,
     TextPart,
     ToolBatchEntry,
@@ -68,6 +69,15 @@ MAX_CONSECUTIVE_MODEL_JOINS = 4
 # rule text and no exception detail reaches the model.
 AGENT_CALL_DENIED = "agent_call_denied"
 _AGENT_CALL_DENIED_TEXT = "A check rule set by the owner denies this agent call."
+# The owner refused a call a check rule held for an answer. Fixed text, as for
+# a deny: neither the rule nor the owner's answer reaches the model.
+AGENT_CALL_REFUSED = "agent_call_refused"
+_AGENT_CALL_REFUSED_TEXT = "The owner refused this agent call."
+# The only two answers to a check rule's question. Exactly the first approves.
+RULE_ASK_APPROVE = "Approve"
+RULE_ASK_REJECT = "Reject"
+# The longest call task text a check rule's question shows the owner.
+RULE_ASK_TASK_TEXT_LIMIT = 2_000
 # Bounded in-kernel re-dispatch of a model-reply join after a recoverable
 # transport suspension. Exhausting the budget terminalizes the join with a
 # diagnostic failure instead of stalling the Run in waiting_external.
@@ -176,6 +186,31 @@ def supervisor_answer_observation(
             content=[TextPart(text=answers)],
             artifact_refs=[],
         ),
+        observed_at=observed_at,
+    )
+
+
+def held_call_answer_observation(
+    run_id: str,
+    call_id: str,
+    answer: str,
+    observed_at: datetime,
+) -> ToolObservation:
+    """Build the observation that answers a call a check rule held.
+
+    It fails closed: only exactly ``Approve`` approves. The identity is a pure
+    function of the Run, the call and the decision, so a replayed answer is
+    recognized as the one already applied.
+    """
+    approved = answer == RULE_ASK_APPROVE
+    decision = "approve" if approved else "refuse"
+    observation_id = sha256(
+        f"{run_id}:rule-answer:{call_id}:{decision}".encode()
+    ).hexdigest()
+    return ToolObservation(
+        observation_id=observation_id,
+        invocation_id=call_id,
+        outcome=HeldCallAnswer(invocation_id=call_id, approved=approved),
         observed_at=observed_at,
     )
 
@@ -793,6 +828,97 @@ def _request_user_input_choices(arguments: dict[str, object]) -> list[str]:
         for choice in (arguments.get("choices") or [])
         if str(choice).strip()
     ]
+
+
+def _passthrough_refused(run: OrchestratorRunState) -> bool:
+    """Whether the owner refused the passthrough Run's one held call."""
+    return any(
+        entry.rule_hold is not None and entry.rule_hold.state == "refused"
+        for batch in run.tool_batches
+        for entry in batch.entries
+    )
+
+
+def _answered_question_count(batch: ToolCallBatch) -> int:
+    """Owner Questions of a batch already answered.
+
+    Held calls the owner approved or refused, and ask_user or forwarded
+    Agent questions that ended. Each answer can lead to another suspension
+    of the same batch, which needs its own checkpoint command id.
+    """
+    return sum(
+        1
+        for entry in batch.entries
+        if (entry.rule_hold is not None and entry.rule_hold.state != "asked")
+        or (
+            entry.state == "terminal"
+            and entry.tool_name
+            in {REQUEST_USER_INPUT_TOOL_NAME, SURFACE_AGENT_QUESTIONS_TOOL_NAME}
+        )
+    )
+
+
+def _rule_hold_asked(batch: ToolCallBatch, *, other_than: str) -> bool:
+    """Whether another call of the batch waits on the owner's rule answer."""
+    return any(
+        entry.call_id != other_than
+        and entry.rule_hold is not None
+        and entry.rule_hold.state == "asked"
+        for entry in batch.entries
+    )
+
+
+def _has_waiting_call(batches: list[ToolCallBatch]) -> bool:
+    """Whether a call waits, unasked, for an earlier owner Question to end.
+
+    A pending ``request_user_input`` or ``surface_agent_questions`` call
+    counts too: it waits the same way while a held call is asked.
+    """
+    return any(
+        entry.state == "pending"
+        and (
+            entry.rule_deferred
+            or entry.tool_name
+            in {REQUEST_USER_INPUT_TOOL_NAME, SURFACE_AGENT_QUESTIONS_TOOL_NAME}
+        )
+        for batch in batches
+        if not batch.results_flushed
+        for entry in batch.entries
+    )
+
+
+def _waiting_call_runs_next(batches: list[ToolCallBatch]) -> bool:
+    """Whether the batch the run loop takes next holds a waiting call.
+
+    The loop runs the first unflushed batch that is not parked. A waiting call
+    in a later batch is reached only once the earlier batch ends, so until
+    then the Run keeps waiting on that batch's Agents.
+    """
+    next_batch = next(
+        (
+            batch
+            for batch in batches
+            if not batch.results_flushed and not _batch_is_parked(batch)
+        ),
+        None,
+    )
+    return next_batch is not None and _has_waiting_call([next_batch])
+
+
+def _owner_question_open(batch: ToolCallBatch, *, other_than: str) -> bool:
+    """Whether another call of the batch has an owner Question open.
+
+    The Room shows one open Question per turn, so a call a check rule asks
+    about waits unasked while a held call, an ask_user call or a forwarded
+    Agent question of the same batch waits on the owner.
+    """
+    return _rule_hold_asked(batch, other_than=other_than) or any(
+        entry.call_id != other_than
+        and entry.state == "input_required"
+        and entry.tool_name
+        in {REQUEST_USER_INPUT_TOOL_NAME, SURFACE_AGENT_QUESTIONS_TOOL_NAME}
+        for entry in batch.entries
+    )
 
 
 def _passthrough_denied(run: OrchestratorRunState) -> bool:

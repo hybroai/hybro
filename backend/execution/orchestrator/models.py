@@ -253,13 +253,36 @@ class ToolSuspension(ContractModel):
 ToolExecutionOutcome = ToolResult | ToolSuspension
 
 
+class HeldCallAnswer(ContractModel):
+    """The owner's answer to a check rule's question about one held call.
+
+    Only the container's answer port builds it, so an Agent cannot produce
+    one: it is an observation outcome, never an ``execute`` result.
+    """
+
+    kind: Literal["held_call_answer"] = "held_call_answer"
+    invocation_id: str
+    approved: bool
+
+
 class ToolObservation(ContractModel):
     observation_id: str
     invocation_id: str
-    outcome: ToolExecutionOutcome
+    outcome: ToolExecutionOutcome | HeldCallAnswer
     observed_at: datetime
     # The user's answers to the interaction this call was last resumed with.
     interaction_answers: ToolInteractionAnswers | None = None
+
+
+class RuleHold(ContractModel):
+    """A check rule answered "ask": the call waits for the owner's answer.
+
+    ``asked`` until the owner answers; ``approved`` sends the call on to
+    acceptance without the rule check, ``refused`` ends it unsent.
+    """
+
+    rule_id: str | None = None
+    state: Literal["asked", "approved", "refused"]
 
 
 ToolBatchEntryState = Literal[
@@ -309,6 +332,15 @@ class ToolBatchEntry(ContractModel):
     # Agent's own error code is copied into accepted, joined and surface
     # entries' results.
     denied_by_rule: bool = False
+    # A check rule asked the owner about this call before acceptance. Every
+    # decision about a held call reads this flag, never an error code.
+    rule_hold: RuleHold | None = None
+    # This call waits ``pending`` and unasked because another owner Question
+    # of the batch was open: a check rule asked about it, or it is a valid
+    # ``request_user_input`` call. It is a new call: the next pass sends it to
+    # the rule again, never as a reply to an Agent, and an ask_user call is
+    # not refused for an Agent question presented while it waited.
+    rule_deferred: bool = False
     # Parent call a ``surface_agent_questions`` entry forwards to the user.
     # Closed by ``observe_tool`` when that parent resolves, because the user's
     # answer flows through the parent continuation, not the surface entry.

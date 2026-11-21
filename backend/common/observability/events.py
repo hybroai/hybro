@@ -822,6 +822,11 @@ SUPERVISOR_ASK_USER_CREATION_FAILED = define(
     ERROR,
     required={"run_id", "conversation_id", "call_id", "interaction_id"},
 )
+RULE_ASK_CREATION_FAILED = define(
+    "rule_ask_creation_failed",
+    ERROR,
+    required={"run_id", "conversation_id", "call_id", "interaction_id"},
+)
 INTERRUPTED_RUN_SETTLEMENT_FAILED = define(
     "interrupted_run_settlement_failed", WARNING, required={"run_id"}
 )

@@ -142,7 +142,9 @@ class A2AAgentToolRuntime:
         self.push_registrar = push_registrar
         self.call_check = call_check
 
-    async def accept(self, invocation: ToolInvocation) -> ToolAcceptance:
+    async def accept(
+        self, invocation: ToolInvocation, *, rule_approved: bool = False
+    ) -> ToolAcceptance:
         existing = await self.ledger.load(invocation.run_id, invocation.invocation_id)
         if existing is not None:
             if not _invocation_matches_record(invocation, existing):
