@@ -150,9 +150,9 @@ with **Sign in again** for the last.
 **Run on a server**
 
 `hybro` listens on `127.0.0.1` by default. `--listen <address>` serves the app on
-another address, for example `hybro start -d --listen 0.0.0.0 --port 443`. The
-Panel needs the owner's sign-in on every listener, and a non-loopback listener
-still needs the explicit `--insecure-no-auth`, for a trusted network only. While
+another address, for example `hybro start -d --listen 0.0.0.0 --port 443`, with
+no other flag. The Panel needs the owner's sign-in on every listener, and a
+program needs a source token unless the owner turned that off. While
 the source token requirement is off on such a listener, `hybro` and
 `hybro status` print a warning. MCP is served on every listener, under the same
 address rules as the API. Without HTTPS the sign-in cookie and password cross the
@@ -161,13 +161,14 @@ over plain HTTP from another machine. Reached by a name (a domain, a LAN name
 such as `nas.local`, or a MagicDNS name), Hybro needs that address in `frontend.server_url` in `config.json` (for example
 `{"frontend": {"server_url": "https://hybro.example.com"}}`); without it every
 request on that name is refused with 421 `unknown_host`, which keeps other
-websites out through DNS rebinding. An IP address needs no setting. A reverse
-proxy in front of Hybro must keep the `Host` header (nginx replaces it by
-default): a `Host` replaced with a name (such as `hybro:3100`) is refused with
-421 on every request (`unknown_host` on a public listener; on a loopback
-listener Caddy answers first, with no body), and one replaced with an IP or
-loopback address fails every change in the Panel with 403
-`cross_site_request`.
+websites out through DNS rebinding. An IP address needs no setting. For HTTPS,
+put a reverse proxy in front and set `backend.proxy_hops` to the number of
+proxies, so the sign-in cookie is marked secure, and keep the default
+`127.0.0.1` binding with the proxy on the same machine: with a count set,
+anything that reaches Hybro's port directly can forge the forwarded headers.
+The proxy keeps the `Host` header (nginx replaces it by default). The
+[reverse proxy guide](docs/reverse-proxy.md) has the settings and an nginx and
+a Caddy example.
 
 ### 3. Open the app
 
@@ -259,8 +260,8 @@ approval an agent raises.
 The `localhost` URL is for clients on the machine running Hybro; loopback in a
 client on another machine refers to that machine. An MCP client on another
 machine connects with a source token to the address it reaches Hybro by, for
-example `http://nas.local:3000/mcp`, once Hybro listens on that address (for now
-with `--insecure-no-auth`; see **Run on a server** above). MCP passes the
+example `http://nas.local:3000/mcp`, once Hybro listens on that address (see
+**Run on a server** above). MCP passes the
 client's token on to the Source API, which checks it, together with the address
 the client used, so a name Hybro does not answer to is refused with
 `unknown_host`, as on the API. Keep **Require a source token** on for a listener
@@ -451,12 +452,16 @@ changes these for every install:
   working; a Clerk token opens nothing. The Clerk settings are still accepted
   and ignored; see
   [docs/configuration.md](docs/configuration.md#deprecated-settings).
-- A configuration with `backend.auth_mode` set to `clerk` and a
-  `frontend.server_url` no longer opens a public listener without
-  `--insecure-no-auth`; such a start fails until the flag is passed.
-- A reverse proxy in front of Hybro must keep the `Host` header, or requests
-  are refused: 421 `unknown_host` when it sends another name, 403
-  `cross_site_request` on changes when it sends an IP address.
+- A public listener (`--listen`) needs no flag. `--insecure-no-auth` is
+  deprecated: it prints a notice and changes nothing.
+- Behind a reverse proxy, set `backend.proxy_hops` so the sign-in cookie is
+  marked secure and the sign-in delay counts the browser's address. The proxy
+  keeps the `Host` header, or, with `backend.proxy_hops` set, sends an IP
+  address as `Host` and the browser's host in `X-Forwarded-Host`; otherwise
+  requests are refused: 421
+  `unknown_host` when it sends another name, 403 `cross_site_request` on
+  changes when it sends an IP address. See
+  [the reverse proxy guide](docs/reverse-proxy.md).
 - An install reached by a name (a domain, a LAN or a MagicDNS name) must set
   `frontend.server_url` to that address, or every request on it is refused with 421 `unknown_host`.
   Loopback names and IP addresses need no setting.

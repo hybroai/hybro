@@ -40,10 +40,17 @@ def public(*, insecure: bool = False) -> entry.Listener:
     return entry.Listener(mode="public", public_port=443, insecure_no_auth=insecure)
 
 
-def build(listener: entry.Listener, *, frontend=None, embedded_mongo: bool = True):
+def build(
+    listener: entry.Listener,
+    *,
+    frontend=None,
+    embedded_mongo: bool = True,
+    proxy_hops: int = 0,
+):
     return entry.projections(
         listener=listener,
         api_prefix="/api/v1",
+        proxy_hops=proxy_hops,
         frontend=frontend or {},
         image_size="1024x1024",
         secrets=SECRETS,
@@ -85,22 +92,51 @@ def test_invalid_transport_variables_stop_the_container(environment):
         entry.read_listener(environment)
 
 
-def test_loopback_listener_needs_no_flag():
-    entry.check_listener(loopback())
+def test_a_public_listener_starts_without_a_flag(boot, monkeypatch, capsys):
+    monkeypatch.setenv("HYBRO_LISTEN", "public")
+    monkeypatch.setenv("HYBRO_PUBLIC_PORT", "8443")
 
+    entry.user_phase()
 
-def test_a_public_listener_needs_the_flag_whatever_the_auth_mode_says():
-    # Clerk sign-in is gone, so a Clerk config opens no public listener.
-    with pytest.raises(entry.EntrypointError, match="--insecure-no-auth") as raised:
-        entry.check_listener(public())
-    assert "clerk" not in str(raised.value).lower()
-    assert "auth_mode" not in str(raised.value)
-
-
-def test_insecure_public_listener_starts_with_a_warning(capsys):
-    entry.check_listener(public(insecure=True))
+    record = json.loads((entry.RUN_DIR / "runtime.json").read_text())
+    assert record["listen"] == "public"
+    assert record["insecure_no_auth"] is False
     err = capsys.readouterr().err
-    assert "source token" in err
+    assert "WARNING" not in err
+    assert "insecure-no-auth" not in err
+
+
+def test_the_deprecated_flag_changes_nothing_and_stays_on_record(boot, monkeypatch):
+    monkeypatch.setenv("HYBRO_LISTEN", "public")
+    monkeypatch.setenv("HYBRO_INSECURE_NO_AUTH", "1")
+    entry.user_phase()
+    with_flag = (entry.RUN_DIR / "Caddyfile").read_text()
+    record = json.loads((entry.RUN_DIR / "runtime.json").read_text())
+
+    monkeypatch.delenv("HYBRO_INSECURE_NO_AUTH")
+    entry.user_phase()
+
+    assert record["insecure_no_auth"] is True
+    assert (entry.RUN_DIR / "Caddyfile").read_text() == with_flag
+
+
+def test_the_public_listener_line_names_what_guards_it(boot, monkeypatch, capsys):
+    monkeypatch.setenv("HYBRO_LISTEN", "public")
+
+    entry.user_phase()
+
+    lines = [
+        line
+        for line in capsys.readouterr().err.splitlines()
+        if "listen" in line.lower()
+    ]
+    assert len(lines) == 1
+    # A routine line: the backend knows whether a source token is required
+    # and warns itself; the entrypoint does not read the database.
+    assert lines[0].startswith("entrypoint | ")
+    assert "sign-in" in lines[0]
+    assert "Access, Sources" in lines[0]
+    assert "without a source token" not in lines[0]
 
 
 # ---- Projections ----
@@ -1556,3 +1592,253 @@ def test_the_loopback_host_check_still_comes_first():
     text = entry.caddyfile(listener=loopback(), api_prefix="/api/v1")
 
     assert text.index("handle @foreign") < text.index("handle @machine")
+
+
+# ---- Behind a reverse proxy (backend.proxy_hops) ----
+
+
+def _backend_block(text: str) -> str:
+    block = text[text.index("handle @backend {") :]
+    return block[: block.index("\n\t}\n")]
+
+
+def _client_pattern(text: str):
+    import re
+
+    line = next(
+        line.strip()
+        for line in _backend_block(text).splitlines()
+        if "header_up X-Forwarded-For" in line
+    )
+    # header_up X-Forwarded-For "<pattern>" "$1"
+    pattern = line.split('"')[1]
+    assert line.endswith('"$1"')
+    return re.compile(pattern)
+
+
+@pytest.mark.parametrize("listener", [loopback, public])
+def test_without_a_proxy_caddy_trusts_no_forwarded_header(listener):
+    # Caddy then replaces a client's X-Forwarded-For, -Proto and -Host.
+    text = entry.caddyfile(listener=listener(), api_prefix="/api/v1", proxy_hops=0)
+
+    assert "trusted_proxies" not in text
+    assert "header_up X-Forwarded-For" not in text
+
+
+@pytest.mark.parametrize("hops", [1, 3])
+def test_with_a_proxy_caddy_takes_the_forwarded_headers_from_any_peer(hops):
+    text = entry.caddyfile(listener=public(), api_prefix="/api/v1", proxy_hops=hops)
+    options = text[: text.index("\n}\n") + 3]
+
+    assert "\tservers {\n\t\ttrusted_proxies static 0.0.0.0/0 ::/0\n\t}" in options
+    # No braces: Caddy would read them as a placeholder.
+    assert "{" not in _client_pattern(text).pattern
+    assert _client_pattern(text).pattern.count(r"\s*,\s*[^,\s]+") == hops
+
+
+@pytest.mark.parametrize(
+    ("hops", "joined", "client"),
+    [
+        # Caddy joins the incoming lines and appends its peer, the nearest
+        # proxy; the client is the entry with ``hops`` entries after it.
+        (1, "203.0.113.7, 172.17.0.1", "203.0.113.7"),
+        (1, "6.6.6.6, 203.0.113.7, 172.17.0.1", "203.0.113.7"),
+        (1, "6.6.6.6,203.0.113.7 , 172.17.0.1", "203.0.113.7"),
+        (2, "6.6.6.6, 203.0.113.7, 10.0.0.2, 172.17.0.1", "203.0.113.7"),
+        (1, "2001:db8::7, 172.17.0.1", "2001:db8::7"),
+    ],
+)
+def test_the_client_address_is_counted_from_the_right(hops, joined, client):
+    text = entry.caddyfile(listener=public(), api_prefix="/api/v1", proxy_hops=hops)
+
+    assert _client_pattern(text).sub(r"\1", joined) == client
+
+
+@pytest.mark.parametrize(
+    ("hops", "joined"), [(1, "172.17.0.1"), (2, "1.2.3.4, 10.0.0.2")]
+)
+def test_a_shorter_chain_than_the_count_keeps_caddys_value(hops, joined):
+    # Unchanged, uvicorn takes the last entry: the nearest peer, not a value
+    # the client wrote.
+    text = entry.caddyfile(listener=public(), api_prefix="/api/v1", proxy_hops=hops)
+
+    assert _client_pattern(text).search(joined) is None
+
+
+def test_the_plan_reads_the_hop_count_from_config_json(started):
+    from common.config.runtime_store import RuntimeConfigStore
+
+    write_runtime_config({"backend": {"proxy_hops": 2}})
+    plan = entry.plan_runtime(RuntimeConfigStore(entry.RUNTIME_DIR), public())
+
+    assert "trusted_proxies static 0.0.0.0/0 ::/0" in plan.caddyfile
+    assert _client_pattern(plan.caddyfile).pattern.count(r"\s*,\s*[^,\s]+") == 2
+
+
+@pytest.mark.parametrize(("hops", "restartable"), [(0, True), (1, False)])
+def test_a_changed_hop_count_needs_a_full_restart(started, hops, restartable):
+    from common.config.runtime_store import RuntimeConfigStore
+
+    write_runtime_config({"backend": {"proxy_hops": hops}})
+    plan = entry.plan_runtime(RuntimeConfigStore(entry.RUNTIME_DIR), loopback(3000))
+
+    if restartable:
+        entry._check_restartable(plan)
+    else:
+        with pytest.raises(entry.EntrypointError, match="full restart"):
+            entry._check_restartable(plan)
+
+
+# ---- A loopback listener behind a proxy on this machine ----
+
+DOMAIN_URL = {"server_url": "https://hybro.example.com"}
+
+
+def _origins(programs) -> list[str]:
+    return programs["backend"].env["HYBRO_FRONTEND_ORIGINS"].split(",")
+
+
+def _frontend_server_url(programs) -> str:
+    return json.loads(programs["frontend"].env["HYBRO_FRONTEND_CONFIG"])["server_url"]
+
+
+def test_loopback_behind_a_proxy_also_answers_to_the_configured_name():
+    programs = build(loopback(3000), frontend=DOMAIN_URL, proxy_hops=1)
+
+    assert _origins(programs) == [
+        "http://localhost:3000",
+        "http://127.0.0.1:3000",
+        "https://hybro.example.com",
+    ]
+    assert _frontend_server_url(programs) == "https://hybro.example.com"
+    mcp = json.loads(programs["mcp"].env["HYBRO_MCP_CONFIG"])
+    assert mcp["proxied_host"] == "hybro.example.com"
+    text = entry.caddyfile(
+        listener=loopback(3000),
+        api_prefix="/api/v1",
+        proxy_hops=1,
+        server_url="https://hybro.example.com",
+    )
+    # That one name and no other.
+    assert "\t@foreign not host localhost 127.0.0.1 ::1 hybro.example.com\n" in text
+
+
+@pytest.mark.parametrize(
+    ("hops", "frontend"),
+    [(0, DOMAIN_URL), (1, {})],
+)
+def test_loopback_without_a_count_or_a_name_stays_as_it_was(hops, frontend):
+    programs = build(loopback(3000), frontend=frontend, proxy_hops=hops)
+
+    assert _origins(programs) == ["http://localhost:3000", "http://127.0.0.1:3000"]
+    assert _frontend_server_url(programs) == "http://localhost:3000"
+    assert "proxied_host" not in json.loads(programs["mcp"].env["HYBRO_MCP_CONFIG"])
+    text = entry.caddyfile(
+        listener=loopback(3000),
+        api_prefix="/api/v1",
+        proxy_hops=hops,
+        server_url=frontend.get("server_url"),
+    )
+    assert "\t@foreign not host localhost 127.0.0.1 ::1\n" in text
+
+
+def test_loopback_without_a_count_believes_no_forwarded_header():
+    # A local client's X-Forwarded-* headers are replaced, as before.
+    text = entry.caddyfile(
+        listener=loopback(),
+        api_prefix="/api/v1",
+        proxy_hops=0,
+        server_url="https://hybro.example.com",
+    )
+
+    assert "trusted_proxies" not in text
+    assert "header_up X-Forwarded-For" not in text
+
+
+def test_the_public_listener_ignores_the_loopback_name_rule():
+    text = entry.caddyfile(
+        listener=public(),
+        api_prefix="/api/v1",
+        proxy_hops=1,
+        server_url="https://hybro.example.com",
+    )
+
+    assert "@foreign" not in text
+
+
+@pytest.mark.parametrize(
+    "url",
+    ["https://hy{bro}.example.com", "https://hybro.example.com\nrespond 200"],
+)
+def test_a_name_caddy_cannot_hold_stops_the_start(url):
+    # The name is written into the Caddyfile, so it must be a plain host name.
+    with pytest.raises(entry.EntrypointError, match="frontend.server_url"):
+        entry.caddyfile(
+            listener=loopback(), api_prefix="/api/v1", proxy_hops=1, server_url=url
+        )
+
+
+def test_the_plan_admits_the_name_on_loopback_with_a_count(started):
+    from common.config.runtime_store import RuntimeConfigStore
+
+    write_runtime_config({"backend": {"proxy_hops": 1}, "frontend": dict(DOMAIN_URL)})
+    plan = entry.plan_runtime(RuntimeConfigStore(entry.RUNTIME_DIR), loopback(3000))
+
+    assert "::1 hybro.example.com\n" in plan.caddyfile
+    assert "https://hybro.example.com" in plan.programs["backend"].env[
+        "HYBRO_FRONTEND_ORIGINS"
+    ].split(",")
+
+
+# ---- The warning for a count on a public listener ----
+
+
+@pytest.mark.parametrize(
+    ("mode", "hops", "warned"),
+    [("public", 1, True), ("public", 0, False), ("loopback", 1, False)],
+)
+def test_a_count_on_a_public_listener_warns_once(
+    boot, monkeypatch, capsys, mode, hops, warned
+):
+    from common.config.loader import get_settings
+
+    monkeypatch.setenv("HYBRO_HOME", str(entry.RUNTIME_DIR))
+    monkeypatch.setenv("HYBRO_LISTEN", mode)
+    write_runtime_config({"backend": {"proxy_hops": hops}})
+
+    entry.user_phase()
+
+    warnings = [
+        line
+        for line in capsys.readouterr().err.splitlines()
+        if line.startswith("WARNING") and "proxy_hops" in line
+    ]
+    assert len(warnings) == (1 if warned else 0)
+    if warned:
+        assert "without going through the proxy" in warnings[0]
+    get_settings.cache_clear()
+
+
+@pytest.mark.parametrize(
+    ("url", "name"),
+    [
+        ("https://my_nas.lan:3000", "my_nas.lan"),
+        ("https://[fd00::5]:3000", "fd00::5"),
+        ("https://bücher.example", "xn--bcher-kva.example"),
+        ("https://HYBRO.Example.com", "hybro.example.com"),
+    ],
+)
+def test_the_admitted_name_is_the_form_browsers_send(url, name):
+    text = entry.caddyfile(
+        listener=loopback(), api_prefix="/api/v1", proxy_hops=1, server_url=url
+    )
+
+    assert f"\t@foreign not host localhost 127.0.0.1 ::1 {name}\n" in text
+
+
+def test_a_name_longer_than_dns_allows_is_refused():
+    # The MCP server refuses it too; stop here instead of at its every start.
+    url = "https://" + "a" * 250 + ".lan"
+
+    with pytest.raises(entry.EntrypointError, match="frontend.server_url"):
+        entry.caddy_host(url)

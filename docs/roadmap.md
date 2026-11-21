@@ -17,7 +17,7 @@ flowchart LR
 |---|---|---|---|
 | 0 | Make the direction visible | The design, this roadmap, contributor rules and a quick start. | Done |
 | 1 | Clean up and break down | Remove what is dead, and split `execution` without changing behaviour. | Done |
-| 2 | Source identity and remote access | Each source has a token and the owner has an account, so Hybro knows which source sent a step, and a source on another machine can reach the Source API. | Now |
+| 2 | Source identity and remote access | Each source has a token and the owner has an account, so Hybro knows which source sent a step, and a source on another machine can reach the Source API. | Done |
 | 3 | Owner check rules and the step view | The owner gates agent calls with rules, and sees each step of a session. | Next |
 | 4 | Move out | The model loop leaves the core and becomes the bundled orchestrator, a source. | Later |
 | 5 | Migrate to the target modules | The remaining modules and their stored collections take their target names, one at a time, with a data migration. | Later |
@@ -132,6 +132,9 @@ Items that belong to a later phase are listed in that phase.
 
 ## Phase 2: Source identity and remote access
 
+**Status.** Done. What it leaves for later is under "Carried forward" at the
+end of this phase.
+
 **Goal.** Hybro knows which source sent a step, a source on another machine can
 reach the Source API safely, and only the owner can open the Panel.
 
@@ -221,11 +224,13 @@ Nothing depends on an authentication mode or on how the instance was started.
 6. **Plain HTTP.** Hybro does not block it. The setup, sign-in and Connect
    pages warn when they are opened over plain HTTP from another machine, the
    session cookie is marked secure under HTTPS, and the documentation shows how
-   to put a reverse proxy in front. A setting in `config.json` gives the
-   number of reverse proxies in front of Hybro, default 0. With a count, Hybro
-   believes the forwarded scheme, host and client address from that many
-   proxies; the secure cookie, the warnings, the cross-site check and the
-   attempt limits depend on it behind a proxy.
+   to put a reverse proxy in front
+   ([behind a reverse proxy](reverse-proxy.md)). `backend.proxy_hops` in
+   `config.json` gives the number of reverse proxies in front of Hybro,
+   default 0. With a count, Hybro believes the forwarded scheme and host and
+   takes the client address that many proxies back; the secure cookie, the
+   cross-site check, the address check and the attempt limits depend on it
+   behind a proxy. A public listener needs no flag.
 7. **What this replaces.** Each of these is marked as deprecated in the release
    that ships the owner account and removed in a later one:
    - Clerk mode, with the five `clerk_*` frontend fields,
@@ -307,13 +312,38 @@ Nothing depends on an authentication mode or on how the instance was started.
   `/sign-up` is removed and `/setup` opens from the setup link, one gate in
   the portal layout replaces the per-page check, and the account dialog calls
   the `/auth` routes
-- `server_url` in the frontend public configuration: still open. Whether the
-  frontend needs it is decided when the owner account is built.
+- `server_url` in the frontend public configuration: decided, it stays. In
+  the image it names the address a public install answers to (the trusted
+  host rule), so an install reached by a name sets it.
 
 **What stays the same.** The `/sessions` routes and the MCP tools, with their
 request and response shapes. What changes for a user: the Panel asks for
 sign-in on every install, and a fresh install asks a program for a token. A
 change to how a client connects follows the deprecation rule above.
+
+**Carried forward.** Marked as deprecated in this phase and removed in a
+later release, together, when Clerk mode is removed:
+
+- the Clerk settings: the five `clerk_*` frontend fields, `enable_waitlist`,
+  `clerk_secret_key` and `clerk_webhook_secret` (the Clerk library is gone)
+- `mock` mode, and `auth_mode` with `admin_user_ids`, which then become
+  retired keys
+- `--insecure-no-auth`, which does nothing, with `HYBRO_INSECURE_NO_AUTH` and
+  the `insecure_no_auth` field in `runtime.json`
+- the rename of `ClerkUser`, the type every route receives
+- the `pyjwt` dependency, which nothing imports
+
+The `?token=` handling on the event stream routes is already gone.
+
+Open items found in this phase, each a small change of its own:
+
+- In a checkout, `owner_cli.py` does not check which process listens on port
+  8000 before it sends the password there.
+- Two backends that share one `HYBRO_HOME` can remove each other's
+  `run/machine.json`.
+- Nothing warns at startup when a public listener has no
+  `frontend.server_url`, so an install reached by a name answers 421 until it
+  is set.
 
 ## Phase 3: Owner check rules and the step view
 

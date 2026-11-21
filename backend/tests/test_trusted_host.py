@@ -157,11 +157,14 @@ def test_every_method_is_covered():
 # ---- Each way Hybro is reached ----
 
 
-def _image_origins(listener: entry.Listener, frontend: dict) -> list[str]:
+def _image_origins(
+    listener: entry.Listener, frontend: dict, *, proxy_hops: int = 0
+) -> list[str]:
     """The backend's frontend_origins as the image's entrypoint derives them."""
     programs = entry.projections(
         listener=listener,
         api_prefix="/api/v1",
+        proxy_hops=proxy_hops,
         frontend=frontend,
         image_size="1024x1024",
         secrets={"default_agent_llm_token": "fixture-" * 8},
@@ -209,6 +212,21 @@ def test_a_domain_install_without_server_url_is_refused():
         **{"X-Forwarded-Host": "hybro.example.com"},
     )
     assert response.status_code == 421
+
+
+@pytest.mark.parametrize(("hops", "admitted"), [(1, True), (0, False)])
+def test_loopback_behind_a_proxy_admits_only_the_configured_name(hops, admitted):
+    origins = _image_origins(
+        entry.Listener("loopback", 3100, False),
+        {"server_url": PUBLIC},
+        proxy_hops=hops,
+    )
+    client = _client(origins)
+    ours = {"Host": "hybro.example.com", "X-Forwarded-Host": "hybro.example.com"}
+
+    assert (_get(client, **ours).status_code == 200) is admitted
+    other = {"Host": "other.example.com", "X-Forwarded-Host": "other.example.com"}
+    assert _get(client, **other).status_code == 421
 
 
 def test_the_next_dev_proxy_in_a_checkout():

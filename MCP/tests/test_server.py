@@ -746,6 +746,86 @@ async def test_public_transport_leaves_the_check_to_the_token(headers, _):
     assert health.json()["status"] == "ready"
 
 
+@pytest.mark.parametrize(
+    ("headers", "code"),
+    [
+        ({"host": "hybro.example.com"}, 200),
+        ({"host": "hybro.example.com:39443"}, 200),
+        ({"host": "hybro.example.com", "origin": "https://hybro.example.com"}, 200),
+        ({"host": "other.example.com"}, 421),
+        ({"host": "attacker.test:8001"}, 421),
+        ({"origin": "https://attacker.test"}, 403),
+    ],
+)
+async def test_loopback_behind_a_proxy_also_admits_the_configured_name(headers, code):
+    security = server.transport_security_for("loopback", "hybro.example.com")
+    assert security.enable_dns_rebinding_protection is True
+    async with httpx.AsyncClient(
+        base_url=server.BACKEND_API_URL,
+        transport=httpx.MockTransport(
+            lambda request: httpx.Response(200, json={"status": "ok"})
+        ),
+    ) as backend:
+        app = create_server(
+            backend, listen="loopback", proxied_host="hybro.example.com"
+        ).streamable_http_app(
+            stateless_http=True,
+            json_response=True,
+            host="0.0.0.0",
+            transport_security=security,
+        )
+        async with app.router.lifespan_context(app):
+            async with httpx.AsyncClient(
+                transport=httpx.ASGITransport(app), base_url="http://127.0.0.1:8001"
+            ) as client:
+                health = await client.get("/health", headers=headers)
+    assert health.status_code == code
+
+
+@pytest.mark.parametrize(
+    ("name", "host", "origin"),
+    [
+        # Every form the entrypoint's caddy_host returns, as browsers send it.
+        ("my_nas.lan", "my_nas.lan:3000", "https://my_nas.lan"),
+        ("xn--bcher-kva.example", "xn--bcher-kva.example", "https://xn--bcher-kva.example:3000"),
+        ("10.0.0.5", "10.0.0.5:3000", "http://10.0.0.5:3000"),
+        ("fd00::5", "[fd00::5]:3000", "https://[fd00::5]"),
+        ("fd00::5", "[fd00::5]", "https://[fd00::5]:3000"),
+    ],
+)
+async def test_every_proxied_name_form_is_admitted_as_browsers_send_it(
+    monkeypatch, name, host, origin
+):
+    monkeypatch.setenv(
+        "HYBRO_MCP_CONFIG",
+        json.dumps({"api_prefix": "/api/v1", "listen": "loopback", "proxied_host": name}),
+    )
+    config = server.connection_config(container=True)
+    check = server.TransportSecurityMiddleware(
+        server.transport_security_for(config.listen, config.proxied_host)
+    )
+
+    assert check._validate_host(host)
+    assert check._validate_origin(origin)
+    assert not check._validate_host("[fd00::6]:3000")
+    assert not check._validate_origin("https://[fd00::6]")
+
+
+def test_without_a_proxied_name_loopback_keeps_its_check():
+    assert server.transport_security_for("loopback") is server.TRANSPORT_SECURITY
+    assert server.transport_security_for("loopback", None) is server.TRANSPORT_SECURITY
+
+
+def test_the_proxied_name_reaches_the_configuration(monkeypatch):
+    monkeypatch.setenv(
+        "HYBRO_MCP_CONFIG",
+        '{"api_prefix":"/api/v1","listen":"loopback","proxied_host":"hybro.example.com"}',
+    )
+    assert server.connection_config(container=True).proxied_host == "hybro.example.com"
+    monkeypatch.setenv("HYBRO_MCP_CONFIG", '{"api_prefix":"/api/v1"}')
+    assert server.connection_config(container=True).proxied_host is None
+
+
 def test_container_configuration_is_scoped_and_validated(monkeypatch):
     monkeypatch.setenv("HYBRO_MCP_CONFIG", '{"api_prefix":"/custom/v2"}')
     assert server.connection_config(container=True).api_prefix == "/custom/v2"
@@ -768,6 +848,8 @@ def test_container_configuration_is_scoped_and_validated(monkeypatch):
         '{"api_prefix":"https://evil.test"}',
         '{"listen":"everywhere"}',
         '{"listen":null}',
+        '{"proxied_host":"evil.test:80"}',
+        '{"proxied_host":"Hy Bro"}',
     ],
 )
 def test_invalid_container_configuration_fails_safely(monkeypatch, raw):
@@ -1072,7 +1154,8 @@ async def test_main_configures_logging_before_building_the_server(monkeypatch, l
             calls.append(("app", kwargs))
             return app
 
-    def fake_create_server(client, *, listen):
+    def fake_create_server(client, *, listen, proxied_host):
+        assert proxied_host is None
         calls.append(("create_server", listen))
         return FakeServer()
 

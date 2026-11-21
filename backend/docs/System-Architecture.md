@@ -763,9 +763,10 @@ Behaviour:
   While a flood keeps all 256 occupied, the owner's sign-in is refused too.
 - The address is the request's client address. uvicorn takes it from
   `X-Forwarded-For` when the peer is `127.0.0.1` (its default), and Caddy sets
-  that header to the peer it sees. Where the container runtime or a proxy in
-  front presents every client under one address, all clients share one
-  address key.
+  that header to the peer it sees, or, with `backend.proxy_hops`, to the
+  address that many proxies back (see [Single image](#single-image)). Where
+  the container runtime or a proxy in front presents every client under one
+  address, all clients share one address key.
 - Sign-in answers a wrong email and a wrong password the same way, and hashes
   in both cases, so the timing does not tell them apart.
 
@@ -1482,10 +1483,15 @@ and re-execs itself with `setpriv`. The user phase loads and validates
 `config.json` (a missing file is unconfigured; an unresolvable credential still
 boots into `credential_invalid`), generates missing internal credentials, and
 reads the transport variables `HYBRO_LISTEN` (`loopback` or `public`; missing
-means `public`), `HYBRO_PUBLIC_PORT`, and `HYBRO_INSECURE_NO_AUTH`. A public
-listener starts only with `HYBRO_INSECURE_NO_AUTH=1` (`--insecure-no-auth`),
-which logs a warning, because the Source API takes requests without a source
-token; `auth_mode` and `frontend.server_url` no longer open one. It then writes each program's
+means `public`), `HYBRO_PUBLIC_PORT`, and `HYBRO_INSECURE_NO_AUTH`. A public listener needs no
+flag; the entrypoint prints one routine line for it, saying that the Panel
+needs the owner's sign-in and that the source-token requirement is set under
+Access, Sources (the backend, which reads it, warns when it is off). With
+`backend.proxy_hops` above 0 on a public listener it also prints a `WARNING`
+line: anything that reaches the port around the proxy can forge the forwarded
+headers.
+`HYBRO_INSECURE_NO_AUTH` (deprecated `--insecure-no-auth`) changes nothing and
+is only recorded in `runtime.json` until its removal. It then writes each program's
 command and scoped environment to a private file under `/tmp/hybro/programs`,
 writes the Caddyfile and supervisor configuration, writes the two per-start
 handoff files (`/tmp/hybro/diagnostics.json` and `/tmp/hybro/machine.json`,
@@ -1501,13 +1507,17 @@ supervisord logs neither CRIT notice. Each program's environment:
 
 - frontend: `api_base_url` empty (same origin), `server_url`
   `http://localhost:<public port>` on loopback or `frontend.server_url` on a
-  public listener; no Clerk secret, which nothing reads. The browser derives the MCP URL as
+  public listener, and on loopback too when `backend.proxy_hops` is above 0
+  and `frontend.server_url` is set; no Clerk secret, which nothing reads. The browser derives the MCP URL as
   `{origin}/mcp`;
 - backend: `HYBRO_FRONTEND_ORIGINS` (`http://localhost:<port>` and
-  `http://127.0.0.1:<port>` on loopback, `frontend.server_url` on a public
+  `http://127.0.0.1:<port>` on loopback, plus `frontend.server_url` when
+  `backend.proxy_hops` is above 0; `frontend.server_url` on a public
   listener) and `LOCAL_AGENT_DISCOVERY_EXCLUDED_PORTS` (the manifest ports);
 - MCP: `HYBRO_MCP_CONFIG` with `api_prefix` and `listen` (`loopback` or
-  `public`), which decides its Host and Origin check;
+  `public`), which decides its Host and Origin check, and on loopback with
+  `backend.proxy_hops` above 0 and `frontend.server_url` set, `proxied_host`:
+  that URL's host, which the check also admits;
 - agents: `HYBRO_AGENT_CONFIG` (backend `127.0.0.1:8000`, the agent inference
   token, image size), `SERVER_HOST` and `SERVER_DOMAIN` `127.0.0.1`, and the
   manifest `SERVER_PORT`.
@@ -1542,11 +1552,38 @@ route, so the machine-only routes cannot be reached through the published
 port. The backend route removes `X-Hybro-Via` (`header_up -X-Hybro-Via`), so
 in the image only the MCP server, which calls the backend inside the container,
 marks a request as MCP (a checkout's Next dev proxy passes the header on; it is
-display-only); no proxy block sets any other `header_up`. Caddy passes the browser's `Host`
-on and sets `X-Forwarded-Host`, `X-Forwarded-Proto` and `X-Forwarded-For`
-itself, ignoring the values an incoming request carries. On a loopback listener it
-answers any `Host` other than `localhost`, `127.0.0.1`, or `::1` (any port)
-with 421, which blocks DNS rebinding against the unauthenticated local API;
+display-only). Caddy passes the browser's `Host` on. What it does with the
+forwarded headers depends on `backend.proxy_hops`, the number of reverse
+proxies in front (default 0); Caddy trusts proxies by address range, not by
+count, so the entrypoint translates the count:
+
+- 0: no `trusted_proxies`. Caddy sets `X-Forwarded-Host` (to `Host`),
+  `X-Forwarded-Proto` and `X-Forwarded-For` itself and ignores the values an
+  incoming request carries.
+- N > 0: the global `servers { trusted_proxies static 0.0.0.0/0 ::/0 }`, so
+  Caddy passes an incoming `X-Forwarded-Proto` and `X-Forwarded-Host` on
+  unchanged (setting them only when absent) and appends its peer to
+  `X-Forwarded-For`, joining several incoming lines into one. The backend
+  route then rewrites that value with
+  `header_up X-Forwarded-For "^(?:.*,\s*)?([^,\s]+)\s*,\s*[^,\s]+$" "$1"`
+  (the `\s*,\s*[^,\s]+` part written N times, never as `{N}`, which Caddy
+  would read as a placeholder) to the one entry with N entries after it: the address the outermost proxy
+  saw. A shorter list is left as built, and uvicorn takes its last entry, the
+  nearest peer. uvicorn takes `X-Forwarded-Proto` only when it is exactly
+  `http` or `https`, so a chain that appends (`https, http`) stays plain HTTP.
+
+With N > 0 any peer is trusted, so a client that reaches the port around the
+proxy can set the scheme, the forwarded host and its address; the trusted-host
+check still refuses a forwarded host this Hybro does not answer to. Trusting
+only private ranges was not chosen: a proxy on a public address would be
+ignored, and where Docker shows every client under its gateway address it
+would protect nothing. The count is part of the Caddyfile, so changing it
+needs a full restart. These were run against Caddy 2.11 and uvicorn 0.35.
+No proxy block sets any other `header_up`. On a loopback listener it
+answers any `Host` other than `localhost`, `127.0.0.1`, or `::1` (any port),
+and with `backend.proxy_hops` above 0 the host of `frontend.server_url`
+(written in its punycode form; a name that is not a plain host name or IP
+address stops the start), with 421, which blocks DNS rebinding against the unauthenticated local API;
 the backend's own trusted-host check (see
 [Requests from other websites](#requests-from-other-websites)) refuses
 rebound names on every listener, while also accepting IP addresses and the
@@ -1554,7 +1591,9 @@ configured address. Caddy writes a JSON access log to stdout (`caddy | ` in `hyb
 `/_next/static/*`. It logs 1xx-4xx responses at `info` and 5xx at `error`.
 A filter drops `request.headers`, `request.uri` (query strings can carry
 tokens) and `resp_headers`, and each line gains `trace_id` and `path` (no
-query string). `trace_id` is the `X-Request-ID` the backend returns: the
+query string). With `backend.proxy_hops` above 0 the line's `client_ip` is
+Caddy's reading of `X-Forwarded-For` (its leftmost entry, which a client can
+write), not the address the backend's attempt limit uses. `trace_id` is the `X-Request-ID` the backend returns: the
 client's id when it is valid, otherwise the id the backend minted, so
 `hybro logs --trace <id>` matches the Caddy line of every backend request.
 Routes the backend does not answer (the frontend, MCP, or a 502 while the
@@ -1657,7 +1696,8 @@ updates and the release workflow compares with the tag.
 - **Start.** Docker check, 0.3 layout check, flag validation, image, then
   `docker run -d` with the volume at `/data`, `HYBRO_HOME` (created 0700 first)
   at `/var/lib/hybro/runtime`, `-p <bind>:<port>:8080`, `HYBRO_LISTEN`,
-  `HYBRO_PUBLIC_PORT`, optional `HYBRO_INSECURE_NO_AUTH=1`,
+  `HYBRO_PUBLIC_PORT`, optional `HYBRO_INSECURE_NO_AUTH=1` (the deprecated
+  `--insecure-no-auth`, which prints one notice and changes nothing),
   `--add-host host.docker.internal:host-gateway`, `--stop-timeout 60`, and
   `-p 127.0.0.1:1455:1455` for the OAuth callback. When 1455 is taken, it runs
   again without it and the ChatGPT login uses the paste flow. A stopped
@@ -1670,7 +1710,8 @@ updates and the release workflow compares with the tag.
   lines have no program name and always show. A container that stops first, or no answer
   within 180 seconds, prints the last 30 log lines and exits 1. Ctrl-C stops
   the container. `--listen` takes an IP address: `127.0.0.1`, `localhost`, and `::1`
-  are loopback, anything else is public. Start options are flags only.
+  are loopback, anything else is public; a public address needs no other flag.
+Start options are flags only.
 - **Update notice.** Release mode reads the latest release tag at most once a
   day (three-second timeout, cached in `$HYBRO_HOME/update-check`) and prints
   one line when it is newer. `HYBRO_NO_UPDATE_CHECK=1` turns it off.
@@ -2052,8 +2093,9 @@ which compares the two, would pass:
   differently from browsers (such as one with `ß`) is not trusted; its
   punycode form can be configured. In the image the
   entrypoint sets `frontend_origins` from the listener: `localhost` and
-  `127.0.0.1` on loopback, `frontend.server_url` on a public listener. Any port
-  is allowed, so SSH and IDE port forwarding keep working.
+  `127.0.0.1` on loopback (plus `frontend.server_url` behind a proxy, with
+  `backend.proxy_hops` above 0), `frontend.server_url` on a public listener.
+  Any port is allowed, so SSH and IDE port forwarding keep working.
 - `Host` and every entry of `X-Forwarded-Host` must be trusted: a rebinding page cannot change `Host` but can add the other header.
 - It covers every method and route except `/health`, which returns no data and
   which probes call by any address. The refusal names `frontend.server_url`
@@ -2098,9 +2140,16 @@ body without a `Content-Type` as JSON, so no preflight protects these routes,
 and `SameSite` ignores ports. An outer reverse proxy that rewrites `Host`
 makes the owner's own requests fail: with a name, the trusted-host check
 refuses every request with 421; with an IP or loopback address, this check
-refuses every change with 403. In the image only keeping `Host` works: Caddy
-replaces an incoming `X-Forwarded-Host` with the `Host` it received. Setting
-`X-Forwarded-Host` helps only when the backend is reached without Caddy.
+refuses every change with 403. In the image keeping `Host` works with any
+`backend.proxy_hops`. A proxy that rewrites `Host` to an IP or loopback
+address works only with `backend.proxy_hops` set and `X-Forwarded-Host` sent,
+because Caddy otherwise replaces an incoming `X-Forwarded-Host` with the
+`Host` it received; one that rewrites it to another name is refused with 421
+whatever it forwards, because every `Host` and `X-Forwarded-Host` value must
+be trusted. On a loopback listener Caddy's own host rule admits only loopback
+addresses and the `frontend.server_url` host, so there the rewritten `Host`
+must be `127.0.0.1` or `localhost` with the port (the MCP server does not
+admit `[::1]`).
 
 ### Settings API
 
@@ -2303,16 +2352,21 @@ from the backend environment with the `mcp` extra of `backend/pyproject.toml`
 environment.
 
 Image mode (`--image`) requires `HYBRO_MCP_CONFIG` (`api_prefix`, and
-`listen`, default `loopback`; unknown fields are refused) and keeps loopback
+`listen`, default `loopback`; optional `proxied_host`, a lower-case host name
+or bare IPv6 address; unknown fields are refused) and keeps loopback
 for the backend and its own listener. Caddy serves `/mcp` on every listener.
 On a loopback listener, and in native startup (fixed loopback endpoints and
 `/api/v1`), the SDK's Host/Origin DNS-rebinding check allows only `localhost`
 and `127.0.0.1` on any port, on `/mcp` and on `/health`, which builds its own
-`TransportSecurityMiddleware` from the same settings. On a public listener the
+`TransportSecurityMiddleware` from the same settings. With `proxied_host` it
+also allows that host (in brackets for IPv6), with or without a port, and its
+`http` and `https` origins, the one name Caddy admits on loopback behind a
+proxy. On a public listener the
 check is off (`PUBLIC_TRANSPORT_SECURITY`) on both, because other machines
 reach Hybro by names the server cannot know. Instead `caller_address` adds the
 caller's address to each backend call: every `X-Forwarded-Host` line of the
-MCP request (Caddy sets it and drops a client's own), or its `Host` without
+MCP request (Caddy's copy of `Host`, or with `backend.proxy_hops` the outer
+proxy's), or its `Host` without
 one, and its `Origin` when present. A call whose address it cannot tell
 (neither `X-Forwarded-Host` nor `Host`, as with no HTTP request) fails with `CALLER_ADDRESS_UNKNOWN` before
 reaching the backend, which would otherwise see only loopback. The backend's `TrustedHostMiddleware` and

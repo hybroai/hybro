@@ -4,8 +4,8 @@ Root phase: map the service identity from the owner of the mounted config
 directory, take ownership of the data volume once, and re-exec as that user.
 
 User phase: load and validate the configuration, generate missing internal
-credentials, enforce the public-listener rule, compute every service's scoped
-projection, write the Caddy and supervisor configuration, prepare the embedded
+credentials, compute every service's scoped projection, write the Caddy and
+supervisor configuration, prepare the embedded
 MongoDB replica set, then exec supervisord.
 
 Each supervised program starts through ``runtime_entrypoint.py run <name>``,
@@ -166,6 +166,8 @@ def root_phase() -> None:
 class Listener:
     mode: Listen
     public_port: int
+    # Deprecated `--insecure-no-auth`: recorded in runtime.json until its
+    # removal, and changes nothing.
     insecure_no_auth: bool
 
 
@@ -184,27 +186,18 @@ def read_listener(environment: Mapping[str, str]) -> Listener:
     )
 
 
-def check_listener(listener: Listener) -> None:
-    """A public listener needs an explicit opt-out for now.
+def listener_line(listener: Listener) -> str | None:
+    """The routine startup line for a public listener; none for loopback.
 
-    The Panel needs the owner's sign-in, but the Source API still takes
-    requests without a source token, so anyone who can reach the port can send
-    work to the agents.
+    Whether a program needs a source token is product state in the database,
+    which the entrypoint does not read; the backend and ``hybro`` warn when
+    the requirement is off.
     """
     if listener.mode != "public":
-        return
-    if listener.insecure_no_auth:
-        print(
-            "WARNING: Hybro is listening publicly, and its Source API takes "
-            "requests without a source token. Anyone who can reach this port can "
-            "send work to your agents.",
-            file=sys.stderr,
-        )
-        return
-    raise EntrypointError(
-        "A public listener is not available yet: the Source API takes requests "
-        "without a source token. To listen publicly anyway, pass "
-        "--insecure-no-auth (HYBRO_INSECURE_NO_AUTH=1)."
+        return None
+    return (
+        "listening for other machines: the Panel needs the owner's sign-in, "
+        "and whether a program needs a source token is set in Access, Sources"
     )
 
 
@@ -236,10 +229,46 @@ class Program:
     env: dict[str, str]
 
 
+def proxied_server_url(
+    listener: Listener, proxy_hops: int, configured_url: str | None
+) -> str | None:
+    """The configured address a loopback listener also answers to.
+
+    Only behind a proxy on this machine (``backend.proxy_hops`` above zero)
+    with ``frontend.server_url`` set; otherwise loopback answers to local
+    names only.
+    """
+    if listener.mode == "loopback" and proxy_hops and configured_url:
+        return configured_url
+    return None
+
+
+# A name as Caddy's host matcher takes it: a lower-case DNS name or IP address.
+_CADDY_HOST = re.compile(r"[a-z0-9._-]+|[0-9a-f:.]+")
+
+
+def caddy_host(url: str) -> str:
+    """The host of ``url`` in the form browsers send, safe to write into a Caddyfile."""
+    from api_gateway.trusted_host import trusted_names
+
+    names = trusted_names([url])
+    # At most 253 characters, the DNS limit the MCP server's proxied_host holds.
+    if (
+        len(names) != 1
+        or len(next(iter(names))) > 253
+        or not _CADDY_HOST.fullmatch(next(iter(names)))
+    ):
+        raise EntrypointError(
+            "frontend.server_url must name a plain host name or IP address."
+        )
+    return next(iter(names))
+
+
 def projections(
     *,
     listener: Listener,
     api_prefix: str,
+    proxy_hops: int,
     frontend: Mapping[str, Any],
     image_size: str,
     secrets: Mapping[str, str],
@@ -252,12 +281,15 @@ def projections(
     public = listener.mode == "public"
     configured_url = frontend.get("server_url")
     local_origin = f"http://localhost:{listener.public_port}"
-    server_url = configured_url if public and configured_url else local_origin
-    origins = (
-        [server_url]
-        if public
-        else [local_origin, f"http://127.0.0.1:{listener.public_port}"]
-    )
+    proxied = proxied_server_url(listener, proxy_hops, configured_url)
+    if public:
+        server_url = configured_url or local_origin
+        origins = [server_url]
+    else:
+        server_url = proxied or local_origin
+        origins = [local_origin, f"http://127.0.0.1:{listener.public_port}"]
+        if proxied:
+            origins.append(proxied)
     settings = FrontendSettings.model_validate(
         {
             "api_prefix": api_prefix,
@@ -303,9 +335,14 @@ def projections(
             {
                 # The listen mode decides the MCP server's own Host and Origin
                 # check: on for loopback, off for public, where the source
-                # token is the control.
+                # token is the control. Behind a same-machine proxy loopback
+                # also admits the server_url host, as Caddy does.
                 "HYBRO_MCP_CONFIG": json.dumps(
-                    {"api_prefix": api_prefix, "listen": listener.mode}
+                    {
+                        "api_prefix": api_prefix,
+                        "listen": listener.mode,
+                        **({"proxied_host": caddy_host(proxied)} if proxied else {}),
+                    }
                 ),
                 # The server imports only the backend's logging modules.
                 "PYTHONPATH": str(APP_DIR / "backend"),
@@ -380,8 +417,34 @@ def mongod_command() -> list[str]:
     ]
 
 
-def caddyfile(*, listener: Listener, api_prefix: str) -> str:
-    """Route one port by path; loopback accepts only local Host names."""
+def client_address_pattern(proxy_hops: int) -> str:
+    """The RE2 pattern whose first group is the client in X-Forwarded-For.
+
+    Caddy joins the incoming lines and appends its peer, the nearest proxy, so
+    the client is the entry with ``proxy_hops`` entries after it. A shorter
+    list does not match and stays as Caddy built it; uvicorn then takes its
+    last entry, the nearest peer. The entry after it is written out once per
+    proxy, not as ``{N}``, because Caddy reads braces as placeholders.
+    """
+    return r"^(?:.*,\s*)?([^,\s]+)" + r"\s*,\s*[^,\s]+" * proxy_hops + "$"
+
+
+def caddyfile(
+    *,
+    listener: Listener,
+    api_prefix: str,
+    proxy_hops: int = 0,
+    server_url: str | None = None,
+) -> str:
+    """Route one port by path; loopback accepts only local Host names, and
+    behind a proxy also the host of ``server_url``.
+
+    Without a proxy in front Caddy replaces every forwarded header with what
+    it saw itself. With ``proxy_hops`` it trusts any peer: it passes the
+    forwarded scheme and host on and rewrites X-Forwarded-For to the client
+    address. Caddy trusts proxies by address, not by count, so anything that
+    reaches the port around the proxy can set these headers too.
+    """
     lines = [
         "{",
         "\tadmin off",
@@ -404,6 +467,15 @@ def caddyfile(*, listener: Listener, api_prefix: str) -> str:
         "\t\t\t}",
         "\t\t}",
         "\t}",
+        *(
+            [
+                "\tservers {",
+                "\t\ttrusted_proxies static 0.0.0.0/0 ::/0",
+                "\t}",
+            ]
+            if proxy_hops
+            else []
+        ),
         "}",
         "",
         f":{CADDY_PORT} {{",
@@ -431,8 +503,12 @@ def caddyfile(*, listener: Listener, api_prefix: str) -> str:
     if listener.mode == "loopback":
         # A DNS-rebound request carries the attacker's host name. Any port is
         # allowed, so SSH and IDE port forwarding keep working.
+        proxied = proxied_server_url(listener, proxy_hops, server_url)
+        names = "localhost 127.0.0.1 ::1" + (
+            f" {caddy_host(proxied)}" if proxied else ""
+        )
         lines += [
-            "\t@foreign not host localhost 127.0.0.1 ::1",
+            f"\t@foreign not host {names}",
             # Named-matcher handle blocks run in file order, first match wins;
             # a bare `respond` would sort after them.
             "\thandle @foreign {",
@@ -453,6 +529,15 @@ def caddyfile(*, listener: Listener, api_prefix: str) -> str:
         # Only the MCP server, which calls the backend inside the image, marks
         # a request as MCP; the Sources tab shows the mark.
         "\t\t\theader_up -X-Hybro-Via",
+        # uvicorn trusts only Caddy and reads one address from this header.
+        *(
+            [
+                "\t\t\theader_up X-Forwarded-For "
+                f'"{client_address_pattern(proxy_hops)}" "$1"'
+            ]
+            if proxy_hops
+            else []
+        ),
         "\t\t}",
         "\t}",
         # MCP on every listener: a source token is the control on a public
@@ -868,6 +953,7 @@ class RuntimePlan:
     api_prefix: str
     # restart_revision of the document the programs were projected from.
     services_revision: str
+    proxy_hops: int
 
 
 def plan_runtime(
@@ -891,7 +977,6 @@ def plan_runtime(
         settings = get_settings()
     except (RuntimeConfigurationError, ValueError) as exc:
         raise EntrypointError(f"Invalid configuration: {exc}") from None
-    check_listener(listener)
     # A configured MongoDB URL wins over the embedded server.
     embedded_mongo = (
         "mongodb_url" not in config.backend and "mongodb_url" not in secrets
@@ -902,6 +987,7 @@ def plan_runtime(
     programs = projections(
         listener=listener,
         api_prefix=settings.api_prefix,
+        proxy_hops=settings.proxy_hops,
         frontend=config.frontend,
         image_size=config.image_size,
         secrets=secrets,
@@ -910,10 +996,16 @@ def plan_runtime(
     )
     return RuntimePlan(
         programs=programs,
-        caddyfile=caddyfile(listener=listener, api_prefix=settings.api_prefix),
+        caddyfile=caddyfile(
+            listener=listener,
+            api_prefix=settings.api_prefix,
+            proxy_hops=settings.proxy_hops,
+            server_url=config.frontend.get("server_url"),
+        ),
         embedded_mongo=embedded_mongo,
         api_prefix=settings.api_prefix,
         services_revision=config.restart_revision,
+        proxy_hops=settings.proxy_hops,
     )
 
 
@@ -950,6 +1042,16 @@ def user_phase() -> None:
     store = RuntimeConfigStore(RUNTIME_DIR)
     listener = read_listener(os.environ)
     plan = plan_runtime(store, listener)
+    if line := listener_line(listener):
+        status(line)
+    if listener.mode == "public" and plan.proxy_hops:
+        print(
+            "WARNING: backend.proxy_hops is set, so Hybro believes the forwarded "
+            "scheme, host and client address of any program that connects. "
+            "Anything that reaches this port without going through the proxy "
+            "can forge them; let only the proxy reach it.",
+            file=sys.stderr,
+        )
     RUN_DIR.mkdir(mode=0o700, parents=True, exist_ok=True)
     base = base_environment()
     for name, program in plan.programs.items():

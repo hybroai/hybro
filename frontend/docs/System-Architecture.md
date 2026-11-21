@@ -103,7 +103,7 @@ bundle, including the serving route, which pins one image to one deployment.
 In the single image the entrypoint (`backend/runtime_entrypoint.py`) supplies
 the projection: `api_base_url` empty, `server_url` the browser's origin
 (`http://localhost:<port>` on loopback, `frontend.server_url` on a public
-listener). MCP is served on every listener, so the projection says nothing
+listener, or on loopback behind a proxy with `backend.proxy_hops` set). MCP is served on every listener, so the projection says nothing
 about it. The standalone server listens on `127.0.0.1:3000` behind Caddy.
 
 An empty `api_base_url` means same origin: `getApiUrl` then returns a relative
@@ -936,7 +936,9 @@ Other library modules:
   backend's fixed message.
 - `navigation.ts`: `goTo` and `safeRedirect`, which allows only a same-site
   path as the `redirect_url` after sign-in.
-- `plain-http.ts`: whether the page is on plain HTTP from another machine.
+- `plain-http.ts`: whether the page is on plain HTTP from another machine. It
+  reads the browser's own location, so behind an HTTPS reverse proxy it never
+  warns, whatever `backend.proxy_hops` says.
 - `session-events.ts`: reports a session that ended to `AuthProvider`.
 - `log.ts`: browser logger, ring buffer, and `X-Request-ID` helpers.
 - `routes.ts`: canonical public and management route vocabulary.

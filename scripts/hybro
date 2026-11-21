@@ -93,10 +93,9 @@ Commands:
 Start options:
   -d, --detach          Run in the background
   --port <port>         Host port (default $DEFAULT_PORT)
-  --listen <address>    Address to listen on (default 127.0.0.1); any other
-                        address needs --insecure-no-auth while the
-                        Source API takes requests without a source token
-  --insecure-no-auth    Allow a non-loopback listener anyway
+  --listen <address>    Address to listen on (default 127.0.0.1); another
+                        address lets other machines connect, and needs no flag
+  --insecure-no-auth    Deprecated; does nothing
   --fresh               Start with an empty volume even when 0.3 data exists
   --build               Rebuild the image (checkout only)
   --recreate            Recreate a running container (checkout only)
@@ -479,7 +478,11 @@ cmd_start() {
             shift
             ;;
         --listen=*) LISTEN=${1#*=} ;;
-        --insecure-no-auth) INSECURE=1 ;;
+        --insecure-no-auth)
+            # Kept on record (HYBRO_INSECURE_NO_AUTH, runtime.json) until removed.
+            [ "$INSECURE" = 1 ] || err "--insecure-no-auth is deprecated and does nothing: a public address needs no flag. It will be removed in a later release."
+            INSECURE=1
+            ;;
         --fresh) ;;
         --build) BUILD_FLAG=1 ;;
         --recreate) RECREATE=1 ;;
