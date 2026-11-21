@@ -29,6 +29,8 @@ from api_gateway.machine_handoff import (
     remove_checkout_handoff,
 )
 from chat import ChatFacade
+from client import ClientService, MongoClientRepository
+from client.models import TokenRequirement
 from common.config.loader import settings
 from common.dto import AgentMessageFinal, DeliveryEmitStatus
 from common.eventing import (
@@ -137,8 +139,6 @@ from policy import MongoRuleRepository, PolicyService
 from room_files import LocalFileContentStore, RoomFiles, RoomLifecycleStore
 from session import MongoSessionRepository, SessionFacade, SessionWaiter
 from session.protocols import RoomManagement, RoomMessageStore, RoomRegistry
-from source import MongoSourceRepository, SourceService
-from source.models import TokenRequirement
 
 if TYPE_CHECKING:
     from dal.redis.streams import RedisStreamsImpl
@@ -739,14 +739,14 @@ async def _runtime_lifespan(app: Any, runtime: ApplicationRuntime):  # noqa: C90
                 settings=runtime.settings, mongo=mongo_dal
             )
             app.state.owner_account = owner_account
-            app.state.source_registry = create_source_registry(
+            app.state.client_registry = create_client_registry(
                 settings=runtime.settings, mongo=mongo_dal
             )
             app.state.policy_rules = create_policy_rules(mongo=mongo_dal)
             # Before any request is served, so `hybro owner create` cannot run
             # first and make a fresh install look like an existing one.
             token_requirement = await seed_token_requirement(
-                sources=app.state.source_registry, mongo=mongo_dal
+                clients=app.state.client_registry, mongo=mongo_dal
             )
             # A checkout writes its own handoff file; the image's entrypoint
             # wrote it already.
@@ -1530,7 +1530,7 @@ async def _runtime_lifespan(app: Any, runtime: ApplicationRuntime):  # noqa: C90
                 _room_event_store,
                 start_grace_seconds=runtime.settings.session_run_start_grace_seconds,
             ),
-            sources=app.state.source_registry,
+            clients=app.state.client_registry,
         )
 
         bind_api_gateway_deps(
@@ -2187,7 +2187,7 @@ async def _runtime_lifespan(app: Any, runtime: ApplicationRuntime):  # noqa: C90
         app.state.agent_llm_proxy = None
         app.state.diagnostics_access = None
         app.state.owner_account = None
-        app.state.source_registry = None
+        app.state.client_registry = None
         app.state.policy_rules = None
         machine_token = getattr(app.state, "machine_token", "")
         remove_checkout_handoff(runtime.settings, machine_token)
@@ -2277,7 +2277,7 @@ async def _runtime_lifespan(app: Any, runtime: ApplicationRuntime):  # noqa: C90
         app.state.agent_llm_proxy = None
         app.state.diagnostics_access = None
         app.state.owner_account = None
-        app.state.source_registry = None
+        app.state.client_registry = None
         app.state.policy_rules = None
         machine_token = getattr(app.state, "machine_token", "")
         remove_checkout_handoff(runtime.settings, machine_token)
@@ -2412,7 +2412,7 @@ async def ensure_runtime_indexes(*, mongo: MongoDAL) -> dict[str, bool]:
     await ensure_room_file_indexes(mongo)
     diagnostics_store_ready = await DiagnosticsMongoRepository(mongo).ensure_indexes()
     await MongoAccountRepository(mongo).ensure_indexes()
-    await MongoSourceRepository(mongo).ensure_indexes()
+    await MongoClientRepository(mongo).ensure_indexes()
     await MongoRuleRepository(mongo).ensure_indexes()
     return {
         "agent_search_index_ready": agent_search_index_ready,
@@ -2670,9 +2670,9 @@ def create_owner_account(
     )
 
 
-def create_source_registry(*, settings: Any, mongo: MongoDAL) -> SourceService:
-    """The sources of this instance, over their own collection."""
-    return SourceService(MongoSourceRepository(mongo), auth_mode=settings.auth_mode)
+def create_client_registry(*, settings: Any, mongo: MongoDAL) -> ClientService:
+    """The clients of this instance, over their own collection."""
+    return ClientService(MongoClientRepository(mongo), auth_mode=settings.auth_mode)
 
 
 def create_policy_rules(*, mongo: MongoDAL) -> PolicyService:
@@ -2685,21 +2685,21 @@ _INSTALL_DATA_COLLECTIONS = ("users", "rooms", "sessions")
 
 
 async def seed_token_requirement(
-    *, sources: SourceService, mongo: MongoDAL
+    *, clients: ClientService, mongo: MongoDAL
 ) -> TokenRequirement:
     """Create the owner's switch at startup; a stored one is kept as it is.
 
     It starts on when the database has no user, room or session, and off when
-    it has any (an install from before source tokens). Returns the switch as
-    the Source API applies it, so Clerk mode reads as on.
+    it has any (an install from before client tokens). Returns the switch as
+    the Client API applies it, so Clerk mode reads as on.
     """
     existing_install = False
     for name in _INSTALL_DATA_COLLECTIONS:
         if await mongo.collection(name).find_one({}, projection={"_id": 1}):
             existing_install = True
             break
-    await sources.seed_token_requirement(existing_install=existing_install)
-    return await sources.token_requirement()
+    await clients.seed_token_requirement(existing_install=existing_install)
+    return await clients.token_requirement()
 
 
 def warn_if_tokens_off_on_public_listener(
@@ -2711,7 +2711,7 @@ def warn_if_tokens_off_on_public_listener(
     the database. ``hybro`` prints the same warning on the host.
     """
     if listen == "public" and not requirement.required:
-        logger.emit(E.SOURCE_TOKEN_NOT_REQUIRED_ON_PUBLIC_LISTENER)
+        logger.emit(E.CLIENT_TOKEN_NOT_REQUIRED_ON_PUBLIC_LISTENER)
 
 
 def create_agent_capability_issue_repository(mongo: MongoDAL) -> Any:

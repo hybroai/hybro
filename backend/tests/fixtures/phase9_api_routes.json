@@ -1010,10 +1010,10 @@
   },
   {
     "auth_dependencies": [
-      "get_machine_sources"
+      "get_machine_clients"
     ],
     "dependencies": [
-      "get_machine_sources"
+      "get_machine_clients"
     ],
     "methods": [
       "POST"
@@ -1024,7 +1024,7 @@
       "201",
       "422"
     ],
-    "owning_protocol": "source.protocols.SourceRegistry",
+    "owning_protocol": "client.protocols.ClientRegistry",
     "path": "/api/v1/machine/sources",
     "response_class": null,
     "response_model": "SourceWithToken",
@@ -1033,10 +1033,10 @@
   },
   {
     "auth_dependencies": [
-      "get_machine_sources"
+      "get_machine_clients"
     ],
     "dependencies": [
-      "get_machine_sources"
+      "get_machine_clients"
     ],
     "methods": [
       "GET"
@@ -1046,7 +1046,7 @@
     "openapi_response_codes": [
       "200"
     ],
-    "owning_protocol": "source.protocols.SourceRegistry",
+    "owning_protocol": "client.protocols.ClientRegistry",
     "path": "/api/v1/machine/sources/token-requirement",
     "response_class": null,
     "response_model": "TokenRequirement",
@@ -2027,10 +2027,10 @@
   },
   {
     "auth_dependencies": [
-      "get_owner_sources"
+      "get_owner_clients"
     ],
     "dependencies": [
-      "get_owner_sources"
+      "get_owner_clients"
     ],
     "methods": [
       "GET"
@@ -2045,7 +2045,7 @@
       "409",
       "503"
     ],
-    "owning_protocol": "source.protocols.SourceRegistry",
+    "owning_protocol": "client.protocols.ClientRegistry",
     "path": "/api/v1/sources",
     "response_class": null,
     "response_model": "SourceList",
@@ -2054,10 +2054,10 @@
   },
   {
     "auth_dependencies": [
-      "get_owner_sources"
+      "get_owner_clients"
     ],
     "dependencies": [
-      "get_owner_sources"
+      "get_owner_clients"
     ],
     "methods": [
       "POST"
@@ -2073,7 +2073,7 @@
       "422",
       "503"
     ],
-    "owning_protocol": "source.protocols.SourceRegistry",
+    "owning_protocol": "client.protocols.ClientRegistry",
     "path": "/api/v1/sources",
     "response_class": null,
     "response_model": "SourceWithToken",
@@ -2082,10 +2082,10 @@
   },
   {
     "auth_dependencies": [
-      "get_owner_sources"
+      "get_owner_clients"
     ],
     "dependencies": [
-      "get_owner_sources"
+      "get_owner_clients"
     ],
     "methods": [
       "GET"
@@ -2098,7 +2098,7 @@
       "403",
       "503"
     ],
-    "owning_protocol": "source.protocols.SourceRegistry",
+    "owning_protocol": "client.protocols.ClientRegistry",
     "path": "/api/v1/sources/token-requirement",
     "response_class": null,
     "response_model": "TokenRequirement",
@@ -2107,10 +2107,10 @@
   },
   {
     "auth_dependencies": [
-      "get_owner_sources"
+      "get_owner_clients"
     ],
     "dependencies": [
-      "get_owner_sources"
+      "get_owner_clients"
     ],
     "methods": [
       "PUT"
@@ -2125,7 +2125,7 @@
       "422",
       "503"
     ],
-    "owning_protocol": "source.protocols.SourceRegistry",
+    "owning_protocol": "client.protocols.ClientRegistry",
     "path": "/api/v1/sources/token-requirement",
     "response_class": null,
     "response_model": "TokenRequirement",
@@ -2134,10 +2134,10 @@
   },
   {
     "auth_dependencies": [
-      "get_owner_sources"
+      "get_owner_clients"
     ],
     "dependencies": [
-      "get_owner_sources"
+      "get_owner_clients"
     ],
     "methods": [
       "PATCH"
@@ -2153,7 +2153,7 @@
       "422",
       "503"
     ],
-    "owning_protocol": "source.protocols.SourceRegistry",
+    "owning_protocol": "client.protocols.ClientRegistry",
     "path": "/api/v1/sources/{source_id}",
     "response_class": null,
     "response_model": "SourceView",
@@ -2162,10 +2162,10 @@
   },
   {
     "auth_dependencies": [
-      "get_owner_sources"
+      "get_owner_clients"
     ],
     "dependencies": [
-      "get_owner_sources"
+      "get_owner_clients"
     ],
     "methods": [
       "POST"
@@ -2181,7 +2181,7 @@
       "422",
       "503"
     ],
-    "owning_protocol": "source.protocols.SourceRegistry",
+    "owning_protocol": "client.protocols.ClientRegistry",
     "path": "/api/v1/sources/{source_id}/revoke",
     "response_class": null,
     "response_model": "SourceView",
@@ -2190,10 +2190,10 @@
   },
   {
     "auth_dependencies": [
-      "get_owner_sources"
+      "get_owner_clients"
     ],
     "dependencies": [
-      "get_owner_sources"
+      "get_owner_clients"
     ],
     "methods": [
       "POST"
@@ -2209,7 +2209,7 @@
       "422",
       "503"
     ],
-    "owning_protocol": "source.protocols.SourceRegistry",
+    "owning_protocol": "client.protocols.ClientRegistry",
     "path": "/api/v1/sources/{source_id}/rotate",
     "response_class": null,
     "response_model": "SourceWithToken",

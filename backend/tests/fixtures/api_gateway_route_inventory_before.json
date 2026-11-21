@@ -805,10 +805,10 @@
     ],
     "status_code": 201,
     "dependencies": [
-      "get_machine_sources"
+      "get_machine_clients"
     ],
     "auth_dependencies": [
-      "get_machine_sources"
+      "get_machine_clients"
     ],
     "include_in_schema": true
   },
@@ -825,10 +825,10 @@
     ],
     "status_code": null,
     "dependencies": [
-      "get_machine_sources"
+      "get_machine_clients"
     ],
     "auth_dependencies": [
-      "get_machine_sources"
+      "get_machine_clients"
     ],
     "include_in_schema": true
   },
@@ -1558,10 +1558,10 @@
     ],
     "status_code": null,
     "dependencies": [
-      "get_owner_sources"
+      "get_owner_clients"
     ],
     "auth_dependencies": [
-      "get_owner_sources"
+      "get_owner_clients"
     ],
     "include_in_schema": true
   },
@@ -1578,10 +1578,10 @@
     ],
     "status_code": 201,
     "dependencies": [
-      "get_owner_sources"
+      "get_owner_clients"
     ],
     "auth_dependencies": [
-      "get_owner_sources"
+      "get_owner_clients"
     ],
     "include_in_schema": true
   },
@@ -1598,10 +1598,10 @@
     ],
     "status_code": null,
     "dependencies": [
-      "get_owner_sources"
+      "get_owner_clients"
     ],
     "auth_dependencies": [
-      "get_owner_sources"
+      "get_owner_clients"
     ],
     "include_in_schema": true
   },
@@ -1618,10 +1618,10 @@
     ],
     "status_code": null,
     "dependencies": [
-      "get_owner_sources"
+      "get_owner_clients"
     ],
     "auth_dependencies": [
-      "get_owner_sources"
+      "get_owner_clients"
     ],
     "include_in_schema": true
   },
@@ -1638,10 +1638,10 @@
     ],
     "status_code": null,
     "dependencies": [
-      "get_owner_sources"
+      "get_owner_clients"
     ],
     "auth_dependencies": [
-      "get_owner_sources"
+      "get_owner_clients"
     ],
     "include_in_schema": true
   },
@@ -1658,10 +1658,10 @@
     ],
     "status_code": null,
     "dependencies": [
-      "get_owner_sources"
+      "get_owner_clients"
     ],
     "auth_dependencies": [
-      "get_owner_sources"
+      "get_owner_clients"
     ],
     "include_in_schema": true
   },
@@ -1678,10 +1678,10 @@
     ],
     "status_code": null,
     "dependencies": [
-      "get_owner_sources"
+      "get_owner_clients"
     ],
     "auth_dependencies": [
-      "get_owner_sources"
+      "get_owner_clients"
     ],
     "include_in_schema": true
   },

@@ -14,11 +14,11 @@ from google.protobuf.json_format import MessageToDict
 
 from agent.facade import AgentFacade
 from api_gateway.dependencies import get_api_gateway_deps
+from client import ClientService
 from models.agent_group import AgentGroup
-from source import SourceService
 from tests.fakes.a2a_v1 import make_agent_card
 from tests.fakes.account import build_service, store_with_owner
-from tests.fakes.source import store_with_requirement
+from tests.fakes.client import store_with_requirement
 from tests.test_agent_facade import Resolver, _doc
 from tests.test_agent_repository import _repo
 
@@ -63,8 +63,8 @@ async def network_api(monkeypatch, app):
     monkeypatch.setattr(app, "dependency_overrides", app.dependency_overrides.copy())
     monkeypatch.setattr(
         app.state,
-        "source_registry",
-        SourceService(store_with_requirement(required=False), auth_mode="mock"),
+        "client_registry",
+        ClientService(store_with_requirement(required=False), auth_mode="mock"),
         raising=False,
     )
     monkeypatch.setattr(
@@ -174,14 +174,14 @@ async def test_search_and_profile_reject_invalid_requests(
     assert response.status_code == status
 
 
-async def clerk_source(monkeypatch, app, client, *, owner_id: str | None):
+async def clerk_client(monkeypatch, app, client, *, owner_id: str | None):
     """A Clerk-mode configuration, which requires a token.
 
     ``owner_id`` None sends no token; otherwise the owner account took that
     administrator's id, and the request carries a source token and acts for it.
     """
-    sources = SourceService(store_with_requirement(required=True), auth_mode="clerk")
-    monkeypatch.setattr(app.state, "source_registry", sources)
+    sources = ClientService(store_with_requirement(required=True), auth_mode="clerk")
+    monkeypatch.setattr(app.state, "client_registry", sources)
     store = store_with_owner(owner_id or "user_local_developer")
     monkeypatch.setattr(
         app.state, "owner_account", build_service(store=store, auth_mode="clerk")
@@ -195,7 +195,7 @@ async def test_clerk_mode_without_a_token_fails_before_store_access(
     network_api, monkeypatch, app
 ):
     client, collection, groups = network_api
-    await clerk_source(monkeypatch, app, client, owner_id=None)
+    await clerk_client(monkeypatch, app, client, owner_id=None)
 
     discovery = await client.get(
         "/api/v1/agents/discovery", params={"group_id": "team"}
@@ -212,7 +212,7 @@ async def test_clerk_cannot_discover_foreign_private_agent(
     network_api, monkeypatch, app, status
 ):
     client, collection, _ = network_api
-    await clerk_source(monkeypatch, app, client, owner_id="another-user")
+    await clerk_client(monkeypatch, app, client, owner_id="another-user")
     collection.docs[0]["agent_status"] = status
 
     discovery = await client.get("/api/v1/agents/discovery")
@@ -227,7 +227,7 @@ async def test_clerk_cannot_use_guessed_foreign_group_even_for_public_agent(
     network_api, monkeypatch, app
 ):
     client, collection, groups = network_api
-    await clerk_source(monkeypatch, app, client, owner_id="another-user")
+    await clerk_client(monkeypatch, app, client, owner_id="another-user")
     collection.docs[0]["is_public"] = True
     group = groups.get_agent_group_by_id.return_value
     group.group_id = uuid5(
@@ -249,7 +249,7 @@ async def test_clerk_can_discover_public_or_owned_agent(
 ):
     client, collection, groups = network_api
     user_id = "another-user" if public else "user_local_developer"
-    await clerk_source(monkeypatch, app, client, owner_id=user_id)
+    await clerk_client(monkeypatch, app, client, owner_id=user_id)
     collection.docs[0]["is_public"] = public
     groups.get_agent_group_by_id.return_value.owner_id = user_id
 

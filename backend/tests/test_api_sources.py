@@ -15,9 +15,11 @@ import httpx
 import pytest
 
 from account.protocols import OWNER_USER_ID, OwnerCreate
+from api_gateway.client_token import ClientCaller
 from api_gateway.dependencies import get_agent_network
 from api_gateway.owner_session import get_current_user
-from api_gateway.source_token import SourceCaller
+from client import ClientService
+from client.protocols import NO_TOKEN, ClientIdentity
 from common.auth import ClerkUser
 from main import create_app
 from models.session import (
@@ -27,10 +29,8 @@ from models.session import (
     SessionStatus,
 )
 from session.protocols import SessionOwner
-from source import SourceService
-from source.protocols import NO_TOKEN, SourceIdentity
 from tests.fakes.account import build_service, sign_out, store_with_owner
-from tests.fakes.source import MemorySourceStore, store_with_requirement
+from tests.fakes.client import MemoryClientStore, store_with_requirement
 
 NOW = datetime(2026, 11, 20, tzinfo=UTC)
 API = "/api/v1"
@@ -56,10 +56,10 @@ class RecordingFacade:
     """Records the owner and source of each call; answers with fixed payloads."""
 
     def __init__(self) -> None:
-        self.calls: list[tuple[str, SessionOwner, SourceIdentity | None]] = []
+        self.calls: list[tuple[str, SessionOwner, ClientIdentity | None]] = []
 
-    async def send(self, request, *, owner, source, resolver):
-        self.calls.append(("send", owner, source))
+    async def send(self, request, *, owner, client, resolver):
+        self.calls.append(("send", owner, client))
         return SessionMessageResponse(
             session_id="sess-1",
             client_request_id=request.client_request_id,
@@ -71,14 +71,14 @@ class RecordingFacade:
             updated_at=NOW,
         )
 
-    async def check(self, session_id, *, owner, source):
-        self.calls.append(("check", owner, source))
+    async def check(self, session_id, *, owner, client):
+        self.calls.append(("check", owner, client))
         return SessionStatus(
             session_id=session_id, state="working", created_at=NOW, updated_at=NOW
         )
 
-    async def close(self, session_id, *, owner, source):
-        self.calls.append(("close", owner, source))
+    async def close(self, session_id, *, owner, client):
+        self.calls.append(("close", owner, client))
         return SessionClosed(session_id=session_id, status="closed")
 
     async def close_for_owner(self, session_id, *, owner):
@@ -108,10 +108,10 @@ def make_app(
     facade = RecordingFacade()
     if required is None:
         required = auth_mode == "clerk"
-    sources = SourceService(
+    sources = ClientService(
         store_with_requirement(required=required), auth_mode=auth_mode
     )
-    app.state.source_registry = sources
+    app.state.client_registry = sources
     store = store_with_owner(owner_id) if owner_id else None
     app.state.owner_account = build_service(store=store, auth_mode=auth_mode)
     app.state.api_gateway_deps = SimpleNamespace(
@@ -159,7 +159,7 @@ async def test_a_token_names_its_source():
 
     assert response.status_code == 200
     _, owner, source = facade.calls[0]
-    assert (source.source_id, source.name, source.has_token) == (
+    assert (source.client_id, source.name, source.has_token) == (
         created.source_id,
         "CI bot",
         True,
@@ -191,7 +191,7 @@ async def test_any_other_mark_counts_as_the_api(value):
         await client.post(
             SEND, json=BODY, headers={**bearer(created.token), "X-Hybro-Via": value}
         )
-    listed = await sources.list_sources()
+    listed = await sources.list_clients()
     assert listed.sources[0].last_used_via == "api"
 
 
@@ -293,7 +293,7 @@ async def test_with_the_switch_on_no_token_is_refused_and_a_token_passes():
     assert {r.json()["detail"]["code"] for r in refused} == {"source_token_required"}
     assert refused[0].headers["www-authenticate"] == "Bearer"
     assert accepted.status_code == 200
-    assert facade.calls[0][2].source_id == created.source_id
+    assert facade.calls[0][2].client_id == created.source_id
 
 
 async def test_the_switch_applies_at_once_without_a_restart():
@@ -411,8 +411,8 @@ async def test_a_remote_mcp_client_by_a_trusted_address_passes(headers, token):
         )
 
     assert response.status_code == 200, response.text
-    assert facade.calls[0][2].source_id == (
-        created.source_id if token else NO_TOKEN.source_id
+    assert facade.calls[0][2].client_id == (
+        created.source_id if token else NO_TOKEN.client_id
     )
 
 
@@ -465,7 +465,7 @@ async def test_a_token_with_a_foreign_origin_is_accepted():
         )
 
     assert response.status_code == 200
-    assert facade.calls[0][2].source_id == created.source_id
+    assert facade.calls[0][2].client_id == created.source_id
 
 
 # -- The owner's session routes ---------------------------------------------
@@ -516,15 +516,15 @@ async def test_the_source_close_route_needs_the_source():
 
     assert response.status_code == 200
     name, _, source = facade.calls[0]
-    assert name == "close" and source.source_id == created.source_id
+    assert name == "close" and source.client_id == created.source_id
 
 
 def test_get_agent_network_acts_for_the_caller_owner():
     deps = SimpleNamespace(
         agent_service=object(), agent_group_store=object(), agent_matcher=object()
     )
-    caller = SourceCaller(
-        source=NO_TOKEN, owner=SessionOwner(user_id="user_abc", name="user_abc")
+    caller = ClientCaller(
+        client=NO_TOKEN, owner=SessionOwner(user_id="user_abc", name="user_abc")
     )
 
     network = get_agent_network(caller, deps)
@@ -658,7 +658,7 @@ async def test_the_switch_is_the_owners_only(monkeypatch):
 
 async def test_an_unseeded_switch_is_unavailable_and_requires_a_token():
     app, facade, _ = make_app()
-    app.state.source_registry = SourceService(MemorySourceStore(), auth_mode="mock")
+    app.state.client_registry = ClientService(MemoryClientStore(), auth_mode="mock")
     async with client_for(app) as client:
         read = await client.get(f"{API}/sources/token-requirement")
         change = await client.put(
@@ -674,7 +674,7 @@ async def test_an_unseeded_switch_is_unavailable_and_requires_a_token():
 
 async def test_sources_are_unavailable_without_the_registry():
     app, facade, _ = make_app()
-    del app.state.source_registry
+    del app.state.client_registry
     async with client_for(app) as client:
         response = await client.post(SEND, json=BODY)
     assert response.status_code == 503

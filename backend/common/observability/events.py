@@ -903,15 +903,15 @@ LOCAL_AGENT_RECORDS_PRUNED = define(
     "local_agent_records_pruned", INFO, required={"pruned_record_count"}
 )
 
-# source
+# client
 
-SOURCE_LAST_USE_WRITE_FAILED = define(
-    "source_last_use_write_failed", WARNING, required={"source_id"}
+CLIENT_LAST_USE_WRITE_FAILED = define(
+    "client_last_use_write_failed", WARNING, required={"client_id"}
 )
 # Once at startup: other machines can reach the port, and a request without a
-# source token is accepted.
-SOURCE_TOKEN_NOT_REQUIRED_ON_PUBLIC_LISTENER = define(
-    "source_token_not_required_on_public_listener", WARNING, system=True
+# client token is accepted.
+CLIENT_TOKEN_NOT_REQUIRED_ON_PUBLIC_LISTENER = define(
+    "client_token_not_required_on_public_listener", WARNING, system=True
 )
 
 # session

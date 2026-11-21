@@ -1,9 +1,9 @@
 """The container side of ``hybro source``; run by ``scripts/hybro``::
 
     docker exec <container> /app/backend/.venv/bin/python \\
-        /app/backend/source_cli.py create --name <name>
+        /app/backend/client_cli.py create --name <name>
     docker exec <container> /app/backend/.venv/bin/python \\
-        /app/backend/source_cli.py requirement
+        /app/backend/client_cli.py requirement
 
 ``create`` creates a source through the machine-only route over loopback and
 prints the new source token once. ``requirement`` prints ``on`` or ``off``,
@@ -36,7 +36,7 @@ from owner_cli import (
     read_handoff,
 )
 
-USAGE = "usage: source_cli.py create --name <name> | requirement\n"
+USAGE = "usage: client_cli.py create --name <name> | requirement\n"
 # The switch is product state; only this helper and the backend read it.
 REQUIREMENT_PATH = "/sources/token-requirement"
 

@@ -1428,11 +1428,11 @@ def test_help_lists_every_command():
 
 # ---- source ----
 
-SOURCE_HELPER = "/app/backend/source_cli.py"
+CLIENT_HELPER = "/app/backend/client_cli.py"
 
 
 def source_runs(cli: Cli) -> list[list[str]]:
-    return [call for call in cli.calls() if SOURCE_HELPER in call and call[-2:] != ["-f", SOURCE_HELPER]]
+    return [call for call in cli.calls() if CLIENT_HELPER in call and call[-2:] != ["-f", CLIENT_HELPER]]
 
 
 @pytest.mark.parametrize("args", [["--name", "CI bot"], ["--name=CI bot"]])
@@ -1443,8 +1443,8 @@ def test_source_create_runs_the_helper(cli, args):
     assert result.returncode == 0, cli.output
     assert result.stdout == cli.state["exec_out"]
     calls = cli.calls()
-    probe = ["exec", "hybro", "test", "-f", SOURCE_HELPER]
-    run = ["exec", "hybro", PYTHON, SOURCE_HELPER, "create", "--name", "CI bot"]
+    probe = ["exec", "hybro", "test", "-f", CLIENT_HELPER]
+    run = ["exec", "hybro", PYTHON, CLIENT_HELPER, "create", "--name", "CI bot"]
     assert calls.index(probe) < calls.index(run)
     assert source_runs(cli) == [run]
 
@@ -1953,7 +1953,7 @@ def test_status_warns_on_a_public_listener_with_the_requirement_off(cli, mode):
     result = cli.run("status")
     assert result.returncode == 0, cli.output
     assert result.stdout.splitlines().count(OPEN_WARNING) == 1
-    assert requirement_runs(cli) == [["exec", "hybro", PYTHON, SOURCE_HELPER, "requirement"]]
+    assert requirement_runs(cli) == [["exec", "hybro", PYTHON, CLIENT_HELPER, "requirement"]]
 
 
 def test_status_does_not_warn_when_the_requirement_is_on(cli):

@@ -16,7 +16,7 @@ MODULE_ROUTE_PROTOCOL_IMPORTS = {
     "context_memory.protocols",
     "policy.protocols",
     "session.protocols",
-    "source.protocols",
+    "client.protocols",
 }
 FORBIDDEN_ROUTE_MODULE_ROOTS = {
     "account",
@@ -27,7 +27,7 @@ FORBIDDEN_ROUTE_MODULE_ROOTS = {
     "a2a_adapter",
     "policy",
     "session",
-    "source",
+    "client",
 }
 
 

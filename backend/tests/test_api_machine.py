@@ -11,9 +11,9 @@ from fastapi.testclient import TestClient
 from api_gateway.cross_site import CrossSiteCheckMiddleware
 from api_gateway.routes import machine_routes
 from api_gateway.routes.machine_routes import TOKEN_HEADER
-from source import SourceService
+from client import ClientService
 from tests.fakes.account import build_service
-from tests.fakes.source import MemorySourceStore, store_with_requirement
+from tests.fakes.client import MemoryClientStore, store_with_requirement
 
 TOKEN = "a" * 64
 PASSWORD = "correct horse battery"
@@ -32,7 +32,7 @@ def _client(service=None, *, token: str = TOKEN) -> TestClient:
     app.add_middleware(CrossSiteCheckMiddleware, api_prefix="/api/v1")
     app.include_router(machine_routes.router, prefix="/api/v1")
     app.state.owner_account = service if service is not None else build_service()
-    app.state.source_registry = SourceService(
+    app.state.client_registry = ClientService(
         store_with_requirement(required=False), auth_mode="mock"
     )
     app.state.machine_token = token
@@ -209,7 +209,7 @@ def test_create_a_source_returns_its_token_once():
     assert body["name"] == "CI bot"
     assert body["token"].startswith("hybro_src_")
     assert body["token_last4"] == body["token"][-4:]
-    listed = asyncio.run(client.app.state.source_registry.list_sources())
+    listed = asyncio.run(client.app.state.client_registry.list_clients())
     assert [s.source_id for s in listed.sources] == [body["source_id"]]
 
 
@@ -262,8 +262,8 @@ def test_the_machine_route_cannot_change_the_switch():
 
 def test_an_unseeded_switch_is_unavailable_to_the_cli():
     client = _client()
-    client.app.state.source_registry = SourceService(
-        MemorySourceStore(), auth_mode="mock"
+    client.app.state.client_registry = ClientService(
+        MemoryClientStore(), auth_mode="mock"
     )
 
     response = client.get(REQUIREMENT, headers=AUTH)

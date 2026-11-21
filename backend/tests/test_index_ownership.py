@@ -46,6 +46,7 @@ def _owners():
         AgentCapabilityIssueMongoRepository,
     )
     from approval.repository import HITLLifecycleStore, HITLRequestStore
+    from client.repository import MongoClientRepository
     from context_memory.repository import (
         ContentStorageMongoRepository,
         MemoryMongoRepository,
@@ -57,7 +58,6 @@ def _owners():
     )
     from diagnostics.repository import DiagnosticsMongoRepository
     from policy.repository import MongoRuleRepository
-    from source.repository import MongoSourceRepository
 
     return (
         AgentMongoRepository,
@@ -72,7 +72,7 @@ def _owners():
         HITLLifecycleStore,
         DiagnosticsMongoRepository,
         MongoAccountRepository,
-        MongoSourceRepository,
+        MongoClientRepository,
         MongoRuleRepository,
     )
 

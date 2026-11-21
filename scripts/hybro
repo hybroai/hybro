@@ -878,8 +878,8 @@ running_listen_mode() {
 # without the helper, or a switch it cannot read, prints nothing.
 print_open_listener_warning() {
     [ "$1" = public ] || return 0
-    docker exec "$CONTAINER" test -f "$SOURCE_HELPER" >/dev/null 2>&1 || return 0
-    requirement=$(docker exec "$CONTAINER" "$DIAG_PYTHON" "$SOURCE_HELPER" requirement 2>/dev/null) || return 0
+    docker exec "$CONTAINER" test -f "$CLIENT_HELPER" >/dev/null 2>&1 || return 0
+    requirement=$(docker exec "$CONTAINER" "$DIAG_PYTHON" "$CLIENT_HELPER" requirement 2>/dev/null) || return 0
     [ "$requirement" = off ] || return 0
     say "WARNING: Hybro listens on an address other machines can reach, and its Source API takes requests without a source token. Anyone who can reach this port can send work to your agents. Turn the requirement on in Access, Sources."
 }
@@ -1019,7 +1019,7 @@ cmd_owner() {
     owner_helper "$@"
 }
 
-SOURCE_HELPER=/app/backend/source_cli.py
+CLIENT_HELPER=/app/backend/client_cli.py
 
 cmd_source() {
     action=${1:-}
@@ -1053,9 +1053,9 @@ cmd_source() {
     '') owner_usage "source needs a command: create" ;;
     *) owner_usage "unknown source command: $action" ;;
     esac
-    require_cli_helper "$SOURCE_HELPER" source
+    require_cli_helper "$CLIENT_HELPER" source
     # 0, 1 and 2 are the helper's answers; any other status is docker exec's.
-    docker exec "$CONTAINER" "$DIAG_PYTHON" "$SOURCE_HELPER" create --name "$name"
+    docker exec "$CONTAINER" "$DIAG_PYTHON" "$CLIENT_HELPER" create --name "$name"
     status=$?
     case $status in
     0 | 1 | 2) return "$status" ;;

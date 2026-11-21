@@ -1,8 +1,8 @@
-"""Source ports.
+"""Client ports.
 
-``SourceRegistry`` is the surface ``api_gateway`` and ``session`` consume:
-the owner's ``/sources`` routes, the machine-only route, the source-token
-check and the names on session payloads. ``SourceStore`` is the durable
+``ClientRegistry`` is the surface ``api_gateway`` and ``session`` consume:
+the owner's ``/sources`` routes, the machine-only route, the client-token
+check and the names on session payloads. ``ClientStore`` is the durable
 record.
 """
 
@@ -11,13 +11,13 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any, Protocol, runtime_checkable
 
-from source.models import (
+from client.models import (
     NO_TOKEN,
-    NO_TOKEN_SOURCE_ID,
+    NO_TOKEN_CLIENT_ID,
+    ClientIdentity,
+    ClientRecord,
     SourceCreate,
-    SourceIdentity,
     SourceList,
-    SourceRecord,
     SourceRename,
     SourceView,
     SourceWithToken,
@@ -27,12 +27,12 @@ from source.models import (
 )
 
 
-class SourceNotFound(Exception):
-    """No source has this id."""
+class ClientNotFound(Exception):
+    """No client has this id."""
 
 
-class SourceRevoked(Exception):
-    """The source is revoked; its token cannot be rotated."""
+class ClientRevoked(Exception):
+    """The client is revoked; its token cannot be rotated."""
 
 
 class TokenRequirementUnset(Exception):
@@ -44,16 +44,16 @@ class TokenRequirementLocked(Exception):
 
 
 @runtime_checkable
-class SourceRegistry(Protocol):
+class ClientRegistry(Protocol):
     async def create(self, name: str) -> SourceWithToken: ...
-    async def list_sources(self) -> SourceList: ...
-    async def rename(self, source_id: str, name: str) -> SourceView: ...
-    async def rotate(self, source_id: str) -> SourceWithToken: ...
-    async def revoke(self, source_id: str) -> SourceView: ...
+    async def list_clients(self) -> SourceList: ...
+    async def rename(self, client_id: str, name: str) -> SourceView: ...
+    async def rotate(self, client_id: str) -> SourceWithToken: ...
+    async def revoke(self, client_id: str) -> SourceView: ...
     async def resolve(
         self, token: str, *, via: Via = "api"
-    ) -> SourceIdentity | None: ...
-    async def identities(self, source_ids: list[str]) -> dict[str, SourceIdentity]: ...
+    ) -> ClientIdentity | None: ...
+    async def identities(self, client_ids: list[str]) -> dict[str, ClientIdentity]: ...
     async def token_required(self) -> bool: ...
     async def token_requirement(self) -> TokenRequirement: ...
     async def set_token_required(self, required: bool) -> TokenRequirement: ...
@@ -63,17 +63,17 @@ class SourceRegistry(Protocol):
 
 
 @runtime_checkable
-class SourceStore(Protocol):
+class ClientStore(Protocol):
     async def ensure_indexes(self) -> None: ...
-    async def insert(self, record: SourceRecord) -> None: ...
-    async def get(self, source_id: str) -> SourceRecord | None: ...
-    async def get_by_token_hash(self, token_hash: str) -> SourceRecord | None: ...
-    async def list_all(self) -> list[SourceRecord]: ...
-    async def list_by_ids(self, source_ids: list[str]) -> list[SourceRecord]: ...
+    async def insert(self, record: ClientRecord) -> None: ...
+    async def get(self, client_id: str) -> ClientRecord | None: ...
+    async def get_by_token_hash(self, token_hash: str) -> ClientRecord | None: ...
+    async def list_all(self) -> list[ClientRecord]: ...
+    async def list_by_ids(self, client_ids: list[str]) -> list[ClientRecord]: ...
     async def update(
-        self, source_id: str, fields: dict[str, Any], *, live_only: bool = False
-    ) -> SourceRecord | None: ...
-    async def touch(self, source_id: str, at: datetime, via: Via) -> None: ...
+        self, client_id: str, fields: dict[str, Any], *, live_only: bool = False
+    ) -> ClientRecord | None: ...
+    async def touch(self, client_id: str, at: datetime, via: Via) -> None: ...
     async def get_requirement(self) -> TokenRequirement | None: ...
     async def seed_requirement(self, seed: TokenRequirement) -> TokenRequirement: ...
     async def set_requirement(
@@ -83,15 +83,15 @@ class SourceStore(Protocol):
 
 __all__ = [
     "NO_TOKEN",
-    "NO_TOKEN_SOURCE_ID",
+    "NO_TOKEN_CLIENT_ID",
     "SourceCreate",
-    "SourceIdentity",
+    "ClientIdentity",
     "SourceList",
-    "SourceNotFound",
-    "SourceRegistry",
+    "ClientNotFound",
+    "ClientRegistry",
     "SourceRename",
-    "SourceRevoked",
-    "SourceStore",
+    "ClientRevoked",
+    "ClientStore",
     "SourceView",
     "SourceWithToken",
     "TokenRequirement",

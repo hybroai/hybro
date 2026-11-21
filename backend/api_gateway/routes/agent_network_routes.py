@@ -1,6 +1,6 @@
 """Caller-visible agent discovery on the Source API.
 
-Each route takes a source token (``get_request_source``) and reads the
+Each route takes a source token (``get_request_client``) and reads the
 owner's agent network.
 """
 

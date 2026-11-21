@@ -16,8 +16,8 @@ from agent.protocols import (
     AgentNetworkAccess,
     AgentSuggestionService,
 )
-from api_gateway.source_token import (
-    RequestSourceDependency,
+from api_gateway.client_token import (
+    RequestClientDependency,
     SignedInOwnerDependency,
 )
 from chat.protocols import ChatRooms
@@ -203,10 +203,10 @@ A2APushReceiverDependency = Annotated[
 
 
 def get_agent_network(
-    caller: RequestSourceDependency,
+    caller: RequestClientDependency,
     deps: APIGatewayDeps = _API_GATEWAY_DEPS_DEPENDENCY,
 ) -> AgentNetworkAccess:
-    """The owner's agent network, for a Source API request."""
+    """The owner's agent network, for a Client API request."""
     return AgentNetworkService(
         deps.agent_service,
         deps.agent_group_store,
@@ -219,14 +219,14 @@ AgentNetworkDependency = Annotated[AgentNetworkAccess, Depends(get_agent_network
 
 
 def get_session_access(
-    caller: RequestSourceDependency,
+    caller: RequestClientDependency,
     deps: APIGatewayDeps = _API_GATEWAY_DEPS_DEPENDENCY,
 ) -> SessionAccess:
-    """Bind the session facade to one source and its owner for one request."""
+    """Bind the session facade to one client and its owner for one request."""
     return BoundSessionAccess(
         deps.session_facade,
         owner=caller.owner,
-        source=caller.source,
+        client=caller.client,
         resolver=AgentNetworkService(
             deps.agent_service,
             deps.agent_group_store,
@@ -245,8 +245,8 @@ def get_owner_session_access(
 ) -> OwnerSessionAccess:
     """Bind the session facade to the signed-in owner for one request.
 
-    It is the identity the Source API acts for, so the owner sees the
-    sessions that sources opened.
+    It is the identity the Client API acts for, so the owner sees the
+    sessions that clients opened.
     """
     return BoundOwnerSessionAccess(deps.session_facade, owner=owner)
 

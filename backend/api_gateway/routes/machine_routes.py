@@ -1,4 +1,4 @@
-"""Machine-only routes; behaviour lives in ``account`` and ``source``.
+"""Machine-only routes; behaviour lives in ``account`` and ``client``.
 
 The ``hybro`` command reaches them from inside the container, over loopback,
 with the per-start token of the handoff file the entrypoint writes. Caddy
@@ -21,6 +21,7 @@ from account.protocols import (
     PasswordReset,
     SetupCode,
 )
+from api_gateway.client_token import get_client_registry, refuse_unset_requirement
 from api_gateway.errors import QuietValidationRoute
 from api_gateway.owner_session import (
     ACCOUNT_ERRORS,
@@ -28,10 +29,9 @@ from api_gateway.owner_session import (
     refuse_account_error,
 )
 from api_gateway.registry import mark_declared_owner
-from api_gateway.source_token import get_source_registry, refuse_unset_requirement
-from source.protocols import (
+from client.protocols import (
+    ClientRegistry,
     SourceCreate,
-    SourceRegistry,
     SourceWithToken,
     TokenRequirement,
     TokenRequirementUnset,
@@ -68,14 +68,14 @@ def get_machine_account(
 MachineAccountDependency = Annotated[OwnerAccount, Depends(get_machine_account)]
 
 
-def get_machine_sources(
+def get_machine_clients(
     _token: Annotated[None, Depends(require_machine_token)],
-    sources: Annotated[SourceRegistry, Depends(get_source_registry)],
-) -> SourceRegistry:
-    return sources
+    clients: Annotated[ClientRegistry, Depends(get_client_registry)],
+) -> ClientRegistry:
+    return clients
 
 
-MachineSourcesDependency = Annotated[SourceRegistry, Depends(get_machine_sources)]
+MachineClientsDependency = Annotated[ClientRegistry, Depends(get_machine_clients)]
 
 
 @router.post("/setup-code")
@@ -109,7 +109,7 @@ async def machine_reset_password(
 
 @router.post("/sources", status_code=201)
 async def machine_create_source(
-    body: SourceCreate, sources: MachineSourcesDependency
+    body: SourceCreate, sources: MachineClientsDependency
 ) -> SourceWithToken:
     """Create a source for ``hybro source create``; its token is returned once."""
     return await sources.create(body.name)
@@ -117,7 +117,7 @@ async def machine_create_source(
 
 @router.get("/sources/token-requirement")
 async def machine_get_token_requirement(
-    sources: MachineSourcesDependency,
+    sources: MachineClientsDependency,
 ) -> TokenRequirement:
     """The owner's switch, for the warning ``hybro`` prints; read only."""
     try:

@@ -1,4 +1,4 @@
-"""The owner's sources and their tokens; behaviour lives in ``source``.
+"""The owner's sources and their tokens; behaviour lives in ``client``.
 
 Every route takes the owner's credential and refuses any other user. A token
 is returned once, by create and rotate, and never again.
@@ -10,20 +10,20 @@ from typing import Annotated, NoReturn
 
 from fastapi import APIRouter, Depends, HTTPException
 
-from api_gateway.errors import QuietValidationRoute
-from api_gateway.registry import mark_declared_owner
-from api_gateway.source_token import (
+from api_gateway.client_token import (
+    ClientRegistryDependency,
     SignedInOwnerDependency,
-    SourceRegistryDependency,
     refuse_unset_requirement,
 )
-from source.protocols import (
+from api_gateway.errors import QuietValidationRoute
+from api_gateway.registry import mark_declared_owner
+from client.protocols import (
+    ClientNotFound,
+    ClientRegistry,
+    ClientRevoked,
     SourceCreate,
     SourceList,
-    SourceNotFound,
-    SourceRegistry,
     SourceRename,
-    SourceRevoked,
     SourceView,
     SourceWithToken,
     TokenRequirement,
@@ -56,30 +56,30 @@ def _refuse(status: int, code: str, message: str) -> NoReturn:
     raise HTTPException(status, detail={"code": code, "message": message})
 
 
-async def get_owner_sources(
-    owner: SignedInOwnerDependency, sources: SourceRegistryDependency
-) -> SourceRegistry:
-    """Owner only; a source token cannot call these routes."""
-    return sources
+async def get_owner_clients(
+    owner: SignedInOwnerDependency, clients: ClientRegistryDependency
+) -> ClientRegistry:
+    """Owner only; a client token cannot call these routes."""
+    return clients
 
 
-OwnerSourcesDependency = Annotated[SourceRegistry, Depends(get_owner_sources)]
+OwnerClientsDependency = Annotated[ClientRegistry, Depends(get_owner_clients)]
 
 
 def _missing(exc: Exception) -> NoReturn:
-    if isinstance(exc, SourceRevoked):
+    if isinstance(exc, ClientRevoked):
         _refuse(409, "source_revoked", "This source is revoked.")
     _refuse(404, "source_not_found", "No source has this id.")
 
 
 @router.get("", responses=_ERRORS)
-async def list_sources(sources: OwnerSourcesDependency) -> SourceList:
+async def list_sources(sources: OwnerClientsDependency) -> SourceList:
     """List every source, oldest first. Tokens are never returned here."""
-    return await sources.list_sources()
+    return await sources.list_clients()
 
 
 @router.get("/token-requirement", responses=_REQUIREMENT_READ_ERRORS)
-async def get_token_requirement(sources: OwnerSourcesDependency) -> TokenRequirement:
+async def get_token_requirement(sources: OwnerClientsDependency) -> TokenRequirement:
     """Whether a Source API request needs a source token."""
     try:
         return await sources.token_requirement()
@@ -89,7 +89,7 @@ async def get_token_requirement(sources: OwnerSourcesDependency) -> TokenRequire
 
 @router.put("/token-requirement", responses=_REQUIREMENT_CHANGE_ERRORS)
 async def set_token_requirement(
-    body: TokenRequirementChange, sources: OwnerSourcesDependency
+    body: TokenRequirementChange, sources: OwnerClientsDependency
 ) -> TokenRequirement:
     """Turn the requirement on or off; it applies to the next request."""
     try:
@@ -106,7 +106,7 @@ async def set_token_requirement(
 
 @router.post("", status_code=201, responses=_ERRORS)
 async def create_source(
-    body: SourceCreate, sources: OwnerSourcesDependency
+    body: SourceCreate, sources: OwnerClientsDependency
 ) -> SourceWithToken:
     """Create a source. Its token is in this response only."""
     return await sources.create(body.name)
@@ -114,31 +114,31 @@ async def create_source(
 
 @router.patch("/{source_id}", responses=_ERRORS)
 async def rename_source(
-    source_id: str, body: SourceRename, sources: OwnerSourcesDependency
+    source_id: str, body: SourceRename, sources: OwnerClientsDependency
 ) -> SourceView:
     try:
         return await sources.rename(source_id, body.name)
-    except SourceNotFound as exc:
+    except ClientNotFound as exc:
         _missing(exc)
 
 
 @router.post("/{source_id}/rotate", responses=_ERRORS)
 async def rotate_source_token(
-    source_id: str, sources: OwnerSourcesDependency
+    source_id: str, sources: OwnerClientsDependency
 ) -> SourceWithToken:
     """Replace the token. The old one stops at once; the sessions stay."""
     try:
         return await sources.rotate(source_id)
-    except (SourceNotFound, SourceRevoked) as exc:
+    except (ClientNotFound, ClientRevoked) as exc:
         _missing(exc)
 
 
 @router.post("/{source_id}/revoke", responses=_ERRORS)
-async def revoke_source(source_id: str, sources: OwnerSourcesDependency) -> SourceView:
+async def revoke_source(source_id: str, sources: OwnerClientsDependency) -> SourceView:
     """Stop the token for good. The source and its sessions stay listed."""
     try:
         return await sources.revoke(source_id)
-    except SourceNotFound as exc:
+    except ClientNotFound as exc:
         _missing(exc)
 
 

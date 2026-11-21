@@ -44,7 +44,7 @@ OWNER_CLI = (
 )
 SOURCE_CLI = (
     "/app/backend/.venv/bin/python",
-    "/app/backend/source_cli.py",
+    "/app/backend/client_cli.py",
 )
 
 

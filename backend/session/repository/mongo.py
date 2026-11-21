@@ -16,13 +16,18 @@ _PROJECTION = {"_id": 0}
 SESSION_INDEXES: tuple[dict[str, Any], ...] = (
     {"keys": [("session_id", 1)], "name": "session_id_unique", "unique": True},
     {
-        # One session per owner, source and creation request; retries of a
+        # One session per owner, client and creation request; retries of a
         # first send load the reserved record instead of opening a second
-        # session, and another source's request id never matches.
-        "keys": [("owner_user_id", 1), ("source_id", 1), ("creation_request_id", 1)],
-        "name": "session_source_creation_request",
+        # session, and another client's request id never matches. A session
+        # stored under the old field name source_id has no client_id and stays
+        # outside.
+        "keys": [("owner_user_id", 1), ("client_id", 1), ("creation_request_id", 1)],
+        "name": "session_client_creation_request",
         "unique": True,
-        "partialFilterExpression": {"creation_request_id": {"$type": "string"}},
+        "partialFilterExpression": {
+            "creation_request_id": {"$type": "string"},
+            "client_id": {"$type": "string"},
+        },
     },
     {
         "keys": [("owner_user_id", 1), ("status", 1), ("last_activity_at", -1)],
@@ -31,9 +36,10 @@ SESSION_INDEXES: tuple[dict[str, Any], ...] = (
 )
 
 
-# Unique per owner only, from before sources; it would refuse source B a request
-# id that source A already used.
-_OBSOLETE_INDEXES = ("session_creation_request",)
+# Unique per owner only, from before clients; it would refuse client B a request
+# id that client A already used. The second keyed on ``source_id``, the field's
+# name before the rename to ``client_id``.
+_OBSOLETE_INDEXES = ("session_creation_request", "session_source_creation_request")
 
 
 class MongoSessionRepository:
@@ -56,7 +62,7 @@ class MongoSessionRepository:
             existing = await self._sessions.find_one(
                 {
                     "owner_user_id": record.owner_user_id,
-                    "source_id": record.source_id,
+                    "client_id": record.client_id,
                     "creation_request_id": record.creation_request_id,
                 },
                 projection=_PROJECTION,
@@ -89,7 +95,7 @@ class MongoSessionRepository:
         *,
         client_request_id: str,
         user_message_id: str,
-        source_id: str,
+        client_id: str,
         event_seq: int,
         at: datetime,
     ) -> SessionRecord | None:
@@ -111,7 +117,7 @@ class MongoSessionRepository:
                 "requests": {
                     "client_request_id": client_request_id,
                     "user_message_id": user_message_id,
-                    "source_id": source_id,
+                    "client_id": client_id,
                     "sent_at": at,
                 }
             },

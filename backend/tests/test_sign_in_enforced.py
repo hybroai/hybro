@@ -17,7 +17,7 @@ import main
 from account.protocols import OwnerCreate
 from api_gateway.owner_session import SESSION_COOKIE
 from tests.fakes.account import MemoryAccountStore, build_service
-from tests.fakes.source import store_with_requirement
+from tests.fakes.client import store_with_requirement
 
 API = "/api/v1"
 PASSWORD = "correct horse battery"
@@ -44,7 +44,7 @@ class RecordingCatalog:
 
 
 async def make_app(*, with_owner: bool = True, **account_kwargs):
-    from source import SourceService
+    from client import ClientService
 
     app = main.create_app()
     store = account_kwargs.pop("store", None) or MemoryAccountStore()
@@ -52,7 +52,7 @@ async def make_app(*, with_owner: bool = True, **account_kwargs):
     if with_owner:
         await account.create_owner(OwnerCreate(**OWNER))
     app.state.owner_account = account
-    app.state.source_registry = SourceService(
+    app.state.client_registry = ClientService(
         store_with_requirement(required=False), auth_mode="mock"
     )
     catalog = RecordingCatalog()

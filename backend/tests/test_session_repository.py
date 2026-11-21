@@ -11,7 +11,11 @@ from pymongo import ReturnDocument
 from pymongo.errors import DuplicateKeyError
 
 from session.models import SessionRecord
-from session.repository.mongo import SESSION_INDEXES, MongoSessionRepository
+from session.repository.mongo import (
+    _OBSOLETE_INDEXES,
+    SESSION_INDEXES,
+    MongoSessionRepository,
+)
 
 NOW = datetime(2026, 10, 14, tzinfo=UTC)
 
@@ -21,7 +25,7 @@ def _record(**overrides) -> SessionRecord:
         "session_id": "sess-1",
         "owner_user_id": "owner-1",
         "client_label": "Buyer agent",
-        "source_id": "src_ci",
+        "client_id": "src_ci",
         "creation_request_id": "cr-1",
         "opened_at": NOW,
         "last_activity_at": NOW,
@@ -57,16 +61,18 @@ async def test_ensure_indexes_creates_partial_unique_creation_index():
         [("session_id", 1)],
         {"name": "session_id_unique", "unique": True},
     )
-    # One session per owner, source and creation request.
-    keys, options = calls["session_source_creation_request"]
+    # One session per owner, client and creation request.
+    keys, options = calls["session_client_creation_request"]
     assert keys == [
         ("owner_user_id", 1),
-        ("source_id", 1),
+        ("client_id", 1),
         ("creation_request_id", 1),
     ]
     assert options["unique"] is True
+    # A session stored before the rename has no client_id and stays outside.
     assert options["partialFilterExpression"] == {
-        "creation_request_id": {"$type": "string"}
+        "creation_request_id": {"$type": "string"},
+        "client_id": {"$type": "string"},
     }
     assert calls["session_owner_status_activity"][0] == [
         ("owner_user_id", 1),
@@ -90,9 +96,53 @@ async def test_ensure_indexes_drops_the_per_owner_creation_index_first():
 
     await repository.ensure_indexes()
 
-    # While the old index stands, source B reusing A's request id would collide.
+    # While the old index stands, client B reusing A's request id would collide.
     assert order[0] == "drop session_creation_request"
-    assert "session_source_creation_request" in order
+    assert "session_client_creation_request" in order
+
+
+def test_the_index_from_before_the_client_rename_is_obsolete():
+    assert "session_source_creation_request" in _OBSOLETE_INDEXES
+    assert "session_creation_request" in _OBSOLETE_INDEXES
+    assert "session_source_creation_request" not in {
+        index["name"] for index in SESSION_INDEXES
+    }
+
+
+@pytest.mark.asyncio
+async def test_ensure_indexes_drops_the_index_keyed_on_source_id_first():
+    repository, collection = _repository()
+    collection.index_information.return_value = {
+        "_id_": {},
+        "session_source_creation_request": {"unique": True},
+    }
+    order: list[str] = []
+    collection.drop_index.side_effect = lambda name: order.append(f"drop {name}")
+    collection.create_index.side_effect = lambda keys, **kw: order.append(kw["name"])
+
+    await repository.ensure_indexes()
+
+    assert order[0] == "drop session_source_creation_request"
+    assert order[1:] == [index["name"] for index in SESSION_INDEXES]
+
+
+def test_a_session_stored_before_the_rename_reads_without_a_client():
+    doc = _record().model_dump()
+    del doc["client_id"]
+    doc["source_id"] = "src_ci"
+    doc["requests"] = [
+        {
+            "client_request_id": "cr-1",
+            "user_message_id": "msg-1",
+            "source_id": "src_ci",
+            "sent_at": NOW,
+        }
+    ]
+
+    record = SessionRecord.model_validate(doc)
+
+    assert record.client_id is None
+    assert record.requests[0].client_id is None
 
 
 @pytest.mark.asyncio
@@ -121,7 +171,7 @@ async def test_reserve_returns_existing_record_on_duplicate_creation_request():
     assert stored.session_id == "sess-existing"
     assert collection.find_one.await_args.args[0] == {
         "owner_user_id": "owner-1",
-        "source_id": "src_ci",
+        "client_id": "src_ci",
         "creation_request_id": "cr-1",
     }
 
@@ -176,7 +226,7 @@ async def test_record_send_and_close_update_fields():
         "sess-1",
         client_request_id="cr-2",
         user_message_id="msg-2",
-        source_id="src_ci",
+        client_id="src_ci",
         event_seq=7,
         at=NOW,
     )
@@ -198,7 +248,7 @@ async def test_record_send_and_close_update_fields():
             "requests": {
                 "client_request_id": "cr-2",
                 "user_message_id": "msg-2",
-                "source_id": "src_ci",
+                "client_id": "src_ci",
                 "sent_at": NOW,
             }
         },
@@ -223,7 +273,7 @@ async def test_record_send_of_a_recorded_request_does_not_append_it_again():
         "sess-1",
         client_request_id="cr-2",
         user_message_id="msg-2",
-        source_id="src_ci",
+        client_id="src_ci",
         event_seq=7,
         at=NOW,
     )

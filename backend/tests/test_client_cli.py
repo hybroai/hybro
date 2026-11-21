@@ -8,7 +8,7 @@ from pathlib import Path
 
 import pytest
 
-import source_cli as cli
+import client_cli as cli
 
 MACHINE_TOKEN = "cd" * 32
 BASE_URL = "http://127.0.0.1:8000/api/v1/machine"

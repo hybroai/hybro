@@ -14,8 +14,8 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from fastapi.routing import APIRoute
 
+from api_gateway.client_token import SignedInOwnerDependency
 from api_gateway.registry import mark_declared_owner
-from api_gateway.source_token import SignedInOwnerDependency
 from policy.protocols import (
     RuleCreate,
     RuleLimitReached,
@@ -103,7 +103,7 @@ def _refuse(status: int, code: str, message: str) -> NoReturn:
 async def get_owner_rules(
     request: Request, owner: SignedInOwnerDependency
 ) -> RuleRegistry:
-    """Owner only; a source token cannot call these routes."""
+    """Owner only; a client token cannot call these routes."""
     rules: RuleRegistry | None = getattr(request.app.state, "policy_rules", None)
     if rules is None:
         _refuse(503, "rules_unavailable", "Rules are unavailable.")

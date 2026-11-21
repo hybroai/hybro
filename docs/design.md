@@ -146,7 +146,7 @@ module.
 | Group | A named set of agents. | `agent` | agent group (`agent_groups`) |
 | Standard | A requirement a step's result must meet, such as a time limit or a required field. It attaches to a label the source sends, or to an agent. | `evaluation` | new |
 | Rule | One line set by the instance owner. There are three kinds: route, access and check. | `policy` | new |
-| Source | One program that asks for work. The owner creates it and gives it a token, and Hybro records on every Step which source sent it. Today a source names itself, and the name is not verified. | `source` | client (`client_label`) |
+| Source | One program that asks for work. The owner creates it and gives it a token, and Hybro records on every Step which source sent it. Today a source names itself, and the name is not verified. | `source` | client (`clients`); the name it gives itself is `client_label` |
 
 How the records of one piece of work hang together:
 
@@ -631,7 +631,7 @@ Each module in today's code has one of three statuses:
 | `instance_settings` | Stable | `settings` |
 | `diagnostics`, `room_files` | Stable | Support: logs and files |
 | `account` | Stable | `account` |
-| `source` | Stable | `source` |
+| `client` | Stable | `client` |
 | `jobs` | Stable | `scheduler` |
 | `MCP/server.py` | Stable | A source that uses the Source API |
 | `default_agents` | Stable | The bundled agents |

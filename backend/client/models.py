@@ -1,4 +1,4 @@
-"""Sources: the stored record, the identity a request carries, and the payloads."""
+"""Clients: the stored record, the identity a request carries, and the payloads."""
 
 from __future__ import annotations
 
@@ -17,19 +17,19 @@ from pydantic import (
 
 from common.utils.time import ensure_utc
 
-# The built-in source of a request that carries no token while the requirement
+# The built-in client of a request that carries no token while the requirement
 # is off. It is a constant, never a stored document, so it cannot be renamed,
 # revoked or granted anything.
-NO_TOKEN_SOURCE_ID = "no_token"
+NO_TOKEN_CLIENT_ID = "no_token"
 NO_TOKEN_NAME = "No token"
 # Every token starts with this, so a leaked one is recognisable.
 TOKEN_PREFIX = "hybro_src_"
 
-# How a source's request reached the Source API: through the MCP server, which
+# How a client's request reached the Client API: through the MCP server, which
 # marks its requests, or directly.
 Via = Literal["api", "mcp"]
 
-SourceName = Annotated[
+ClientName = Annotated[
     str, StringConstraints(strip_whitespace=True, min_length=1, max_length=120)
 ]
 
@@ -40,30 +40,30 @@ def _utc(value: datetime | None) -> datetime | None:
 
 
 @dataclass(frozen=True, slots=True)
-class SourceIdentity:
-    """Which source sent a request, as the Source API sees it."""
+class ClientIdentity:
+    """Which client sent a request, as the Client API sees it."""
 
-    source_id: str
+    client_id: str
     name: str
     has_token: bool
 
 
-NO_TOKEN = SourceIdentity(
-    source_id=NO_TOKEN_SOURCE_ID, name=NO_TOKEN_NAME, has_token=False
+NO_TOKEN = ClientIdentity(
+    client_id=NO_TOKEN_CLIENT_ID, name=NO_TOKEN_NAME, has_token=False
 )
 
 
-class SourceRecord(BaseModel):
-    """One source (collection ``sources``).
+class ClientRecord(BaseModel):
+    """One client (collection ``clients``).
 
     ``token_hash`` is the SHA-256 of the token, which is never stored, and
-    ``token_last4`` its last four characters. Both are null once the source is
+    ``token_last4`` its last four characters. Both are null once the client is
     revoked; the record stays, so its sessions still name it.
     """
 
     model_config = ConfigDict(frozen=True)
 
-    source_id: str
+    client_id: str
     name: str
     token_hash: str | None = Field(default=None, repr=False)
     token_last4: str | None = None
@@ -71,7 +71,7 @@ class SourceRecord(BaseModel):
     updated_at: datetime
     last_used_at: datetime | None = None
     # How the last request connected; null before its first use, and for a
-    # source last used before this was recorded.
+    # client last used before this was recorded.
     last_used_via: Via | None = None
     revoked_at: datetime | None = None
 
@@ -83,22 +83,22 @@ class SourceRecord(BaseModel):
     def has_token(self) -> bool:
         return self.revoked_at is None and self.token_hash is not None
 
-    def identity(self) -> SourceIdentity:
-        return SourceIdentity(
-            source_id=self.source_id, name=self.name, has_token=self.has_token
+    def identity(self) -> ClientIdentity:
+        return ClientIdentity(
+            client_id=self.client_id, name=self.name, has_token=self.has_token
         )
 
 
 class SourceCreate(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    name: SourceName
+    name: ClientName
 
 
 class SourceRename(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    name: SourceName
+    name: ClientName
 
 
 class SourceView(BaseModel):
@@ -153,13 +153,13 @@ class TokenRequirementChange(BaseModel):
 __all__ = [
     "NO_TOKEN",
     "NO_TOKEN_NAME",
-    "NO_TOKEN_SOURCE_ID",
+    "NO_TOKEN_CLIENT_ID",
     "TOKEN_PREFIX",
     "SourceCreate",
-    "SourceIdentity",
+    "ClientIdentity",
     "SourceList",
-    "SourceName",
-    "SourceRecord",
+    "ClientName",
+    "ClientRecord",
     "SourceRename",
     "SourceView",
     "SourceWithToken",
