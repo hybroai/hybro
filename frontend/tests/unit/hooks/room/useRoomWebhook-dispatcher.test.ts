@@ -11,6 +11,7 @@ import { toast } from 'sonner'
 import { useMessageStore } from '@/stores/message-store'
 import { useRoomUiStore } from '@/stores/room-ui-store'
 import { getAllAgents } from '@/lib/api/agent'
+import { SendMessage } from '@/lib/api/room'
 import { createSSEDispatcher } from '@/hooks/room/sse-handlers/dispatch'
 import { createProcessingLifecycle } from '@/hooks/room/processing-lifecycle'
 import type { SSEHandlerDeps } from '@/hooks/room/sse-handlers/types'
@@ -68,14 +69,19 @@ function snapshot(roomSeq: number): AnySSEFrame {
   })
 }
 
-function createWrapper(strict: boolean) {
+function createWrapper() {
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false, staleTime: Infinity } },
   })
   return function Wrapper({ children }: { children: React.ReactNode }) {
-    const tree = React.createElement(QueryClientProvider, { client: queryClient }, children)
-    return strict ? React.createElement(React.StrictMode, null, tree) : tree
+    return React.createElement(QueryClientProvider, { client: queryClient }, children)
   }
+}
+
+// React re-runs effects only for a StrictMode at the root, so a StrictMode
+// inside the wrapper would not simulate the remount.
+function renderOptions(strict: boolean) {
+  return { wrapper: createWrapper(), reactStrictMode: strict }
 }
 
 describe('useRoomWebhook stream dispatcher', () => {
@@ -111,7 +117,7 @@ describe('useRoomWebhook stream dispatcher', () => {
         userName: 'Test',
         getToken: async () => 'token',
       }),
-      { wrapper: createWrapper(strict) },
+      renderOptions(strict),
     )
     await waitFor(() => expect(result.current.room).toBeDefined())
 
@@ -144,6 +150,67 @@ describe('useRoomWebhook stream dispatcher', () => {
     })
 
     expect(vi.mocked(toast.error).mock.calls.map((call) => call[0])).toEqual(['six', 'seven'])
+  })
+
+  // Strict Mode runs each effect's cleanup once after mount. That cleanup must
+  // not dispose the room's processing lifecycle: a disposed one is replaced on
+  // the next render, and the new identity re-runs the room reset, which clears
+  // the room's turns, streaming buffers and UI flags mid-session.
+  it.each([false, true])('keeps one processing lifecycle while the room stays open (strict mode: %s)', async (strict) => {
+    vi.mocked(getAllAgents).mockResolvedValue({ success: true, agents: [] } as unknown as Awaited<ReturnType<typeof getAllAgents>>)
+    const originalResetRoom = useRoomUiStore.getState().resetRoom
+    const resetRoom = vi.fn(originalResetRoom)
+    useRoomUiStore.setState({ resetRoom })
+
+    const { useRoomWebhook } = await import('@/hooks/useRoomWebhook')
+    const { result, rerender } = renderHook(
+      () => useRoomWebhook({
+        conversationId: 'room-1',
+        userId: 'u1',
+        userName: 'Test',
+        getToken: async () => 'token',
+      }),
+      renderOptions(strict),
+    )
+    await waitFor(() => expect(result.current.room).toBeTruthy())
+    rerender()
+
+    expect(await act(async () => result.current.sendUserMessage({ userInput: 'hello', mode: 'direct', agentScope: { source: 'room_default' } }))).toBe(true)
+    expect(result.current.processing).toBe(true)
+    // Only Strict Mode's simulated unmount resets the room.
+    expect(resetRoom).toHaveBeenCalledTimes(strict ? 1 : 0)
+    useRoomUiStore.setState({ resetRoom: originalResetRoom })
+  })
+
+  it.each([false, true])('ignores a send response that arrives after unmount (strict mode: %s)', async (strict) => {
+    vi.mocked(getAllAgents).mockResolvedValue({ success: true, agents: [] } as unknown as Awaited<ReturnType<typeof getAllAgents>>)
+    type SendResponse = Awaited<ReturnType<typeof SendMessage>>
+    let resolveSend: (value: SendResponse) => void = () => {}
+    vi.mocked(SendMessage).mockReturnValueOnce(
+      new Promise<SendResponse>((resolve) => { resolveSend = resolve }),
+    )
+
+    const { useRoomWebhook } = await import('@/hooks/useRoomWebhook')
+    const { result, unmount } = renderHook(
+      () => useRoomWebhook({
+        conversationId: 'room-1',
+        userId: 'u1',
+        userName: 'Test',
+        getToken: async () => 'token',
+      }),
+      renderOptions(strict),
+    )
+    await waitFor(() => expect(result.current.room).toBeTruthy())
+
+    let sent: Promise<boolean> = Promise.resolve(false)
+    act(() => { sent = result.current.sendUserMessage({ userInput: 'hello', mode: 'direct', agentScope: { source: 'room_default' } }) })
+    // The response arrives in the same turn as the unmount, with no timer
+    // in between.
+    unmount()
+    resolveSend({ success: true, message_id: 'msg-1' } as unknown as SendResponse)
+    await act(async () => { await sent })
+
+    expect(useRoomUiStore.getState().rooms['room-1']?.processing ?? false).toBe(false)
   })
 })
 
