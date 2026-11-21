@@ -312,8 +312,8 @@ class InstanceSettings:
             port=port,
             listen=listen,
             auth_mode="account",
-            # MCP is served without sign-in, so only a loopback listener offers it.
-            mcp_available=listen == "loopback" if listen is not None else None,
+            # The image serves MCP on every listener; a checkout runs it apart.
+            mcp_available=True if listen is not None else None,
             config_location=CONFIG_LOCATION,
         )
 

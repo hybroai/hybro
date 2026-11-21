@@ -22,6 +22,7 @@ from source.models import (
     SourceView,
     SourceWithToken,
     TokenRequirement,
+    Via,
 )
 from source.protocols import (
     SourceNotFound,
@@ -53,6 +54,7 @@ def _view(record: SourceRecord) -> SourceView:
         token_last4=record.token_last4 if record.has_token else None,
         created_at=record.created_at,
         last_used_at=record.last_used_at,
+        last_used_via=record.last_used_via,
         revoked_at=record.revoked_at,
     )
 
@@ -135,8 +137,11 @@ class SourceService:
             return _view(current)
         return _view(updated)
 
-    async def resolve(self, token: str) -> SourceIdentity | None:
-        """The source of a current token; ``None`` for any other value."""
+    async def resolve(self, token: str, *, via: Via = "api") -> SourceIdentity | None:
+        """The source of a current token; ``None`` for any other value.
+
+        Its last use and how it connected (``via``) are recorded for the owner.
+        """
         if not token.startswith(TOKEN_PREFIX):
             return None
         token_hash = _digest(token)
@@ -149,9 +154,13 @@ class SourceService:
         ):
             return None
         now = self._now()
-        if record.last_used_at is None or now - record.last_used_at >= _TOUCH_INTERVAL:
+        if (
+            record.last_used_at is None
+            or now - record.last_used_at >= _TOUCH_INTERVAL
+            or record.last_used_via != via
+        ):
             try:
-                await self._store.touch(record.source_id, now)
+                await self._store.touch(record.source_id, now, via)
             except Exception as exc:
                 # The time is only shown to the owner; the request goes on.
                 logger.emit(

@@ -8,7 +8,7 @@ from typing import Any
 from pymongo import ReturnDocument
 
 from common.protocols import MongoDAL
-from source.models import SourceRecord, TokenRequirement
+from source.models import SourceRecord, TokenRequirement, Via
 
 _PROJECTION = {"_id": 0}
 # The owner's switch is one document in its own collection.
@@ -84,9 +84,10 @@ class MongoSourceRepository:
             )
         )
 
-    async def touch(self, source_id: str, at: datetime) -> None:
+    async def touch(self, source_id: str, at: datetime, via: Via) -> None:
         await self._sources.update_one(
-            {"source_id": source_id}, {"$set": {"last_used_at": at}}
+            {"source_id": source_id},
+            {"$set": {"last_used_at": at, "last_used_via": via}},
         )
 
     async def get_requirement(self) -> TokenRequirement | None:

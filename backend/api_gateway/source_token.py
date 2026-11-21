@@ -30,7 +30,13 @@ from api_gateway.cross_site import from_own_address
 from api_gateway.owner_session import OwnerAccountDependency, get_current_user
 from common.auth import ClerkUser
 from session.protocols import SessionOwner
-from source.protocols import NO_TOKEN, SourceIdentity, SourceRegistry
+from source.protocols import NO_TOKEN, SourceIdentity, SourceRegistry, Via
+
+# The MCP server sends this header with every backend call. Caddy removes it
+# from requests that come in through the public port, so only a call from
+# inside the image carries it. It decides nothing; the owner sees it as how a
+# source connects.
+VIA_HEADER = "x-hybro-via"
 
 UNKNOWN_TOKEN_MESSAGE = (
     "The Authorization header does not carry a current source token of this "
@@ -119,7 +125,8 @@ async def get_request_source(
     header = request.headers.get("authorization")
     if header is not None:
         token = _bearer_token(header)
-        source = await sources.resolve(token) if token else None
+        via: Via = "mcp" if request.headers.get(VIA_HEADER) == "mcp" else "api"
+        source = await sources.resolve(token, via=via) if token else None
         if source is None:
             _refuse(401, "unknown_source_token", UNKNOWN_TOKEN_MESSAGE, challenge=True)
     elif await sources.token_required():
@@ -150,6 +157,7 @@ __all__ = [
     "SourceCaller",
     "SourceRegistryDependency",
     "UNKNOWN_TOKEN_MESSAGE",
+    "VIA_HEADER",
     "get_request_source",
     "get_signed_in_owner",
     "get_source_registry",

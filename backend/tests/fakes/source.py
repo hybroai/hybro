@@ -11,7 +11,7 @@ from source.models import SourceRecord, TokenRequirement
 class MemorySourceStore:
     def __init__(self) -> None:
         self.records: dict[str, SourceRecord] = {}
-        self.touched: list[tuple[str, datetime]] = []
+        self.touched: list[tuple[str, datetime, str]] = []
         self.requirement: TokenRequirement | None = None
 
     async def ensure_indexes(self) -> None:
@@ -45,11 +45,13 @@ class MemorySourceStore:
         self.records[source_id] = updated
         return updated
 
-    async def touch(self, source_id: str, at: datetime) -> None:
-        self.touched.append((source_id, at))
+    async def touch(self, source_id: str, at: datetime, via: str) -> None:
+        self.touched.append((source_id, at, via))
         record = self.records.get(source_id)
         if record is not None:
-            self.records[source_id] = record.model_copy(update={"last_used_at": at})
+            self.records[source_id] = record.model_copy(
+                update={"last_used_at": at, "last_used_via": via}
+            )
 
     async def get_requirement(self) -> TokenRequirement | None:
         return self.requirement

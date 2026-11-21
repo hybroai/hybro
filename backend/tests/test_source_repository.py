@@ -103,9 +103,10 @@ async def test_list_by_ids_queries_only_those_ids():
 
 async def test_touch_sets_last_use():
     repository, collection = _repository()
-    await repository.touch("src_1", NOW)
+    await repository.touch("src_1", NOW, "mcp")
     collection.update_one.assert_awaited_once_with(
-        {"source_id": "src_1"}, {"$set": {"last_used_at": NOW}}
+        {"source_id": "src_1"},
+        {"$set": {"last_used_at": NOW, "last_used_via": "mcp"}},
     )
 
 

@@ -3,7 +3,6 @@
 import { useRouter } from 'next/navigation'
 import { PlainHttpWarning } from '@/components/auth/plain-http-warning'
 import { PageHeader } from '@/components/page-header'
-import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { publicConfig } from '@/lib/config'
 import { mcpUrl } from '@/lib/mcp'
@@ -51,17 +50,6 @@ function AddressCard({ label, url, copy }: { label: string; url: string; copy: C
       </div>
     </section>
   )
-}
-
-function McpPanel() {
-  if (publicConfig().mcp_disabled) {
-    return (
-      <Alert>
-        <AlertDescription>MCP is disabled on public listeners until MCP authentication exists. Connect from the machine that runs Hybro, or use the API.</AlertDescription>
-      </Alert>
-    )
-  }
-  return <McpSetup />
 }
 
 function McpSetup() {
@@ -168,7 +156,7 @@ export function ConnectPage({ kind }: { kind: AccessKind }) {
             <TabsTrigger value="api" className="min-h-9">API</TabsTrigger>
           </TabsList>
           <TabsContent value="sources">{kind === 'sources' ? <SourcesPanel /> : null}</TabsContent>
-          <TabsContent value="mcp">{kind === 'mcp' ? <McpPanel /> : null}</TabsContent>
+          <TabsContent value="mcp">{kind === 'mcp' ? <McpSetup /> : null}</TabsContent>
           <TabsContent value="api">{kind === 'api' ? <ApiPanel /> : null}</TabsContent>
         </Tabs>
       </div>

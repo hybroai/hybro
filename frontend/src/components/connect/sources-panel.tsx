@@ -60,14 +60,14 @@ function useTokenSnippets(token: string): TokenSnippet[] {
   const origin = usePageOrigin()
   const config = publicConfig()
   const api = buildAccessMaterial('api', config.api_base_url || origin, config.api_prefix, undefined, token)
-  const snippets: TokenSnippet[] = [{ id: 'api', label: 'API request', text: api.configuration }]
-  // MCP is not served on a public listener yet, so no MCP snippet there.
-  if (!config.mcp_disabled) {
-    const claude = clientSetups(mcpUrl(origin), token)[0]
-    snippets.unshift({ id: 'mcp', label: 'Claude Code command', text: claude.snippet })
-  }
-  return snippets
+  const claude = clientSetups(mcpUrl(origin), token)[0]
+  return [
+    { id: 'mcp', label: 'Claude Code command', text: claude.snippet },
+    { id: 'api', label: 'API request', text: api.configuration },
+  ]
 }
+
+const VIA_LABEL = { api: 'API', mcp: 'MCP' } as const
 
 function TokenShown({ source }: { source: SourceWithToken }) {
   return <ShowOnceToken token={source.token} snippets={useTokenSnippets(source.token)} />
@@ -258,6 +258,9 @@ function SourceRow({ source, onAction }: { source: SourceView; onAction: (pendin
       <td className="hidden px-3 py-3 whitespace-nowrap tabular-nums text-muted-foreground md:table-cell">
         {source.last_used_at ? <time dateTime={source.last_used_at}>{formatSessionTime(source.last_used_at)}</time> : 'Never'}
       </td>
+      <td data-testid="source-via" className="hidden px-3 py-3 whitespace-nowrap text-muted-foreground md:table-cell" aria-label={source.last_used_via ? undefined : 'Not known'}>
+        {source.last_used_via ? VIA_LABEL[source.last_used_via] : <span aria-hidden="true">—</span>}
+      </td>
       <td className="hidden px-3 py-3 whitespace-nowrap tabular-nums text-muted-foreground lg:table-cell">
         <time dateTime={source.created_at}>{formatSessionTime(source.created_at)}</time>
       </td>
@@ -300,13 +303,14 @@ function SourcesTable({ onAction }: { onAction: (pending: Pending) => void }) {
             <th scope="col" className="py-2 pr-3 pl-4 font-medium">Name</th>
             <th scope="col" className="hidden w-28 px-3 py-2 font-medium sm:table-cell">Token</th>
             <th scope="col" className="hidden w-36 px-3 py-2 font-medium md:table-cell">Last used</th>
+            <th scope="col" className="hidden w-36 px-3 py-2 font-medium md:table-cell">Connects through</th>
             <th scope="col" className="hidden w-36 px-3 py-2 font-medium lg:table-cell">Created</th>
             <th scope="col" className="w-36 py-2 pr-4 pl-3"><span className="sr-only">Actions</span></th>
           </tr>
         </thead>
         <tbody>
           {sources.isError ? (
-            <tr><td colSpan={5} className="p-4">
+            <tr><td colSpan={6} className="p-4">
               <div className="flex flex-wrap items-center gap-3">
                 <span>Sources couldn&apos;t load.</span>
                 <Button variant="secondary" size="sm" onClick={() => { void sources.refetch() }}>
@@ -316,10 +320,10 @@ function SourcesTable({ onAction }: { onAction: (pending: Pending) => void }) {
             </td></tr>
           ) : sources.isLoading ? (
             Array.from({ length: 3 }, (_, index) => (
-              <tr key={index} className="border-t"><td colSpan={5} className="px-4 py-3"><Skeleton className="h-5" /></td></tr>
+              <tr key={index} className="border-t"><td colSpan={6} className="px-4 py-3"><Skeleton className="h-5" /></td></tr>
             ))
           ) : !list?.length ? (
-            <tr><td colSpan={5} className="px-4 py-8 text-muted-foreground">
+            <tr><td colSpan={6} className="px-4 py-8 text-muted-foreground">
               No sources yet. Create one for each program that sends work to Hybro, over the API or MCP.
             </td></tr>
           ) : (

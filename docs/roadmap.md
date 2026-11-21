@@ -213,8 +213,9 @@ Nothing depends on an authentication mode or on how the instance was started.
 5. **MCP with tokens.** `/mcp` is served on every install. A client sends its
    source token, and the adapter passes it to the Source API, which checks it.
    On a listener that other machines can reach, the MCP server's own check of
-   the `Host` and `Origin` headers is off, and the token is the control; on a
-   loopback listener that check stays.
+   the `Host` and `Origin` headers is off, and the token is the control; it
+   passes the caller's address on, so the backend refuses a name it does not
+   answer to, as on the API. On a loopback listener that check stays.
    Which MCP clients can send a fixed token is checked against the MCP
    specification and the clients' documentation when this is built.
 6. **Plain HTTP.** Hybro does not block it. The setup, sign-in and Connect

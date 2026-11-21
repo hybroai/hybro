@@ -20,25 +20,27 @@ def events(caplog, name):
     return [record for record in caplog.records if record.msg == name]
 
 
-async def call_with_transport(handler, tool, arguments):
+async def call_with_transport(handler, tool, arguments, listen="loopback"):
     async with httpx.AsyncClient(
         base_url=server.BACKEND_API_URL,
         transport=httpx.MockTransport(handler),
     ) as http:
-        async with Client(create_server(http)) as client:
+        async with Client(create_server(http, listen=listen)) as client:
             return await client.call_tool(tool, arguments)
 
 
 FAKE_TOKEN = "Bearer hybro_src_" + "f" * 43
 
 
-async def call_over_http(handler, tool, arguments, headers=None):
+async def call_over_http(handler, tool, arguments, headers=None, listen="loopback"):
     """Call one tool through the streamable HTTP app, as a real client does."""
     async with httpx.AsyncClient(
         base_url=server.BACKEND_API_URL, transport=httpx.MockTransport(handler)
     ) as backend:
-        app = create_server(backend).streamable_http_app(
-            stateless_http=True, json_response=True
+        app = create_server(backend, listen=listen).streamable_http_app(
+            stateless_http=True,
+            json_response=True,
+            transport_security=server.transport_security_for(listen),
         )
         async with app.router.lifespan_context(app):
             async with httpx.AsyncClient(
@@ -52,14 +54,22 @@ async def call_over_http(handler, tool, arguments, headers=None):
                         "method": "tools/call",
                         "params": {"name": tool, "arguments": arguments},
                     },
-                    headers={
-                        "accept": "application/json, text/event-stream",
-                        "mcp-protocol-version": "2025-06-18",
-                        **(headers or {}),
-                    },
+                    headers=_with_mcp_headers(headers),
                 )
     assert response.status_code == 200, response.text
     return response.json()["result"]
+
+
+def _with_mcp_headers(extra):
+    """The streamable HTTP headers, plus a dict or a list of repeated lines."""
+    pairs = list(extra.items()) if isinstance(extra, dict) else list(extra or [])
+    return httpx.Headers(
+        [
+            ("accept", "application/json, text/event-stream"),
+            ("mcp-protocol-version", "2025-06-18"),
+            *pairs,
+        ]
+    )
 
 
 def session_reply(status="created", state="working", **extra):
@@ -672,16 +682,21 @@ async def test_health_timeout_is_bounded(monkeypatch):
     assert response.json()["status"] == "unavailable"
 
 
-@pytest.mark.parametrize(
-    ("headers", "code"),
-    [({"host": "attacker.test:8001"}, 421), ({"origin": "https://attacker.test"}, 403)],
-)
-async def test_container_transport_retains_dns_rebinding_protection(headers, code):
+FOREIGN = [
+    ({"host": "attacker.test:8001"}, 421),
+    ({"origin": "https://attacker.test"}, 403),
+]
+
+
+@pytest.mark.parametrize(("headers", "code"), FOREIGN)
+async def test_loopback_transport_retains_dns_rebinding_protection(headers, code):
+    security = server.transport_security_for("loopback")
+    assert security is server.TRANSPORT_SECURITY
     async with httpx.AsyncClient(base_url=server.BACKEND_API_URL) as backend:
-        app = create_server(backend).streamable_http_app(
+        app = create_server(backend, listen="loopback").streamable_http_app(
             stateless_http=True,
             host="0.0.0.0",
-            transport_security=server.TRANSPORT_SECURITY,
+            transport_security=security,
         )
         async with app.router.lifespan_context(app):
             async with httpx.AsyncClient(
@@ -693,10 +708,53 @@ async def test_container_transport_retains_dns_rebinding_protection(headers, cod
                 ).status_code == code
 
 
+@pytest.mark.parametrize(("headers", "_"), FOREIGN)
+async def test_public_transport_leaves_the_check_to_the_token(headers, _):
+    """On a public listener any Host and Origin reach the routes; the source
+    token, checked by the backend, is the control."""
+    security = server.transport_security_for("public")
+    assert security.enable_dns_rebinding_protection is False
+    async with httpx.AsyncClient(
+        base_url=server.BACKEND_API_URL,
+        transport=httpx.MockTransport(
+            lambda request: httpx.Response(200, json={"status": "ok"})
+        ),
+    ) as backend:
+        app = create_server(backend, listen="public").streamable_http_app(
+            stateless_http=True,
+            json_response=True,
+            host="0.0.0.0",
+            transport_security=security,
+        )
+        async with app.router.lifespan_context(app):
+            async with httpx.AsyncClient(
+                transport=httpx.ASGITransport(app), base_url="http://127.0.0.1:8001"
+            ) as client:
+                listed = await client.post(
+                    "/mcp",
+                    json={"jsonrpc": "2.0", "id": 1, "method": "tools/list"},
+                    headers={
+                        "accept": "application/json, text/event-stream",
+                        "mcp-protocol-version": "2025-06-18",
+                        **headers,
+                    },
+                )
+                health = await client.get("/health", headers=headers)
+    assert listed.status_code == 200, listed.text
+    assert listed.json()["result"]["tools"]
+    assert health.status_code == 200
+    assert health.json()["status"] == "ready"
+
+
 def test_container_configuration_is_scoped_and_validated(monkeypatch):
     monkeypatch.setenv("HYBRO_MCP_CONFIG", '{"api_prefix":"/custom/v2"}')
     assert server.connection_config(container=True).api_prefix == "/custom/v2"
+    # A projection without the listen mode keeps the host check.
+    assert server.connection_config(container=True).listen == "loopback"
     assert server.connection_config(container=False).api_prefix == "/api/v1"
+    assert server.connection_config(container=False).listen == "loopback"
+    monkeypatch.setenv("HYBRO_MCP_CONFIG", '{"api_prefix":"/api/v1","listen":"public"}')
+    assert server.connection_config(container=True).listen == "public"
 
 
 @pytest.mark.parametrize(
@@ -708,6 +766,8 @@ def test_container_configuration_is_scoped_and_validated(monkeypatch):
         "[]",
         '{"token":"private"}',
         '{"api_prefix":"https://evil.test"}',
+        '{"listen":"everywhere"}',
+        '{"listen":null}',
     ],
 )
 def test_invalid_container_configuration_fails_safely(monkeypatch, raw):
@@ -1002,7 +1062,8 @@ async def test_serve_leaves_logging_to_the_structured_formatter(monkeypatch, mcp
     assert (starting.host, starting.port) == (server.MCP_HOST, server.MCP_PORT)
 
 
-async def test_main_configures_logging_before_building_the_server(monkeypatch):
+@pytest.mark.parametrize("listen", ["loopback", "public"])
+async def test_main_configures_logging_before_building_the_server(monkeypatch, listen):
     calls = []
     app = object()
 
@@ -1011,8 +1072,8 @@ async def test_main_configures_logging_before_building_the_server(monkeypatch):
             calls.append(("app", kwargs))
             return app
 
-    def fake_create_server(client):
-        calls.append(("create_server",))
+    def fake_create_server(client, *, listen):
+        calls.append(("create_server", listen))
         return FakeServer()
 
     async def fake_serve(served):
@@ -1023,19 +1084,23 @@ async def test_main_configures_logging_before_building_the_server(monkeypatch):
     )
     monkeypatch.setattr(server, "create_server", fake_create_server)
     monkeypatch.setattr(server, "serve", fake_serve)
+    monkeypatch.setenv(
+        "HYBRO_MCP_CONFIG", json.dumps({"api_prefix": "/api/v1", "listen": listen})
+    )
 
-    await server.main()
+    await server.main(image=True)
 
+    security = server.transport_security_for(listen)
     assert calls == [
-        ("log", False),
-        ("create_server",),
+        ("log", True),
+        ("create_server", listen),
         (
             "app",
             {
                 "streamable_http_path": "/mcp",
                 "stateless_http": True,
                 "json_response": True,
-                "transport_security": server.TRANSPORT_SECURITY,
+                "transport_security": security,
                 "host": server.MCP_HOST,
             },
         ),
@@ -1097,6 +1162,8 @@ async def test_every_tool_forwards_the_callers_authorization(tool, arguments, re
 
     assert not result["isError"], result
     assert [request.headers["authorization"] for request in sent] == [FAKE_TOKEN]
+    # The backend records that the source connected through MCP.
+    assert [request.headers["x-hybro-via"] for request in sent] == ["mcp"]
 
 
 @pytest.mark.parametrize(("tool", "arguments", "reply"), TOOL_CALLS)
@@ -1156,3 +1223,129 @@ async def test_instructions_describe_source_tokens():
         instructions = create_server(http).instructions
     assert "source token" in instructions
     assert "mock-auth" not in instructions
+
+
+# ---- the caller's address on a public listener ----
+
+
+@pytest.mark.parametrize(("tool", "arguments", "reply"), TOOL_CALLS)
+async def test_a_public_listener_passes_the_callers_address_on(tool, arguments, reply):
+    """The backend's trusted-host and cross-site checks judge the caller."""
+    sent = []
+
+    def backend(request):
+        sent.append(request)
+        return httpx.Response(200, json=reply)
+
+    caller = {"X-Forwarded-Host": "nas.local:3000", "Origin": "http://nas.local:3000"}
+    result = await call_over_http(
+        backend, tool, arguments, headers=caller, listen="public"
+    )
+
+    assert not result["isError"], result
+    assert [
+        (r.headers["x-forwarded-host"], r.headers["origin"], r.headers["host"])
+        for r in sent
+    ] == [("nas.local:3000", "http://nas.local:3000", "127.0.0.1:8000")]
+
+
+async def test_without_a_forwarded_host_the_callers_host_is_passed_on():
+    # Reached without Caddy, the name the caller used is still judged.
+    sent = []
+
+    def backend(request):
+        sent.append(request)
+        return httpx.Response(200, json={"groups": []})
+
+    await call_over_http(
+        backend, "list_subnets", {}, headers={"host": "evil.test:3000"}, listen="public"
+    )
+
+    assert sent[0].headers["x-forwarded-host"] == "evil.test:3000"
+    # Most MCP clients send no Origin, and none is made up.
+    assert "origin" not in sent[0].headers
+
+
+async def test_every_forwarded_host_line_is_passed_on():
+    sent = []
+
+    def backend(request):
+        sent.append(request)
+        return httpx.Response(200, json={"groups": []})
+
+    await call_over_http(
+        backend,
+        "list_subnets",
+        {},
+        headers=[("x-forwarded-host", "hybro.test"), ("x-forwarded-host", "evil.test")],
+        listen="public",
+    )
+
+    assert sent[0].headers["x-forwarded-host"] == "hybro.test, evil.test"
+
+
+async def test_a_loopback_listener_passes_no_caller_address_on():
+    # Its own host check already pinned the names; a browser-based client on
+    # another local port keeps working without a token.
+    sent = []
+
+    def backend(request):
+        sent.append(request)
+        return httpx.Response(200, json={"groups": []})
+
+    await call_over_http(
+        backend,
+        "list_subnets",
+        {},
+        headers={
+            "X-Forwarded-Host": "localhost:3100",
+            "Origin": "http://localhost:6274",
+        },
+    )
+
+    assert "x-forwarded-host" not in sent[0].headers
+    assert "origin" not in sent[0].headers
+
+
+async def test_an_unknown_address_names_the_setting_without_the_host():
+    error = {"detail": {"code": "unknown_host", "message": "m"}}
+    result = await call_over_http(
+        lambda _: httpx.Response(421, json=error),
+        "list_subnets",
+        {},
+        headers={"host": "evil.test:3000"},
+        listen="public",
+    )
+    assert result["isError"]
+    hint = result["structuredContent"]["next_action"]
+    assert "frontend.server_url" in hint
+    assert "evil.test" not in json.dumps(result)
+
+
+async def test_a_web_page_without_a_token_is_told_to_send_one():
+    error = {"detail": {"code": "cross_site_request", "message": "m"}}
+    result = await call_with_transport(
+        lambda _: httpx.Response(403, json=error), "list_subnets", {}
+    )
+    assert result.is_error
+    assert "source token" in result.structured_content["next_action"]
+
+
+async def test_a_public_listener_refuses_a_call_whose_address_it_cannot_tell(
+    mcp_logs,
+):
+    # The in-memory client has no HTTP request. Without the caller's address the
+    # backend would see only loopback, so nothing is sent.
+    sent = []
+
+    def backend(request):
+        sent.append(request)
+        return httpx.Response(200, json={"groups": []})
+
+    result = await call_with_transport(backend, "list_subnets", {}, listen="public")
+
+    assert result.is_error
+    assert result.structured_content["detail"]["code"] == "CALLER_ADDRESS_UNKNOWN"
+    assert sent == []
+    [failed] = events(mcp_logs, "mcp_backend_call_failed")
+    assert failed.code == "CALLER_ADDRESS_UNKNOWN"

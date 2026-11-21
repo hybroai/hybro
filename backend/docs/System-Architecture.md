@@ -988,7 +988,8 @@ job or an MCP client. `SourceService` and `MongoSourceRepository` live here;
 - Writes: `sources`, one document per source: `source_id` (`src_` and 24 hex
   characters), `name` (1 to 120 characters), `token_hash` (SHA-256 of the
   token), `token_last4`, `created_at`, `updated_at`, `last_used_at`,
-  `revoked_at`. Indexes: `source_id_unique`, and `source_token_hash_unique`,
+  `last_used_via` (`api` or `mcp`; absent before the first use recorded with
+  it), `revoked_at`. Indexes: `source_id_unique`, and `source_token_hash_unique`,
   partial on a string hash. `source_settings`, one document
   (`_id` `token_requirement`): `required`, `started_off`, `updated_at`.
 - Exposes: `SourceRegistry` to `api_gateway` and, as `SourceDirectory`, to
@@ -1002,7 +1003,10 @@ working; it refuses a revoked source with 409 `source_revoked`. Revoke clears
 the hash and the last four and sets `revoked_at`; the record stays, so its
 sessions keep their name, and a second revoke changes nothing. `resolve`
 accepts only the prefix, compares the hash with `hmac.compare_digest`, and
-updates `last_used_at` at most once a minute; a failed write of it is logged
+updates `last_used_at` and `last_used_via` at most once a minute, and at once
+when the channel changes. The source-token dependency passes `via="mcp"` when
+the request carries `X-Hybro-Via: mcp` (the MCP server's mark; any other value
+counts as `api`); the mark decides nothing. A failed write of it is logged
 (`source_last_use_write_failed`) and the request goes on. The built-in "No token" source
 (`source_id` `no_token`) is a constant, never a document.
 
@@ -1046,7 +1050,7 @@ reach them.
 
 | Route | Does |
 |---|---|
-| `GET /sources` | Every source, oldest first: `source_id`, `name`, `has_token`, `token_last4`, `created_at`, `last_used_at`, `revoked_at`. |
+| `GET /sources` | Every source, oldest first: `source_id`, `name`, `has_token`, `token_last4`, `created_at`, `last_used_at`, `last_used_via`, `revoked_at`. |
 | `POST /sources` | Creates a source (`name`); 201 with the same fields and `token`. |
 | `PATCH /sources/{source_id}` | Renames it (`name`). |
 | `POST /sources/{source_id}/rotate` | A new token, returned once. 409 `source_revoked`. |
@@ -1497,13 +1501,13 @@ supervisord logs neither CRIT notice. Each program's environment:
 
 - frontend: `api_base_url` empty (same origin), `server_url`
   `http://localhost:<public port>` on loopback or `frontend.server_url` on a
-  public listener, and the derived `mcp_disabled` (true on a public listener);
-  no Clerk secret, which nothing reads. The browser derives the MCP URL as
+  public listener; no Clerk secret, which nothing reads. The browser derives the MCP URL as
   `{origin}/mcp`;
 - backend: `HYBRO_FRONTEND_ORIGINS` (`http://localhost:<port>` and
   `http://127.0.0.1:<port>` on loopback, `frontend.server_url` on a public
   listener) and `LOCAL_AGENT_DISCOVERY_EXCLUDED_PORTS` (the manifest ports);
-- MCP: `HYBRO_MCP_CONFIG` with `api_prefix`;
+- MCP: `HYBRO_MCP_CONFIG` with `api_prefix` and `listen` (`loopback` or
+  `public`), which decides its Host and Origin check;
 - agents: `HYBRO_AGENT_CONFIG` (backend `127.0.0.1:8000`, the agent inference
   token, image size), `SERVER_HOST` and `SERVER_DOMAIN` `127.0.0.1`, and the
   manifest `SERVER_PORT`.
@@ -1531,11 +1535,14 @@ entrypoint. Service hosts stay off, so bundled agent URLs are
 and skips the embedded `mongod`.
 
 Caddy routes one port by path: `{api_prefix}` and `{api_prefix}/*` and
-`/health` to the backend, `/mcp` and `/mcp/*` to MCP (omitted on a public
-listener), and everything else to the frontend. On every listener it answers
+`/health` to the backend, `/mcp` and `/mcp/*` to MCP on every listener, and
+everything else to the frontend. On every listener it answers
 `{api_prefix}/machine` and `{api_prefix}/machine/*` with 404 before the backend
 route, so the machine-only routes cannot be reached through the published
-port. The proxy blocks set no `header_up`: Caddy passes the browser's `Host`
+port. The backend route removes `X-Hybro-Via` (`header_up -X-Hybro-Via`), so
+in the image only the MCP server, which calls the backend inside the container,
+marks a request as MCP (a checkout's Next dev proxy passes the header on; it is
+display-only); no proxy block sets any other `header_up`. Caddy passes the browser's `Host`
 on and sets `X-Forwarded-Host`, `X-Forwarded-Proto` and `X-Forwarded-For`
 itself, ignoring the values an incoming request carries. On a loopback listener it
 answers any `Host` other than `localhost`, `127.0.0.1`, or `::1` (any port)
@@ -2106,7 +2113,7 @@ the owner's sign-in, else 401 `not_signed_in`; a missing
 
 | Route | Behavior |
 |---|---|
-| `GET ""` | `SettingsView`: `revision`, `config_error`, top-level `restart_pending`, `restart` status, `groups`, `fields` (registry spec, `default`, effective `value`, `source`, per-field `restart_pending`), `notices` (`removed_fields`, `instances_ignored`, `unlisted_fields`, `capped_fields`, names only), and `system` (version, `image` or `checkout`, port, listen mode, auth mode (always `account`, the built-in owner account; `mock` and `clerk` stay in the type until Clerk mode is removed), MCP availability, a generic config location). |
+| `GET ""` | `SettingsView`: `revision`, `config_error`, top-level `restart_pending`, `restart` status, `groups`, `fields` (registry spec, `default`, effective `value`, `source`, per-field `restart_pending`), `notices` (`removed_fields`, `instances_ignored`, `unlisted_fields`, `capped_fields`, names only), and `system` (version, `image` or `checkout`, port, listen mode, auth mode (always `account`, the built-in owner account; `mock` and `clerk` stay in the type until Clerk mode is removed), MCP availability (true in the image, which serves MCP on every listener; null in a checkout), a generic config location). |
 | `PUT ""` | `SettingsUpdate` `{revision, values}`, registry keys only, `null` removes a key. Returns `SettingsSaved` `{changed, restart_required, settings}`. |
 | `POST "/restart"` | 202 `RestartAccepted` `{restart}`; the helper is launched in a background task after the response. |
 
@@ -2295,10 +2302,27 @@ from the backend environment with the `mcp` extra of `backend/pyproject.toml`
 (one lockfile, `backend/uv.lock`), installed in the image's backend
 environment.
 
-Image mode (`--image`) requires `HYBRO_MCP_CONFIG` (only `api_prefix`) and keeps
-loopback for the backend and its own listener. Caddy omits the `/mcp` route on a
-public listener, and the frontend then reports MCP as disabled. Native
-startup keeps fixed loopback endpoints and `/api/v1`. Host/Origin DNS-rebinding checks stay enabled.
+Image mode (`--image`) requires `HYBRO_MCP_CONFIG` (`api_prefix`, and
+`listen`, default `loopback`; unknown fields are refused) and keeps loopback
+for the backend and its own listener. Caddy serves `/mcp` on every listener.
+On a loopback listener, and in native startup (fixed loopback endpoints and
+`/api/v1`), the SDK's Host/Origin DNS-rebinding check allows only `localhost`
+and `127.0.0.1` on any port, on `/mcp` and on `/health`, which builds its own
+`TransportSecurityMiddleware` from the same settings. On a public listener the
+check is off (`PUBLIC_TRANSPORT_SECURITY`) on both, because other machines
+reach Hybro by names the server cannot know. Instead `caller_address` adds the
+caller's address to each backend call: every `X-Forwarded-Host` line of the
+MCP request (Caddy sets it and drops a client's own), or its `Host` without
+one, and its `Origin` when present. A call whose address it cannot tell
+(neither `X-Forwarded-Host` nor `Host`, as with no HTTP request) fails with `CALLER_ADDRESS_UNKNOWN` before
+reaching the backend, which would otherwise see only loopback. The backend's `TrustedHostMiddleware` and
+the Source API's foreign-`Origin` rule then judge the caller as they judge a
+direct API call, so a DNS-rebound name gets 421 `unknown_host` and a web page
+without a token 403 `cross_site_request`; both map to a `next_action`, the first
+naming `frontend.server_url` without the host. `initialize`, `tools/list` and
+`/health` do not reach the backend; they answer any name with the tool list and
+a ready flag only. A loopback listener passes no address on, so a browser-based
+client on another local port keeps working.
 The adapter keeps one async HTTP client, uses stateless MCP transport with JSON
 responses, and imports only the backend's `common.observability` logging
 modules, not the runtime; it does not access persistence. The image projection
@@ -2327,6 +2351,8 @@ that `send_message` mints is not on the log line; join through the trace id.
 each tool receives through its `ctx: Context` parameter (`ctx.headers`, absent
 on stdio and in the in-memory client), and every backend call of that tool
 sends it on. The adapter never stores, logs or adds a credential of its own.
+Every backend call of a tool also sends `X-Hybro-Via: mcp`, so the backend
+records on the source that its last request came through MCP.
 
 `send_message` takes plain `text` (at most 10,000 characters), `agent_id`, and
 optionally `session_id`, `subnet_id`, `client_request_id` (minted when absent),
@@ -2342,7 +2368,7 @@ transport failures become tool errors that keep the backend body, with a
 `409`/`404` hint keyed on the backend error code; a `401` hint asks for a
 current source token.
 
-The adapter is for same-host clients: no MCP authentication of its own, user
+The adapter has no MCP authentication of its own, user
 isolation, auth-store access, retry loop, or orchestration. The backend checks
 the forwarded source token. Its 610-second local deadline covers the backend
 session wait. Its `GET /health` calls the backend's root `/health`, which
