@@ -19,6 +19,7 @@ from .models import (
     AssistantMessage,
     HeldCallAnswer,
     OrchestratorRunState,
+    PendingTermination,
     PreparedResourceRef,
     ResolvedTool,
     RuleHold,
@@ -223,6 +224,14 @@ class OrchestratorKernel:
                 return KernelRunResult("cancellation_pending", run)
             if run.status in TERMINAL_RUN_STATUSES:
                 return KernelRunResult(_outcome_for_status(run.status), run)
+            if (pending := run.pending_termination) is not None:
+                # The process died while ending the Run; finish ending it.
+                return await self._terminate(
+                    run,
+                    status=pending.status,
+                    reason=pending.reason,
+                    cancellation_cause=pending.cancellation_cause,
+                )
             overflow = next(
                 (
                     message
@@ -427,6 +436,16 @@ class OrchestratorKernel:
         run = await self._load(run_id)
         if run.status == "canceling":
             raise KernelConflict("canceling Run cannot accept a tool observation")
+        if (
+            pending := run.pending_termination
+        ) is not None and run.status not in TERMINAL_RUN_STATUSES:
+            # The process died while ending the Run; finish ending it.
+            return await self._terminate(
+                run,
+                status=pending.status,
+                reason=pending.reason,
+                cancellation_cause=pending.cancellation_cause,
+            )
         batch_index, entry_index = _find_invocation(run, observation.invocation_id)
         if batch_index is None or entry_index is None:
             raise KeyError(observation.invocation_id)
@@ -3700,6 +3719,7 @@ class OrchestratorKernel:
         *,
         disposition: Literal["error", "aborted"],
         error_summary: str | None = None,
+        termination: PendingTermination | None = None,
     ) -> tuple[OrchestratorRunState, str | None]:
         """Close every incomplete canonical descendant before root termination.
 
@@ -3737,6 +3757,16 @@ class OrchestratorKernel:
             ] = await self.tool_runtime.abandon_parked_interaction(
                 call_record_id=call_record_id,
                 interaction_id=interaction_id,
+            )
+        if termination is not None and run.pending_termination is None:
+            # Store the decision before the first public close effect: a
+            # restart after the turn's end finishes it instead of calling the
+            # model. The HITL finalizer above is idempotent and publishes
+            # nothing, so a restart before this point repeats it safely.
+            run = await self._checkpoint(
+                run,
+                updates={"pending_termination": termination},
+                command_id=f"terminate-intent:{run.run_id}",
             )
 
         # A canonical Tool end can win immediately before the aggregate flag
@@ -3978,9 +4008,22 @@ class OrchestratorKernel:
         if current.status in TERMINAL_RUN_STATUSES:
             return KernelRunResult(_outcome_for_status(current.status), current)
         run = current
+        if (stored := run.pending_termination) is not None and run.status != (
+            "canceling"
+        ):
+            # A restart finishes the first decision, not a later one. A Stop
+            # still wins over it: a canceling Run settles with its own cause.
+            status = stored.status
+            reason = stored.reason
+            cancellation_cause = stored.cancellation_cause
         try:
             run, _ = await self._close_active_attempt(
                 run,
+                termination=PendingTermination(
+                    status=status,
+                    reason=reason,
+                    cancellation_cause=cancellation_cause,
+                ),
                 disposition="aborted" if status == "canceled" else "error",
                 error_summary=(
                     "The response exceeded its safe public output limit."

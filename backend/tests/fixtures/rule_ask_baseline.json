@@ -224,12 +224,13 @@
       "call-denied:call-898489828cd13fe1d8fe4f0b7b9b061e",
       "complete-tool-batch:assistant-7ee4d4b4a12e3ed6669a3a6a8f128c1e",
       "public-turn-error:assistant-7ee4d4b4a12e3ed6669a3a6a8f128c1e",
-      "terminate:canceled:run-1:6",
-      "claim-intent:intent-event-2:7",
-      "complete-intent:intent-event-2:8",
-      "claim-intent:intent-run-3:9",
-      "complete-intent:intent-run-3:10",
-      "settle:run-1:11"
+      "terminate-intent:run-1",
+      "terminate:canceled:run-1:7",
+      "claim-intent:intent-event-2:8",
+      "complete-intent:intent-event-2:9",
+      "claim-intent:intent-run-3:10",
+      "complete-intent:intent-run-3:11",
+      "settle:run-1:12"
     ]
   }
 }

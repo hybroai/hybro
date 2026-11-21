@@ -3145,6 +3145,14 @@ Agent). Waiting is not active time:
   does not re-emit `run_started` for a suspended Run; one that is due anyway is
   re-driven once and returns to the dormant schedule. `schedule_run_recovery`
   moves the schedule earlier for typed recoverable failures.
+- Ending a Run (`failed`, `canceled`, `budget_exhausted`) first stores the
+  decision as `pending_termination`, before the close publishes anything, then
+  closes the active turn, then commits the terminal status. The next drive of
+  the Run (`run`, `observe_tool`, or recovery's `terminalize`) that finds the
+  decision on a Run not yet terminal finishes it with the stored status and
+  reason; it never reads the closed turn as a reason to call the model again.
+  A Stop still wins: a `canceling` Run settles `canceled` with the Stop's
+  cause. A suspended Run with a stored decision waits for that next drive.
 - A late result or answer for a Run with no live driver resumes through
   `RunAddressedToolObservationSink.deliver`, which re-arms the watchdog at the
   extended deadline before re-entry.

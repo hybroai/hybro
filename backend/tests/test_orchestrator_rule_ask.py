@@ -23,6 +23,7 @@ from execution.orchestrator.kernel import (
 )
 from execution.orchestrator.models import (
     HeldCallAnswer,
+    PendingTermination,
     TextPart,
     ToolObservation,
     ToolResult,
@@ -1839,3 +1840,118 @@ async def test_a_working_agent_that_ends_with_a_question_is_presented_too():
 
     assert done.outcome == "final_answer"
     assert (await settled_turn(room, done.run))["state"] == "completed"
+
+
+async def die_inside_a_fatal_close(dies_at):
+    """Start a Run that decides to fail; the process dies at ``dies_at``."""
+    kernel, store, model, tools, _p, room, run_id = await room_chat(
+        [
+            tool_events(("broken", "fake_agent_delay_parallel", '{"seconds":0}')),
+            final_events(),
+        ],
+        fail_accept_for={"fake_agent_delay_parallel"},
+    )
+    checkpoint = kernel._checkpoint
+    cas_mutate = store.cas_mutate
+
+    async def die_in_checkpoint(run, *, updates, command_id, **kwargs):
+        if command_id.startswith(dies_at):
+            raise ProcessDied
+        return await checkpoint(run, updates=updates, command_id=command_id, **kwargs)
+
+    async def die_in_store(run, *, expected_state_version, command_id):
+        if command_id.startswith(dies_at):
+            raise ProcessDied
+        return await cas_mutate(
+            run, expected_state_version=expected_state_version, command_id=command_id
+        )
+
+    kernel._checkpoint = die_in_checkpoint
+    store.cas_mutate = die_in_store
+    with pytest.raises(ProcessDied):
+        await start(kernel, room, run_id)
+    kernel._checkpoint = checkpoint
+    store.cas_mutate = cas_mutate
+    return kernel, store, model, room, run_id
+
+
+@pytest.mark.parametrize("dies_at", ["public-close-attempt:", "terminate:"])
+async def test_a_restart_inside_a_fatal_close_still_fails_the_run(dies_at):
+    # The Run decided to fail and closed its turn as an error; the process
+    # died before the failure was stored. A restart finishes the failure; it
+    # never reads the closed turn as a rejected declaration and calls the
+    # model again.
+    kernel, _store, model, room, run_id = await die_inside_a_fatal_close(dies_at)
+    model_calls = len(model.requests)
+
+    result = await start(kernel, room, run_id)
+
+    assert result.outcome == "failed"
+    assert result.run.status == "failed"
+    assert result.run.terminal_reason == "tool_failure"
+    assert len(model.requests) == model_calls
+    turn = await settled_turn(room, result.run)
+    assert turn["state"] == "failed"
+    assert not [item for item in turn["activity"] if item["kind"] == "retry"]
+
+
+async def test_recovery_of_an_unfinished_failure_keeps_its_reason():
+    # Recovery ends a Run whose driver died as "interrupted"; the stored
+    # decision is older and wins.
+    kernel, _store, _m, room, run_id = await die_inside_a_fatal_close(
+        "public-close-attempt:"
+    )
+
+    result = await kernel.terminalize(
+        run_id, status="failed", reason="interrupted", lifecycle=room.lifecycle
+    )
+
+    assert result.run.status == "failed"
+    assert result.run.terminal_reason == "tool_failure"
+
+
+async def test_a_stop_after_an_unfinished_failure_cancels_the_run():
+    kernel, store, _m, room, run_id = await die_inside_a_fatal_close(
+        "public-close-attempt:"
+    )
+    run = await store.load(run_id)
+    assert run.pending_termination is not None
+    await _stop(store, run)
+
+    result = await kernel.terminalize(
+        run_id,
+        status="canceled",
+        reason="user_requested",
+        cancellation_cause="user_requested",
+        lifecycle=room.lifecycle,
+    )
+
+    assert result.run.status == "canceled"
+    assert result.run.cancellation_cause == "user_requested"
+    assert (await settled_turn(room, result.run))["state"] == "canceled"
+
+
+async def test_an_observation_after_an_unfinished_termination_finishes_it():
+    kernel, store, _m, tools, _p, room, run_id = await room_chat(
+        [tool_events(WORKING, ("w2", PAUSE, '{"status":"waiting_external"}'))],
+        ask={},
+    )
+    parked = await start(kernel, room, run_id)
+    assert parked.outcome == "waiting_external"
+    # The Run decided to fail while it waited, and died before storing it.
+    await kernel._checkpoint(
+        parked.run,
+        updates={
+            "pending_termination": PendingTermination(
+                status="failed", reason="tool_failure"
+            )
+        },
+        command_id=f"terminate-intent:{run_id}",
+    )
+
+    # "w2" still works, so this result alone would leave the Run waiting.
+    result = await observe(kernel, room, run_id, working_result())
+
+    assert result.outcome == "failed"
+    assert result.run.terminal_reason == "tool_failure"
+    assert (await settled_turn(room, result.run))["state"] == "failed"

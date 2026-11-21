@@ -775,6 +775,18 @@ CancellationCause = Literal[
 ]
 
 
+class PendingTermination(ContractModel):
+    """A decision to end the Run, stored before its turn is closed.
+
+    The close publishes the turn's error or abort first; a restart before the
+    terminal status is stored finishes this decision instead of resuming.
+    """
+
+    status: Literal["failed", "canceled", "budget_exhausted"]
+    reason: str
+    cancellation_cause: CancellationCause | None = None
+
+
 RunStatus = Literal[
     "queued",
     "running",
@@ -832,6 +844,7 @@ class OrchestratorRunState(ContractModel):
     # The check rule that last refused a new Agent call in this Run. A
     # passthrough Run settles with it as the reason it was denied.
     denied_rule_id: str | None = None
+    pending_termination: PendingTermination | None = None
     projection_state: Literal["pending", "settled", "blocked"]
     recovery_claim: RecoveryClaim
     projection_outbox: list[ProjectionIntent]

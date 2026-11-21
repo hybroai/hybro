@@ -14,6 +14,7 @@ from .models import (
     ModelStreamEvent,
     ModelTurnRequest,
     OrchestratorRunState,
+    PendingTermination,
     PreparedResourceRef,
     ProjectionIntent,
     ResolvedTool,
@@ -241,6 +242,7 @@ class ModelLoopHost(Protocol):
         *,
         disposition: Literal["error", "aborted"],
         error_summary: str | None = None,
+        termination: PendingTermination | None = None,
     ) -> tuple[OrchestratorRunState, str | None]: ...
 
     async def _ensure_tool_batch(
