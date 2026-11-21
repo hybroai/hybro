@@ -217,6 +217,17 @@ EXPECTED_METHODS = {
         },
         "SourceDirectory": {"identities"},
     },
+    "policy.protocols": {
+        "RuleRegistry": {"create", "delete", "list_rules", "reorder", "update"},
+        "RuleStore": {
+            "delete",
+            "ensure_indexes",
+            "insert",
+            "list_all",
+            "set_positions",
+            "update",
+        },
+    },
     "source.protocols": {
         "SourceRegistry": {
             "create",

@@ -133,6 +133,7 @@ from orchestrator_composition import (
     create_orchestrator_runtime,
     validate_orchestrator_runtime,
 )
+from policy import MongoRuleRepository, PolicyService
 from room_files import LocalFileContentStore, RoomFiles, RoomLifecycleStore
 from session import MongoSessionRepository, SessionFacade, SessionWaiter
 from session.protocols import RoomManagement, RoomMessageStore, RoomRegistry
@@ -741,6 +742,7 @@ async def _runtime_lifespan(app: Any, runtime: ApplicationRuntime):  # noqa: C90
             app.state.source_registry = create_source_registry(
                 settings=runtime.settings, mongo=mongo_dal
             )
+            app.state.policy_rules = create_policy_rules(mongo=mongo_dal)
             # Before any request is served, so `hybro owner create` cannot run
             # first and make a fresh install look like an existing one.
             token_requirement = await seed_token_requirement(
@@ -2186,6 +2188,7 @@ async def _runtime_lifespan(app: Any, runtime: ApplicationRuntime):  # noqa: C90
         app.state.diagnostics_access = None
         app.state.owner_account = None
         app.state.source_registry = None
+        app.state.policy_rules = None
         machine_token = getattr(app.state, "machine_token", "")
         remove_checkout_handoff(runtime.settings, machine_token)
         app.state.machine_token = ""
@@ -2275,6 +2278,7 @@ async def _runtime_lifespan(app: Any, runtime: ApplicationRuntime):  # noqa: C90
         app.state.diagnostics_access = None
         app.state.owner_account = None
         app.state.source_registry = None
+        app.state.policy_rules = None
         machine_token = getattr(app.state, "machine_token", "")
         remove_checkout_handoff(runtime.settings, machine_token)
         app.state.machine_token = ""
@@ -2409,6 +2413,7 @@ async def ensure_runtime_indexes(*, mongo: MongoDAL) -> dict[str, bool]:
     diagnostics_store_ready = await DiagnosticsMongoRepository(mongo).ensure_indexes()
     await MongoAccountRepository(mongo).ensure_indexes()
     await MongoSourceRepository(mongo).ensure_indexes()
+    await MongoRuleRepository(mongo).ensure_indexes()
     return {
         "agent_search_index_ready": agent_search_index_ready,
         "diagnostics_store_ready": diagnostics_store_ready,
@@ -2668,6 +2673,11 @@ def create_owner_account(
 def create_source_registry(*, settings: Any, mongo: MongoDAL) -> SourceService:
     """The sources of this instance, over their own collection."""
     return SourceService(MongoSourceRepository(mongo), auth_mode=settings.auth_mode)
+
+
+def create_policy_rules(*, mongo: MongoDAL) -> PolicyService:
+    """The owner's check rules, over their own collection. Not enforced yet."""
+    return PolicyService(MongoRuleRepository(mongo))
 
 
 # The collections whose documents show the install was used before the switch.

@@ -14,6 +14,7 @@ MODULE_ROUTE_PROTOCOL_IMPORTS = {
     "agent.protocols",
     "chat.protocols",
     "context_memory.protocols",
+    "policy.protocols",
     "session.protocols",
     "source.protocols",
 }
@@ -24,6 +25,7 @@ FORBIDDEN_ROUTE_MODULE_ROOTS = {
     "conversation",
     "context_memory",
     "a2a_adapter",
+    "policy",
     "session",
     "source",
 }

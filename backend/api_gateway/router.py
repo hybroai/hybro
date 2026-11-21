@@ -16,6 +16,7 @@ from api_gateway.routes import (
     llm_proxy_routes,
     machine_routes,
     room_routes,
+    rule_routes,
     session_routes,
     settings_routes,
     setup_routes,
@@ -48,6 +49,7 @@ def build_api_gateway_router() -> APIRouter:
     gateway_router.include_router(auth_routes.router, tags=["auth"])
     gateway_router.include_router(machine_routes.router, tags=["machine"])
     gateway_router.include_router(source_routes.router, tags=["sources"])
+    gateway_router.include_router(rule_routes.router, tags=["rules"])
 
     return gateway_router
 

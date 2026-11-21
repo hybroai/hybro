@@ -1414,6 +1414,139 @@
     ]
   },
   {
+    "auth_dependencies": [
+      "get_owner_rules"
+    ],
+    "dependencies": [
+      "get_owner_rules"
+    ],
+    "methods": [
+      "GET"
+    ],
+    "module": "api_gateway.routes.rule_routes",
+    "name": "list_rules",
+    "openapi_response_codes": [
+      "200",
+      "401",
+      "403",
+      "503"
+    ],
+    "owning_protocol": "policy.protocols.RuleRegistry",
+    "path": "/api/v1/rules",
+    "response_class": null,
+    "response_model": "RuleList",
+    "status_code": null,
+    "streaming_response": null
+  },
+  {
+    "auth_dependencies": [
+      "get_owner_rules"
+    ],
+    "dependencies": [
+      "get_owner_rules"
+    ],
+    "methods": [
+      "POST"
+    ],
+    "module": "api_gateway.routes.rule_routes",
+    "name": "create_rule",
+    "openapi_response_codes": [
+      "201",
+      "401",
+      "403",
+      "409",
+      "422",
+      "503"
+    ],
+    "owning_protocol": "policy.protocols.RuleRegistry",
+    "path": "/api/v1/rules",
+    "response_class": null,
+    "response_model": "RuleView",
+    "status_code": 201,
+    "streaming_response": null
+  },
+  {
+    "auth_dependencies": [
+      "get_owner_rules"
+    ],
+    "dependencies": [
+      "get_owner_rules"
+    ],
+    "methods": [
+      "PUT"
+    ],
+    "module": "api_gateway.routes.rule_routes",
+    "name": "reorder_rules",
+    "openapi_response_codes": [
+      "200",
+      "401",
+      "403",
+      "409",
+      "422",
+      "503"
+    ],
+    "owning_protocol": "policy.protocols.RuleRegistry",
+    "path": "/api/v1/rules/order",
+    "response_class": null,
+    "response_model": "RuleList",
+    "status_code": null,
+    "streaming_response": null
+  },
+  {
+    "auth_dependencies": [
+      "get_owner_rules"
+    ],
+    "dependencies": [
+      "get_owner_rules"
+    ],
+    "methods": [
+      "DELETE"
+    ],
+    "module": "api_gateway.routes.rule_routes",
+    "name": "delete_rule",
+    "openapi_response_codes": [
+      "204",
+      "401",
+      "403",
+      "404",
+      "422",
+      "503"
+    ],
+    "owning_protocol": "policy.protocols.RuleRegistry",
+    "path": "/api/v1/rules/{rule_id}",
+    "response_class": null,
+    "response_model": null,
+    "status_code": 204,
+    "streaming_response": null
+  },
+  {
+    "auth_dependencies": [
+      "get_owner_rules"
+    ],
+    "dependencies": [
+      "get_owner_rules"
+    ],
+    "methods": [
+      "PUT"
+    ],
+    "module": "api_gateway.routes.rule_routes",
+    "name": "update_rule",
+    "openapi_response_codes": [
+      "200",
+      "401",
+      "403",
+      "404",
+      "422",
+      "503"
+    ],
+    "owning_protocol": "policy.protocols.RuleRegistry",
+    "path": "/api/v1/rules/{rule_id}",
+    "response_class": null,
+    "response_model": "RuleView",
+    "status_code": null,
+    "streaming_response": null
+  },
+  {
     "auth_dependencies": [],
     "dependencies": [
       "get_owner_session_access"
