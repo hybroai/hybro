@@ -18,8 +18,8 @@ flowchart LR
 | 0 | Make the direction visible | The design, this roadmap, contributor rules and a quick start. | Done |
 | 1 | Clean up and break down | Remove what is dead, and split `execution` without changing behaviour. | Done |
 | 2 | Source identity and remote access | Each source has a token and the owner has an account, so Hybro knows which source sent a step, and a source on another machine can reach the Source API. | Done |
-| 3 | Owner check rules and the step view | The owner gates agent calls with rules, and sees each step of a session. | Next |
-| 4 | Move out | The model loop leaves the core and becomes the bundled orchestrator, a source. | Later |
+| 3 | Owner check rules and the step view | The owner gates agent calls with rules, and sees each step of a session. | Now |
+| 4 | Move out | The model loop leaves the core and becomes the bundled orchestrator, a source. | Next |
 | 5 | Migrate to the target modules | The remaining modules and their stored collections take their target names, one at a time, with a data migration. | Later |
 | 6 | Build what does not exist yet | Routing without a named agent, and evaluation by hand. | Later |
 | 7 | The enterprise edition | The `enterprise/` folders, the license key, and the features a team or a company adds. | Later |

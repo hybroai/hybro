@@ -1122,6 +1122,106 @@
     "include_in_schema": true
   },
   {
+    "path": "/api/v1/rules",
+    "methods": [
+      "GET"
+    ],
+    "name": "list_rules",
+    "endpoint_module": "api_gateway.routes.rule_routes",
+    "declared_owner": "api_gateway.routes.rule_routes",
+    "tags": [
+      "rules"
+    ],
+    "status_code": null,
+    "dependencies": [
+      "get_owner_rules"
+    ],
+    "auth_dependencies": [
+      "get_owner_rules"
+    ],
+    "include_in_schema": true
+  },
+  {
+    "path": "/api/v1/rules",
+    "methods": [
+      "POST"
+    ],
+    "name": "create_rule",
+    "endpoint_module": "api_gateway.routes.rule_routes",
+    "declared_owner": "api_gateway.routes.rule_routes",
+    "tags": [
+      "rules"
+    ],
+    "status_code": 201,
+    "dependencies": [
+      "get_owner_rules"
+    ],
+    "auth_dependencies": [
+      "get_owner_rules"
+    ],
+    "include_in_schema": true
+  },
+  {
+    "path": "/api/v1/rules/order",
+    "methods": [
+      "PUT"
+    ],
+    "name": "reorder_rules",
+    "endpoint_module": "api_gateway.routes.rule_routes",
+    "declared_owner": "api_gateway.routes.rule_routes",
+    "tags": [
+      "rules"
+    ],
+    "status_code": null,
+    "dependencies": [
+      "get_owner_rules"
+    ],
+    "auth_dependencies": [
+      "get_owner_rules"
+    ],
+    "include_in_schema": true
+  },
+  {
+    "path": "/api/v1/rules/{rule_id}",
+    "methods": [
+      "DELETE"
+    ],
+    "name": "delete_rule",
+    "endpoint_module": "api_gateway.routes.rule_routes",
+    "declared_owner": "api_gateway.routes.rule_routes",
+    "tags": [
+      "rules"
+    ],
+    "status_code": 204,
+    "dependencies": [
+      "get_owner_rules"
+    ],
+    "auth_dependencies": [
+      "get_owner_rules"
+    ],
+    "include_in_schema": true
+  },
+  {
+    "path": "/api/v1/rules/{rule_id}",
+    "methods": [
+      "PUT"
+    ],
+    "name": "update_rule",
+    "endpoint_module": "api_gateway.routes.rule_routes",
+    "declared_owner": "api_gateway.routes.rule_routes",
+    "tags": [
+      "rules"
+    ],
+    "status_code": null,
+    "dependencies": [
+      "get_owner_rules"
+    ],
+    "auth_dependencies": [
+      "get_owner_rules"
+    ],
+    "include_in_schema": true
+  },
+  {
     "path": "/api/v1/sessions",
     "methods": [
       "GET"

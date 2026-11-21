@@ -66,6 +66,7 @@ flowchart TD
 | Support | `agent`, `local_agents`, `delivery`, `context_memory`, `room_files`, `llm_gateway` | Agent directory, local discovery, SSE delivery, room memory, files, and model access. |
 | Support | `diagnostics` | The local store of system events and warnings (two capped collections). |
 | Support | `source` | The sources that send work through the Source API: their names, token hashes, rotation and revocation, and the token check. |
+| Support | `policy` | The owner's check rules: an ordered list that answers allow or deny for an agent. Stored and edited; not enforced yet. |
 | Support | `account` | The owner account: the instance's one user record, its password hash, the signed-in browsers, the setup code, and the attempt limit of sign-in and setup. |
 | Support | `instance_settings` | The admin settings API: the curated field registry, validated `config.json` writes, the live log level, and the in-place service restart trigger. |
 | Infrastructure | `api_gateway`, `jobs`, `dal`, `a2a_adapter`, `common`, `models` | Routes, workers, Mongo/Redis connections and generic clients, the A2A SDK boundary, and shared contracts. |
@@ -277,7 +278,7 @@ dependency globals, or define `bind_*` functions.
 - Exposes nothing to other packages.
 - Consumes: the `agent.protocols` ports, `chat.protocols.ChatRooms`,
   `session.protocols.SessionAccess`, `OwnerSessionAccess` and `SessionService`,
-  `source.protocols.SourceRegistry`,
+  `source.protocols.SourceRegistry`, `policy.protocols.RuleRegistry`,
   `local_agents.protocols.LocalAgentDiscovery`,
   `llm_gateway.agent_proxy._AgentLLMProxyPort`,
   `llm_gateway.setup_api.SetupAccess`,
@@ -305,6 +306,8 @@ Route groups:
 - `session_routes.py`: `/sessions`.
 - `source_routes.py`: `/sources`, the owner's sources (see
   [`source`](#source)).
+- `rule_routes.py`: `/rules`, the owner's check rules (see
+  [`policy`](#policy)).
 - `sse_routes.py`: room SSE stream, event replay, message cancellation, and
   SSE status. `GET /sse/room/{conversation_id}/status` is deprecated and will be
   removed in a later release.
@@ -1065,6 +1068,45 @@ An unknown id is 404 `source_not_found`. Both switch routes are 503
 `GET /machine/sources/token-requirement` reads the switch for the CLI (see
 [Owner account API](#owner-account-api)).
 
+### `policy`
+
+The owner's check rules. A check rule has a condition, one agent or any
+agent, and an answer, `allow` or `deny`. The rules are an ordered list: the
+first rule that is on and matches decides, and no match means allow.
+`PolicyService` and `MongoRuleRepository` live here, with the pure
+`evaluate(rules, agent_id)`, which returns a `RuleDecision` (the answer and the
+deciding `rule_id`, or `None` when no rule matched). `policy` imports only
+`common`, calls no other module and never waits.
+`container.create_policy_rules` binds the service to `app.state.policy_rules`.
+
+Nothing calls `evaluate` yet, so the rules change no call path: an instance
+with rules behaves as one without.
+
+- Writes: `rules`, one document per rule: `rule_id` (`rule_` and 24 hex
+  characters), `kind` (`check`), `agent_id` (null for any agent), `answer`,
+  `enabled` (on or off; a rule that is off never matches), `position`,
+  `created_at`, `updated_at`. Indexes: `rule_id_unique`, and
+  `rule_kind_position` on `kind` and `position`. The list is ordered by
+  `position`, then `created_at`; positions may have gaps after a delete.
+- Exposes: `RuleRegistry` to `api_gateway`; declares `RuleStore`.
+
+Owner routes under `{api_prefix}/rules` (`rule_routes.py`), signed in as the
+owner through `get_signed_in_owner`; 503 `rules_unavailable` before startup
+binds the service.
+
+| Route | Does |
+|---|---|
+| `GET /rules` | The check rules in order: `rule_id`, `kind`, `agent_id`, `answer`, `enabled`, `created_at`, `updated_at`. |
+| `POST /rules` | Adds a rule at the end (`agent_id`, `answer`, `enabled`, default on); 201. 409 `rule_limit_reached` at 100 rules. |
+| `PUT /rules/{rule_id}` | Replaces its `agent_id` (null for any agent), `answer` and `enabled`, all three required so none falls back to a default; its place stays. |
+| `DELETE /rules/{rule_id}` | Deletes it; 204. |
+| `PUT /rules/order` | Sets the order (`rule_ids`). 409 `rule_order_mismatch` unless it names every rule exactly once. |
+
+An unknown id is 404 `rule_not_found`. A body that does not validate is 422
+`invalid_request` with `fields`, the names of the fields at fault (any other
+key is `unknown field`); the submitted values are never echoed. An `answer`
+other than `allow` or `deny`, such as `ask`, is refused this way.
+
 ### `models`
 
 Pydantic request, response, and persistence models shared by routes and
@@ -1403,6 +1445,8 @@ port, or facade port, update the exact method inventory in
 | `SourceDirectory` | `session.protocols` | `source.service.SourceService` | crosses to composition root; `source` |
 | `SourceRegistry` | `source.protocols` | `source.service.SourceService` | crosses to `api_gateway`; `session` |
 | `SourceStore` | `source.protocols` | `source.repository.mongo.MongoSourceRepository` | internal to `source` |
+| `RuleRegistry` | `policy.protocols` | `policy.service.PolicyService` | crosses to `api_gateway` |
+| `RuleStore` | `policy.protocols` | `policy.repository.mongo.MongoRuleRepository` | internal to `policy` |
 
 ## Runtime Configuration
 

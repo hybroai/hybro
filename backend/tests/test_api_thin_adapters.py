@@ -303,6 +303,7 @@ def test_phase9_route_inventory_matches_live_app_routes():
                 "get_machine_account",
                 "get_machine_sources",
                 "get_owner_sources",
+                "get_owner_rules",
                 "get_request_source",
             }
         ]
@@ -342,6 +343,7 @@ def test_route_inventory_auth_dependencies_are_only_auth_dependencies():
         "get_machine_account",
         "get_machine_sources",
         "get_owner_sources",
+        "get_owner_rules",
         "get_request_source",
     }
     routes = json.loads(Path("tests/fixtures/phase9_api_routes.json").read_text())
@@ -687,6 +689,7 @@ def test_route_owner_protocols_match_handler_calls():
         RoomRouteReader,
         SSEStateReader,
     )
+    from policy.protocols import RuleRegistry
     from session.protocols import OwnerSessionAccess, SessionAccess
     from source.protocols import SourceRegistry
 
@@ -729,6 +732,7 @@ def test_route_owner_protocols_match_handler_calls():
         SessionAccess: {"check", "close", "send"},
         OwnerSessionAccess: {"close", "get_record", "list_sessions"},
         SourceRegistry: {"create", "list_sources", "rename", "revoke", "rotate"},
+        RuleRegistry: {"create", "delete", "list_rules", "reorder", "update"},
         RoomRouteReader: {"get_room_by_room_id"},
         SSEStateReader: {
             "get_room_by_room_id",

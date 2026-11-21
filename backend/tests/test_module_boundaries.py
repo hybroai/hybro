@@ -38,6 +38,7 @@ DOMAIN_MODULES = frozenset(
         "jobs",
         "llm_gateway",
         "local_agents",
+        "policy",
         "room_files",
         "session",
         "source",
