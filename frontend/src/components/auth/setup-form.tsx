@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useSyncExternalStore } from 'react'
+import { useEffect, useRef, useState, useSyncExternalStore } from 'react'
 import { Loader2 } from 'lucide-react'
 import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
@@ -104,6 +104,13 @@ export function SetupForm() {
   const [busy, setBusy] = useState(false)
   const [paste, setPaste] = useState('')
   const [pasteError, setPasteError] = useState<string | null>(null)
+  // A new code in the address bar is a new attempt, so the previous refusal goes.
+  const previousCode = useRef(code)
+  useEffect(() => {
+    if (previousCode.current === code) return
+    previousCode.current = code
+    if (code) setError(null)
+  }, [code])
 
   const passwordsMatch = password === confirm
   const longEnough = password.length >= MIN_PASSWORD_LENGTH
@@ -167,6 +174,11 @@ export function SetupForm() {
                   onChange={(e) => {
                     setPaste(e.target.value)
                     if (pasteError) setPasteError(null)
+                  }}
+                  onKeyDown={(event) => {
+                    if (event.key !== 'Enter' || event.shiftKey) return
+                    event.preventDefault()
+                    event.currentTarget.form?.requestSubmit()
                   }}
                   placeholder="http://localhost:3000/setup#…"
                   autoComplete="off"

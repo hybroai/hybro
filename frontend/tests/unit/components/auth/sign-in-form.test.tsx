@@ -171,6 +171,36 @@ describe('SetupForm', () => {
     expect(assign).not.toHaveBeenCalled()
   })
 
+  it('drops the refusal when a new link is opened in the address bar', async () => {
+    const { ApiError } = await import('@/lib/api-client')
+    window.location.hash = '#old-code'
+    setupOwner.mockRejectedValue(new ApiError(403, 'forbidden', {
+      detail: { code: 'invalid_setup_code', message: 'This setup link is no longer valid.' },
+    }))
+    const { SetupForm } = await import('@/components/auth/setup-form')
+    render(<SetupForm />)
+    fill(/^Name/, 'Ada')
+    fill(/^Email/, 'ada@example.com')
+    fill(/^Password/, 'fixture-password')
+    fill(/^Confirm password/, 'fixture-password')
+    fireEvent.click(screen.getByRole('button', { name: 'Create account' }))
+    expect(await screen.findByRole('alert')).toHaveTextContent('This setup link is no longer valid.')
+    window.location.hash = '#new-code'
+    window.dispatchEvent(new HashChangeEvent('hashchange'))
+    expect(await screen.findByText('Create your owner account')).toBeInTheDocument()
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+  })
+
+  it('continues when Enter is pressed in the paste field', async () => {
+    const { SetupForm } = await import('@/components/auth/setup-form')
+    render(<SetupForm />)
+    const field = screen.getByLabelText(/^Setup link/)
+    fill(/^Setup link/, 'http://localhost:3100/setup#enter-code')
+    fireEvent.keyDown(field, { key: 'Enter' })
+    expect(screen.getByText('Create your owner account')).toBeInTheDocument()
+    expect(window.location.hash).toBe('#enter-code')
+  })
+
   it('returns to the paste field from the account form', async () => {
     window.location.hash = '#fixture-code'
     const { SetupForm } = await import('@/components/auth/setup-form')

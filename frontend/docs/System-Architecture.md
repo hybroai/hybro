@@ -1481,7 +1481,9 @@ the code from the address. The form says the link works once and expires in
 paste the setup link `hybro` printed, and says that `hybro status` prints a
 new link which replaces the earlier one. A pasted link or bare code is written
 into the fragment and the same form is shown. The fragment stays the only
-source of the code, so changing it replaces a pasted one. A link with no code
+source of the code, so changing it replaces a pasted one and clears a refusal
+from the previous link. Enter in the paste field continues; Shift+Enter adds
+a line. A link with no code
 is refused on the page. A machine without a browser is pointed at
 `hybro owner create`. When several administrators are listed (the deprecated
 Clerk mode), the browser cannot choose one, so the refusal names
