@@ -2887,7 +2887,10 @@ non-terminal Run (`orchestrator_active_room_unique_canceling`, which includes
   completed result as the final message through normal canonical finalization.
   A failed, rejected, canceled, or expired result fails the Run
   (`agent_<status>`); a scope that is not one mentioned Agent fails it before
-  dispatch. Each synthetic Assistant message is appended in the checkpoint that
+  dispatch. A declaration the Agent's schema refuses fails the Run
+  (`passthrough_call_rejected`) with no Agent call; a restart reads the
+  unaccepted entry, closes the turn as an error, and ends the Run the same
+  way. Each synthetic Assistant message is appended in the checkpoint that
   opens it, so recovery resumes without a model retry. When the owner's answer
   has closed the surface call but the Agent's continuation result has not
   arrived, the Run moves to `waiting_external` instead of surfacing the answered

@@ -984,6 +984,28 @@ def _passthrough_denied(run: OrchestratorRunState) -> bool:
     )
 
 
+def _passthrough_call_rejected(run: OrchestratorRunState) -> bool:
+    """Whether the passthrough Run's one call was refused before acceptance.
+
+    A check rule denied it, or its declaration failed the Agent's schema. Both
+    end the Run with no Agent call; an Agent that failed was accepted first.
+    """
+    return any(
+        entry.state == "terminal"
+        and entry.acceptance is None
+        and entry.tool_name != SURFACE_AGENT_QUESTIONS_TOOL_NAME
+        and (
+            entry.denied_by_rule
+            or (
+                entry.buffered_terminal_result is not None
+                and entry.buffered_terminal_result.error_code == "invalid_tool_call"
+            )
+        )
+        for batch in run.tool_batches
+        for entry in batch.entries
+    )
+
+
 def _find_join_target(run: OrchestratorRunState, tool_name: str) -> str | None:
     """Parent call of the most recently presented interaction for a tool.
 

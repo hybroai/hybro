@@ -102,6 +102,7 @@ from .run_state import (
     _parked_closeout_result,
     _parked_interaction_questions,
     _passthrough_answer_text,
+    _passthrough_call_rejected,
     _passthrough_denied,
     _passthrough_refused,
     _presentation_id,
@@ -3041,11 +3042,11 @@ class OrchestratorKernel:
                     # every entry is terminal.
                     return run, None
                 # A refused passthrough call closes its one turn as an error,
-                # as it does without a restart; the denied settlement needs it.
+                # as it does without a restart; the settlement needs it.
                 closed = (
                     "error"
                     if run.profile.profile_id == "passthrough"
-                    and _passthrough_denied(run)
+                    and _passthrough_call_rejected(run)
                     else "completed"
                 )
                 await self._emit(
@@ -3349,7 +3350,7 @@ class OrchestratorKernel:
             return await self._terminate(
                 run, status="failed", reason="passthrough_result_missing"
             )
-        if _passthrough_denied(run):
+        if _passthrough_call_rejected(run):
             # Restart after the refused batch was flushed.
             return await self._passthrough_rejected(run.run_id)
         if result.status != "completed":
