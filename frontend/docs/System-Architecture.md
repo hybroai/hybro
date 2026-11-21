@@ -1480,12 +1480,14 @@ the code from the address. The form says the link works once and expires in
 24 hours. Without a code the page is a recovery screen: it asks the user to
 paste the setup link `hybro` printed, and says that `hybro status` prints a
 new link which replaces the earlier one. A pasted link or bare code is written
-into the fragment and the same form is shown; a link with no code is refused
-on the page. A machine without a browser is pointed at `hybro owner create`.
-When several administrators are listed (the deprecated Clerk mode), the
-browser cannot choose one, so the refusal names
+into the fragment and the same form is shown. The fragment stays the only
+source of the code, so changing it replaces a pasted one. A link with no code
+is refused on the page. A machine without a browser is pointed at
+`hybro owner create`. When several administrators are listed (the deprecated
+Clerk mode), the browser cannot choose one, so the refusal names
 `hybro owner create --owner-id <id>` and the choices. An invalid or replaced
-code is refused with a message to run `hybro status` and open the new link.
+code clears the fragment, returns to the recovery screen, and shows the
+message to run `hybro status` and open the new link.
 Both pages show a warning when they are on plain HTTP and the host is not
 this machine. There is no sign-up page.
 

@@ -30,6 +30,11 @@ function subscribeToHash(onChange: () => void): () => void {
   return () => window.removeEventListener('hashchange', onChange)
 }
 
+/** Drops a trailing period or bracket copied from a sentence. */
+function tidyCode(code: string): string {
+  return code.trim().replace(/[.,);]+$/, '')
+}
+
 /**
  * The code from a pasted setup URL or a bare code. A URL with nothing after
  * `#`, or other text, yields an empty string.
@@ -40,31 +45,48 @@ function codeFromPaste(value: string): string {
   const hashAt = source.lastIndexOf('#')
   if (hashAt >= 0) {
     try {
-      return decodeURIComponent(source.slice(hashAt + 1)).trim().replace(/[.,);]+$/, '')
+      return tidyCode(decodeURIComponent(source.slice(hashAt + 1)))
     } catch {
       return ''
     }
   }
   if (source.includes('/') || source.includes(':') || /\s/.test(source)) return ''
-  return source
+  return tidyCode(source)
+}
+
+/**
+ * Writes the address without adding a history entry. `replaceState` does not
+ * emit `hashchange`, so the fragment store is notified here.
+ */
+function replaceLocation(url: string) {
+  window.history.replaceState(null, '', url)
+  window.dispatchEvent(new HashChangeEvent('hashchange'))
 }
 
 /** Keeps the code in the fragment without adding a history entry. */
 function writeSetupCode(code: string) {
-  const next = `${window.location.pathname}${window.location.search}#${encodeURIComponent(code)}`
-  window.history.replaceState(null, '', next)
+  replaceLocation(`${window.location.pathname}${window.location.search}#${encodeURIComponent(code)}`)
 }
 
-/** Creates the owner account through the one-time setup link. */
+/** Drops the code from the address and returns to the recovery screen. */
+function clearSetupCode() {
+  replaceLocation(`${window.location.pathname}${window.location.search}`)
+}
+
+function accountDetail(err: unknown): { code?: string; choices?: unknown } | undefined {
+  if (!(err instanceof ApiError)) return undefined
+  const detail = (err.details as { detail?: { code?: unknown; choices?: unknown } } | undefined)?.detail
+  if (typeof detail !== 'object' || detail === null) return undefined
+  return { code: typeof detail.code === 'string' ? detail.code : undefined, choices: detail.choices }
+}
+
 /**
  * The refusal to show. With several administrators listed, the browser cannot
  * choose one; `hybro owner create --owner-id` on the machine can.
  */
 function setupErrorMessage(err: unknown): string {
   const message = accountErrorMessage(err, 'Setup failed. Check that Hybro is running, then try again.')
-  const detail = err instanceof ApiError
-    ? (err.details as { detail?: { code?: unknown; choices?: unknown } } | undefined)?.detail
-    : undefined
+  const detail = accountDetail(err)
   if (detail?.code !== 'owner_id_required') return message
   const choices = Array.isArray(detail.choices) ? detail.choices.map(String).join(', ') : ''
   return `${message} Run on Hybro's machine: hybro owner create --name <name> --email <email> --owner-id <id>`
@@ -73,9 +95,7 @@ function setupErrorMessage(err: unknown): string {
 
 export function SetupForm() {
   // Null while rendering on the server, which never sees the fragment.
-  const fromHash = useSyncExternalStore<string | null>(subscribeToHash, readSetupCode, () => null)
-  const [applied, setApplied] = useState<string | null>(null)
-  const code = applied ?? fromHash
+  const code = useSyncExternalStore<string | null>(subscribeToHash, readSetupCode, () => null)
   const [name, setName] = useState('')
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
@@ -97,7 +117,7 @@ export function SetupForm() {
       return
     }
     setPasteError(null)
-    setApplied(next)
+    setError(null)
     writeSetupCode(next)
   }
 
@@ -114,6 +134,8 @@ export function SetupForm() {
     } catch (err: unknown) {
       setError(setupErrorMessage(err))
       setBusy(false)
+      // A dead code cannot be retried. Drop it so the recovery screen can take a new link.
+      if (accountDetail(err)?.code === 'invalid_setup_code') clearSetupCode()
     }
   }
 
@@ -127,21 +149,21 @@ export function SetupForm() {
         <>
           <CardHeader>
             <CardTitle>Open your setup link</CardTitle>
-            <CardDescription>
-              This browser does not have the setup link, so the account cannot be created here.
-            </CardDescription>
+            <CardDescription>Paste the setup link to continue.</CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
             <PlainHttpWarning />
+            {error && <p role="alert" className="text-sm text-destructive">{error}</p>}
             <p className="text-sm text-muted-foreground">
               Copy the setup link from the terminal where Hybro is running and paste it here. It ends
               with <code>/setup#…</code>.
             </p>
             <form onSubmit={applyPaste} className="space-y-4">
               <FormGroup id="setup-link" label="Setup link" error={pasteError ?? undefined}>
-                <Input
+                <textarea
                   id="setup-link"
                   value={paste}
+                  rows={3}
                   onChange={(e) => {
                     setPaste(e.target.value)
                     if (pasteError) setPasteError(null)
@@ -150,6 +172,7 @@ export function SetupForm() {
                   autoComplete="off"
                   spellCheck={false}
                   required
+                  className="border-input placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-ring/50 flex min-h-20 w-full rounded-md border bg-transparent px-3 py-2 text-sm shadow-xs outline-none focus-visible:ring-[3px]"
                 />
               </FormGroup>
               <Button type="submit" className="w-full" disabled={paste.trim() === ''}>
@@ -204,6 +227,9 @@ export function SetupForm() {
               </LoadingButton>
             </form>
             <p className="text-xs text-muted-foreground">This link works once and expires in 24 hours.</p>
+            <Button type="button" variant="ghost" className="w-full" onClick={() => { setError(null); clearSetupCode() }}>
+              Use another link
+            </Button>
           </CardContent>
         </>
       )}

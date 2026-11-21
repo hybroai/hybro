@@ -104,6 +104,82 @@ describe('SetupForm', () => {
     }))
   })
 
+  it('sends the code currently in the fragment after a paste', async () => {
+    setupOwner.mockResolvedValue({ owner: {} })
+    const { SetupForm } = await import('@/components/auth/setup-form')
+    render(<SetupForm />)
+    fill(/^Setup link/, 'http://localhost:3100/setup#old-code')
+    fireEvent.click(screen.getByRole('button', { name: 'Continue' }))
+    window.location.hash = '#new-code'
+    window.dispatchEvent(new HashChangeEvent('hashchange'))
+    fill(/^Name/, 'Ada')
+    fill(/^Email/, 'ada@example.com')
+    fill(/^Password/, 'fixture-password')
+    fill(/^Confirm password/, 'fixture-password')
+    fireEvent.click(screen.getByRole('button', { name: 'Create account' }))
+    await waitFor(() => expect(setupOwner).toHaveBeenCalledWith({
+      code: 'new-code', name: 'Ada', email: 'ada@example.com', password: 'fixture-password',
+    }))
+  })
+
+  it('accepts a bare code and drops trailing punctuation', async () => {
+    setupOwner.mockResolvedValue({ owner: {} })
+    const { SetupForm } = await import('@/components/auth/setup-form')
+    render(<SetupForm />)
+    fill(/^Setup link/, 'bare-code.')
+    fireEvent.click(screen.getByRole('button', { name: 'Continue' }))
+    expect(window.location.hash).toBe('#bare-code')
+    fill(/^Name/, 'Ada')
+    fill(/^Email/, 'ada@example.com')
+    fill(/^Password/, 'fixture-password')
+    fill(/^Confirm password/, 'fixture-password')
+    fireEvent.click(screen.getByRole('button', { name: 'Create account' }))
+    await waitFor(() => expect(setupOwner).toHaveBeenCalledWith({
+      code: 'bare-code', name: 'Ada', email: 'ada@example.com', password: 'fixture-password',
+    }))
+  })
+
+  it('reads the setup url from the three lines the terminal prints', async () => {
+    const { SetupForm } = await import('@/components/auth/setup-form')
+    render(<SetupForm />)
+    fill(/^Setup link/, [
+      'Create the owner account by opening this link:',
+      'http://localhost:3000/setup#terminal-code',
+      'This is a new link. It replaces any earlier one, works once, and expires in 24 hours.',
+    ].join('\n'))
+    fireEvent.click(screen.getByRole('button', { name: 'Continue' }))
+    expect(screen.getByText('Create your owner account')).toBeInTheDocument()
+    expect(window.location.hash).toBe('#terminal-code')
+  })
+
+  it('returns to the paste field when the setup link is no longer valid', async () => {
+    const { ApiError } = await import('@/lib/api-client')
+    window.location.hash = '#old-code'
+    setupOwner.mockRejectedValue(new ApiError(403, 'forbidden', {
+      detail: { code: 'invalid_setup_code', message: 'This setup link is no longer valid.' },
+    }))
+    const { SetupForm } = await import('@/components/auth/setup-form')
+    render(<SetupForm />)
+    fill(/^Name/, 'Ada')
+    fill(/^Email/, 'ada@example.com')
+    fill(/^Password/, 'fixture-password')
+    fill(/^Confirm password/, 'fixture-password')
+    fireEvent.click(screen.getByRole('button', { name: 'Create account' }))
+    expect(await screen.findByRole('alert')).toHaveTextContent('This setup link is no longer valid.')
+    expect(screen.getByText('Open your setup link')).toBeInTheDocument()
+    expect(window.location.hash).toBe('')
+    expect(assign).not.toHaveBeenCalled()
+  })
+
+  it('returns to the paste field from the account form', async () => {
+    window.location.hash = '#fixture-code'
+    const { SetupForm } = await import('@/components/auth/setup-form')
+    render(<SetupForm />)
+    fireEvent.click(screen.getByRole('button', { name: 'Use another link' }))
+    expect(screen.getByText('Open your setup link')).toBeInTheDocument()
+    expect(window.location.hash).toBe('')
+  })
+
   it('refuses a link that has no setup code', async () => {
     const { SetupForm } = await import('@/components/auth/setup-form')
     render(<SetupForm />)
