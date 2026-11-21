@@ -1230,7 +1230,7 @@ layout**, Display options.
 Structure view (`structure-view.tsx`, `src/lib/structure-groups.ts`): a scope
 list (**All agents**, **Unassigned**, then each subnet with a match count and an
 info button that selects the subnet) and an agent table with Agent, Status,
-Subnets, Source, and **Room calls** columns (tooltip: direct MCP and API sends
+Subnets, Origin, and **Room calls** columns (tooltip: direct MCP and API sends
 are not counted). Default sort is room calls descending; name and status sort
 too. **List** shows one row per agent in scope; **By subnet** groups rows under
 each subnet and an Unassigned group, so an agent in several subnets appears
@@ -1243,7 +1243,7 @@ Details panel: a subnet shows name, description, copyable ID (monospace),
 members with status indicators, and **Manage members**, **Access** (opens
 `/connect/mcp`), and **Delete subnet** (danger,
 confirmed in `SubnetDeleteDialog`). An agent shows avatar, name, version and
-provider, description, status, source, room calls, skills, subnet chips, **Open
+provider, description, status, origin, room calls, skills, subnet chips, **Open
 details**, and the **Add to subnet** menu (`add-to-subnet-menu.tsx`): each
 subnet is a checkbox item that adds or removes the agent with a membership-only
 `setMembers` write computed from the latest cached members, disabled while a
