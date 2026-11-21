@@ -5,6 +5,70 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.0](https://github.com/hybroai/hybro/compare/v0.4.10...v0.5.0) (2026-11-21)
+
+
+### ⚠ BREAKING CHANGES
+
+* a fresh install (no user, room or session in its database) refuses Source API and MCP requests without a source token, with 401 source_token_required; scripts and MCP clients pointed at such an install must send Authorization: Bearer <source token>. On a fresh install a request without a token before the owner account exists now gets 401 source_token_required instead of 503 no_account. Installs upgraded with existing data keep accepting requests without a token until the owner turns the requirement on.
+* a public install reached by a host name (a domain, a LAN or mDNS name such as `nas.local`, or a MagicDNS name) with no `frontend.server_url` now gets 421 `unknown_host` on every request except `/health`. Set `frontend.server_url` in config.json to the address people open; in a checkout, add the name to `backend.frontend_origins`. Installs reached by `localhost` or an IP address need no change.
+* every Panel and owner API route requires the owner's sign-in cookie. Clerk session tokens and `?token=` links no longer open anything, and callers that send a bearer token to owner routes get 401. `getAgent` and `getAllAgents` are no longer anonymous. The Source API returns 503 `no_account` until the owner account exists. An install whose config has `clerk` and a `server_url` must start with `--insecure-no-auth`. `scripts/image_smoke.py` now takes the container name as an argument. A reverse proxy in front of Hybro must keep the `Host` header (or send `X-Forwarded-Host`), or sign-in is refused as a cross-site request.
+* a Source API request (agent discovery, search, groups, profiles, session send, check and close) that carries an Authorization header that is not a current source token, such as a leftover or junk bearer or a Clerk session JWT, is now refused with 401 unknown_source_token. With backend.auth_mode "clerk", the Source API needs a source token, and the owner's session routes and /sources accept only the one administrator in backend.admin_user_ids or the owner account: any other Clerk user gets 403, with no administrator listed every Clerk user does, and sessions stored under another user's own id are no longer reachable. MCP /health no longer reports unsupported_auth.
+* POST /api/v1/agents/messages now returns 404. Use POST /api/v1/sessions/messages.
+* **backend:** config.json backend settings are validated strictly and an invalid file now fails at startup with an error naming the field. OPENAI_BASE_URL and OPENAI_API_BASE are no longer accepted as keys; use openai_base_url. HYBRO_FILE_DIR is no longer accepted; use hybro_file_dir. redis_internal_channel is no longer accepted; use eventing_redis_channel. compaction_concurrency must be a JSON integer of 1 or more instead of falling back to 5 or 1. orchestrator_canary_enabled must be true or false instead of reading a string or null as false.
+
+### Features
+
+* add sources and source tokens to the Source API ([9723f62](https://github.com/hybroai/hybro/commit/9723f62ba0e11817c546388fa6d6f191c93fdef8))
+* add sources and source tokens to the Source API ([966153c](https://github.com/hybroai/hybro/commit/966153cc3d25e676d990e3aa11aa968f5d18d9f6))
+* add the owner account, its sign-in routes and the machine-only routes ([c24dc31](https://github.com/hybroai/hybro/commit/c24dc31b9c2452789a1a0db631656180b4b80042))
+* add the owner account, its sign-in routes and the machine-only routes ([46e4f53](https://github.com/hybroai/hybro/commit/46e4f53153fd17c6995e5894e81eb59a3e2797ae))
+* add the Sources tab and require source tokens on new installs ([51e28e1](https://github.com/hybroai/hybro/commit/51e28e1cc9bcb7bb2a9a44a29e8d6a3c2c621644))
+* add the Sources tab and require source tokens on new installs ([a9a5a7a](https://github.com/hybroai/hybro/commit/a9a5a7a63aa1705341a88d7459358be86a5796fd))
+* **cli:** add hybro owner create and reset-password ([6d114c8](https://github.com/hybroai/hybro/commit/6d114c829586b6f5ea81007bda35a7fa21e4b5b2))
+* **cli:** add hybro owner create and reset-password ([5cd73a6](https://github.com/hybroai/hybro/commit/5cd73a69e48fac9196e2cf2a94abe69f1f2c6cad))
+* **frontend:** load remote images in agent markdown on click ([#246](https://github.com/hybroai/hybro/issues/246)) ([bd1f3ad](https://github.com/hybroai/hybro/commit/bd1f3add94f7ad73a944f83a9f3cc43eeabe63d9))
+* let a public listener start without a flag and add the proxy hop count ([a104bbc](https://github.com/hybroai/hybro/commit/a104bbc58088270e28acb86e80d2cde9ebce3334))
+* let a public listener start without a flag and add the proxy hop count ([f2a135d](https://github.com/hybroai/hybro/commit/f2a135db4a5b386e3b2b512aa510f1b9fbc7d641))
+* **policy:** add the owner's check rules and /rules routes, not enforced ([df4e4a9](https://github.com/hybroai/hybro/commit/df4e4a97346d42cbf7a07458c3d0f9d831ef3cc3))
+* **policy:** add the owner's check rules and /rules routes, not enforced ([d18e4b9](https://github.com/hybroai/hybro/commit/d18e4b9ed4810d10b3f76c6098a07ddca2c6f4ba))
+* remove the direct-send route POST /agents/messages ([a2aae34](https://github.com/hybroai/hybro/commit/a2aae341ee38527a6845905802d58294dec68f57))
+* remove the direct-send route POST /agents/messages ([04bb625](https://github.com/hybroai/hybro/commit/04bb625764e09073d7c2654063420147806b4ab6))
+* require the owner's sign-in for every Panel route ([e48ee8c](https://github.com/hybroai/hybro/commit/e48ee8cd0d79cb0b07632ecf0902f3c21baf09ca))
+* require the owner's sign-in for every Panel route ([27b1337](https://github.com/hybroai/hybro/commit/27b1337bb63409686394370d20d3fc7662d39977))
+* serve MCP on every listener and show how each source connects ([6bb4b39](https://github.com/hybroai/hybro/commit/6bb4b394f79b30c3f77673c025351e97e6776273))
+* serve MCP on every listener and show how each source connects ([724e365](https://github.com/hybroai/hybro/commit/724e36567b8ab8d2bf58ed7480fb49c17e1ffd48))
+
+
+### Bug Fixes
+
+* **a2a:** classify agents only from dialed lookups and unwrap IPv6 transition addresses ([173cdfb](https://github.com/hybroai/hybro/commit/173cdfb96f2fd8056eff6ee9f5e3e3b4d1d67153))
+* **a2a:** do not treat a link-local registration as private ([064d1ca](https://github.com/hybroai/hybro/commit/064d1ca2583f97d0346f91cc7c54207853644373))
+* **a2a:** refuse private card destinations for public agents ([993aa1f](https://github.com/hybroai/hybro/commit/993aa1f1df6c3436ce81a67b834f4f7569f98aad))
+* **a2a:** require auth for card fetches and limit where a card may send calls ([a7e5dad](https://github.com/hybroai/hybro/commit/a7e5dad15e49ac879fdf04605868ddbcd0ecf8fb))
+* **agent:** require auth and bound agent URL fetches ([5a753bb](https://github.com/hybroai/hybro/commit/5a753bb10aefd13f1280c2f39d89fad031497d35))
+* **api:** return fixed error text and log unexpected HITL and suggestion failures ([baaca3c](https://github.com/hybroai/hybro/commit/baaca3c9c94d722d10f6c2dac05ffe80b548a8d4))
+* **api:** return fixed error text and log unexpected HITL and suggestion failures ([e87ff86](https://github.com/hybroai/hybro/commit/e87ff86971db256d7b3a7d655c26f641af54ae32))
+* **api:** return fixed text for HITL routing and delivery errors ([63ef28a](https://github.com/hybroai/hybro/commit/63ef28a7030e129f3463842eba79027def5e8870))
+* **backend:** regenerate uv.lock with the image's uv 0.7.13 ([e647e32](https://github.com/hybroai/hybro/commit/e647e324cc667670e0c791f8715f77a626f8ca2b))
+* **execution:** fail accepted sends whose Run never started ([#251](https://github.com/hybroai/hybro/issues/251)) ([f096b03](https://github.com/hybroai/hybro/commit/f096b033ff53013fcb7bd7bea545eefbcc20ad7a))
+* name source tokens in the Connect and README auth text ([57acd08](https://github.com/hybroai/hybro/commit/57acd08cc5dd4c6ba1af6894dcc06b6ab2dc707c))
+* **policy:** require every field when a rule is replaced ([ac2ca42](https://github.com/hybroai/hybro/commit/ac2ca42a9e3c7d05ba514aa3ab4c982a80b871d9))
+* refuse requests on host names this Hybro does not answer to ([4416daa](https://github.com/hybroai/hybro/commit/4416daa6802e006692d311c60158c6c0aa2c99e9))
+* **release-please:** match hybro-backend in uv.lock via @.name.value ([c1d6cd1](https://github.com/hybroai/hybro/commit/c1d6cd1782c2afa0e9f29aae77af777cdfa82fdc))
+* **release-please:** match hybro-backend in uv.lock via @.name.value ([d92cb96](https://github.com/hybroai/hybro/commit/d92cb9611c95ec67908acd0a2b5305f9f39f08bc))
+* scope the token switch copy to the Source API and MCP ([7f4ba41](https://github.com/hybroai/hybro/commit/7f4ba41cd0f92fea0912e9b6cbc7f493e4b728fa))
+* **session:** start the run before the session write ([#250](https://github.com/hybroai/hybro/issues/250)) ([d745e44](https://github.com/hybroai/hybro/commit/d745e445486d5041133bb739e1288064a6485f14))
+* simplify the token switch copy and trim the System settings notes ([f5c8797](https://github.com/hybroai/hybro/commit/f5c8797ff9e143864a31481f7fe66919782d3ba1))
+* simplify the token switch copy and trim the System settings notes ([3d6aef6](https://github.com/hybroai/hybro/commit/3d6aef6d1e6970addf6d4eb39569fe6ce0c32667))
+* **sse:** return 503 when the room event store or snapshot service is missing ([5503d93](https://github.com/hybroai/hybro/commit/5503d93a93db2174bafd70fe5cedc60e93e75031))
+* **sse:** return 503 when the room event store or snapshot service is missing ([101123e](https://github.com/hybroai/hybro/commit/101123ec4fa52257ff2a63022085f072d2b749b1))
+
+
+### Code Refactoring
+
+* **backend:** keep gunicorn and mark the stricter config as breaking ([a4aef79](https://github.com/hybroai/hybro/commit/a4aef795cabe01bd109a8d4d43f9d09bbf43d204))
+
 ## [0.4.10](https://github.com/hybroai/hybro/compare/v0.4.9...v0.4.10) (2026-11-14)
 
 
