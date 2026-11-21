@@ -78,9 +78,18 @@ export function useRoomWebhook({ conversationId, userId, userName, getToken }: U
 
   // After commit: dispose lifecycles for rooms we no longer view
   // (previous rooms + orphans from discarded concurrent renders).
-  // On unmount or before re-run: dispose current room's lifecycle.
+  // On unmount: dispose the current room's lifecycle one tick later. Strict
+  // Mode runs this cleanup and then the effect again for the same room; the
+  // re-run cancels the pending dispose, so the room keeps its lifecycle and
+  // its dependants (room reset, dispatcher) do not re-run.
+  const pendingDisposalsRef = useRef(new Map<string, ReturnType<typeof setTimeout>>())
   useEffect(() => {
     const map = lifecyclesMap
+    const pending = pendingDisposalsRef.current
+    for (const [id, timer] of pending) {
+      clearTimeout(timer)
+      pending.delete(id)
+    }
     for (const [id, lc] of map) {
       if (id !== conversationId) {
         lc.dispose()
@@ -88,13 +97,16 @@ export function useRoomWebhook({ conversationId, userId, userName, getToken }: U
       }
     }
     return () => {
-      const lc = map.get(conversationId)
-      if (lc) {
-        lc.dispose()
-        map.delete(conversationId)
-      }
+      pending.set(conversationId, setTimeout(() => {
+        pending.delete(conversationId)
+        const lc = map.get(conversationId)
+        if (lc) {
+          lc.dispose()
+          map.delete(conversationId)
+        }
+      }, 0))
     }
-  }, [conversationId])
+  }, [conversationId, lifecyclesMap])
 
   // O(1) lookup index: maps HITL request_id → message entity id
   const hitlRequestIndex = useRef(new Map<string, string>())
