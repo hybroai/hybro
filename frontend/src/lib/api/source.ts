@@ -14,6 +14,8 @@ export interface SourceView {
   token_last4: string | null
   created_at: string
   last_used_at: string | null
+  /** How the last request connected: through the MCP server, or the API directly. */
+  last_used_via: 'api' | 'mcp' | null
   revoked_at: string | null
 }
 

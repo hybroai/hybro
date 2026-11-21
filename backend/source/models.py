@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Annotated
+from typing import Annotated, Literal
 
 from pydantic import (
     BaseModel,
@@ -24,6 +24,10 @@ NO_TOKEN_SOURCE_ID = "no_token"
 NO_TOKEN_NAME = "No token"
 # Every token starts with this, so a leaked one is recognisable.
 TOKEN_PREFIX = "hybro_src_"
+
+# How a source's request reached the Source API: through the MCP server, which
+# marks its requests, or directly.
+Via = Literal["api", "mcp"]
 
 SourceName = Annotated[
     str, StringConstraints(strip_whitespace=True, min_length=1, max_length=120)
@@ -66,6 +70,9 @@ class SourceRecord(BaseModel):
     created_at: datetime
     updated_at: datetime
     last_used_at: datetime | None = None
+    # How the last request connected; null before its first use, and for a
+    # source last used before this was recorded.
+    last_used_via: Via | None = None
     revoked_at: datetime | None = None
 
     _utc_times = field_validator(
@@ -103,6 +110,7 @@ class SourceView(BaseModel):
     token_last4: str | None = None
     created_at: datetime
     last_used_at: datetime | None = None
+    last_used_via: Via | None = None
     revoked_at: datetime | None = None
 
     _utc_times = field_validator("created_at", "last_used_at", "revoked_at")(_utc)
@@ -157,4 +165,5 @@ __all__ = [
     "SourceWithToken",
     "TokenRequirement",
     "TokenRequirementChange",
+    "Via",
 ]

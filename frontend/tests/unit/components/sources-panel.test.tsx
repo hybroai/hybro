@@ -8,8 +8,7 @@ import { getApiUrl } from '@/lib/utils'
 import { ConnectPage } from '@/components/connect/connect-page'
 import type { SourceView } from '@/lib/api/source'
 
-const config = vi.hoisted(() => ({ mcp_disabled: false }))
-vi.mock('@/lib/config', () => ({ publicConfig: () => ({ api_base_url: 'https://hybro.example', api_prefix: '/api/v1', mcp_disabled: config.mcp_disabled }) }))
+vi.mock('@/lib/config', () => ({ publicConfig: () => ({ api_base_url: 'https://hybro.example', api_prefix: '/api/v1' }) }))
 const push = vi.fn()
 vi.mock('next/navigation', () => ({ useRouter: () => ({ push }) }))
 vi.mock('next/link', () => ({
@@ -26,9 +25,11 @@ const CI: SourceView = {
   token_last4: 'c1c1',
   created_at: '2026-11-18T10:00:00Z',
   last_used_at: '2026-11-20T09:30:00Z',
+  last_used_via: 'api',
   revoked_at: null,
 }
-const OLD: SourceView = { ...CI, source_id: 'src_old', name: 'Old laptop', has_token: false, token_last4: null, last_used_at: null, revoked_at: '2026-11-19T10:00:00Z' }
+const OLD: SourceView = { ...CI, source_id: 'src_old', name: 'Old laptop', has_token: false, token_last4: null, last_used_at: null, last_used_via: null, revoked_at: '2026-11-19T10:00:00Z' }
+const CLAUDE: SourceView = { ...CI, source_id: 'src_claude', name: 'Claude Code', token_last4: 'cl4d', last_used_via: 'mcp' }
 
 type Requirement = { required: boolean; started_off: boolean; updated_at: string }
 const state = { sources: [CI, OLD] as SourceView[], requirement: { required: true, started_off: false, updated_at: '2026-11-20T00:00:00Z' } as Requirement, puts: [] as unknown[] }
@@ -37,7 +38,6 @@ beforeEach(() => {
   state.sources = [CI, OLD]
   state.requirement = { required: true, started_off: false, updated_at: '2026-11-20T00:00:00Z' }
   state.puts = []
-  config.mcp_disabled = false
   window.localStorage.clear()
   stubFetchWithoutSignal()
   Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText: vi.fn().mockResolvedValue(undefined) } })
@@ -92,6 +92,22 @@ describe('Sources tab', () => {
     expect(within(old).getByText('Never')).toBeInTheDocument()
   })
 
+  it('shows how each source last connected, over the API or MCP', async () => {
+    state.sources = [CI, CLAUDE, OLD]
+    render(<ConnectPage kind="sources" />)
+    const list = await table()
+    expect(within(list).getByRole('columnheader', { name: 'Connects through' })).toBeInTheDocument()
+    const cell = (name: string) => {
+      const row = within(list).getByText(name).closest('tr')!
+      return within(row).getByTestId('source-via')
+    }
+    await within(list).findByText('CI bot')
+    expect(cell('CI bot')).toHaveTextContent('API')
+    expect(cell('Claude Code')).toHaveTextContent('MCP')
+    // Never used: nothing to show.
+    expect(cell('Old laptop')).toHaveAccessibleName('Not known')
+  })
+
   it('shows an empty state and a retryable error', async () => {
     state.sources = []
     render(<ConnectPage kind="sources" />)
@@ -133,8 +149,7 @@ describe('Sources tab', () => {
     expect(document.body.textContent).not.toContain(TOKEN)
   })
 
-  it('leaves out the MCP snippet while MCP is off on a public listener', async () => {
-    config.mcp_disabled = true
+  it('offers the MCP snippet on every listener', async () => {
     const user = userEvent.setup()
     render(<ConnectPage kind="sources" />)
     await user.click(screen.getByRole('button', { name: 'Create source' }))
@@ -142,7 +157,7 @@ describe('Sources tab', () => {
     await user.type(within(dialog).getByLabelText('Name'), 'Nightly job')
     await user.click(within(dialog).getByRole('button', { name: 'Create' }))
     await within(dialog).findByLabelText('Source token')
-    expect(within(dialog).queryByLabelText('Claude Code command')).toBeNull()
+    expect(within(dialog).getByLabelText('Claude Code command')).toBeInTheDocument()
     expect(within(dialog).getByLabelText('API request')).toBeInTheDocument()
   })
 

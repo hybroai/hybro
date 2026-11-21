@@ -106,17 +106,16 @@ def test_insecure_public_listener_starts_with_a_warning(capsys):
 # ---- Projections ----
 
 
-def test_loopback_projection_is_same_origin_with_mcp_enabled():
+def test_loopback_projection_is_same_origin():
     programs = build(loopback(3100))
     frontend = json.loads(programs["frontend"].env["HYBRO_FRONTEND_CONFIG"])
     assert frontend["api_base_url"] == ""
     assert frontend["server_url"] == "http://localhost:3100"
     assert "mcp_url" not in frontend
-    assert frontend["mcp_disabled"] is False
-    # The projection still satisfies the public schema it is validated against.
-    FrontendSettings.model_validate(
-        {k: v for k, v in frontend.items() if k != "mcp_disabled"}
-    )
+    # MCP is served on every listener, so the frontend is not told otherwise.
+    assert "mcp_disabled" not in frontend
+    # The projection is exactly the public schema it is validated against.
+    FrontendSettings.model_validate(frontend)
     backend = programs["backend"].env
     assert backend["HYBRO_FRONTEND_ORIGINS"] == (
         "http://localhost:3100,http://127.0.0.1:3100"
@@ -132,7 +131,7 @@ def test_loopback_projection_is_same_origin_with_mcp_enabled():
     ]
 
 
-def test_public_projection_uses_the_configured_origin_and_disables_mcp():
+def test_public_projection_uses_the_configured_origin():
     programs = build(
         public(),
         frontend={
@@ -143,7 +142,8 @@ def test_public_projection_uses_the_configured_origin_and_disables_mcp():
     frontend = json.loads(programs["frontend"].env["HYBRO_FRONTEND_CONFIG"])
     assert frontend["api_base_url"] == ""
     assert frontend["server_url"] == "https://hybro.example"
-    assert frontend["mcp_disabled"] is True
+    assert "mcp_disabled" not in frontend
+    FrontendSettings.model_validate(frontend)
     assert programs["backend"].env["HYBRO_FRONTEND_ORIGINS"] == "https://hybro.example"
 
 
@@ -174,10 +174,18 @@ def test_agents_run_their_file_from_their_own_directory_on_loopback():
     assert agent.env["PYTHONPATH"] == "/app/default_agents"
 
 
-def test_mcp_runs_in_image_mode_with_the_api_prefix():
+def test_mcp_runs_in_image_mode_with_the_api_prefix_and_listen_mode():
     mcp = build(loopback())["mcp"]
     assert mcp.command[1:] == ["server.py", "--image"]
-    assert json.loads(mcp.env["HYBRO_MCP_CONFIG"]) == {"api_prefix": "/api/v1"}
+    assert json.loads(mcp.env["HYBRO_MCP_CONFIG"]) == {
+        "api_prefix": "/api/v1",
+        "listen": "loopback",
+    }
+    public_mcp = build(public(insecure=True))["mcp"]
+    assert json.loads(public_mcp.env["HYBRO_MCP_CONFIG"]) == {
+        "api_prefix": "/api/v1",
+        "listen": "public",
+    }
     # The server imports only the backend's logging modules from this path.
     assert mcp.env["PYTHONPATH"] == "/app/backend"
     assert set(mcp.env) == {"HYBRO_MCP_CONFIG", "PYTHONPATH"}
@@ -228,11 +236,23 @@ def test_loopback_caddyfile_checks_the_host_and_serves_mcp():
     assert ":8080 {" in text
 
 
-def test_public_caddyfile_omits_mcp_and_the_host_check():
+def test_public_caddyfile_serves_mcp_without_the_host_check():
     text = entry.caddyfile(listener=public(), api_prefix="/api/v1")
-    assert "/mcp" not in text
+    assert "@mcp path /mcp /mcp/*" in text
+    assert "\t\treverse_proxy 127.0.0.1:8001 {" in text
     assert "@foreign" not in text
     assert "reverse_proxy 127.0.0.1:3000" in text
+    # The MCP route comes before the catch-all frontend route.
+    assert text.index("handle @mcp") < text.index("reverse_proxy 127.0.0.1:3000")
+
+
+@pytest.mark.parametrize("listener", [loopback, public])
+def test_caddy_drops_the_mcp_mark_from_outside_requests(listener):
+    text = entry.caddyfile(listener=listener(), api_prefix="/api/v1")
+    backend = text[text.index("handle @backend {") :]
+    backend = backend[: backend.index("\n\t}\n")]
+    # Only the MCP server inside the image marks a backend request as MCP.
+    assert "\t\t\theader_up -X-Hybro-Via" in backend
 
 
 @pytest.mark.parametrize("listener", [loopback, public])

@@ -251,3 +251,23 @@ async def test_a_failed_last_use_write_still_resolves_and_is_logged(
     [record] = [r for r in caplog.records if r.msg == "source_last_use_write_failed"]
     assert record.source_id == created.source_id
     assert created.token not in caplog.text
+
+
+async def test_resolve_records_how_the_source_connected():
+    service, store, clock = make()
+    created = await service.create("CI bot")
+
+    await service.resolve(created.token)
+    assert store.records[created.source_id].last_used_via == "api"
+
+    # A change of channel is written at once, within the minute too.
+    clock.now = NOW + timedelta(seconds=10)
+    await service.resolve(created.token, via="mcp")
+    assert store.records[created.source_id].last_used_via == "mcp"
+    assert store.touched[-1] == (created.source_id, clock.now, "mcp")
+    # The same channel within the minute is not written again.
+    clock.now = NOW + timedelta(seconds=20)
+    await service.resolve(created.token, via="mcp")
+    assert len(store.touched) == 2
+    listed = await service.list_sources()
+    assert listed.sources[0].last_used_via == "mcp"

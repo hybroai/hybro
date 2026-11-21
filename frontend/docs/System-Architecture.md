@@ -103,16 +103,15 @@ bundle, including the serving route, which pins one image to one deployment.
 In the single image the entrypoint (`backend/runtime_entrypoint.py`) supplies
 the projection: `api_base_url` empty, `server_url` the browser's origin
 (`http://localhost:<port>` on loopback, `frontend.server_url` on a public
-listener), and `mcp_disabled` true on a public listener. The standalone server listens on `127.0.0.1:3000` behind Caddy.
+listener). MCP is served on every listener, so the projection says nothing
+about it. The standalone server listens on `127.0.0.1:3000` behind Caddy.
 
 An empty `api_base_url` means same origin: `getApiUrl` then returns a relative
 `{api_prefix}/...` path, which the browser sends to the address it loaded the
 page from (Caddy in the image; the Next rewrite in `npm run dev`). API modules therefore never pass these URLs to `new URL()`; query
 strings are appended with `URLSearchParams`. In this mode the Access page shows
 the page origin as the API base URL; otherwise it shows the projection's
-`api_base_url`. The MCP address is always `{origin}/mcp`. The optional
-`mcp_disabled` flag is derived, not user-settable; when true the Access page
-says MCP is disabled on public listeners.
+`api_base_url`. The MCP address is always `{origin}/mcp`.
 
 Neither dotenv files nor `auth.json` are browser configuration inputs. Server
 credentials are runtime-only and never build arguments. A browser gets a new
@@ -1281,13 +1280,14 @@ clear.
 
 The Sources tab (`SourcesPanel`, `sources-panel.tsx`) lists the owner's
 sources through `useSources` (`GET {api_prefix}/sources`): name, the token's
-last four characters or "Revoked", last use ("Never"), creation date, and a
+last four characters or "Revoked", last use ("Never"), how it last connected
+(**Connects through**: "API" or "MCP" from `last_used_via`, a dash labelled
+"Not known" before a recorded use), creation date, and a
 **Sessions** link to `/sessions?source={source_id}`. Each row's menu renames
 (`PATCH /sources/{id}`), rotates (`POST /sources/{id}/rotate`) or revokes
 (`POST /sources/{id}/revoke`) after a confirmation. **Create source**
 (`POST /sources`) and a rotation show the new token once in `ShowOnceToken`
-(`show-once-token.tsx`, built on `useCopy`) with a Claude Code command (left
-out while `mcp_disabled`) and an API request that contain it. The token lives
+(`show-once-token.tsx`, built on `useCopy`) with a Claude Code command and an API request that contain it. The token lives
 only in the dialog's component state: closing the dialog drops it, and it is
 never written to browser storage, a URL or a log.
 
@@ -1305,9 +1305,8 @@ Overview shows `TokenRequirementNotice` once, for an install whose
 requirement started off (`started_off`), until dismissed
 (`hybro.token-requirement.notice-dismissed`).
 
-The MCP tab shows the MCP address (`mcpUrl(pageOrigin)`: `{origin}/mcp`), or
-only a notice when
-`mcp_disabled` is true, with one primary
+The MCP tab shows the MCP address (`mcpUrl(pageOrigin)`: `{origin}/mcp`) on
+every listener, with one primary
 **Copy address** button, then "Add Hybro to your assistant" with tabs for
 Claude Code, Cursor, Codex, VS Code, and Other. Each assistant tab holds only
 one snippet with a hint of where it goes and a copy button (a `claude mcp add`

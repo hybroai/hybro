@@ -1,4 +1,4 @@
-"""Local-only Streamable HTTP wrapper for the Hybro Agent Network API."""
+"""Streamable HTTP wrapper for the Hybro Source API."""
 
 from __future__ import annotations
 
@@ -10,7 +10,7 @@ import logging
 import os
 import re
 import time
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable, Callable, Mapping
 from contextvars import ContextVar
 from types import SimpleNamespace
 from typing import Annotated, Literal
@@ -53,12 +53,28 @@ MCP_PORT = 8001
 # default) before answering; allow a generously configured wait to arrive.
 REQUEST_TIMEOUT_SECONDS = 610.0
 HEALTH_TIMEOUT_SECONDS = 2.0
-# Host names stay pinned against DNS rebinding. The port is any port, because
-# Caddy forwards the browser's Host header with the published host port.
+# On a loopback listener host names stay pinned against DNS rebinding. The port
+# is any port, because Caddy forwards the browser's Host header with the
+# published host port.
 TRANSPORT_SECURITY = TransportSecuritySettings(
     allowed_hosts=["127.0.0.1:*", "localhost:*"],
     allowed_origins=["http://127.0.0.1:*", "http://localhost:*"],
 )
+# On a public listener other machines reach Hybro by names this server cannot
+# know, so the check is off here. Each backend call carries the caller's address
+# instead (caller_address), so the backend's trusted-host and cross-site checks
+# refuse a DNS-rebound name, and the source token is the control.
+PUBLIC_TRANSPORT_SECURITY = TransportSecuritySettings(
+    enable_dns_rebinding_protection=False
+)
+# Sent with every backend call, so the owner sees the source connected via MCP.
+VIA_HEADER = "X-Hybro-Via"
+Listen = Literal["loopback", "public"]
+
+
+def transport_security_for(listen: Listen) -> TransportSecuritySettings:
+    return PUBLIC_TRANSPORT_SECURITY if listen == "public" else TRANSPORT_SECURITY
+
 
 SESSION_STATES = (
     "completed",
@@ -119,6 +135,16 @@ HTTP_NEXT_ACTIONS = {
     "session_not_found": (
         "The session was not found. Omit session_id to start a new session."
     ),
+    "unknown_host": (
+        "Hybro does not answer to the address this MCP client uses. Ask the "
+        "user to set frontend.server_url in Hybro's config.json to that "
+        "address, or to connect by Hybro's IP address."
+    ),
+    "cross_site_request": (
+        "Hybro refused a request from a web page without a source token. Put "
+        "a source token in this MCP server's Authorization header "
+        "(Bearer <token>)."
+    ),
     "request_conflict": (
         "This client_request_id was already used for a different message. Use a "
         "new client_request_id."
@@ -172,6 +198,8 @@ class ConnectionConfig(BaseModel):
     api_prefix: str = Field(
         default="/api/v1", pattern=r"^/[A-Za-z0-9/_-]*[A-Za-z0-9_-]$"
     )
+    # The listener Hybro serves on; it decides the Host and Origin check.
+    listen: Listen = "loopback"
 
 
 class SubnetRef(BaseModel):
@@ -354,12 +382,45 @@ def http_next_action(status: int, body: dict[str, JsonValue]) -> str:
 # The Authorization header of the MCP request a tool call came in on, bound by
 # logged_tool for that call and forwarded by request() to the backend.
 _authorization: ContextVar[str | None] = ContextVar("authorization", default=None)
+# The MCP request's headers, from which request() takes the caller's address on
+# a public listener.
+_caller_headers: ContextVar[Mapping[str, str] | None] = ContextVar(
+    "caller_headers", default=None
+)
+
+
+def caller_headers(ctx: object) -> Mapping[str, str] | None:
+    """The MCP request's headers; None on stdio or the in-memory client."""
+    return ctx.headers if isinstance(ctx, Context) else None
 
 
 def caller_authorization(ctx: object) -> str | None:
     """The caller's Authorization header; None on stdio or the in-memory client."""
-    headers = ctx.headers if isinstance(ctx, Context) else None
+    headers = caller_headers(ctx)
     return headers.get("authorization") if headers is not None else None
+
+
+def caller_address(headers: Mapping[str, str] | None) -> dict[str, str]:
+    """The address a caller used, for the backend's checks.
+
+    ``X-Forwarded-Host`` is the one Caddy sets (it drops a client's own), every
+    line of it; without one, the caller's ``Host``. ``Origin`` only when the
+    caller sent one: most MCP clients send none.
+    """
+    if headers is None:
+        return {}
+    getlist = getattr(headers, "getlist", None)
+    forwarded = (
+        ", ".join(getlist("x-forwarded-host"))
+        if getlist
+        else headers.get("x-forwarded-host", "")
+    )
+    address = {}
+    if host := forwarded or headers.get("host"):
+        address["X-Forwarded-Host"] = host
+    if origin := headers.get("origin"):
+        address["Origin"] = origin
+    return address
 
 
 def logged_tool(
@@ -379,6 +440,7 @@ def logged_tool(
         outcome = "error"
         error: BaseException | None = None
         bound = _authorization.set(caller_authorization(arguments.get("ctx")))
+        bound_headers = _caller_headers.set(caller_headers(arguments.get("ctx")))
         with bind_log_context(request_id=http_request_id, trace_id=http_request_id):
             try:
                 result = await handler(**arguments)
@@ -393,6 +455,7 @@ def logged_tool(
                 raise
             finally:
                 _authorization.reset(bound)
+                _caller_headers.reset(bound_headers)
                 # Caller-supplied, so only id-shaped values are logged.
                 correlation = {
                     key: log_id(arguments[key])
@@ -413,7 +476,9 @@ def logged_tool(
     return call
 
 
-def create_server(client: httpx.AsyncClient) -> MCPServer:
+def create_server(
+    client: httpx.AsyncClient, *, listen: Listen = "loopback"
+) -> MCPServer:
     """Register network tools over a caller-owned HTTP client.
 
     From the backend it imports only the common.observability logging modules,
@@ -450,7 +515,7 @@ def create_server(client: httpx.AsyncClient) -> MCPServer:
 
     @server.custom_route("/health", methods=["GET"])
     async def health(request: Request) -> Response:
-        security = TransportSecurityMiddleware(TRANSPORT_SECURITY)
+        security = TransportSecurityMiddleware(transport_security_for(listen))
         rejected = await security.validate_request(request)
         if rejected is not None:
             return rejected
@@ -512,7 +577,19 @@ def create_server(client: httpx.AsyncClient) -> MCPServer:
                 is_error=True,
             )
 
-        headers = {"X-Request-ID": http_request_id}
+        headers = {"X-Request-ID": http_request_id, VIA_HEADER: "mcp"}
+        if listen == "public":
+            address = caller_address(_caller_headers.get())
+            if "X-Forwarded-Host" not in address:
+                # The backend would see only this server's loopback address
+                # and could not refuse a rebound name, so nothing is sent.
+                failed("CALLER_ADDRESS_UNKNOWN")
+                return error(
+                    "CALLER_ADDRESS_UNKNOWN",
+                    "This MCP server could not tell which address the call used.",
+                    "Connect over Streamable HTTP to Hybro's /mcp address.",
+                )
+            headers.update(address)
         authorization = _authorization.get()
         if authorization is not None:
             headers["Authorization"] = authorization
@@ -880,11 +957,11 @@ async def main(*, image: bool = False) -> None:
         follow_redirects=False,
         trust_env=False,
     ) as client:
-        app = create_server(client).streamable_http_app(
+        app = create_server(client, listen=config.listen).streamable_http_app(
             streamable_http_path="/mcp",
             stateless_http=True,
             json_response=True,
-            transport_security=TRANSPORT_SECURITY,
+            transport_security=transport_security_for(config.listen),
             host=MCP_HOST,
         )
         await serve(app)

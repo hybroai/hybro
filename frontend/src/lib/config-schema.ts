@@ -13,8 +13,6 @@ export interface PublicConfig {
   inspection_timeout_ms: number
   /** Google Analytics 4 id; empty means no analytics script and no consent banner. */
   analytics_measurement_id: string
-  /** True when the listener is public and MCP is not served. */
-  mcp_disabled?: boolean
 }
 
 const stringKeys = [
@@ -24,7 +22,7 @@ const stringKeys = [
   'analytics_measurement_id',
 ] as const
 const numberKeys = ['max_message_length', 'inspection_timeout_ms'] as const
-const allowed = new Set<string>([...stringKeys, ...numberKeys, 'enable_waitlist', 'mcp_disabled'])
+const allowed = new Set<string>([...stringKeys, ...numberKeys, 'enable_waitlist'])
 
 /** Only the CLI's public projection is accepted, never the full config/auth file. */
 export function parsePublicConfig(serialized: string | undefined): Readonly<PublicConfig> {
@@ -38,7 +36,6 @@ export function parsePublicConfig(serialized: string | undefined): Readonly<Publ
   if (stringKeys.some(key => typeof record[key] !== 'string')) throw failure()
   if (numberKeys.some(key => typeof record[key] !== 'number' || !Number.isSafeInteger(record[key]) || (record[key] as number) <= 0)) throw failure()
   if (typeof record.enable_waitlist !== 'boolean') throw failure()
-  if (record.mcp_disabled !== undefined && typeof record.mcp_disabled !== 'boolean') throw failure()
   for (const key of ['api_base_url', 'server_url'] as const) {
     if (key === 'api_base_url' && record[key] === '') continue
     try {

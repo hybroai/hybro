@@ -277,14 +277,20 @@ only the backend's `common.observability` logging modules, not the runtime, and
 does not access the database or change Agent visibility rules.
 
 The single image runs MCP as one of its programs and serves it at `/mcp` on the
-app's port, only on a loopback listener: `http://localhost:3000/mcp` for a
-released install, `http://localhost:3100/mcp` from a checkout.
+app's port, on every listener: `http://localhost:3000/mcp` for a released
+install, `http://localhost:3100/mcp` from a checkout. An MCP client on another
+machine connects with a source token to the address it reaches Hybro by, once
+Hybro listens there (for now with `--insecure-no-auth`).
 
 Each tool passes the `Authorization` header of the MCP request on to the
 backend. Set `Authorization: Bearer <source token>` in your MCP client's
 server configuration to name it as a source; it is required while the token
 requirement is on, as on a fresh install. Without the header, and with the
-requirement off, the calls are the "No token" source. Until the owner account exists the tools fail with
+requirement off, the calls are the "No token" source. Each call also carries
+`X-Hybro-Via: mcp`, so the backend records that the source last connected
+through MCP; in the image, Caddy's backend route removes that header from
+requests that arrive on the app's port (a checkout's Next dev proxy does not,
+so there a client can claim it; the mark decides nothing). Until the owner account exists the tools fail with
 `no_account`, and their `next_action` points the user to the setup link.
 
 Add a **Streamable HTTP** server manually to your MCP client using:
@@ -295,8 +301,8 @@ http://localhost:3000/mcp
 
 From a checkout, use `http://localhost:3100/mcp`.
 
-This URL is for clients on the machine running Hybro, not a remote browser's
-machine. **Access** (`/connect/mcp`) in the app copies the URL and per-assistant
+The `localhost` URL is for clients on the machine running Hybro, not a remote
+browser's machine. **Access** (`/connect/mcp`) in the app copies the URL and per-assistant
 setup snippets, such as the Claude Code `mcpServers` configuration
 (`type: "http"`); the snippets can also be selected and copied manually. It does
 not check status, control services, relay tool calls, or automatically
@@ -379,9 +385,23 @@ receipt at once. There are no automatic retries.
 
 Native mode uses fixed loopback endpoints and the `/api/v1` prefix. Image mode
 (`--image`) requires the entrypoint's validated `HYBRO_MCP_CONFIG` projection,
-containing only `api_prefix`; it reaches the backend on loopback and listens on
-`127.0.0.1:8001`, behind Caddy's `/mcp` route. Explicit Host/Origin
-DNS-rebinding checks remain active in both modes. MCP receives no auth store or
+containing `api_prefix` and the listen mode (`listen`: `loopback` or
+`public`); it reaches the backend on loopback and listens on `127.0.0.1:8001`,
+behind Caddy's `/mcp` route. Native mode and a loopback listener keep the
+explicit Host/Origin DNS-rebinding check (only `localhost` and `127.0.0.1`, any
+port), on `/mcp` and `/health`. On a public listener that check is off, because
+other machines reach Hybro by names the server cannot know. Instead each
+backend call carries the caller's address: the `X-Forwarded-Host` Caddy set (it
+drops a client's own), or the request's `Host` without one, and the caller's
+`Origin` when it sent one; a call with neither header fails with
+`CALLER_ADDRESS_UNKNOWN` and sends nothing. The backend's trusted-host check then refuses a name
+it does not answer to (421 `unknown_host`, whose `next_action` names
+`frontend.server_url`), and its cross-site rule refuses a web page without a
+token, as for a direct API call; the source token is the control. Calls that
+never reach the backend, `initialize`, `tools/list` and `/health`, answer any
+name and return no data: the tool list and a ready flag. A checkout runs the
+server natively on loopback, so it keeps the host check and passes no address
+on. MCP receives no auth store or
 Provider credentials.
 
 `GET http://127.0.0.1:8001/health` calls the backend's root `/health`, which

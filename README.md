@@ -154,8 +154,8 @@ another address, for example `hybro start -d --listen 0.0.0.0 --port 443`. The
 Panel needs the owner's sign-in on every listener, and a non-loopback listener
 still needs the explicit `--insecure-no-auth`, for a trusted network only. While
 the source token requirement is off on such a listener, `hybro` and
-`hybro status` print a warning. MCP is served only on
-a loopback listener. Without HTTPS the sign-in cookie and password cross the
+`hybro status` print a warning. MCP is served on every listener, under the same
+address rules as the API. Without HTTPS the sign-in cookie and password cross the
 network in the clear; the setup and sign-in pages warn when they are opened
 over plain HTTP from another machine. Reached by a name (a domain, a LAN name
 such as `nas.local`, or a MagicDNS name), Hybro needs that address in `frontend.server_url` in `config.json` (for example
@@ -256,11 +256,16 @@ approval an agent raises.
 }
 ```
 
-The **Streamable HTTP** URL is for clients on the machine running Hybro. If you
-open the app remotely, loopback in your client still refers to that client's
-machine, not the Hybro host. MCP passes the client's source token on to the
-Source API, but a non-loopback listener does not serve MCP yet. Do not expose
-it publicly.
+The `localhost` URL is for clients on the machine running Hybro; loopback in a
+client on another machine refers to that machine. An MCP client on another
+machine connects with a source token to the address it reaches Hybro by, for
+example `http://nas.local:3000/mcp`, once Hybro listens on that address (for now
+with `--insecure-no-auth`; see **Run on a server** above). MCP passes the
+client's token on to the Source API, which checks it, together with the address
+the client used, so a name Hybro does not answer to is refused with
+`unknown_host`, as on the API. Keep **Require a source token** on for a listener
+that other machines reach. The
+**Sources** list shows whether each source last connected over the API or MCP.
 See [MCP tools, health, and native startup](backend/README.md#local-mcp-access).
 
 ### 6. Send work from your own agent or code

@@ -167,6 +167,34 @@ async def test_a_token_names_its_source():
     assert owner.user_id == OWNER_USER_ID
 
 
+async def test_the_mcp_mark_is_recorded_on_the_sources_last_request():
+    app, _, sources = make_app()
+    api = await sources.create("CI bot")
+    mcp = await sources.create("Claude Code")
+    async with client_for(app) as client:
+        await client.post(SEND, json=BODY, headers=bearer(api.token))
+        await client.post(
+            SEND, json=BODY, headers={**bearer(mcp.token), "X-Hybro-Via": "mcp"}
+        )
+        listed = await client.get(f"{API}/sources")
+
+    assert listed.status_code == 200
+    via = {s["name"]: s["last_used_via"] for s in listed.json()["sources"]}
+    assert via == {"CI bot": "api", "Claude Code": "mcp"}
+
+
+@pytest.mark.parametrize("value", ["MCP", "stdio", ""])
+async def test_any_other_mark_counts_as_the_api(value):
+    app, _, sources = make_app()
+    created = await sources.create("CI bot")
+    async with client_for(app) as client:
+        await client.post(
+            SEND, json=BODY, headers={**bearer(created.token), "X-Hybro-Via": value}
+        )
+    listed = await sources.list_sources()
+    assert listed.sources[0].last_used_via == "api"
+
+
 async def test_client_label_is_optional_with_a_token():
     app, facade, sources = make_app()
     created = await sources.create("CI bot")
@@ -331,6 +359,81 @@ async def test_no_token_with_a_foreign_origin_is_refused(method, path, body):
     assert response.status_code == 403
     assert response.json()["detail"]["code"] == "cross_site_request"
     assert facade.calls == []
+
+
+# As the MCP server passes a public listener's caller on: it calls the backend
+# on loopback and forwards the caller's address as X-Forwarded-Host, and its
+# Origin, so these checks judge the caller, not the MCP server.
+MCP_CALL = {"X-Hybro-Via": "mcp"}
+
+
+@pytest.mark.parametrize(("method", "path", "body"), SOURCE_ROUTES)
+async def test_a_rebound_name_through_mcp_is_refused_without_a_token(
+    method, path, body
+):
+    app, facade, _ = make_app(required=False)
+    async with client_for(app, host="127.0.0.1:8000") as client:
+        response = await client.request(
+            method,
+            path,
+            json=body,
+            headers={
+                **MCP_CALL,
+                "X-Forwarded-Host": "evil.test:3000",
+                "Origin": "http://evil.test:3000",
+            },
+        )
+
+    assert response.status_code == 421
+    assert response.json()["detail"]["code"] == "unknown_host"
+    assert "evil.test" not in response.text
+    assert facade.calls == []
+
+
+@pytest.mark.parametrize(
+    "headers",
+    [
+        # Reached by IP, by the configured name, and by loopback, with or
+        # without an Origin (most MCP clients send none).
+        {"X-Forwarded-Host": "192.168.1.10:3000"},
+        {"X-Forwarded-Host": "hybro.test", "Origin": "http://hybro.test"},
+        {"X-Forwarded-Host": "localhost:3000", "Origin": "http://localhost:3000"},
+    ],
+)
+@pytest.mark.parametrize("token", [False, True])
+async def test_a_remote_mcp_client_by_a_trusted_address_passes(headers, token):
+    app, facade, sources = make_app(required=False)
+    created = await sources.create("Laptop")
+    auth = bearer(created.token) if token else {}
+    async with client_for(app, host="127.0.0.1:8000") as client:
+        response = await client.post(
+            SEND, json=BODY, headers={**MCP_CALL, **headers, **auth}
+        )
+
+    assert response.status_code == 200, response.text
+    assert facade.calls[0][2].source_id == (
+        created.source_id if token else NO_TOKEN.source_id
+    )
+
+
+async def test_a_web_page_by_ip_through_mcp_needs_a_token():
+    # An IP cannot be rebound, but a page there is still another website.
+    app, facade, sources = make_app(required=False)
+    created = await sources.create("Laptop")
+    page = {
+        **MCP_CALL,
+        "X-Forwarded-Host": "192.168.1.10:3000",
+        "Origin": "http://192.168.1.99:8080",
+    }
+    async with client_for(app, host="127.0.0.1:8000") as client:
+        refused = await client.post(SEND, json=BODY, headers=page)
+        accepted = await client.post(
+            SEND, json=BODY, headers={**page, **bearer(created.token)}
+        )
+
+    assert refused.status_code == 403
+    assert refused.json()["detail"]["code"] == "cross_site_request"
+    assert accepted.status_code == 200
 
 
 @pytest.mark.parametrize(

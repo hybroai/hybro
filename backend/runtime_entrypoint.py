@@ -267,11 +267,7 @@ def projections(
             "server_url": server_url,
         }
     )
-    frontend_config = {
-        **settings.model_dump(),
-        # Derived, not user-settable: MCP has no authentication yet.
-        "mcp_disabled": public,
-    }
+    frontend_config = settings.model_dump()
     backend_dir = str(APP_DIR / "backend")
     programs = {
         "backend": Program(
@@ -305,7 +301,12 @@ def projections(
             [str(BACKEND_PYTHON), "server.py", "--image"],
             str(APP_DIR / "MCP"),
             {
-                "HYBRO_MCP_CONFIG": json.dumps({"api_prefix": api_prefix}),
+                # The listen mode decides the MCP server's own Host and Origin
+                # check: on for loopback, off for public, where the source
+                # token is the control.
+                "HYBRO_MCP_CONFIG": json.dumps(
+                    {"api_prefix": api_prefix, "listen": listener.mode}
+                ),
                 # The server imports only the backend's logging modules.
                 "PYTHONPATH": str(APP_DIR / "backend"),
             },
@@ -449,20 +450,19 @@ def caddyfile(*, listener: Listener, api_prefix: str) -> str:
         "\thandle @backend {",
         "\t\treverse_proxy 127.0.0.1:8000 {",
         "\t\t\tflush_interval -1",
+        # Only the MCP server, which calls the backend inside the image, marks
+        # a request as MCP; the Sources tab shows the mark.
+        "\t\t\theader_up -X-Hybro-Via",
         "\t\t}",
         "\t}",
-    ]
-    if listener.mode == "loopback":
-        # MCP has no authentication, so a public listener omits the route.
-        lines += [
-            "\t@mcp path /mcp /mcp/*",
-            "\thandle @mcp {",
-            "\t\treverse_proxy 127.0.0.1:8001 {",
-            "\t\t\tflush_interval -1",
-            "\t\t}",
-            "\t}",
-        ]
-    lines += [
+        # MCP on every listener: a source token is the control on a public
+        # one, and the loopback host check above covers it on loopback.
+        "\t@mcp path /mcp /mcp/*",
+        "\thandle @mcp {",
+        "\t\treverse_proxy 127.0.0.1:8001 {",
+        "\t\t\tflush_interval -1",
+        "\t\t}",
+        "\t}",
         "\thandle {",
         "\t\treverse_proxy 127.0.0.1:3000",
         "\t}",

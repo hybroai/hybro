@@ -10533,6 +10533,21 @@
             ],
             "title": "Last Used At"
           },
+          "last_used_via": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "api",
+                  "mcp"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Used Via"
+          },
           "revoked_at": {
             "anyOf": [
               {
@@ -10597,6 +10612,21 @@
               }
             ],
             "title": "Last Used At"
+          },
+          "last_used_via": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "api",
+                  "mcp"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Used Via"
           },
           "revoked_at": {
             "anyOf": [
