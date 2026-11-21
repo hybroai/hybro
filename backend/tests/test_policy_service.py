@@ -176,3 +176,17 @@ def test_a_replace_takes_null_for_any_agent_and_the_same_checks():
     ):
         with pytest.raises(ValidationError):
             RuleReplace(**body)
+
+
+async def test_check_agent_call_answers_from_the_rules_in_order():
+    service, _ = _service()
+
+    assert (await service.check_agent_call("coder")).answer == "allow"
+    assert (await service.check_agent_call("coder")).rule_id is None
+
+    deny = await service.create(RuleCreate(agent_id="coder", answer="deny"))
+    await service.create(RuleCreate(answer="allow"))
+
+    decision = await service.check_agent_call("coder")
+    assert (decision.answer, decision.rule_id) == ("deny", deny.rule_id)
+    assert (await service.check_agent_call("writer")).answer == "allow"

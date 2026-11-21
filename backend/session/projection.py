@@ -30,6 +30,8 @@ def resolve_state(
             if outcome.rejected:
                 return "rejected", None
             code = settlement.get("cancellation_code")
+            if code == "policy":
+                return "denied", denied_reason(settlement.get("rule_id"))
             return "failed", f"canceled:{code}" if code else "canceled"
         summary = settlement.get("error_summary")
         code = settlement.get("failure_code")
@@ -37,6 +39,13 @@ def resolve_state(
     if outcome.waiting_input:
         return "waiting_on_owner", None
     return "working", None
+
+
+def denied_reason(rule_id: object) -> str:
+    """One fixed sentence naming the rule; never text the owner wrote."""
+    if isinstance(rule_id, str) and rule_id:
+        return f"The owner's check rule {rule_id} denied this agent call."
+    return "The owner's check rules denied this agent call."
 
 
 def final_message_id(outcome: CorrelatedOutcome | None) -> str | None:
@@ -55,4 +64,11 @@ def busy_state(states: list[str]) -> SessionState:
     return "working"
 
 
-__all__ = ["BUSY", "RUN_NOT_STARTED", "busy_state", "final_message_id", "resolve_state"]
+__all__ = [
+    "BUSY",
+    "RUN_NOT_STARTED",
+    "busy_state",
+    "denied_reason",
+    "final_message_id",
+    "resolve_state",
+]

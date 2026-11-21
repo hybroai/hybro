@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Literal, Protocol
+from typing import Literal, Protocol, runtime_checkable
 
 from common.dto.hitl import A2AInteractionSpec, HITLQuestionAnswer
 
@@ -30,6 +30,25 @@ from .models import (
 
 StoreOutcome = Literal["accepted", "replayed", "conflict", "error"]
 HITLAbandonOutcome = Literal["accepted", "replayed", "absent", "conflict", "error"]
+
+
+class AgentCallAnswer(Protocol):
+    """What the check rules answer for one new Agent call."""
+
+    @property
+    def answer(self) -> str: ...
+
+    @property
+    def rule_id(self) -> str | None: ...
+
+
+@runtime_checkable
+class AgentCallCheckPort(Protocol):
+    """May this new Agent call go? ``policy`` implements it; the container
+    wires it. It is asked once per new call, never for a reply, a continuation
+    or a recovery re-dispatch of a call that already passed."""
+
+    async def check_agent_call(self, agent_id: str) -> AgentCallAnswer: ...
 
 
 class AuthorizationRefreshPort(Protocol):

@@ -1893,6 +1893,8 @@ async def _runtime_lifespan(app: Any, runtime: ApplicationRuntime):  # noqa: C90
                 canonical_hitl_control=publish_orchestrator_hitl_control,
                 supervisor_hitl=request_supervisor_input_port,
                 supervisor_hitl_cancellation=(hitl_manager.cancel_requests_for_message),
+                # The owner's check rules, asked once per new Agent call.
+                agent_call_check=app.state.policy_rules,
             )
             missing = validate_orchestrator_runtime(app.state.orchestrator_runtime)
             if missing:
@@ -2676,7 +2678,8 @@ def create_client_registry(*, settings: Any, mongo: MongoDAL) -> ClientService:
 
 
 def create_policy_rules(*, mongo: MongoDAL) -> PolicyService:
-    """The owner's check rules, over their own collection. Not enforced yet."""
+    """The owner's check rules, over their own collection. The orchestrator
+    runtime asks them before each new Agent call."""
     return PolicyService(MongoRuleRepository(mongo))
 
 

@@ -1,4 +1,4 @@
-"""The container binds the owner's check rules; nothing else receives them."""
+"""The container binds the owner's check rules and hands them to execution."""
 
 from __future__ import annotations
 
@@ -42,7 +42,8 @@ def test_the_rule_repository_creates_its_indexes_with_the_other_owners():
 
 
 def test_only_the_container_and_the_rule_routes_import_policy():
-    # The rules are not enforced yet: no call path reads them.
+    # Execution reads the rules through its own port; only the container
+    # wires the two together.
     backend = Path(container.__file__).parent
     importers = set()
     for path in backend.rglob("*.py"):
@@ -70,3 +71,25 @@ def test_policy_imports_only_common_and_libraries():
             if root not in allowed and root not in sys.stdlib_module_names:
                 found.add((path.relative_to(backend).as_posix(), module))
     assert found == set()
+
+
+def test_the_runtime_checks_new_agent_calls_against_the_rules():
+    import orchestrator_composition
+
+    lifespan = inspect.getsource(container._runtime_lifespan)
+    compose = inspect.getsource(orchestrator_composition.create_orchestrator_runtime)
+
+    assert lifespan.count("agent_call_check=app.state.policy_rules,") == 1
+    assert lifespan.index("app.state.policy_rules = create_policy_rules(") < (
+        lifespan.index("agent_call_check=app.state.policy_rules,")
+    )
+    assert compose.count("call_check=agent_call_check,") == 1
+
+
+def test_the_rules_implement_the_execution_call_check_port():
+    from execution.orchestrator.a2a_runtime.ports import AgentCallCheckPort
+
+    rules = container.create_policy_rules(
+        mongo=SimpleNamespace(collection=lambda _name: MagicMock())
+    )
+    assert isinstance(rules, AgentCallCheckPort)

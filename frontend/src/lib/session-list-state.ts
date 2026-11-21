@@ -36,6 +36,7 @@ export const SESSION_STATES: SessionState[] = [
   'working',
   'completed',
   'rejected',
+  'denied',
   'failed',
   'closed',
 ]

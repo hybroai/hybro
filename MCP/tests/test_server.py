@@ -341,6 +341,7 @@ async def test_check_session_reads_state_and_history():
         ("working", "check_session later"),
         ("waiting_on_owner", "owner's decision"),
         ("rejected", "new session"),
+        ("denied", "check rule"),
         ("closed", "new session"),
     ],
 )
@@ -787,7 +788,11 @@ async def test_loopback_behind_a_proxy_also_admits_the_configured_name(headers, 
     [
         # Every form the entrypoint's caddy_host returns, as browsers send it.
         ("my_nas.lan", "my_nas.lan:3000", "https://my_nas.lan"),
-        ("xn--bcher-kva.example", "xn--bcher-kva.example", "https://xn--bcher-kva.example:3000"),
+        (
+            "xn--bcher-kva.example",
+            "xn--bcher-kva.example",
+            "https://xn--bcher-kva.example:3000",
+        ),
         ("10.0.0.5", "10.0.0.5:3000", "http://10.0.0.5:3000"),
         ("fd00::5", "[fd00::5]:3000", "https://[fd00::5]"),
         ("fd00::5", "[fd00::5]", "https://[fd00::5]:3000"),
@@ -798,7 +803,9 @@ async def test_every_proxied_name_form_is_admitted_as_browsers_send_it(
 ):
     monkeypatch.setenv(
         "HYBRO_MCP_CONFIG",
-        json.dumps({"api_prefix": "/api/v1", "listen": "loopback", "proxied_host": name}),
+        json.dumps(
+            {"api_prefix": "/api/v1", "listen": "loopback", "proxied_host": name}
+        ),
     )
     config = server.connection_config(container=True)
     check = server.TransportSecurityMiddleware(
@@ -1432,3 +1439,23 @@ async def test_a_public_listener_refuses_a_call_whose_address_it_cannot_tell(
     assert sent == []
     [failed] = events(mcp_logs, "mcp_backend_call_failed")
     assert failed.code == "CALLER_ADDRESS_UNKNOWN"
+
+
+async def test_check_session_denied_names_the_rule_reason():
+    reason = "The owner's check rule rule_abc denied this agent call."
+    status = {
+        "session_id": "s1",
+        "state": "denied",
+        "reason": reason,
+        "agents": [],
+        "created_at": "2026-10-14T00:00:00Z",
+        "updated_at": "2026-10-14T00:00:00Z",
+        "history": [],
+    }
+    result = await call_with_transport(
+        lambda _: httpx.Response(200, json=status),
+        "check_session",
+        {"session_id": "s1"},
+    )
+    assert result.structured_content["state"] == "denied"
+    assert reason in result.structured_content["next_action"]

@@ -81,6 +81,18 @@ class ToolCatalog(Protocol):
     def resolve(self, run: OrchestratorRunState, tool_name: str) -> ResolvedTool: ...
 
 
+class AgentCallDenied(Exception):
+    """``accept`` refused a new Agent call because a check rule denies it.
+
+    It carries the id of the rule that decided and no other text, so nothing
+    an owner wrote and no exception detail reaches the model or the client.
+    """
+
+    def __init__(self, rule_id: str | None) -> None:
+        super().__init__("agent call denied by a check rule")
+        self.rule_id = rule_id
+
+
 class ToolRuntime(Protocol):
     async def accept(self, invocation: ToolInvocation) -> ToolAcceptance: ...
 

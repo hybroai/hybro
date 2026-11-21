@@ -62,6 +62,8 @@ def canonical_settlement_payload(run: OrchestratorRunState) -> dict[str, Any]:
         payload["final_message_id"] = run.proposed_final_message_id
     elif run.status == "canceled":
         payload["cancellation_code"] = run.cancellation_cause
+        if run.cancellation_cause == "policy" and run.denied_rule_id:
+            payload["rule_id"] = run.denied_rule_id
     else:
         payload["failure_code"] = (
             "budget_exhausted" if run.status == "budget_exhausted" else "internal_error"

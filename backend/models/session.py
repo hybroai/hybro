@@ -25,7 +25,13 @@ from common.utils.time import ensure_utc
 from models.room import MAX_MESSAGE_LENGTH
 
 SessionState = Literal[
-    "completed", "working", "waiting_on_owner", "rejected", "failed", "closed"
+    "completed",
+    "working",
+    "waiting_on_owner",
+    "rejected",
+    "denied",
+    "failed",
+    "closed",
 ]
 
 SessionIdentifier = Annotated[

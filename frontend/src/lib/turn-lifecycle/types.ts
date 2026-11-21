@@ -162,6 +162,7 @@ export type RunSettledPayload = {
       failure_code?: null
       error_summary?: null
       cancellation_code?: null
+      rule_id?: null
     }
   | {
       status: 'failed'
@@ -176,6 +177,7 @@ export type RunSettledPayload = {
         | 'internal_error'
       error_summary: string
       cancellation_code?: null
+      rule_id?: null
     }
   | {
       status: 'canceled'
@@ -183,6 +185,8 @@ export type RunSettledPayload = {
       failure_code?: null
       error_summary?: null
       cancellation_code: 'user_requested' | 'room_closed' | 'shutdown' | 'policy'
+      /** The check rule that denied the call; only with `policy`. */
+      rule_id?: string | null
     }
 )
 

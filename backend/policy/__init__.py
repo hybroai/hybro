@@ -2,7 +2,8 @@
 
 Imports only ``common``. It never calls another module and never waits.
 ``api_gateway`` reaches it through ``policy.protocols``; the container builds
-the service. Nothing enforces the rules yet.
+the service and hands it to ``execution``, which asks ``check_agent_call``
+before it accepts a new Agent call.
 """
 
 from policy.evaluate import RuleDecision, evaluate

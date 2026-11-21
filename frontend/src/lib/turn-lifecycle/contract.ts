@@ -222,7 +222,7 @@ function validatePayload(type: CanonicalRunEventType, value: unknown): boolean {
         && uniqueIds(value.resolved_request_ids, 1)
         && timestamp(value.resumed_at)
     case 'run_settled': {
-      if (!exactKeys(value, ['status', 'started_at', 'settled_at', 'duration_ms'], ['final_message_id', 'failure_code', 'error_summary', 'cancellation_code'])
+      if (!exactKeys(value, ['status', 'started_at', 'settled_at', 'duration_ms'], ['final_message_id', 'failure_code', 'error_summary', 'cancellation_code', 'rule_id'])
         || !oneOf(value.status, ['completed', 'failed', 'canceled'])
         || !timestamp(value.started_at)
         || !timestamp(value.settled_at)
@@ -233,6 +233,7 @@ function validatePayload(type: CanonicalRunEventType, value: unknown): boolean {
           && (value.failure_code === undefined || value.failure_code === null)
           && (value.error_summary === undefined || value.error_summary === null)
           && (value.cancellation_code === undefined || value.cancellation_code === null)
+          && (value.rule_id === undefined || value.rule_id === null)
       }
       if (value.status === 'failed') {
         return oneOf(value.failure_code, ['budget_exhausted', 'provider_error', 'assembly_error', 'tool_failure', 'hitl_error', 'rejected', 'internal_error'])
@@ -240,8 +241,11 @@ function validatePayload(type: CanonicalRunEventType, value: unknown): boolean {
           && value.error_summary.length > 0
           && (value.final_message_id === undefined || value.final_message_id === null)
           && (value.cancellation_code === undefined || value.cancellation_code === null)
+          && (value.rule_id === undefined || value.rule_id === null)
       }
       return oneOf(value.cancellation_code, ['user_requested', 'room_closed', 'shutdown', 'policy'])
+        && (value.rule_id === undefined || value.rule_id === null
+          || (value.cancellation_code === 'policy' && id(value.rule_id)))
         && (value.final_message_id === undefined || value.final_message_id === null)
         && (value.failure_code === undefined || value.failure_code === null)
         && (value.error_summary === undefined || value.error_summary === null)

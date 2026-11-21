@@ -8,6 +8,7 @@ export type SessionState =
   | 'working'
   | 'waiting_on_owner'
   | 'rejected'
+  | 'denied'
   | 'failed'
   | 'closed'
 
