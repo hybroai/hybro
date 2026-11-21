@@ -15,12 +15,18 @@ from typing import TYPE_CHECKING, Any
 from uuid import uuid4
 
 from account import AccountService, MongoAccountRepository, ScryptParams
+from account.protocols import NoAccount
 from agent import AgentFacade, AgentMongoRepository
+from agent.catalog import OwnerName
 from agent.facade import AgentRepository
 from api_gateway.dependencies import (
     APIGatewayDeps,
     bind_api_gateway_deps,
     missing_required_deps,
+)
+from api_gateway.machine_handoff import (
+    machine_token_at_start,
+    remove_checkout_handoff,
 )
 from chat import ChatFacade
 from common.config.loader import settings
@@ -725,17 +731,18 @@ async def _runtime_lifespan(app: Any, runtime: ApplicationRuntime):  # noqa: C90
                 _provider_runtime,
                 SetupService(_provider_runtime.store, model_choices, verify_selection),
                 OAuthLogins(host=runtime.settings.oauth_callback_host),
-                auth_mode=runtime.settings.auth_mode,
-                admin_user_ids=frozenset(runtime.settings.admin_user_ids),
             )
             app.state.setup_access = _browser_setup
-            app.state.owner_account = create_owner_account(
+            owner_account = create_owner_account(
                 settings=runtime.settings, mongo=mongo_dal
             )
+            app.state.owner_account = owner_account
             app.state.source_registry = create_source_registry(
                 settings=runtime.settings, mongo=mongo_dal
             )
-            app.state.machine_token = read_token(runtime.settings.machine_handoff_file)
+            # A checkout writes its own handoff file; the image's entrypoint
+            # wrote it already.
+            app.state.machine_token = machine_token_at_start(runtime.settings)
             from instance_settings import InstanceSettings
             from instance_settings.restart import RestartControl
 
@@ -745,7 +752,6 @@ async def _runtime_lifespan(app: Any, runtime: ApplicationRuntime):  # noqa: C90
                 settings=runtime.settings,
                 # The document this backend booted with, read at construction.
                 startup_config=_provider_runtime.current.config,
-                can_configure=_browser_setup.can_configure,
                 version=release_version(Path(__file__)),
                 restart=RestartControl(
                     runtime_file=Path(runtime_file) if runtime_file else None,
@@ -831,6 +837,7 @@ async def _runtime_lifespan(app: Any, runtime: ApplicationRuntime):  # noqa: C90
                 liveness_checker=AgentLivenessService(
                     health_service=agent_health_service
                 ),
+                owner=partial(owner_name, owner_account),
             )
             route_inspection_center = AgentInspectionService()
             membership_source = RepositoryRoomMembershipSeedSource(
@@ -2170,6 +2177,8 @@ async def _runtime_lifespan(app: Any, runtime: ApplicationRuntime):  # noqa: C90
         app.state.diagnostics_access = None
         app.state.owner_account = None
         app.state.source_registry = None
+        machine_token = getattr(app.state, "machine_token", "")
+        remove_checkout_handoff(runtime.settings, machine_token)
         app.state.machine_token = ""
         raise
 
@@ -2257,6 +2266,8 @@ async def _runtime_lifespan(app: Any, runtime: ApplicationRuntime):  # noqa: C90
         app.state.diagnostics_access = None
         app.state.owner_account = None
         app.state.source_registry = None
+        machine_token = getattr(app.state, "machine_token", "")
+        remove_checkout_handoff(runtime.settings, machine_token)
         app.state.machine_token = ""
         if cleanup_error is not None and body_error is None:
             raise cleanup_error
@@ -2615,7 +2626,6 @@ def create_diagnostics_access(
         ring=ring_buffer(),
         token=read_token(settings.diagnostics_handoff_file),
         auth_mode=settings.auth_mode,
-        admin_user_ids=frozenset(settings.admin_user_ids),
         version=release_version(Path(__file__)),
         instance_id=get_instance_id(),
         environment=settings.app_env,
@@ -2623,6 +2633,15 @@ def create_diagnostics_access(
         log_format=settings.log_format,
         started_at=utcnow(),
     )
+
+
+async def owner_name(account: AccountService) -> OwnerName | None:
+    """The owner record's name for agent views; none before the account exists."""
+    try:
+        owner = await account.acting_owner()
+    except NoAccount:
+        return None
+    return OwnerName(user_id=owner.user_id, name=owner.name)
 
 
 def create_owner_account(

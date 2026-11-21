@@ -1815,3 +1815,89 @@ def test_owner_prompt_that_cannot_set_the_terminal_exits_2(cli, option):
     assert echo_on
     assert owner_runs(cli) == []
     assert "exec_stdin" not in cli.state
+
+
+# ---- the setup link ----
+
+SETUP_CODE = "fake-setup-code_0123"
+SETUP_LINE = f"Create the owner account at: http://localhost:3000/setup#{SETUP_CODE}"
+
+
+def setup_code_runs(cli: Cli) -> list[list[str]]:
+    return [call for call in owner_runs(cli) if call[-1] == "setup-code"]
+
+
+def test_status_prints_the_setup_link_while_no_account_exists(cli):
+    container(cli)
+    cli.state["exec_out"] = SETUP_CODE + "\n"
+    result = cli.run("status")
+    assert result.returncode == 0, cli.output
+    lines = result.stdout.splitlines()
+    assert lines[lines.index(SETUP_LINE) + 1] == "Each new link replaces the earlier ones; it works once, for 24 hours."
+    assert setup_code_runs(cli) == [["exec", "hybro", PYTHON, OWNER_HELPER, "setup-code"]]
+    # The code is in the output only, never in an argument.
+    assert SETUP_CODE not in cli.calls_path.read_text()
+
+
+def test_status_prints_no_link_once_the_account_exists(cli):
+    container(cli)
+    cli.state["exec_out"] = ""
+    cli.state["exec_exit"] = 1
+    result = cli.run("status")
+    assert result.returncode == 0, cli.output
+    assert "setup" not in cli.output.lower()
+
+
+def test_status_says_when_the_setup_link_is_not_available_yet(cli):
+    container(cli)
+    cli.state["exec_exit"] = 2
+    result = cli.run("status")
+    assert result.returncode == 0, cli.output
+    assert "/setup#" not in cli.output
+    assert "setup link is not available yet" in cli.output
+
+
+@pytest.mark.parametrize("out", ["", "bad code\n", "\x1b[2Jcode\n"])
+def test_status_prints_no_link_for_an_empty_or_unexpected_code(cli, out):
+    container(cli)
+    cli.state["exec_out"] = out
+    result = cli.run("status")
+    assert result.returncode == 0, cli.output
+    assert "/setup#" not in cli.output
+
+
+def test_status_skips_the_link_on_an_image_without_the_helper(cli):
+    container(cli)
+    cli.state["helper_missing"] = True
+    cli.state["exec_out"] = SETUP_CODE + "\n"
+    result = cli.run("status")
+    assert result.returncode == 0, cli.output
+    assert setup_code_runs(cli) == []
+    assert "/setup#" not in cli.output
+
+
+def test_the_already_running_path_prints_the_setup_link(cli):
+    container(cli)
+    cli.state["exec_out"] = SETUP_CODE + "\n"
+    result = cli.run()
+    assert result.returncode == 0, cli.output
+    assert "Hybro is already running at http://localhost:3000" in result.stdout
+    assert SETUP_LINE in result.stdout.splitlines()
+
+
+def test_the_foreground_start_prints_the_setup_link_after_ready(cli):
+    cli.state["images"] = [IMAGE]
+    cli.state["exec_out"] = SETUP_CODE + "\n"
+    cli.run()
+    lines = cli.output.splitlines()
+    ready = next(i for i, line in enumerate(lines) if line.startswith("Hybro is ready at"))
+    assert lines[ready + 1] == SETUP_LINE
+    assert SETUP_CODE not in cli.calls_path.read_text()
+
+
+def test_a_detached_start_points_to_status_for_the_link(cli):
+    cli.state["images"] = [IMAGE]
+    result = cli.run("-d")
+    assert result.returncode == 0, cli.output
+    assert setup_code_runs(cli) == []
+    assert "When it is ready, run hybro status for its address and, until the owner account exists, the setup link." in result.stdout

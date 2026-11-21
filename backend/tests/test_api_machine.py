@@ -62,7 +62,8 @@ def test_a_request_without_the_token_is_refused(path, body, headers):
 
 @pytest.mark.parametrize(("path", "body"), ROUTES)
 def test_no_token_is_accepted_when_the_backend_has_none(path, body):
-    # A checkout has no handoff file; an empty header must not match it.
+    # No handoff file could be written (it fails closed); an empty header must
+    # not match the empty token.
     client = _client(token="")
 
     for headers in ({}, {TOKEN_HEADER: ""}):

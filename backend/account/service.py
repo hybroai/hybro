@@ -108,17 +108,15 @@ class AccountService:
         return await self._store.get_owner() is not None
 
     async def acting_owner(self) -> ActingOwner:
-        """The owner a Source API request acts for.
+        """The owner a Source API request acts for: the owner record.
 
-        The owner record once it exists, else the identity it will take.
-        ``OwnerIdRequired`` when that is not known yet: in Clerk mode with
-        several administrators listed and no account.
+        ``NoAccount`` until it exists. The record's id decides, whatever
+        ``auth_mode`` says now.
         """
         owner = await self._store.get_owner()
-        if owner is not None:
-            return ActingOwner(user_id=owner.user_id, name=owner.name)
-        user_id = self._owner_id(None)
-        return ActingOwner(user_id=user_id, name=user_id)
+        if owner is None:
+            raise NoAccount
+        return ActingOwner(user_id=owner.user_id, name=owner.name)
 
     async def issue_setup_code(self) -> SetupCode:
         if await self.exists():

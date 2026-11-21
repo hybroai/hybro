@@ -14,8 +14,9 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from fastapi.routing import APIRoute
 
+from api_gateway.owner_session import get_current_user
 from api_gateway.registry import mark_declared_owner
-from common.auth import ClerkUser, get_current_user
+from common.auth import ClerkUser
 from instance_settings.models import (
     RestartAccepted,
     SettingsErrorBody,
@@ -53,15 +54,11 @@ router = APIRouter(prefix="/settings", responses=_ERRORS, route_class=_SettingsR
 def get_instance_settings(
     request: Request, user: Annotated[ClerkUser, Depends(get_current_user)]
 ) -> SettingsAccess:
-    """The settings owner, for users allowed to configure this instance."""
+    """The settings owner, for the signed-in owner."""
     settings = getattr(request.app.state, "instance_settings", None)
     if settings is None:
         raise SettingsRequestError(
             "settings_unavailable", 503, "Settings are unavailable."
-        )
-    if not settings.can_configure(user.user_id):
-        raise SettingsRequestError(
-            "forbidden", 403, "Only administrators can change settings."
         )
     return settings
 

@@ -9,8 +9,9 @@ sent the request and whose data it acts on:
 - A request without the header is refused while a token is required. Else it
   is "No token", except when it carries an ``Origin`` that is not Hybro's own
   address: that is a web page making a browser send it, and it is refused.
-- The owner it acts for is the owner account's identity, or the identity the
-  account will take (``OwnerAccount.acting_owner``).
+- The owner it acts for is the owner account's identity
+  (``OwnerAccount.acting_owner``). Until the account exists every request is
+  refused, so nothing is recorded for an owner who does not exist yet.
 
 The owner's routes never take this dependency, and a source token opens
 nothing else.
@@ -23,10 +24,10 @@ from typing import Annotated, NoReturn
 
 from fastapi import Depends, HTTPException, Request
 
-from account.protocols import OwnerAccount, OwnerIdRequired
+from account.protocols import NoAccount, OwnerAccount
 from api_gateway.cross_site import from_own_address
-from api_gateway.owner_session import OwnerAccountDependency
-from common.auth import ClerkUser, get_current_user
+from api_gateway.owner_session import OwnerAccountDependency, get_current_user
+from common.auth import ClerkUser
 from session.protocols import SessionOwner
 from source.protocols import NO_TOKEN, SourceIdentity, SourceRegistry
 
@@ -58,28 +59,24 @@ def _refuse(
 async def _acting_owner(account: OwnerAccount) -> SessionOwner:
     try:
         owner = await account.acting_owner()
-    except OwnerIdRequired:
+    except NoAccount:
         _refuse(
             503,
-            "owner_unknown",
-            "Hybro cannot tell which administrator owns this instance yet. "
-            "Create the owner account first.",
+            "no_account",
+            "This Hybro has no owner account yet. Run `hybro` on its machine "
+            "for the setup link, or `hybro owner create`.",
         )
     return SessionOwner(user_id=owner.user_id, name=owner.name)
 
 
 async def get_signed_in_owner(
     user: Annotated[ClerkUser, Depends(get_current_user)],
-    account: OwnerAccountDependency,
 ) -> SessionOwner:
-    """The owner, for a signed-in user who is the owner; anyone else is 403.
-
-    Sources act for the same identity, so the owner's routes see their data.
-    """
-    owner = await _acting_owner(account)
-    if user.user_id != owner.user_id:
-        _refuse(403, "forbidden", "Only the owner can do this.")
-    return owner
+    """The signed-in owner. Sources act for the same identity, so the owner's
+    routes see their data."""
+    return SessionOwner(
+        user_id=user.user_id, name=user.claims.get("name") or user.user_id
+    )
 
 
 SignedInOwnerDependency = Annotated[SessionOwner, Depends(get_signed_in_owner)]

@@ -9,8 +9,9 @@ See docs/HITL_DESIGN.md §7.4 for design details.
 from fastapi import APIRouter, Depends, HTTPException
 
 from api_gateway.dependencies import get_hitl_manager, get_room_ownership_reader
+from api_gateway.owner_session import get_current_user
 from api_gateway.registry import mark_declared_owner as _mark_declared_owner
-from common.auth import ClerkUser, get_current_user
+from common.auth import ClerkUser
 from common.dto import HITLCancelCommand, HITLRequest
 from common.observability import events as E
 from common.protocols import HITLManager, RoomOwnershipReader

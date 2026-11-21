@@ -70,12 +70,6 @@ export const PortalHeader = () => {
             >
               Sign in
             </Link>
-            <Link
-              href="/sign-up"
-              className="text-sm font-medium px-4 py-2.5 rounded-md btn-brand-gradient whitespace-nowrap shadow-sm shadow-[hsl(var(--color-hybro-hy)/0.12)]"
-            >
-              Get Started
-            </Link>
           </div>
         </div>
       </header>

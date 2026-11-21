@@ -19,8 +19,9 @@ import pytest
 from fastapi import FastAPI
 
 from api_gateway.errors import setup_request_error_handler
+from api_gateway.owner_session import get_current_user
 from api_gateway.routes.setup_routes import router
-from common.auth import ClerkUser, get_current_user
+from common.auth import ClerkUser
 from common.config.runtime_config import RuntimeConfigurationError
 from common.config.runtime_store import RuntimeConfigStore
 from llm_gateway import openai_oauth
@@ -71,8 +72,6 @@ class Harness:
         self,
         home: Path,
         *,
-        auth_mode: str = "mock",
-        admins: frozenset[str] = frozenset(),
         timeout: float = 300,
     ) -> None:
         self.store = RuntimeConfigStore(home)
@@ -84,8 +83,6 @@ class Harness:
             self.runtime,
             SetupService(self.store, model_choices, self.verifier),
             self.logins,
-            auth_mode=auth_mode,
-            admin_user_ids=admins,
         )
         self.user = "user_local_developer"
         app = FastAPI()
@@ -475,40 +472,6 @@ async def test_image_size_saves_and_says_restart(harness):
     assert response.json() == {"image_size": "auto", "restart_required": True}
     assert harness.store.read_config().image_size == "auto"
     assert (await harness.http.get("/status")).json()["image_size"] == "auto"
-
-
-async def test_clerk_mode_requires_an_admin(tmp_path, port):
-    harness = Harness(
-        tmp_path / "runtime", auth_mode="clerk", admins=frozenset({"user_admin"})
-    )
-    try:
-        harness.user = "user_other"
-        # Every signed-in user reads the status for banners; changes need an admin.
-        assert (await harness.http.get("/status")).json()["state"] == "unconfigured"
-        for method, path in (
-            ("GET", "/models?provider=openai&auth=api_key"),
-            ("POST", "/api-key"),
-            ("POST", "/oauth/start"),
-            ("PUT", "/image-size"),
-        ):
-            response = await harness.http.request(method, path, json={})
-            assert response.status_code == 403, path
-            assert response.json()["code"] == "forbidden"
-        harness.user = "user_admin"
-        assert (
-            await harness.http.get("/models?provider=openai&auth=api_key")
-        ).status_code == 200
-    finally:
-        await harness.aclose()
-
-
-async def test_clerk_mode_without_admins_disables_browser_setup(tmp_path, port):
-    harness = Harness(tmp_path / "runtime", auth_mode="clerk")
-    try:
-        assert (await harness.http.get("/status")).status_code == 200
-        assert (await harness.http.post("/oauth/start")).status_code == 403
-    finally:
-        await harness.aclose()
 
 
 def test_application_registers_setup_routes_and_error_mapping():

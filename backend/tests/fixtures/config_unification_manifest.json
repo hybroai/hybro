@@ -3,6 +3,7 @@
     "allowed_paths": [
         "common/config/loader.py",
         "common/config/runtime_store.py",
+        "owner_cli.py",
         "runtime_entrypoint.py"
     ],
     "excluded_dirs": [
@@ -20,6 +21,7 @@
         "docs"
     ],
     "notes": {
+        "owner_cli.py": "Standard-library CLI that cannot import the loader; it reads only HYBRO_CONTAINER and the HYBRO_HOME directory override to choose the machine handoff file",
         "scripts": "CLI tools may have their own environment variable needs",
         "tests": "Test code legitimately uses os.environ for monkeypatch/conditional skips"
     }

@@ -328,7 +328,7 @@
           "agent"
         ],
         "summary": "Get Agent",
-        "description": "Get agent by ID - PUBLIC (authentication optional)",
+        "description": "Get an agent the signed-in owner can see, by id.",
         "operationId": "get_agent_api_v1_agent_getAgent__agent_id__get",
         "parameters": [
           {
@@ -6468,7 +6468,8 @@
             "type": "string",
             "enum": [
               "mock",
-              "clerk"
+              "clerk",
+              "account"
             ],
             "title": "Auth Mode"
           },

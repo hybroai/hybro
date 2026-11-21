@@ -416,11 +416,25 @@ def sample_hitl_request(sample_room, sample_user_message) -> HITLRequest:
 # =============================================================================
 
 
+LOCAL_TEST_USER = ClerkUser(
+    user_id="user_local_developer",
+    session_id="test_session",
+    claims={"email": "owner@example.com", "name": "Test Owner"},
+)
+
+
 @pytest.fixture(scope="session")
 def app():
-    """Create a FastAPI app instance for testing (imported once per session)."""
+    """The production app, with the test's own signed-in owner installed.
+
+    Production resolves the owner's cookie and has no override; tests that
+    need the real check remove this one (``tests.fakes.account.sign_out``).
+    """
+    from api_gateway.owner_session import get_current_user, get_optional_user
     from main import app as main_app
 
+    main_app.dependency_overrides[get_current_user] = lambda: LOCAL_TEST_USER
+    main_app.dependency_overrides[get_optional_user] = lambda: LOCAL_TEST_USER
     return main_app
 
 

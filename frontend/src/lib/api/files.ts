@@ -1,4 +1,5 @@
 import { getApiUrl } from '../utils'
+import { reportSignedOut } from '@/lib/session-events'
 import { publicConfig } from '../config'
 import { requestHeaders } from '../log'
 
@@ -22,21 +23,22 @@ const FILE_ID_PATTERN = /^[0-9a-f]{32}$/
 
 export async function fetchRoomFileBlob(
   fileId: string,
-  getToken?: () => Promise<string | null>,
+  _getToken?: () => Promise<string | null>,
   signal?: AbortSignal,
 ): Promise<Blob> {
   if (!FILE_ID_PATTERN.test(fileId)) {
     throw new Error('Invalid file id')
   }
-  const token = await getToken?.()
+  // The sign-in cookie is the credential; the browser sends it.
   const { headers } = requestHeaders()
-  if (token) headers.Authorization = `Bearer ${token}`
 
   const response = await fetch(`${getAuthenticatedFilePath()}/${fileId}/content`, {
     headers,
     signal,
   })
   if (!response.ok) {
+    // Owner routes: a 401 means the session ended.
+    if (response.status === 401) reportSignedOut()
     const errorBody = await response.json().catch(() => ({}))
     const message = errorBody.detail || errorBody.error
       || `File download failed (${response.status})`
@@ -48,19 +50,13 @@ export async function fetchRoomFileBlob(
 export async function uploadFile(
   file: File,
   conversationId: string,
-  getToken?: () => Promise<string | null>,
+  _getToken?: () => Promise<string | null>,
 ): Promise<FileUploadResponse> {
   const formData = new FormData()
   formData.append('file', file)
   formData.append('conversation_id', conversationId)
 
   const { headers } = requestHeaders()
-  if (getToken) {
-    const token = await getToken()
-    if (token) {
-      headers['Authorization'] = `Bearer ${token}`
-    }
-  }
 
   const response = await fetch(`${API_BASE_URL}/upload`, {
     method: 'POST',
@@ -69,6 +65,8 @@ export async function uploadFile(
   })
 
   if (!response.ok) {
+    // Owner routes: a 401 means the session ended.
+    if (response.status === 401) reportSignedOut()
     const errorBody = await response.json().catch(() => ({}))
     const message = errorBody.detail || errorBody.error || `Upload failed (${response.status})`
     throw new Error(message)

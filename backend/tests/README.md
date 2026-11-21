@@ -33,7 +33,10 @@ integration lane is skipped locally.
   unless `HYBRO_FORCE_FUNCTIONAL_TESTS=1` or `HYBRO_API_URL` is set; nothing
   probes `localhost:8000`, because that may be a developer's real instance with
   a paid model provider. Point them only at a disposable stack backed by the
-  mock LLM, as the `functional-ci` lane does.
+  mock LLM, as the `functional-ci` lane does. The client signs in as the owner
+  with `HYBRO_TEST_OWNER_EMAIL` and `HYBRO_TEST_OWNER_PASSWORD`; create that
+  account first with `hybro owner create`, the password on standard input.
+  Its Source API calls send no source token.
 - `asyncio`: explicit async marker retained where older tests already use it;
   pytest-asyncio also runs in auto mode.
 

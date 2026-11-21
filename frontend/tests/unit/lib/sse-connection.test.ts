@@ -56,16 +56,14 @@ describe('SSEConnection', () => {
       expect(call.url).toContain('/sse/room/test-room/stream')
     })
 
-    it('should send auth token via Authorization header, not URL query', async () => {
+    it('sends no token: the sign-in cookie is the credential', async () => {
       const getToken = vi.fn().mockResolvedValue('test-token')
       await connectAndOpen({ getToken })
 
       const call = MockSSEStream.getLastFetchCallOrFail()
-      // Token must NOT be in URL
       expect(call.url).not.toContain('token=')
-      // Token must be in Authorization header
       const headers = call.options.headers as Record<string, string>
-      expect(headers['Authorization']).toBe('Bearer test-token')
+      expect(headers['Authorization']).toBeUndefined()
     })
 
     it('should call onOpen callback when connection opens', async () => {
@@ -352,44 +350,6 @@ describe('SSEConnection', () => {
     })
   })
 
-  describe('race conditions', () => {
-    it('should abort connection if disconnect called during getToken await', async () => {
-      let resolveToken: (value: string | null) => void
-      const getToken = vi.fn().mockImplementation(
-        () => new Promise<string | null>((resolve) => { resolveToken = resolve })
-      )
-
-      const connection = new SSEConnection({ conversationId: 'test-room', getToken })
-      const connectPromise = connection.connect()
-
-      connection.disconnect()
-      resolveToken!('late-token')
-
-      await vi.runAllTimersAsync()
-      await connectPromise
-
-      expect(connection.isConnected()).toBe(false)
-    })
-
-    it('should not call fetch after disconnect during token fetch', async () => {
-      let resolveToken: (value: string | null) => void
-      const getToken = vi.fn().mockImplementation(
-        () => new Promise<string | null>((resolve) => { resolveToken = resolve })
-      )
-
-      const countBefore = MockSSEStream.getFetchCallCount()
-
-      const connection = new SSEConnection({ conversationId: 'test-room', getToken })
-      connection.connect()
-
-      connection.disconnect()
-      resolveToken!('token')
-      await vi.runAllTimersAsync()
-
-      expect(MockSSEStream.getFetchCallCount()).toBe(countBefore)
-    })
-  })
-
   describe('request ids', () => {
     const REQUEST_ID = /^[0-9a-f]{32}$/
 
@@ -483,7 +443,7 @@ describe('SSEConnection', () => {
       vi.mocked(console.warn).mockRestore()
     })
 
-    it('getSSEStatus sends X-Request-ID with the auth headers', async () => {
+    it('getSSEStatus sends X-Request-ID and no Authorization header', async () => {
       mockFetch.mockImplementationOnce(async (url, init) => {
         MockSSEStream.recordFetchCall({ url: String(url), options: init ?? {} })
         return Response.json({ conversation_id: 'room-1', active_connections: 1, status: 'active' })
@@ -495,10 +455,10 @@ describe('SSEConnection', () => {
       const headers = call.options.headers as Record<string, string>
       expect(call.url).toContain('/sse/room/room-1/status')
       expect(headers['X-Request-ID']).toMatch(REQUEST_ID)
-      expect(headers['Authorization']).toBe('Bearer status-token')
+      expect(headers['Authorization']).toBeUndefined()
     })
 
-    it('cancelMessage sends X-Request-ID with the auth headers', async () => {
+    it('cancelMessage sends X-Request-ID and no Authorization header', async () => {
       mockFetch.mockImplementationOnce(async (url, init) => {
         MockSSEStream.recordFetchCall({ url: String(url), options: init ?? {} })
         return Response.json({ success: true, message_id: 'm1', message: 'ok' })
@@ -511,7 +471,7 @@ describe('SSEConnection', () => {
       expect(call.url).toContain('/sse/message/m1/cancel')
       expect(call.options.method).toBe('POST')
       expect(headers['X-Request-ID']).toMatch(REQUEST_ID)
-      expect(headers['Authorization']).toBe('Bearer cancel-token')
+      expect(headers['Authorization']).toBeUndefined()
     })
   })
 })

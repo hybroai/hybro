@@ -31,9 +31,14 @@ uv sync --extra dev
 uv run uvicorn main:app --reload
 ```
 
-Set `backend.auth_mode` to `mock` in `config.json` for local development without
-Clerk credentials. Redis is optional for a single-process local server;
-cross-process delivery and locking require it.
+Every owner route needs the owner's sign-in cookie (`hybro_session`), on every
+install; Clerk sign-in and the `?token=` query parameter are gone, and
+`backend.auth_mode` is deprecated (see
+[configuration](../docs/configuration.md#deprecated-settings)). The owner
+account is created through the setup link or `hybro owner create`, which use
+the machine-only routes of the image; see CONTRIBUTING.md for a checkout.
+Redis is optional for a single-process local server; cross-process delivery
+and locking require it.
 
 ### Production upgrade note
 
@@ -73,11 +78,12 @@ authenticated REST/SSE workflow.
 
 **Security boundary:** these routes are part of the Source API and act for
 the instance owner on behalf of a source (see [Sources and
-tokens](#sources-and-tokens)). With `backend.auth_mode="clerk"`, callers need
-a source token: add `-H "Authorization: Bearer <source token>"` to the curl
-examples below. With local `backend.auth_mode="mock"` a request without a
-token is accepted as the built-in "No token" source; this mode must remain on
-a trusted network. Discovery is limited to public agents and the owner's own
+tokens](#sources-and-tokens)). Until the owner account exists every Source
+API request is refused with `503 no_account`. With the deprecated
+`backend.auth_mode="clerk"`, callers need a source token: add
+`-H "Authorization: Bearer <source token>"` to the curl examples below.
+Otherwise a request without a token is accepted as the built-in "No token"
+source, so Hybro must stay on a trusted network. Discovery is limited to public agents and the owner's own
 private agents. Saved groups must belong to that caller. Discovery returns only the
 Card fields a client needs to choose an agent (name, description, version,
 protocol version, provider, documentation and icon URLs, capabilities, default
@@ -171,10 +177,7 @@ client. The owner creates one and gets its token once:
 hybro source create --name "CI bot"
 ```
 
-or, signed in as the owner, through the owner routes (with
-`backend.auth_mode="clerk"`, the owner is the one id in
-`backend.admin_user_ids` or the owner account; any other signed-in user is
-refused, also on the owner's session routes): `GET /sources`,
+or, signed in as the owner, through the owner routes: `GET /sources`,
 `POST /sources` (returns the token once), `PATCH /sources/{source_id}`
 (rename), `POST /sources/{source_id}/rotate` (a new token; the old one stops
 working) and `POST /sources/{source_id}/revoke`. Hybro stores only a SHA-256
@@ -202,9 +205,9 @@ without a token, cannot read, continue or close it (`404 session_not_found`).
 A session is a conversation a client of the instance owner opens with the
 owner's agents. Each message names one agent; every turn is recorded in Hybro;
 when an agent needs the owner's permission, the owner approves or rejects in the
-app (**Inbox** in the sidebar). Under local `backend.auth_mode="mock"` the
-client and the owner share one identity, so the separation is a presentation
-rule.
+app (**Inbox** in the sidebar). Sessions are stored under the owner's
+identity; a source reaches only the sessions it opened, and the owner's routes
+need the owner's sign-in.
 
 ```sh
 # Open a session. Without a token, client_label is required when session_id
@@ -249,10 +252,9 @@ the run. Text is limited to 10,000 characters; `data` and files
 are not accepted. Retrying with the same `client_request_id`, including an
 earlier request's, returns that request's receipt without sending it again.
 
-Under mock auth anyone who can call the HTTP API holds the owner's identity,
-so the owner-only routes (`GET /sessions`, `GET /sessions/{session_id}/record`,
+The owner-only routes (`GET /sessions`, `GET /sessions/{session_id}/record`,
 `POST /sessions/{session_id}/record/close`) and the room routes behind
-`conversation_id` are reachable too. The MCP adapter
+`conversation_id` need the owner's sign-in. The MCP adapter
 calls only the client routes. Agents run in passthrough mode:
 no orchestrator model turns, one call to the named agent, and a fresh A2A
 context per message (the agent does not receive the session history).
@@ -277,9 +279,10 @@ released install, `http://localhost:3100/mcp` from a checkout.
 
 Each tool passes the `Authorization` header of the MCP request on to the
 backend. Set `Authorization: Bearer <source token>` in your MCP client's
-server configuration to name it as a source; it is required with
-`backend.auth_mode="clerk"`. Without the header the calls are the "No token"
-source.
+server configuration to name it as a source; it is required with the
+deprecated `backend.auth_mode="clerk"`. Without the header the calls are the
+"No token" source. Until the owner account exists the tools fail with
+`no_account`, and their `next_action` points the user to the setup link.
 
 Add a **Streamable HTTP** server manually to your MCP client using:
 
@@ -387,10 +390,9 @@ sends no `Authorization`, never executes agents and exposes no Cards. The
 public frontend `GET /hybro-mcp` route exposes only this sanitized status, not
 backend data or credentials.
 
-The adapter has **no MCP authentication or user isolation** and supplies no
-Clerk credentials: Clerk-mode tool requests fail rather than bypassing auth.
-Use an authenticated REST client for Clerk-mode access; do not disable production
-authentication to use this adapter. Do not expose the adapter publicly. The
+The adapter has **no MCP authentication of its own**: it forwards the caller's
+`Authorization` header, and the backend's source token rules apply. It never
+holds the owner's sign-in. Do not expose the adapter publicly. The
 adapter only calls the public agent-network API; Execution ownership is unchanged.
 
 To run the isolated regression tests from the repository root:

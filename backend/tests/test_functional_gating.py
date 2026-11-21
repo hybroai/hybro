@@ -61,3 +61,21 @@ def test_forced_run_keeps_functional_items(monkeypatch):
     functional.pytest_collection_modifyitems(SimpleNamespace(), [live])
 
     assert live.markers == []
+
+
+@pytest.mark.parametrize(
+    ("url", "origin"),
+    [
+        ("http://localhost:3100/api/v1", "http://localhost:3100"),
+        ("https://hybro.test/api/v1/", "https://hybro.test"),
+    ],
+)
+def test_the_functional_client_sends_hybros_own_origin(url, origin):
+    assert functional.own_origin(url) == origin
+
+
+async def test_signing_in_without_the_owner_credentials_fails_clearly(monkeypatch):
+    monkeypatch.delenv(functional.OWNER_EMAIL_ENV, raising=False)
+    monkeypatch.delenv(functional.OWNER_PASSWORD_ENV, raising=False)
+    with pytest.raises(pytest.fail.Exception, match=functional.OWNER_PASSWORD_ENV):
+        await functional.sign_in_as_owner(SimpleNamespace())

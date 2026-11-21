@@ -16,7 +16,6 @@ from api_gateway.errors import (
     settings_request_error_handler,
     setup_request_error_handler,
 )
-from common.auth import bind_auth_config
 from common.protocols import HealthCheck
 from common.middleware.request_concurrency import RequestConcurrencyLimitMiddleware
 from common.middleware.request_logging import RequestLoggingMiddleware
@@ -31,11 +30,6 @@ from container import (
     shutdown_runtime,
     startup_runtime,
     validate_runtime_bindings,
-)
-
-bind_auth_config(
-    clerk_secret_key_value=settings.clerk_secret_key,
-    authorized_parties=tuple(settings.frontend_origins),
 )
 
 # A session send holds its request for up to the configured wait (30 s by
@@ -198,25 +192,6 @@ def create_app(
 
 
 app = create_app()
-
-if settings.auth_mode == "mock":
-    from common.auth import (
-        ClerkUser,
-        get_current_user,
-        get_current_user_with_query_token,
-        get_optional_user,
-    )
-
-    def mock_get_current_user():
-        return ClerkUser(
-            user_id="user_local_developer",
-            session_id="mock_session",
-            claims={"email": "local@developer.com", "username": "local_dev"},
-        )
-
-    app.dependency_overrides[get_current_user] = mock_get_current_user
-    app.dependency_overrides[get_current_user_with_query_token] = mock_get_current_user
-    app.dependency_overrides[get_optional_user] = mock_get_current_user
 
 
 def main() -> None:

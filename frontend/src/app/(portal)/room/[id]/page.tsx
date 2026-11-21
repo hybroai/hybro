@@ -3,7 +3,6 @@
 import { useState, useEffect, useRef, useMemo, useCallback } from 'react'
 import { useParams } from 'next/navigation'
 import { useUser, useAuth } from '@/lib/auth'
-import { RequireAuth } from '@/components/require-auth'
 import { SubnetDialogHost } from '@/components/subnets/subnet-dialog-host'
 import { RoomPageShell, type TimelineAdapter } from '@/components/room-page-shell'
 import { useRoomWebhook } from '@/hooks/useRoomWebhook'
@@ -223,26 +222,21 @@ export default function RoomChatPage() {
 
   if (!isLoaded || loading) {
     return (
-      <RequireAuth>
-        <div className="flex items-center justify-center h-full">
-          <div className="text-muted-foreground">Loading room...</div>
-        </div>
-      </RequireAuth>
+      <div className="flex items-center justify-center h-full">
+        <div className="text-muted-foreground">Loading room...</div>
+      </div>
     )
   }
 
   if (!room) {
     return (
-      <RequireAuth>
-        <div className="flex items-center justify-center h-full">
-          <div className="text-destructive">Room not found</div>
-        </div>
-      </RequireAuth>
+      <div className="flex items-center justify-center h-full">
+        <div className="text-destructive">Room not found</div>
+      </div>
     )
   }
 
   return (
-    <RequireAuth>
     <div className="flex h-[calc(100dvh-3.5rem)] flex-col bg-background md:h-screen">
       <div className="flex-1 overflow-hidden">
         <div className="w-full h-full flex flex-col">
@@ -266,6 +260,5 @@ export default function RoomChatPage() {
         onDeleted={() => { void gm.handleGroupsChange() }}
       />
     </div>
-    </RequireAuth>
   )
 }

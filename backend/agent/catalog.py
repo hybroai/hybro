@@ -2,11 +2,11 @@
 
 from __future__ import annotations
 
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable, Callable, Iterable
+from dataclasses import dataclass
 
 from agent.facade import AgentFacade, AgentRegistrationConflict
 from agent.views import agent_card_view, agent_view
-from common.auth import resolve_provider_name
 from common.dto import AgentInfo, AgentRouteResponse, AgentView
 from common.observability import events as E
 from common.observability import get_logger
@@ -16,15 +16,36 @@ logger = get_logger(__name__)
 _NOT_FOUND = "Agent not found"
 
 
+@dataclass(frozen=True, slots=True)
+class OwnerName:
+    """The owner record's identity and name, for an agent's provider name."""
+
+    user_id: str
+    name: str
+
+
+OwnerLookup = Callable[[], Awaitable[OwnerName | None]]
+
+
+async def _no_owner() -> OwnerName | None:
+    return None
+
+
 class AgentCatalogService:
     def __init__(
         self,
         facade: AgentFacade,
         *,
         liveness_checker: Callable[[AgentInfo], Awaitable[AgentInfo]],
+        owner: OwnerLookup = _no_owner,
     ) -> None:
         self._facade = facade
         self._liveness_checker = liveness_checker
+        self._owner = owner
+
+    async def _views(self, infos: Iterable[AgentInfo]) -> list[AgentView]:
+        owner = await self._owner()
+        return [_view(info, owner) for info in infos]
 
     async def register(self, *, agent_url: str, provider_id: str) -> AgentRouteResponse:
         try:
@@ -41,11 +62,11 @@ class AgentCatalogService:
         except Exception as exc:
             logger.emit(E.AGENT_REGISTRATION_FAILED, exc=exc, provider_id=provider_id)
             return AgentRouteResponse(success=False, error=str(exc), status_code=500)
-        return AgentRouteResponse(success=True, agent=_view(info))
+        return AgentRouteResponse(success=True, agent=(await self._views([info]))[0])
 
     async def list_for_provider(self, *, provider_id: str) -> AgentRouteResponse:
         infos = await self._facade.list_agents(provider_id)
-        return AgentRouteResponse(success=True, agents=[_view(info) for info in infos])
+        return AgentRouteResponse(success=True, agents=await self._views(infos))
 
     async def delete(self, *, agent_id: str, provider_id: str) -> AgentRouteResponse:
         existing = await self._facade.get_agent(agent_id)
@@ -85,7 +106,7 @@ class AgentCatalogService:
         ):
             return AgentRouteResponse(success=False, error=_NOT_FOUND, status_code=404)
         info = await self._liveness_checker(info)
-        return AgentRouteResponse(success=True, agent=_view(info))
+        return AgentRouteResponse(success=True, agent=(await self._views([info]))[0])
 
     async def list_visible(
         self, *, user_id: str | None, active_only: bool = False
@@ -103,16 +124,16 @@ class AgentCatalogService:
                 active_only=active_only,
             )
             return AgentRouteResponse(success=False, error=str(exc), status_code=500)
-        return AgentRouteResponse(success=True, agents=[_view(info) for info in infos])
+        return AgentRouteResponse(success=True, agents=await self._views(infos))
 
 
-def _view(info: AgentInfo) -> AgentView:
+def _view(info: AgentInfo, owner: OwnerName | None) -> AgentView:
+    """The public view; an agent the owner registered names the owner."""
     view = agent_view(info)
     if view.provider_organization:
         return view
-    return view.model_copy(
-        update={"provider_name": resolve_provider_name(info.provider_id)}
-    )
+    name = owner.name if owner and info.provider_id == owner.user_id else None
+    return view.model_copy(update={"provider_name": name})
 
 
-__all__ = ["AgentCatalogService"]
+__all__ = ["AgentCatalogService", "OwnerLookup", "OwnerName"]

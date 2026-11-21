@@ -208,7 +208,6 @@ def _service(
         ring=ring,
         token=token,
         auth_mode=auth_mode,
-        admin_user_ids=frozenset({"admin"}),
         version="0.4.4",
         instance_id="ab12cd34",
         environment="test",
@@ -661,21 +660,6 @@ async def test_memory_logs_without_capture_are_empty():
 
     assert page.items == []
     assert page.next_before is None
-
-
-# ── Authorisation ─────────────────────────────────────────────────────────
-
-
-@pytest.mark.parametrize(
-    ("auth_mode", "user_id", "allowed"),
-    [
-        ("mock", "anyone", True),
-        ("clerk", "admin", True),
-        ("clerk", "user", False),
-    ],
-)
-def test_can_read_follows_the_mock_or_admin_rule(auth_mode, user_id, allowed):
-    assert _service(auth_mode=auth_mode).can_read(user_id) is allowed
 
 
 def test_token_matches_the_configured_token():

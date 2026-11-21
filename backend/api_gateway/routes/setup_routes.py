@@ -10,8 +10,9 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from fastapi.routing import APIRoute
 
+from api_gateway.owner_session import get_current_user
 from api_gateway.registry import mark_declared_owner
-from common.auth import ClerkUser, get_current_user
+from common.auth import ClerkUser
 from common.config.runtime_config import AuthMethod, ProviderId
 from llm_gateway.setup_api import (
     ApiKeySetup,
@@ -67,35 +68,18 @@ def _setup_access(request: Request) -> SetupAccess:
     return setup
 
 
-def get_setup_reader(
+def get_setup(
     request: Request, _user: Annotated[ClerkUser, Depends(get_current_user)]
 ) -> SetupAccess:
-    """The setup owner, for any signed-in user reading the status.
-
-    The status never carries credentials, and every user's banners and composer
-    gating depend on it.
-    """
+    """The setup owner, for the signed-in owner, who alone may sign in."""
     return _setup_access(request)
 
 
-def get_setup(
-    request: Request, user: Annotated[ClerkUser, Depends(get_current_user)]
-) -> SetupAccess:
-    """The setup owner, for users allowed to change the model provider."""
-    setup = _setup_access(request)
-    if not setup.can_configure(user.user_id):
-        raise SetupRequestError(
-            "forbidden", 403, "Only administrators can change the model provider."
-        )
-    return setup
-
-
 SetupDependency = Annotated[SetupAccess, Depends(get_setup)]
-SetupReaderDependency = Annotated[SetupAccess, Depends(get_setup_reader)]
 
 
 @router.get("/status")
-async def setup_status(setup: SetupReaderDependency) -> SetupStatus:
+async def setup_status(setup: SetupDependency) -> SetupStatus:
     return await setup.status()
 
 

@@ -1,5 +1,6 @@
 // tests/e2e/functional-hitl-workflow.spec.ts
-import { expect, test, type APIRequestContext, type Page } from '@playwright/test'
+import { type APIRequestContext, type Page } from '@playwright/test'
+import { expect, test } from './fixtures/auth'
 
 const BACKEND_URL = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:8000/api/v1'
 const DEFAULT_TRAVEL_PLANNER_AGENT_ID = '575ee896f1e24823943a1e98aee111c9'

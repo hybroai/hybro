@@ -11,8 +11,9 @@ from api_gateway.dependencies import (
     get_sse_transport,
 )
 from api_gateway.errors import require_chat_room
+from api_gateway.owner_session import get_current_user
 from api_gateway.registry import mark_declared_owner as _mark_declared_owner
-from common.auth import ClerkUser, get_current_user, get_current_user_with_query_token
+from common.auth import ClerkUser
 from common.dto import CancellationAck
 from common.errors import NotFoundError
 from common.observability import events as E
@@ -48,7 +49,7 @@ async def _fetch_connect_snapshot(
 @router.get("/sse/room/{conversation_id}/stream")
 async def stream_room_messages(  # noqa: C901
     conversation_id: str = Path(..., description="room ID"),
-    user: ClerkUser = Depends(get_current_user_with_query_token),
+    user: ClerkUser = Depends(get_current_user),
     transport: SSERouteTransport = Depends(get_sse_transport),
     db: SSEStateReader = Depends(get_sse_store),
     request: Request = None,  # noqa: B008 — FastAPI injected
@@ -177,7 +178,7 @@ async def stream_room_messages(  # noqa: C901
 @router.get("/sse/room/{conversation_id}/status", deprecated=True)
 async def get_room_sse_status(
     conversation_id: str = Path(..., description="room ID"),
-    user: ClerkUser = Depends(get_current_user_with_query_token),
+    user: ClerkUser = Depends(get_current_user),
     transport: SSERouteTransport = Depends(get_sse_transport),
     db: SSEStateReader = Depends(get_sse_store),
 ):
@@ -208,7 +209,7 @@ async def get_room_events(
     request: Request = None,  # noqa: B008 — FastAPI injected
     after: int = Query(default=0, ge=0),
     limit: int = Query(default=500, ge=1, le=1000),
-    user: ClerkUser = Depends(get_current_user_with_query_token),
+    user: ClerkUser = Depends(get_current_user),
     db: SSEStateReader = Depends(get_sse_store),
 ):
     """

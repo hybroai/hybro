@@ -13,7 +13,7 @@ describe('fetchRoomFileBlob', () => {
     vi.resetModules()
   })
 
-  it('fetches only the constructed room-file endpoint with bearer auth', async () => {
+  it('fetches only the constructed room-file endpoint without an Authorization header', async () => {
     const response = new Response(new Blob(['hello'], { type: 'text/plain' }), {
       status: 200,
     })
@@ -31,7 +31,7 @@ describe('fetchRoomFileBlob', () => {
     expect(fetchMock).toHaveBeenCalledWith(
       '/api/v1/files/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/content',
       {
-        headers: { Authorization: 'Bearer token-1', 'X-Request-ID': REQUEST_ID },
+        headers: { 'X-Request-ID': REQUEST_ID },
         signal,
       },
     )
@@ -63,7 +63,7 @@ describe('fetchRoomFileBlob', () => {
     expect(fetchMock).toHaveBeenCalledWith(
       '/v1/files/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/content',
       {
-        headers: { Authorization: 'Bearer token-1', 'X-Request-ID': REQUEST_ID },
+        headers: { 'X-Request-ID': REQUEST_ID },
         signal: undefined,
       },
     )
@@ -75,7 +75,7 @@ describe('uploadFile', () => {
     vi.unstubAllGlobals()
   })
 
-  it('sends X-Request-ID with bearer auth', async () => {
+  it('sends X-Request-ID without an Authorization header', async () => {
     const fetchMock = vi.fn().mockResolvedValue(Response.json({
       file_id: 'f1',
       file_url: '/api/v1/files/f1/content',
@@ -91,7 +91,7 @@ describe('uploadFile', () => {
       `${getApiUrl('files')}/upload`,
       expect.objectContaining({
         method: 'POST',
-        headers: { Authorization: 'Bearer token-1', 'X-Request-ID': REQUEST_ID },
+        headers: { 'X-Request-ID': REQUEST_ID },
       }),
     )
   })

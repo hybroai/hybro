@@ -266,6 +266,26 @@ async def test_unknown_session_hint_starts_a_new_session():
     assert "Omit session_id" in result.structured_content["next_action"]
 
 
+@pytest.mark.parametrize(
+    ("tool", "arguments"),
+    [
+        ("find_agents", {"query": "story"}),
+        ("send_message", {"agent_id": "story", "text": "Go"}),
+    ],
+)
+async def test_no_owner_account_points_the_user_to_setup(tool, arguments):
+    error = {"detail": {"code": "no_account", "message": "m"}}
+
+    result = await call_with_transport(
+        lambda _: httpx.Response(503, json=error), tool, arguments
+    )
+
+    assert result.is_error
+    hint = result.structured_content["next_action"]
+    assert "no owner account" in hint
+    assert "hybro owner create" in hint
+
+
 async def test_check_session_reads_state_and_history():
     calls = []
     status = {

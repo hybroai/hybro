@@ -10,7 +10,7 @@ async function waitForRoomLoad(page: import('@playwright/test').Page, timeoutMs 
   )
 }
 
-test.describe('Room with local identity', () => {
+test.describe('Room for the signed-in owner', () => {
   test('keeps the room route and does not redirect to sign-in', async ({ page }) => {
     await page.goto('/room/test-room-id')
 

@@ -10,12 +10,9 @@ from api_gateway.dependencies import (
     get_capability_issue_service,
     get_local_agent_discovery,
 )
+from api_gateway.owner_session import get_current_user
 from api_gateway.registry import mark_declared_owner as _mark_declared_owner
-from common.auth import (
-    ClerkUser,
-    get_current_user,
-    get_optional_user,
-)
+from common.auth import ClerkUser
 from common.dto import AgentRouteResponse
 from common.protocols import AgentRegistry
 from local_agents.models import DiscoveryTrigger, LocalAgentDiscoveryResult
@@ -216,16 +213,13 @@ async def get_agent_card_from_url(
     return await catalog.resolve_card(agent_url=body.agent_url)
 
 
-# ============= PUBLIC ENDPOINTS (No Auth Required) =============
-
-
 @router.get("/agent/getAgent/{agent_id}")
 async def get_agent(
     agent_id: str,
-    user: ClerkUser | None = Depends(get_optional_user),
+    user: ClerkUser = Depends(get_current_user),
     catalog: AgentCatalog = Depends(get_agent_catalog),
 ) -> AgentRouteResponse:
-    """Get agent by ID - PUBLIC (authentication optional)"""
+    """Get an agent the signed-in owner can see, by id."""
     if not agent_id:
         raise HTTPException(status_code=400, detail="agent_id is required")
     if not agent_id.strip():
@@ -235,10 +229,9 @@ async def get_agent(
             status_code=400,
         )
 
-    user_id = user.user_id if user else None
     return await catalog.get_visible(
         agent_id=agent_id,
-        user_id=user_id,
+        user_id=user.user_id,
     )
 
 
@@ -248,13 +241,12 @@ async def get_agent_list(
         False,
         description="Return only active agents when true",
     ),
-    user: ClerkUser | None = Depends(get_optional_user),
+    user: ClerkUser = Depends(get_current_user),
     catalog: AgentCatalog = Depends(get_agent_catalog),
 ) -> AgentRouteResponse:
     """Get visible agents, optionally filtering to active agents."""
-    user_id = user.user_id if user else None
     return await catalog.list_visible(
-        user_id=user_id,
+        user_id=user.user_id,
         active_only=active_only,
     )
 

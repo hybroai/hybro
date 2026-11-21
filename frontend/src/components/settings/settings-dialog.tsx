@@ -79,7 +79,7 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
                 <DangerZoneSection user={user} />
               </div>
               <div hidden={pane !== "password"}><PasswordSection user={user} /></div>
-              <div hidden={pane !== "sessions"}><SessionsSection user={user} /></div>
+              <div hidden={pane !== "sessions"}><SessionsSection /></div>
             </div>
           </div>
         )}

@@ -161,7 +161,6 @@ EXPECTED_METHODS = {
     },
     "diagnostics.protocols": {
         "DiagnosticsAccess": {
-            "can_read",
             "token_matches",
             "snapshot",
             "events",

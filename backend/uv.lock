@@ -240,22 +240,6 @@ wheels = [
 ]
 
 [[package]]
-name = "clerk-backend-api"
-version = "4.0.0"
-source = { registry = "https://pypi.org/simple" }
-dependencies = [
-    { name = "cryptography" },
-    { name = "httpcore" },
-    { name = "httpx" },
-    { name = "pydantic" },
-    { name = "pyjwt" },
-]
-sdist = { url = "https://files.pythonhosted.org/packages/3f/9f/d95ce5694bb9b606d33590490b179c9a875fde4c6cefa9b93a2604d2640c/clerk_backend_api-4.0.0.tar.gz", hash = "sha256:29a29a1cf4c5584fb9c18fdb23b7311276ea9f1ff3d4a263628d28d9041e8b22", size = 197311, upload-time = "2025-11-10T21:22:00.635Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/70/93/6532a0485f0711b5304b78397b0952519e2575836345ca73c9ca09dae3eb/clerk_backend_api-4.0.0-py3-none-any.whl", hash = "sha256:9f9031f493ceb98efc8e94e20ca215b029cc67afd37cea4ec075e28ec0dd8aa7", size = 400398, upload-time = "2025-11-10T21:21:59.102Z" },
-]
-
-[[package]]
 name = "click"
 version = "8.2.1"
 source = { registry = "https://pypi.org/simple" }
@@ -683,7 +667,6 @@ dependencies = [
     { name = "a2a-sdk" },
     { name = "aiohttp" },
     { name = "cachetools" },
-    { name = "clerk-backend-api" },
     { name = "fastapi", version = "0.116.1", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.14'" },
     { name = "fastapi", version = "0.162.0", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.14'" },
     { name = "gunicorn" },
@@ -728,7 +711,6 @@ requires-dist = [
     { name = "a2a-sdk", specifier = ">=1.1.2,<2" },
     { name = "aiohttp", specifier = ">=3.12.13" },
     { name = "cachetools", specifier = ">=5.5.2" },
-    { name = "clerk-backend-api", specifier = ">=1.0.0" },
     { name = "fastapi" },
     { name = "gunicorn", specifier = ">=25.3.0" },
     { name = "httpx", specifier = ">=0.28.1" },

@@ -8,12 +8,12 @@
     "reason": "SSE room status intentionally verifies room existence and ownership before returning connection state.",
     "expected_contract": {
       "dependencies": [
-        "get_current_user_with_query_token",
+        "get_current_user",
         "get_sse_store",
         "get_sse_transport"
       ],
       "auth_dependencies": [
-        "get_current_user_with_query_token"
+        "get_current_user"
       ]
     }
   },
@@ -26,12 +26,12 @@
     "reason": "SSE room streams intentionally verify room existence and ownership before opening the EventSource connection.",
     "expected_contract": {
       "dependencies": [
-        "get_current_user_with_query_token",
+        "get_current_user",
         "get_sse_store",
         "get_sse_transport"
       ],
       "auth_dependencies": [
-        "get_current_user_with_query_token"
+        "get_current_user"
       ]
     }
   }

@@ -46,7 +46,7 @@ export function SystemSection() {
             <Row label="Port" value={String(system.port)} mono note={<>Set with <code className="font-mono">hybro --port</code>.</>} />
           ) : null}
           {system.listen ? <Row label="Listens on" value={LISTEN[system.listen][0]} note={LISTEN[system.listen][1]} /> : null}
-          <Row label="Sign-in" value={system.auth_mode === 'clerk' ? 'Clerk' : 'Local user'} note="Set when Hybro starts." />
+          <Row label="Sign-in" value={system.auth_mode === 'account' ? 'Owner account' : 'Local user'} />
           {system.mcp_available !== null ? (
             <Row
               label="MCP gateway"

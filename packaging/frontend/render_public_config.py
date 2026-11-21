@@ -6,6 +6,11 @@ frontend outside the image (`npm run dev` against a backend on port 8000) needs
 one in `HYBRO_FRONTEND_CONFIG`; this file is the default for that, derived from
 the same pydantic model so it cannot drift, and CI verifies the checked-in file.
 
+Its `api_base_url` is empty, so the page calls the API on its own origin and the
+Next dev server proxies it to the backend. The owner's sign-in cookie then
+belongs to the page's host, and changes pass the cross-site check, which
+compares `Origin` with the forwarded host.
+
 Usage:
     python packaging/frontend/render_public_config.py           # rewrite the file
     python packaging/frontend/render_public_config.py --check    # exit 1 if stale
@@ -29,7 +34,9 @@ from common.config.loader import FrontendSettings, Settings  # noqa: E402
 
 def projection() -> str:
     """The public projection for a default configuration and a host backend."""
-    public = FrontendSettings.model_validate({"api_prefix": Settings().api_prefix})
+    public = FrontendSettings.model_validate(
+        {"api_prefix": Settings().api_prefix, "api_base_url": ""}
+    )
     return public.model_dump_json() + "\n"
 
 

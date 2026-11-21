@@ -85,7 +85,9 @@ class SystemInfo(_SettingsDTO):
     deployment: Literal["image", "checkout"]
     port: int | None
     listen: Literal["loopback", "public"] | None
-    auth_mode: Literal["mock", "clerk"]
+    # How the Panel signs in. "account" is the built-in owner account, on
+    # every install; "mock" and "clerk" were reported by earlier releases.
+    auth_mode: Literal["mock", "clerk", "account"]
     mcp_available: bool | None
     config_location: str
 

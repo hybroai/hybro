@@ -5,7 +5,10 @@ each agent on its manifest port. The image does not publish these ports.
 
 Tiers (manifest-driven from agents.yaml):
   1. Card availability  - every agent serves its agent card.
-  2. Registration       - every agent is registered with the backend.
+  2. Registration       - every agent is registered with the backend. The
+                          owner's route needs sign-in: set
+                          HYBRO_TEST_OWNER_EMAIL and HYBRO_TEST_OWNER_PASSWORD
+                          to the owner account of the Hybro under test.
   3. Functional         - per-agent validator sends a real A2A message/send.
 """
 
@@ -58,6 +61,28 @@ def _require_backend() -> None:
         _fail_missing_stack(
             f"backend unhealthy at {BACKEND_URL}: HTTP {resp.status_code}"
         )
+
+
+def _owner_session() -> requests.Session:
+    """A session signed in as the owner; the agent list is the owner's route."""
+    email = os.getenv("HYBRO_TEST_OWNER_EMAIL")
+    password = os.getenv("HYBRO_TEST_OWNER_PASSWORD")
+    if not (email and password):
+        _fail_missing_stack(
+            "set HYBRO_TEST_OWNER_EMAIL and HYBRO_TEST_OWNER_PASSWORD to the "
+            "owner account"
+        )
+    session = requests.Session()
+    # The cross-site check wants Hybro's own address on the sign-in.
+    session.headers["Origin"] = BACKEND_URL
+    resp = session.post(
+        f"{BACKEND_URL}{API_PREFIX}/auth/sign-in",
+        json={"email": email, "password": password},
+        timeout=30,
+    )
+    if resp.status_code != 200:
+        _fail_missing_stack(f"signing in as the owner failed: HTTP {resp.status_code}")
+    return session
 
 
 def _require_openai() -> None:
@@ -144,9 +169,8 @@ def test_agent_registered(agent_id: str) -> None:
         _fail_missing_stack(f"{agent_id} not reachable; cannot compare registration")
     expected_name = card.get("name")
 
-    resp = requests.get(
-        f"{BACKEND_URL}{API_PREFIX}/agent/getAllAgents", timeout=15
-    )
+    with _owner_session() as session:
+        resp = session.get(f"{BACKEND_URL}{API_PREFIX}/agent/getAllAgents", timeout=15)
     assert resp.status_code == 200, f"HTTP {resp.status_code}: {resp.text[:300]}"
     data = resp.json()
     items = data.get("agents", data) if isinstance(data, dict) else data

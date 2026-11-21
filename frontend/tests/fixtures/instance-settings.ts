@@ -39,7 +39,7 @@ export function settingsView(overrides: Partial<SettingsView> = {}, fields: Sett
       deployment: 'image',
       port: 3100,
       listen: 'loopback',
-      auth_mode: 'mock',
+      auth_mode: 'account',
       mcp_available: true,
       config_location: '~/.hybro/config.json',
     },

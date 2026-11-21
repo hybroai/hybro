@@ -15,8 +15,9 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import AwareDatetime
 
+from api_gateway.owner_session import get_optional_user
 from api_gateway.registry import mark_declared_owner
-from common.auth import ClerkUser, get_optional_user
+from common.auth import ClerkUser
 from diagnostics.protocols import (
     ID_PATTERN,
     MAX_EVENTS,
@@ -52,10 +53,9 @@ def get_diagnostics(
     token = request.headers.get(TOKEN_HEADER)
     if token is not None and access.token_matches(token):
         return access
+    # Only the owner can sign in, so a signed-in user may read them.
     if user is None:
         raise HTTPException(401, "Sign in to read diagnostics.")
-    if not access.can_read(user.user_id):
-        raise HTTPException(403, "Only administrators can read diagnostics.")
     return access
 
 

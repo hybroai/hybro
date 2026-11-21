@@ -245,7 +245,9 @@ Nothing depends on an authentication mode or on how the instance was started.
    in the release that enforces the owner's sign-in, with no deprecation
    release. This is an exception to the deprecation rule in "How we move":
    no install is known to run in Clerk mode, and the Panel does not work with
-   it today. From that release on a Clerk token opens nothing.
+   it today. From that release on a Clerk token opens nothing. The Clerk
+   library leaves in the same release, because only that sign-in used it; the
+   Clerk settings stay accepted until Clerk mode is removed.
 
    `POST /agents/messages` is removed in this phase with no deprecation
    release, an exception to the deprecation rule in "How we move": nothing in
@@ -298,10 +300,12 @@ Nothing depends on an authentication mode or on how the instance was started.
 **Carried from phase 1.** Where each item ends:
 
 - the five `clerk_*` frontend fields, `clerk_webhook_secret`, `enable_waitlist`
-  and the direct `pyjwt` dependency: retired with Clerk mode, in item 7
-- the signed-out frontend surface: `/sign-in` becomes the owner's sign-in, and
-  `/sign-up` becomes the setup page or is removed; the redirect branches, the
-  signed-out header and the account dialog serve the owner account
+  and the direct `pyjwt` dependency (the Clerk library itself is gone):
+  retired with Clerk mode, in item 7
+- the signed-out frontend surface: done. `/sign-in` is the owner's sign-in,
+  `/sign-up` is removed and `/setup` opens from the setup link, one gate in
+  the portal layout replaces the per-page check, and the account dialog calls
+  the `/auth` routes
 - `server_url` in the frontend public configuration: still open. Whether the
   frontend needs it is decided when the owner account is built.
 

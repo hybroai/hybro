@@ -47,6 +47,20 @@ The same holds for `/tmp/hybro/machine.json`: the token of the machine-only
 routes, through which the `hybro` command manages the owner account from
 inside the container. Caddy refuses those routes on the published port.
 
+A backend started from a checkout has no entrypoint, so it writes the same
+record itself on every start: `run/machine.json` under the configuration
+directory (`~/.hybro/run/machine.json`, or under `HYBRO_HOME`), the directory
+mode 0700 and the file mode 0600, with a fresh token and the base URL
+`http://127.0.0.1:8000{api_prefix}/machine`. It is a runtime record of that
+start, not configuration: no setting is read from it, editing it changes
+nothing, the next start replaces it, and the backend removes it when it stops
+cleanly (after a crash it stays until the next start).
+`owner_cli.py` reads it on the host, only when the file and its directory are
+the user's own and private and its address is `http://127.0.0.1`.
+When the file cannot be written privately, the backend still starts, removes
+the previous file when it can, logs `machine_handoff_unavailable` with the reason (never
+the token), and the machine-only routes refuse every request.
+
 The entrypoint also writes `/tmp/hybro/runtime.json` (mode 0600): this start's
 listener mode, public port, whether MongoDB is embedded, and the revision of the
 configuration the services were started with. The restart helper writes its
@@ -123,9 +137,8 @@ sections are its client.
 | `PUT /settings` | `{"revision": "<from GET>", "values": {"backend.log_level": "DEBUG", ...}}`. Saves the given fields; `null` removes a key, so it returns to its default. Returns the keys that changed, `restart_required`, and the new view. |
 | `POST /settings/restart` | 202. Body `{}` with `Content-Type: application/json` (otherwise 415 `json_required`, so another site cannot send it as a simple cross-site POST). Checks the saved configuration and restarts the services in place (image only). |
 
-Every route is admin-only, including `GET`: anyone in `mock` auth mode, and in
-`clerk` mode only users in `backend.admin_user_ids`; others get 403
-`forbidden`.
+Every route, including `GET`, needs the owner's sign-in; a request without it
+gets 401 `not_signed_in`.
 
 Only the curated registry fields can be read or written: run limits, the
 agent health check, local agent discovery, message length, compaction, log
@@ -166,10 +179,10 @@ a restart may create a missing internal token in `auth.json`. The helper writes
 one logfmt summary line to `hybro logs` (`restart | level=info ...`, or
 `level=error` for a failure, which the foreground `hybro` view also shows).
 
-The port, listener mode, and auth mode are shown read-only. The port and
-listener are `hybro` flags (`--port`, `--listen`, `--insecure-no-auth`), and
-`backend.auth_mode` is not a registry field: change it in `config.json` and
-run `hybro stop` and `hybro`.
+The port, listener mode, and sign-in are shown read-only. The port and
+listener are `hybro` flags (`--port`, `--listen`, `--insecure-no-auth`).
+Sign-in shows `Owner account` on every install (`auth_mode` is `account` in
+the system information).
 
 ## Model access for Agents
 
@@ -237,3 +250,19 @@ Logging:
 `hybro logs --service <name> --level <level> --trace <id>` filters the
 container's log stream on the host; these are command options, not
 configuration fields.
+
+## Deprecated settings
+
+The owner account is the only sign-in. These settings are still accepted, so
+no configuration file fails to load, and are removed in a later release:
+
+| Field | Now |
+|---|---|
+| `backend.auth_mode` | Turns no sign-in on or off. It still decides two things: which identity the owner account takes when it is created (with `clerk`, an id in `backend.admin_user_ids`; otherwise `user_local_developer`), and, with `clerk`, that the Source API refuses requests without a source token. |
+| `backend.admin_user_ids` | Read only with `backend.auth_mode` set to `clerk`, as above. The admin rule is the signed-in owner. |
+| `clerk_secret_key`, `clerk_webhook_secret` (in `auth.json`) | Ignored. A Clerk token opens nothing. |
+| `frontend.clerk_*`, `frontend.enable_waitlist` | Ignored. |
+
+`frontend.server_url` no longer opens a public listener: a non-loopback
+`--listen` needs `--insecure-no-auth` while the Source API takes requests
+without a source token.

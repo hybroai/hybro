@@ -157,7 +157,11 @@ reactivating write is conditional (`agent_status=inactive`, no
   `AgentLivenessService`, `AgentInspectionService`,
   `AgentCapabilityIssueService`, and `AgentNetworkService`. `agent.views` builds
   the flat `AgentView` and `AgentCardView` route records from `AgentInfo` and the
-  stored card; they never include transport URLs or security data.
+  stored card; they never include transport URLs or security data. Every
+  `/agent/*` route, `getAgent` and `getAllAgents` included, acts for the
+  signed-in owner. An agent the owner provides shows the owner record's name
+  as `provider_name` (looked up once per response), unless its card names an
+  organization.
 - Writes: `agents` (`agent.repository.mongo.AgentMongoRepository`),
   `agent_groups` (`agent.repository.runtime_store.AgentRuntimeStore`, which also
   serves the runtime agent reads used by membership, mention resolution, and
@@ -314,11 +318,11 @@ Route groups:
   push-notification ingress (see [Push notifications](#push-notifications)).
 - `setup_routes.py`: `/setup` browser model-provider setup (see
   [Browser setup API](#browser-setup-api)).
-- `settings_routes.py`: admin-only `/settings` instance settings and
+- `settings_routes.py`: owner-only `/settings` instance settings and
   `POST /settings/restart` (see [Settings API](#settings-api)).
 - `diagnostics_routes.py`: read-only `/diagnostics` (`GET /snapshot`,
-  `/events`, `/logs`) for administrators, anyone in mock mode, and
-  `hybro doctor` with the per-start token in `X-Hybro-Diagnostics-Token`.
+  `/events`, `/logs`) for the signed-in owner, and `hybro doctor` with the
+  per-start token in `X-Hybro-Diagnostics-Token`.
 - `auth_routes.py`: `/auth`, the owner's setup, sign-in and account pages
   (see [Owner account API](#owner-account-api)).
 - `machine_routes.py`: `/machine`, the routes the `hybro` command uses inside
@@ -328,7 +332,10 @@ Four more files hold request checks. `source_token.py` defines
 `get_request_source`, the dependency of the seven Source API routes (see
 [`source`](#source)). `owner_session.py` names the owner's
 sign-in cookie (`hybro_session`) and defines `get_owner_session`, the
-dependency that resolves it; only the `/auth` routes use it so far.
+dependency that resolves it (401 `not_signed_in` without a valid cookie), and
+`get_current_user` and `get_optional_user`, which every owner route takes: the
+signed-in owner as a `ClerkUser` (the name stays until Clerk mode is removed),
+with the owner record's id, email and name.
 `cross_site.py` is `CrossSiteCheckMiddleware`, which `main.create_app` installs
 inside the CORS middleware (see
 [Requests from other websites](#requests-from-other-websites)).
@@ -336,10 +343,12 @@ inside the CORS middleware (see
 422 body is a fixed message, because FastAPI's default repeats the rejected
 input and these bodies carry passwords and setup codes.
 
-Frontend-facing routes use Clerk auth when `backend.auth_mode="clerk"`; the
-Source API uses source tokens instead. In local `backend.auth_mode="mock"`, `main.py`
-overrides every user-auth dependency, including the dual user/service dependency
-used by agent registration, with the stable local developer identity.
+Every frontend-facing route needs the owner's sign-in cookie, in every
+`backend.auth_mode`; a bearer token, a Clerk token and the `?token=` query
+parameter open nothing. The Source API uses source tokens instead. Before the
+owner account exists the owner routes answer 401 and the Source API 503
+`no_account`. No production path installs a dependency override; the test
+`app` fixture installs its own user.
 
 Routes that make the backend fetch an owner-supplied URL require a signed-in
 user and a validated `{"agent_url"}` body (at most 2048 characters):
@@ -699,8 +708,8 @@ Behaviour:
 - **Owner id.** The record takes `user_local_developer`
   (`account.models.OWNER_USER_ID`), the id the stored rooms, sessions and
   agents of an install already carry, so nothing stored is rewritten. Only
-  when `backend.auth_mode` is `clerk` and `backend.admin_user_ids` is not
-  empty does it take one of those ids: the only one, or the one the request
+  when the deprecated `backend.auth_mode` is `clerk` and
+  `backend.admin_user_ids` is not empty does it take one of those ids: the only one, or the one the request
   names in `owner_id` when several are listed (`OwnerIdRequired` otherwise,
   with the choices). A unique partial index on `users.role` allows one owner,
   so two creations at the same moment cannot both succeed.
@@ -866,8 +875,8 @@ The owner of the Settings API behind `api_gateway/routes/settings_routes.py`
   set of rules.
 - `service.py`: `InstanceSettings`, built in `container.py` next to
   `BrowserSetup` and bound on `app.state.instance_settings`. It holds the
-  startup `Settings`, the boot document, the running log level, and
-  `BrowserSetup.can_configure` for authorization.
+  startup `Settings`, the boot document and the running log level. The route
+  dependency is the signed-in owner; the service itself checks no user.
 - `restart.py`: `RestartControl`, the backend side of the restart trigger.
 - `models.py`: the frozen request and response DTOs.
 - Writes no collections; writes `config.json` through
@@ -996,7 +1005,7 @@ updates `last_used_at` at most once a minute; a failed write of it is logged
 (`source_id` `no_token`) is a constant, never a document.
 
 Whether a token is required is `token_required()`: true when
-`backend.auth_mode="clerk"`, false otherwise. The stored switch the owner can
+the deprecated `backend.auth_mode="clerk"`, false otherwise. The stored switch the owner can
 change is not built yet.
 
 `get_request_source` (`api_gateway/source_token.py`) runs on the seven Source
@@ -1013,21 +1022,14 @@ API routes: `GET /agents/discovery`, `/agents/groups`, `/agents/search`,
   `cross_site_request`. A request without `Origin` is accepted.
 - Otherwise the request is the "No token" source.
 - The request acts for the owner (`OwnerAccount.acting_owner()`: the stored
-  owner's id and name, else the id rule of the [`account`](#account) module
-  with the id as name). 503 `owner_unknown` when several administrators are
-  listed and no account exists; 503 `sources_unavailable` before startup binds
-  the registry.
+  owner's id and name). 503 `no_account` while no owner account exists; 503
+  `sources_unavailable` before startup binds the registry.
 
 Owner routes under `{api_prefix}/sources` (`source_routes.py`), signed in as
 the owner. They and the owner's session routes take `get_signed_in_owner`
-(`source_token.py`): `get_current_user`, which must be the acting owner, the
-identity the Source API acts for. Another user is 403 `forbidden`, and 503
-`owner_unknown` applies as above. In Clerk mode these routes therefore need exactly
-one id in `backend.admin_user_ids`, or an owner account, and that user signed
-in: with no id listed the acting owner is `user_local_developer`, so every
-Clerk user is 403, and with several ids and no account every route is 503.
-Sessions stored under another Clerk user's own id are not reachable through
-them.
+(`source_token.py`): the signed-in owner from `get_current_user`, with the
+owner record's id and name. The cookie is the owner's, so no other user can
+reach them.
 
 | Route | Does |
 |---|---|
@@ -1459,8 +1461,9 @@ and re-execs itself with `setpriv`. The user phase loads and validates
 boots into `credential_invalid`), generates missing internal credentials, and
 reads the transport variables `HYBRO_LISTEN` (`loopback` or `public`; missing
 means `public`), `HYBRO_PUBLIC_PORT`, and `HYBRO_INSECURE_NO_AUTH`. A public
-listener starts only with `auth_mode: clerk` and `frontend.server_url`, or with
-`HYBRO_INSECURE_NO_AUTH=1`, which logs a warning. It then writes each program's
+listener starts only with `HYBRO_INSECURE_NO_AUTH=1` (`--insecure-no-auth`),
+which logs a warning, because the Source API takes requests without a source
+token; `auth_mode` and `frontend.server_url` no longer open one. It then writes each program's
 command and scoped environment to a private file under `/tmp/hybro/programs`,
 writes the Caddyfile and supervisor configuration, writes the two per-start
 handoff files (`/tmp/hybro/diagnostics.json` and `/tmp/hybro/machine.json`,
@@ -1476,8 +1479,8 @@ supervisord logs neither CRIT notice. Each program's environment:
 
 - frontend: `api_base_url` empty (same origin), `server_url`
   `http://localhost:<public port>` on loopback or `frontend.server_url` on a
-  public listener, and the derived `mcp_disabled` (true on a public listener),
-  plus the Clerk server secrets. The browser derives the MCP URL as
+  public listener, and the derived `mcp_disabled` (true on a public listener);
+  no Clerk secret, which nothing reads. The browser derives the MCP URL as
   `{origin}/mcp`;
 - backend: `HYBRO_FRONTEND_ORIGINS` (`http://localhost:<port>` and
   `http://127.0.0.1:<port>` on loopback, `frontend.server_url` on a public
@@ -1578,8 +1581,7 @@ The in-place restart refuses, keeping every service on its current
 configuration:
 
 - a configuration that fails startup validation (`config.json` or `auth.json`
-  unreadable or invalid, or a public listener without `auth_mode` `"clerk"` and
-  `frontend.server_url`), with the validation message;
+  unreadable or invalid), with the validation message;
 - changes that need a full restart, with "This change needs a full restart:
   run `hybro stop` and `hybro`": a changed `backend.api_prefix` (the generated
   Caddyfile differs from the running one), or a different program set (the
@@ -1701,7 +1703,9 @@ updates and the release workflow compares with the tag.
   0, 1 or 2 exits 2. The helper, standard
   library only, reads the first line of its stdin, refuses a password outside
   8 to 1,024 characters before any request, reads `base_url` and the token
-  from `/tmp/hybro/machine.json`, and POSTs to `/machine/owner` or
+  from the machine handoff file (`/tmp/hybro/machine.json` in the image,
+  `<HYBRO_HOME>/run/machine.json` on the host, or `--handoff <file>`), and
+  POSTs to `/machine/owner` or
   `/machine/owner/password` with `X-Hybro-Machine-Token`, a 30 s timeout and
   no proxy. It prints the backend's fixed refusal text with a next step
   (`reset-password` after `account_exists`, `create` after `no_account`, the
@@ -1709,8 +1713,18 @@ updates and the release workflow compares with the tag.
   or the token. Exit status 0 done, 1 refused with nothing changed, 2 could
   not run or the outcome is unknown (handoff file missing, backend
   unreachable, machine token refused, a 5xx or unexpected answer, no answer
-  within the timeout, after which the change may have applied). The setup link
-  is not printed yet.
+  within the timeout, after which the change may have applied).
+- **Setup link.** While no owner account exists, `hybro` (after the ready
+  line), the "already running" path and `hybro status` run
+  `owner_cli.py setup-code`, which POSTs to `/machine/setup-code` and prints
+  only the code on standard output (exit 1 only for `account_exists`, 2 for
+  any other refusal or failure). The script prints `<address>/setup#<code>`, so the code is
+  in that output only, never in an argument, the container logs or the
+  backend's request log. Each call issues a new code, which replaces the last,
+  and the output says so.
+  An exit 2 prints a line to run `hybro status` again; an image without the
+  helper prints nothing. `hybro -d` returns before readiness and prints a line
+  that points to `hybro status`.
 - **Source.** `hybro source create --name <name>` checks the flag (a usage
   error exits 2 before Docker is used) and the container as for the owner
   commands, with `/app/backend/source_cli.py`, then runs the helper with
@@ -1907,13 +1921,8 @@ including a wrong state or a replay. A finished login keeps its
 credential for five more minutes, until models are saved or it is canceled.
 The backend runs one worker, so pending logins are not shared across processes.
 
-Authorization: in `mock` auth mode the routes are open, matching the
-single-user local trust model. In `clerk` mode `GET /status` is open to any
-signed-in user, because it never carries credentials and every user's banners
-and Room Chat gating depend on it; every other route requires a signed-in user
-whose ID is in `backend.admin_user_ids`. The list is empty by default, which
-disables browser changes until an operator sets it in `config.json`. Headless
-setup remains possible by writing `config.json` and `auth.json` directly; the
+Authorization: every route, `GET /status` included, needs the owner's sign-in
+(401 `not_signed_in`). Headless setup remains possible by writing `config.json` and `auth.json` directly; the
 `ProviderRuntime` picks up the change without a restart.
 
 ### Owner account API
@@ -1959,14 +1968,36 @@ They take the per-start token of `/tmp/hybro/machine.json` in the
 `X-Hybro-Machine-Token` header, which is read from the request and not
 declared in the schema; anything else is a 401 `machine_token_required`. The
 owner's cookie and a bearer token open nothing here.
-`Settings.machine_handoff_file` names the file in the image and is empty in a
-checkout, where no token exists and the routes refuse every request. The token
-is added to the public-text sanitizer's secret values. Caddy answers the path
-with 404, so only a process inside the container reaches these routes, on
-`127.0.0.1:8000`. `hybro owner create` and `hybro owner reset-password` call
-the two owner routes through `owner_cli.py`, and `hybro source create` calls
-`/sources` through `source_cli.py` (see "Shell CLI"); nothing calls
-`/setup-code` yet.
+`Settings.machine_handoff_file` names the file: `/tmp/hybro/machine.json` in
+the image, which the entrypoint writes, and `<HYBRO_HOME>/run/machine.json`
+in a checkout, which the backend writes itself at startup
+(`api_gateway/machine_handoff.py`, `Settings.machine_handoff_by_backend`): a
+fresh token and `http://127.0.0.1:8000{api_prefix}/machine`, in a 0700
+directory and a 0600 file owned by the backend's user, replaced in one step.
+When that file cannot be written privately (the directory is open to others,
+is a link, or is not writable), it fails closed: the previous file is removed
+when it can be, `machine_handoff_unavailable` is logged with only the reason,
+the token stays empty, and the routes refuse every request. The routes accept
+the token it has just written, never one read back from the file
+(`machine_token_at_start`), and at a clean shutdown the backend removes the
+file when it still holds that token (`remove_checkout_handoff`); after a crash
+the file stays until the next start, and the helper cannot tell that the
+backend is gone. `owner_cli.py` chooses
+the file by where it runs, not by which file exists: `/tmp/hybro/machine.json`
+when `HYBRO_CONTAINER` is `image`, else the checkout's file (`--handoff <file>`
+names another). On the host it uses the file
+only when the file and its directory are this user's, open to no one else and
+not links, and in every case only a `base_url` of `http://127.0.0.1`, so the
+password never goes to a file another local user put there. It does not
+verify the process listening on that port. The
+token is added to the public-text sanitizer's secret values. In the image,
+Caddy answers the path with 404, so only a process inside the container
+reaches these routes, on `127.0.0.1:8000`; a checkout has no Caddy, and the
+token alone guards them. `hybro owner create` and `hybro owner reset-password`
+call the two owner routes through `owner_cli.py`, `hybro status` and
+`hybro start` call `/setup-code` through `owner_cli.py setup-code`, and
+`hybro source create` calls `/sources` through `source_cli.py` (see "Shell
+CLI").
 
 #### Requests from other websites
 
@@ -2005,14 +2036,13 @@ requests.
 The client is the frontend Settings page (not yet built); the response shapes
 may still change before it ships. `api_gateway/routes/settings_routes.py` is a
 thin adapter over `instance_settings.protocols.SettingsAccess`. All routes are
-under `{api_prefix}/settings` and admin-only, including the read: they require
-the signed-in user and `BrowserSetup.can_configure` (everyone in mock mode,
-`backend.admin_user_ids` in clerk mode), else 403 `forbidden`; a missing
+under `{api_prefix}/settings` and owner-only, including the read: they require
+the owner's sign-in, else 401 `not_signed_in`; a missing
 `app.state.instance_settings` returns 503 `settings_unavailable`.
 
 | Route | Behavior |
 |---|---|
-| `GET ""` | `SettingsView`: `revision`, `config_error`, top-level `restart_pending`, `restart` status, `groups`, `fields` (registry spec, `default`, effective `value`, `source`, per-field `restart_pending`), `notices` (`removed_fields`, `instances_ignored`, `unlisted_fields`, `capped_fields`, names only), and `system` (version, `image` or `checkout`, port, listen mode, auth mode, MCP availability, a generic config location). |
+| `GET ""` | `SettingsView`: `revision`, `config_error`, top-level `restart_pending`, `restart` status, `groups`, `fields` (registry spec, `default`, effective `value`, `source`, per-field `restart_pending`), `notices` (`removed_fields`, `instances_ignored`, `unlisted_fields`, `capped_fields`, names only), and `system` (version, `image` or `checkout`, port, listen mode, auth mode (always `account`, the built-in owner account; `mock` and `clerk` stay in the type until Clerk mode is removed), MCP availability, a generic config location). |
 | `PUT ""` | `SettingsUpdate` `{revision, values}`, registry keys only, `null` removes a key. Returns `SettingsSaved` `{changed, restart_required, settings}`. |
 | `POST "/restart"` | 202 `RestartAccepted` `{restart}`; the helper is launched in a background task after the response. |
 
@@ -2080,7 +2110,7 @@ that loses its pair mid-turn emits an SSE error frame with the same code. Agents
 read a validated `HYBRO_AGENT_CONFIG` snapshot with the internal endpoint,
 inference token, and image size; no Provider key, OAuth token, auth file, or
 runtime mount reaches an Agent. The backend checks this
-inference-only Bearer token before parsing bodies, even in mock-auth mode.
+inference-only Bearer token before parsing bodies.
 The image entrypoint generates missing service credentials without rotating
 existing ones. The retired `default_agent_registrar_token` is accepted in `auth.json`
 and dropped on the next credential rewrite.
@@ -2111,7 +2141,9 @@ tabs; creation without a preset key keeps random IDs.
 Source API routes and read-only; work is sent through `/sessions`. Their
 `get_agent_network` dependency resolves `get_request_source` (see
 [`source`](#source)) and binds a network service to the acting owner.
-Clerk-mode requests without a source token receive `401`. These routes use the
+With the deprecated `auth_mode` `clerk`, requests without a source token
+receive `401`; before the owner account exists every request receives 503
+`no_account`. These routes use the
 public-or-owner visibility query, and saved groups require matching ownership.
 Private foreign targets return `404` without exposing status or Card.
 Deployments without a token requirement still need a trusted-network boundary;
@@ -2160,7 +2192,7 @@ agents or refreshes Cards.
 | --- | --- |
 | `401` | `unknown_source_token`, or `source_token_required` when a token is required. |
 | `403` | `cross_site_request` (no token, foreign `Origin`), or the selected saved group belongs to another user. |
-| `503` | `owner_unknown` or `sources_unavailable`. |
+| `503` | `no_account` (no owner account yet) or `sources_unavailable`. |
 | `404` | Selected group does not exist, or the agent is missing/not visible. |
 | `422` | Invalid query, or unsupported `room_team` scope. |
 
@@ -3372,8 +3404,8 @@ it is not required to apply a HITL request, unlike turn-correlated frames such a
 
 ## Sessions
 
-Under the single local identity (`backend.auth_mode="mock"`) the separation
-between client and owner is a presentation rule. The client addresses one agent
+A session belongs to the source that opened it, and the owner reads it in the
+Panel with the owner's sign-in. The client addresses one agent
 per message; nothing inside Hybro chooses who speaks next; every turn is recorded
 in a conversation container; when an agent needs the owner's permission, the
 owner approves or rejects in the Hybro app.
@@ -3778,9 +3810,8 @@ worker sharing the MongoDB and can be filtered by `instance_id`, while the snaps
 - Authorisation: before startup binds the service (or after shutdown) every
   route is a 503 `diagnostics_unavailable`. A request whose
   `X-Hybro-Diagnostics-Token` header matches the per-start token is accepted;
-  a missing or wrong token falls through to the user check: 401 without a
-  signed-in user, 403 unless the user may configure setup (anyone in
-  `auth_mode: mock`, `admin_user_ids` with Clerk). The token header is not declared in the schema and not allowed
+  a missing or wrong token falls through to the owner's sign-in: 401 without
+  it. The token header is not declared in the schema and not allowed
   by CORS. The entrypoint writes the token to `/tmp/hybro/diagnostics.json`
   (0600) on every container start; `Settings.diagnostics_handoff_file` names
   the file in the image and is empty in a checkout, which turns the token path

@@ -235,7 +235,6 @@ class DiagnosticsService:
         ring: RingBufferSink | None,
         token: str,
         auth_mode: str,
-        admin_user_ids: frozenset[str],
         version: str,
         instance_id: str,
         environment: str,
@@ -248,8 +247,6 @@ class DiagnosticsService:
         self._repository = repository
         self._ring = ring
         self._token = token
-        self._auth_mode = auth_mode
-        self._admins = admin_user_ids
         self._identity = {
             "version": version,
             "instance_id": instance_id,
@@ -266,10 +263,6 @@ class DiagnosticsService:
         self._canary_lock = asyncio.Lock()
 
     # ── Authorisation ──
-
-    def can_read(self, user_id: str) -> bool:
-        # The rule of BrowserSetup.can_configure: mock mode trusts the caller.
-        return self._auth_mode == "mock" or user_id in self._admins
 
     def token_matches(self, value: str) -> bool:
         expected = self._token.encode()

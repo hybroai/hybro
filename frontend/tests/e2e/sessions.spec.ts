@@ -2,7 +2,8 @@
 // A client opens a session through the API; the owner sees it in the sidebar,
 // approves the agent's question on the session page, and the client reads the
 // completed reply. Requires the live stack (./scripts/hybro start).
-import { expect, test, type APIRequestContext, type Locator } from '@playwright/test'
+import { type APIRequestContext, type Locator } from '@playwright/test'
+import { expect, test } from './fixtures/auth'
 
 const BACKEND_URL = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:8000/api/v1'
 const ANSWER = 'Kyoto, Japan, 3 days starting next Monday, budget $1500, mid-range hotels, temples and food'

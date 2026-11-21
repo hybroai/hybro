@@ -2,6 +2,7 @@
 
 from fastapi import APIRouter, Depends
 
+from api_gateway.owner_session import get_current_user
 from api_gateway.routes import (
     a2a_push_routes,
     agent_group_routes,
@@ -21,7 +22,6 @@ from api_gateway.routes import (
     source_routes,
     sse_routes,
 )
-from common.auth import get_current_user
 
 
 def build_api_gateway_router() -> APIRouter:

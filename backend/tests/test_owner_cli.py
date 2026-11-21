@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import io
 import json
+import os
 import urllib.request
 from pathlib import Path
 from urllib.error import URLError
@@ -34,11 +35,24 @@ class FakeBackend:
         return self.status, raw
 
 
+@pytest.fixture(autouse=True)
+def on_the_host(monkeypatch):
+    monkeypatch.delenv("HYBRO_CONTAINER", raising=False)
+
+
+def write_handoff(path: Path, content: str) -> Path:
+    # As the backend writes it: a 0600 file in a 0700 directory of this user.
+    path.write_text(content)
+    path.chmod(0o600)
+    return path
+
+
 @pytest.fixture
 def handoff(tmp_path: Path) -> Path:
-    path = tmp_path / "machine.json"
-    path.write_text(json.dumps({"base_url": BASE_URL, "token": TOKEN}))
-    return path
+    tmp_path.chmod(0o700)
+    return write_handoff(
+        tmp_path / "machine.json", json.dumps({"base_url": BASE_URL, "token": TOKEN})
+    )
 
 
 def run(
@@ -260,9 +274,10 @@ def test_an_unreachable_backend_exits_2_with_the_log_hint(handoff):
 
 @pytest.mark.parametrize("content", [None, "not json", "[]", '{"base_url": "x"}'])
 def test_a_missing_or_incomplete_handoff_exits_2(tmp_path, content):
+    tmp_path.chmod(0o700)
     path = tmp_path / "machine.json"
     if content is not None:
-        path.write_text(content)
+        write_handoff(path, content)
     backend = FakeBackend(204)
     code, _, err = run(["reset-password"], path, backend)
     assert code == 2
@@ -365,3 +380,222 @@ def test_the_helper_imports_only_the_standard_library():
         if isinstance(node, ast.ImportFrom) and node.module
     }
     assert names <= set(sys.stdlib_module_names) | {"__future__"}
+
+
+# -- setup-code ----------------------------------------------------------------
+
+SETUP_CODE = {"code": "fake-setup-code", "expires_at": "2030-01-01T00:00:00Z"}
+
+
+def test_setup_code_prints_only_the_code_and_reads_no_password(handoff):
+    backend = FakeBackend(200, SETUP_CODE)
+    code, out, err = run(["setup-code"], handoff, backend, stdin=b"")
+    assert (code, out, err) == (0, "fake-setup-code\n", "")
+    assert backend.calls == [(f"{BASE_URL}/setup-code", TOKEN, {})]
+
+
+def test_setup_code_when_the_account_exists_exits_1_without_output(handoff):
+    backend = _refusal(409, "account_exists", "The owner account already exists.")
+    code, out, err = run(["setup-code"], handoff, backend, stdin=b"")
+    assert (code, out) == (1, "")
+    assert "already exists" in err
+
+
+@pytest.mark.parametrize("body", [None, {"code": ""}, {"code": 7}, {"other": "x"}])
+def test_setup_code_without_a_code_in_the_answer_exits_2(handoff, body):
+    code, out, err = run(["setup-code"], handoff, FakeBackend(200, body), stdin=b"")
+    assert (code, out) == (2, "")
+    assert "hybro logs --service backend --level error" in err
+
+
+def test_setup_code_takes_no_options(handoff):
+    backend = FakeBackend(200, SETUP_CODE)
+    code, _, err = run(["setup-code", "--name", "Ada"], handoff, backend, stdin=b"")
+    assert code == 2
+    assert backend.calls == []
+    assert err.startswith("usage: owner_cli.py")
+
+
+@pytest.mark.parametrize(
+    ("status", "code"),
+    [(429, "too_many_attempts"), (400, "other"), (409, "something_else")],
+)
+def test_setup_code_exits_1_only_when_the_account_exists(handoff, status, code):
+    backend = _refusal(status, code, "Refused.")
+    exit_code, out, _ = run(["setup-code"], handoff, backend, stdin=b"")
+    assert (exit_code, out) == (2, "")
+
+
+def test_handoff_option_names_another_handoff_file(tmp_path):
+    other = tmp_path / "run" / "machine.json"
+    other.parent.mkdir(mode=0o700)
+    write_handoff(other, json.dumps({"base_url": BASE_URL, "token": TOKEN}))
+    backend = FakeBackend(200, SETUP_CODE)
+    stdout, stderr = io.StringIO(), io.StringIO()
+
+    code = cli.main(
+        ["--handoff", str(other), "setup-code"],
+        stdin=io.BytesIO(b""),
+        stdout=stdout,
+        stderr=stderr,
+        handoff=tmp_path / "missing.json",
+        post=backend,
+    )
+
+    assert (code, stdout.getvalue()) == (0, "fake-setup-code\n")
+    assert backend.calls[0][1] == TOKEN
+
+
+@pytest.mark.parametrize("argv", [["--handoff"], ["--handoff", "", "setup-code"]])
+def test_handoff_option_needs_a_path(handoff, argv):
+    code, _, err = run(argv, handoff, FakeBackend(200, SETUP_CODE), stdin=b"")
+    assert code == 2
+    assert err.startswith("usage: owner_cli.py")
+
+
+def test_the_default_handoff_on_the_host_is_under_hybro_home(tmp_path, monkeypatch):
+    monkeypatch.setenv("HYBRO_HOME", str(tmp_path / "home"))
+    monkeypatch.delenv("HYBRO_CONTAINER", raising=False)
+    assert cli.default_handoff(image=tmp_path / "absent.json") == (
+        tmp_path / "home" / "run" / "machine.json"
+    )
+
+
+def test_a_relative_hybro_home_is_refused(tmp_path, monkeypatch):
+    # The loader refuses a relative HYBRO_HOME, so the helper does too.
+    monkeypatch.setenv("HYBRO_HOME", "relative/home")
+    monkeypatch.delenv("HYBRO_CONTAINER", raising=False)
+    stdout, stderr = io.StringIO(), io.StringIO()
+    code = cli.main(
+        ["setup-code"],
+        stdin=io.BytesIO(b""),
+        stdout=stdout,
+        stderr=stderr,
+        post=FakeBackend(200, SETUP_CODE),
+    )
+    assert code == 2
+    assert stdout.getvalue() == ""
+    assert "HYBRO_HOME must be an absolute path" in stderr.getvalue()
+
+
+def test_on_the_host_the_checkout_file_wins_over_a_file_in_tmp(tmp_path, monkeypatch):
+    # /tmp is shared: a file another user put at the image path is never used
+    # outside the image.
+    monkeypatch.setenv("HYBRO_HOME", str(tmp_path / "home"))
+    monkeypatch.delenv("HYBRO_CONTAINER", raising=False)
+    image = tmp_path / "image.json"
+    image.write_text("{}")
+
+    assert cli.default_handoff(image=image) == (
+        tmp_path / "home" / "run" / "machine.json"
+    )
+
+
+def test_in_the_image_the_entrypoint_file_is_used(tmp_path, monkeypatch):
+    monkeypatch.setenv("HYBRO_HOME", str(tmp_path / "home"))
+    monkeypatch.setenv("HYBRO_CONTAINER", "image")
+    image = tmp_path / "absent.json"
+
+    assert cli.default_handoff(image=image) == image
+
+
+def test_a_connection_error_names_the_checkout_port(handoff):
+    def unreachable(url, token, body):
+        raise OSError("refused")
+
+    code, _, err = run(["setup-code"], handoff, unreachable, stdin=b"")
+    assert code == 2
+    assert "port 8000" in err
+
+
+# -- On the host the file must be this user's private file ------------------------
+
+
+def _planted(tmp_path: Path, case: str) -> Path:
+    directory = tmp_path / "run"
+    directory.mkdir(mode=0o700)
+    content = json.dumps({"base_url": BASE_URL, "token": TOKEN})
+    path = directory / "machine.json"
+    if case == "open_directory":
+        write_handoff(path, content)
+        directory.chmod(0o777)
+    elif case == "open_file":
+        write_handoff(path, content).chmod(0o644)
+    elif case == "linked_file":
+        write_handoff(tmp_path / "elsewhere.json", content)
+        path.symlink_to(tmp_path / "elsewhere.json")
+    elif case == "linked_directory":
+        real = tmp_path / "real"
+        real.mkdir(mode=0o700)
+        write_handoff(real / "machine.json", content)
+        directory.rmdir()
+        directory.symlink_to(real, target_is_directory=True)
+    elif case == "remote_base_url":
+        write_handoff(
+            path, json.dumps({"base_url": "http://attacker.example/m", "token": TOKEN})
+        )
+    elif case == "https_base_url":
+        write_handoff(
+            path, json.dumps({"base_url": "https://127.0.0.1:8000/m", "token": TOKEN})
+        )
+    return path
+
+
+@pytest.mark.parametrize(
+    "case",
+    [
+        "open_directory",
+        "open_file",
+        "linked_file",
+        "linked_directory",
+        "remote_base_url",
+        "https_base_url",
+    ],
+)
+def test_the_password_is_never_sent_with_a_file_others_could_plant(tmp_path, case):
+    path = _planted(tmp_path, case)
+    backend = FakeBackend(204)
+
+    code, _, err = run(["reset-password"], path, backend)
+
+    assert code == 2
+    assert backend.calls == []
+    assert PASSWORD not in err and TOKEN not in err
+
+
+def test_in_the_image_the_entrypoint_file_needs_only_a_loopback_url(
+    tmp_path, monkeypatch
+):
+    # The container has one user; the entrypoint's file is read as it is.
+    monkeypatch.setenv("HYBRO_CONTAINER", "image")
+    path = tmp_path / "machine.json"
+    path.write_text(json.dumps({"base_url": BASE_URL, "token": TOKEN}))
+    path.chmod(0o644)
+    backend = FakeBackend(200, SETUP_CODE)
+
+    code, out, _ = run(["setup-code"], path, backend, stdin=b"")
+
+    assert (code, out) == (0, "fake-setup-code\n")
+
+
+def test_a_linked_file_is_named_as_refused_not_missing(tmp_path):
+    path = _planted(tmp_path, "linked_file")
+
+    code, _, err = run(["reset-password"], path, FakeBackend(204))
+
+    assert code == 2
+    assert "not a private file of this user" in err
+
+
+def test_a_fifo_is_refused_without_waiting(tmp_path):
+    directory = tmp_path / "run"
+    directory.mkdir(mode=0o700)
+    path = directory / "machine.json"
+    os.mkfifo(path, 0o600)
+    backend = FakeBackend(204)
+
+    code, _, err = run(["reset-password"], path, backend)
+
+    assert code == 2
+    assert backend.calls == []
+    assert "not a private file of this user" in err

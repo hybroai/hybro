@@ -11,9 +11,9 @@ import httpx
 import pytest
 
 from api_gateway.dependencies import get_owner_session_access, get_session_access
+from api_gateway.owner_session import get_current_user
 from api_gateway.source_token import SourceCaller
-from common import auth
-from common.auth import ClerkUser, get_current_user
+from common.auth import ClerkUser
 from common.errors import AppError
 from main import SESSION_MESSAGE_MAX_BYTES, SESSION_MESSAGE_MAX_CONCURRENT, create_app
 from models.session import (
@@ -31,6 +31,7 @@ from models.session import (
 from session.access import BoundOwnerSessionAccess, BoundSessionAccess
 from session.protocols import OwnerSessionAccess, SessionAccess, SessionOwner
 from source.protocols import NO_TOKEN
+from tests.fakes.account import sign_out
 
 NOW = datetime(2026, 10, 14, tzinfo=UTC)
 NO_TOKEN_SOURCE = SessionSource(source_id="no_token", name="No token", has_token=False)
@@ -314,16 +315,10 @@ async def test_unknown_session_is_404_on_read_routes():
     assert check.json()["detail"]["session_id"] == "missing"
 
 
-async def test_clerk_anonymous_owner_requests_fail_with_401(monkeypatch):
+async def test_anonymous_owner_requests_fail_with_401(monkeypatch):
     app, access = make_app()
-    app.dependency_overrides.pop(get_current_user)
     app.dependency_overrides.pop(get_owner_session_access)
-    monkeypatch.setattr(auth, "_require_clerk_secret_key", lambda: "sk_test")
-    monkeypatch.setattr(
-        auth,
-        "authenticate_request",
-        lambda request, options: SimpleNamespace(is_signed_in=False, payload=None),
-    )
+    sign_out(app, monkeypatch)
     async with client_for(app) as client:
         responses = [
             await client.get("/api/v1/sessions"),

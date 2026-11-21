@@ -47,7 +47,7 @@ export interface SystemInfo {
   deployment: 'image' | 'checkout'
   port: number | null
   listen: 'loopback' | 'public' | null
-  auth_mode: 'mock' | 'clerk'
+  auth_mode: 'mock' | 'clerk' | 'account'
   mcp_available: boolean | null
   config_location: string
 }

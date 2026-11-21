@@ -4,11 +4,15 @@ import asyncio
 import os
 import time
 from collections.abc import AsyncGenerator, Mapping
+from urllib.parse import urlsplit
 
 import httpx
 import pytest
 
 API_BASE_URL = os.environ.get("HYBRO_API_URL", "http://localhost:8000/api/v1")
+# The owner account the run signs in as; CI creates it with `hybro owner create`.
+OWNER_EMAIL_ENV = "HYBRO_TEST_OWNER_EMAIL"
+OWNER_PASSWORD_ENV = "HYBRO_TEST_OWNER_PASSWORD"
 DEFAULT_TRAVEL_PLANNER_ID = "575ee896f1e24823943a1e98aee111c9"
 DEFAULT_WEATHER_ID = "c13e753ad4f74c25bfb684de5572622a"
 FUNCTIONAL_SKIP_REASON = (
@@ -34,12 +38,42 @@ def pytest_collection_modifyitems(config, items):
             item.add_marker(skip_marker)
 
 
+def own_origin(api_base_url: str) -> str:
+    """The ``Origin`` of Hybro's own address, which the cross-site check wants."""
+    parts = urlsplit(api_base_url)
+    return f"{parts.scheme}://{parts.netloc}"
+
+
+async def sign_in_as_owner(client: httpx.AsyncClient) -> None:
+    """Signs the client in; the owner's routes need the session cookie."""
+    email = os.environ.get(OWNER_EMAIL_ENV)
+    password = os.environ.get(OWNER_PASSWORD_ENV)
+    if not (email and password):
+        pytest.fail(
+            f"set {OWNER_EMAIL_ENV} and {OWNER_PASSWORD_ENV} to the owner "
+            "account of the Hybro under test"
+        )
+    response = await client.post(
+        "/auth/sign-in", json={"email": email, "password": password}
+    )
+    if response.status_code != 200:
+        pytest.fail(f"signing in as the owner failed (HTTP {response.status_code})")
+
+
 @pytest.fixture
 async def functional_client() -> AsyncGenerator[httpx.AsyncClient, None]:
-    """Provides an AsyncClient connected to the running backend service."""
+    """An AsyncClient signed in as the owner of the running Hybro.
+
+    Its Source API calls send no source token, which a fresh install accepts.
+    """
     # Answering an agent question resumes the live A2A call inline, so a
     # single request can take as long as the agent's model turn.
-    async with httpx.AsyncClient(base_url=API_BASE_URL, timeout=180.0) as client:
+    async with httpx.AsyncClient(
+        base_url=API_BASE_URL,
+        timeout=180.0,
+        headers={"Origin": own_origin(API_BASE_URL)},
+    ) as client:
+        await sign_in_as_owner(client)
         yield client
 
 

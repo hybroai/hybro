@@ -1096,32 +1096,11 @@ async def test_a_failed_cleanup_keeps_the_first_error_and_other_browsers():
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize(
-    ("mode", "admins", "expected"),
-    [
-        ("mock", frozenset(), OWNER_USER_ID),
-        # A mock install may have the field set and ignored.
-        ("mock", frozenset({"user_abc", "user_def"}), OWNER_USER_ID),
-        ("clerk", frozenset(), OWNER_USER_ID),
-        ("clerk", frozenset({"user_abc"}), "user_abc"),
-    ],
-)
-async def test_acting_owner_follows_the_id_rule_before_the_account(
-    mode, admins, expected
-):
-    service = build_service(auth_mode=mode, admin_user_ids=admins)
-
-    owner = await service.acting_owner()
-
-    assert owner.user_id == expected
-
-
-@pytest.mark.asyncio
-async def test_acting_owner_is_unknown_with_several_admins_and_no_account():
+async def test_acting_owner_is_the_owner_record_and_refuses_before_it():
     service = build_service(
         auth_mode="clerk", admin_user_ids=frozenset({"user_a", "user_b"})
     )
-    with pytest.raises(OwnerIdRequired):
+    with pytest.raises(NoAccount):
         await service.acting_owner()
 
     await service.create_owner(_create(owner_id="user_b"))
