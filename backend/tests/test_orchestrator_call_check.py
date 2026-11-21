@@ -84,6 +84,8 @@ async def test_a_denied_call_returns_to_the_model_and_the_run_survives():
     assert runtime.requests[1].messages[-1].role == "tool"
     assert turns == ["error", "completed"]
     assert result.run.denied_rule_id == "rule_deny_echo"
+    (entry,) = [e for batch in result.run.tool_batches for e in batch.entries]
+    assert entry.denied_by_rule
 
 
 async def test_a_denied_call_does_not_stop_its_allowed_sibling():
@@ -343,3 +345,41 @@ async def test_a_restart_with_public_history_resumes_room_chat_after_a_deny(
     # Recovery closes the refused turn as it closes any locally rejected
     # declaration after a restart; only passthrough needs it closed as an error.
     assert result.run.budget.agent_calls_used == 1
+
+
+async def test_a_crash_while_recording_the_deny_still_returns_the_refusal(
+    monkeypatch,
+):
+    run = make_run(max_agent_calls=1)
+    tools = DenyingToolRuntime({DENIED: "rule_deny_echo"})
+    kernel, store, runtime, _ = await make_kernel(
+        [
+            tool_events(("denied", DENIED, '{"value":"hi"}')),
+            final_events("done without it"),
+        ],
+        run=run,
+        tool_runtime=tools,
+    )
+    real_checkpoint = kernel._checkpoint
+    crashed = False
+
+    async def checkpoint(run, *args, **kwargs):
+        nonlocal crashed
+        stored = await real_checkpoint(run, *args, **kwargs)
+        if not crashed and "denied_rule_id" in kwargs["updates"]:
+            # The process dies just after the rule is first stored.
+            crashed = True
+            raise ProcessDied
+        return stored
+
+    monkeypatch.setattr(kernel, "_checkpoint", checkpoint)
+    with pytest.raises(ProcessDied):
+        await kernel.run(run.run_id, signal=NeverCancelled())
+    monkeypatch.setattr(kernel, "_checkpoint", real_checkpoint)
+
+    result = await kernel.run(run.run_id, signal=NeverCancelled())
+
+    assert result.outcome == "final_answer"
+    assert result.run.budget.agent_calls_used == 1
+    assert [m.error_code for m in _tool_results(result.run)] == ["agent_call_denied"]
+    assert result.run.denied_rule_id == "rule_deny_echo"

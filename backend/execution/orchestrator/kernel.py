@@ -1392,7 +1392,7 @@ class OrchestratorKernel:
                 ):
                     recoverable_declaration_failed = True
                     preacceptance_failed = True
-                elif error_code == AGENT_CALL_DENIED:
+                elif entry.denied_by_rule:
                     recoverable_declaration_failed = True
                 elif error_code == "acceptance_failed":
                     fatal_preacceptance_failed = True
@@ -1713,11 +1713,8 @@ class OrchestratorKernel:
                 # Run: the refusal returns to the model (Room chat), or ends a
                 # passthrough Run as denied. Its budget unit stays spent, which
                 # bounds a model that keeps calling a denied agent.
-                run = await self._checkpoint(
-                    run,
-                    updates={"denied_rule_id": denied.rule_id},
-                    command_id=f"call-denied-rule:{call.call_id}",
-                )
+                # The rule and the refused entry are written together, so a
+                # restart never finds one without the other.
                 run = await self._update_entry(
                     run,
                     batch_index,
@@ -1728,6 +1725,8 @@ class OrchestratorKernel:
                         call, AGENT_CALL_DENIED, _AGENT_CALL_DENIED_TEXT
                     ),
                     command=f"call-denied:{call.call_id}",
+                    denied_by_rule=True,
+                    run_updates={"denied_rule_id": denied.rule_id},
                 )
                 recoverable_declaration_failed = True
                 continue
@@ -2882,7 +2881,7 @@ class OrchestratorKernel:
             return await self._terminate(
                 run, status="failed", reason="passthrough_result_missing"
             )
-        if result.error_code == AGENT_CALL_DENIED:
+        if _passthrough_denied(run):
             # Restart after the refused batch was flushed.
             return await self._passthrough_rejected(run.run_id)
         if result.status != "completed":
@@ -3590,7 +3589,10 @@ class OrchestratorKernel:
         result: ToolResult | None = None,
         public_update_index: int | None = None,
         public_terminal_emitted: bool | None = None,
+        denied_by_rule: bool | None = None,
+        run_updates: dict[str, object] | None = None,
     ) -> OrchestratorRunState:
+        """Write one tool entry, with any Run fields in the same checkpoint."""
         batches = list(run.tool_batches)
         batch = batches[batch_index]
         entries = list(batch.entries)
@@ -3609,12 +3611,16 @@ class OrchestratorKernel:
             update["public_update_index"] = public_update_index
         if public_terminal_emitted is not None:
             update["public_terminal_emitted"] = public_terminal_emitted
+        if denied_by_rule is not None:
+            update["denied_by_rule"] = denied_by_rule
         desired_entry = original_entry.model_copy(update=update)
         entries[entry_index] = desired_entry
         batches[batch_index] = batch.model_copy(update={"entries": entries})
         try:
             return await self._checkpoint(
-                run, updates={"tool_batches": batches}, command_id=command
+                run,
+                updates={**(run_updates or {}), "tool_batches": batches},
+                command_id=command,
             )
         except KernelConflict:
             current = await self._load(run.run_id)
@@ -3643,7 +3649,7 @@ class OrchestratorKernel:
             )
             return await self._checkpoint(
                 current,
-                updates={"tool_batches": current_batches},
+                updates={**(run_updates or {}), "tool_batches": current_batches},
                 command_id=command,
             )
 

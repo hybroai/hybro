@@ -1103,6 +1103,11 @@ no rules, or none that matches, every call goes as before.
   `denied_rule_id`, and the `run_settled` payload carries it as `rule_id`
   (allowed only with `cancellation_code: policy`). The session projection
   maps that to the state `denied`.
+- The refused entry is marked `denied_by_rule`, written in the same
+  checkpoint as the Run's `denied_rule_id`. Restart and settlement read that
+  mark, never the error code alone: a remote Agent may return its own
+  `agent_call_denied` code, which then ends its call as an ordinary Agent
+  failure.
 - A restart inside a refused call ends it the same way: recovery never
   re-asks the rules and never counts the budget unit twice. In `passthrough`
   it closes the turn as an error and settles the Run as denied; in Room chat

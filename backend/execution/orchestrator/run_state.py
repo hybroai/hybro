@@ -792,10 +792,7 @@ def _request_user_input_choices(arguments: dict[str, object]) -> list[str]:
 def _passthrough_denied(run: OrchestratorRunState) -> bool:
     """Whether a check rule refused the passthrough Run's one Agent call."""
     return any(
-        entry.buffered_terminal_result is not None
-        and entry.buffered_terminal_result.error_code == AGENT_CALL_DENIED
-        for batch in run.tool_batches
-        for entry in batch.entries
+        entry.denied_by_rule for batch in run.tool_batches for entry in batch.entries
     )
 
 
