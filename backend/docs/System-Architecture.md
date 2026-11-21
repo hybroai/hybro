@@ -1831,10 +1831,11 @@ Start options are flags only.
   line), the "already running" path and `hybro status` run
   `owner_cli.py setup-code`, which POSTs to `/machine/setup-code` and prints
   only the code on standard output (exit 1 only for `account_exists`, 2 for
-  any other refusal or failure). The script prints `<address>/setup#<code>`, so the code is
-  in that output only, never in an argument, the container logs or the
-  backend's request log. Each call issues a new code, which replaces the last,
-  and the output says so.
+  any other refusal or failure). The script prints an instruction, then
+  `<address>/setup#<code>` on its own line, then a line that this is a new
+  link, that it replaces any earlier one, and that it works once for 24 hours. The code is in that
+  output only, never in an argument, the container logs or the backend's
+  request log. Each call issues a new code, which replaces the last.
   An exit 2 prints a line to run `hybro status` again; an image without the
   helper prints nothing. `hybro -d` returns before readiness and prints a line
   that points to `hybro status`.

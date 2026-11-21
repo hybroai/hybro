@@ -857,8 +857,9 @@ print_setup_link() {
     case $setup_code in
     '' | *[!A-Za-z0-9_-]*) return 0 ;;
     esac
-    say "Create the owner account at: $1/setup#$setup_code"
-    say "Each new link replaces the earlier ones; it works once, for 24 hours."
+    say "Create the owner account by opening this link:"
+    say "$1/setup#$setup_code"
+    say "This is a new link. It replaces any earlier one, works once, and expires in 24 hours."
 }
 
 # The running container's listen mode; one without HYBRO_LISTEN is public, as

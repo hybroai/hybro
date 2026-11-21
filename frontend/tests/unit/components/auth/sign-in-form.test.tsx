@@ -78,10 +78,38 @@ describe('SetupForm', () => {
     })
   })
 
-  it('without a code, tells the owner how to get the link', async () => {
+  it('without a code, asks for the setup link instead of the account form', async () => {
     const { SetupForm } = await import('@/components/auth/setup-form')
     render(<SetupForm />)
-    expect(screen.getByText(/hybro status/)).toBeInTheDocument()
+    expect(screen.getByText('Open your setup link')).toBeInTheDocument()
+    expect(screen.getByText(/prints a new link and replaces the earlier one/)).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Create account' })).not.toBeInTheDocument()
+  })
+
+  it('uses a pasted setup link as the code', async () => {
+    setupOwner.mockResolvedValue({ owner: {} })
+    const { SetupForm } = await import('@/components/auth/setup-form')
+    render(<SetupForm />)
+    fill(/^Setup link/, 'http://localhost:3100/setup#pasted-code')
+    fireEvent.click(screen.getByRole('button', { name: 'Continue' }))
+    expect(screen.getByText('Create your owner account')).toBeInTheDocument()
+    expect(window.location.hash).toBe('#pasted-code')
+    fill(/^Name/, 'Ada')
+    fill(/^Email/, 'ada@example.com')
+    fill(/^Password/, 'fixture-password')
+    fill(/^Confirm password/, 'fixture-password')
+    fireEvent.click(screen.getByRole('button', { name: 'Create account' }))
+    await waitFor(() => expect(setupOwner).toHaveBeenCalledWith({
+      code: 'pasted-code', name: 'Ada', email: 'ada@example.com', password: 'fixture-password',
+    }))
+  })
+
+  it('refuses a link that has no setup code', async () => {
+    const { SetupForm } = await import('@/components/auth/setup-form')
+    render(<SetupForm />)
+    fill(/^Setup link/, 'http://localhost:3100/setup')
+    fireEvent.click(screen.getByRole('button', { name: 'Continue' }))
+    expect(screen.getByText(/no setup code/)).toBeInTheDocument()
     expect(screen.queryByRole('button', { name: 'Create account' })).not.toBeInTheDocument()
   })
 
