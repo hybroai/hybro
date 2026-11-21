@@ -47,6 +47,7 @@ function createLifecycle({
     hadSseDisconnection: vi.fn(() => false),
     reset: vi.fn(),
     dispose: vi.fn(),
+    revive: vi.fn(),
   }
 }
 
