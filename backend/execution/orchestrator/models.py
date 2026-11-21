@@ -786,6 +786,9 @@ class OrchestratorRunState(ContractModel):
     cancellation_command_id: str | None = None
     cancellation_requested_at: datetime | None = None
     cancellation_cause: CancellationCause | None = None
+    # The check rule that last refused a new Agent call in this Run. A
+    # passthrough Run settles with it as the reason it was denied.
+    denied_rule_id: str | None = None
     projection_state: Literal["pending", "settled", "blocked"]
     recovery_claim: RecoveryClaim
     projection_outbox: list[ProjectionIntent]

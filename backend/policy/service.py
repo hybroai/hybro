@@ -7,6 +7,7 @@ from collections.abc import Callable
 from datetime import datetime
 
 from common.utils.time import utcnow
+from policy.evaluate import RuleDecision, evaluate
 from policy.models import (
     MAX_RULES,
     CheckRule,
@@ -48,6 +49,11 @@ class PolicyService:
 
     async def list_rules(self) -> RuleList:
         return _list(await self._store.list_all())
+
+    async def check_agent_call(self, agent_id: str) -> RuleDecision:
+        """The answer the rules give for a new call to this agent. With no
+        rules, or none that matches, the answer is allow."""
+        return evaluate(await self._store.list_all(), agent_id)
 
     async def create(self, change: RuleCreate) -> RuleView:
         """Add a rule at the end of the list."""

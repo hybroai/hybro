@@ -655,3 +655,20 @@ describe('Agent error codes on failed tool executions', () => {
     })
   })
 })
+
+describe('settlement of a call a check rule denied', () => {
+  const canceled = (extra: Record<string, unknown>) => runEvent(9, 'run_settled', {
+    status: 'canceled', started_at: TS, settled_at: TS, duration_ms: 0, ...extra,
+  })
+
+  it('accepts the rule id on a policy cancel only', () => {
+    expect(validateCanonicalRunEventData(canceled({ cancellation_code: 'policy', rule_id: 'rule_1' })))
+      .toMatchObject({ valid: true })
+    expect(validateCanonicalRunEventData(canceled({ cancellation_code: 'policy' })))
+      .toMatchObject({ valid: true })
+    expect(validateCanonicalRunEventData(canceled({ cancellation_code: 'user_requested', rule_id: 'rule_1' })))
+      .toMatchObject({ valid: false })
+    expect(validateCanonicalRunEventData(canceled({ cancellation_code: 'policy', rule_id: '' })))
+      .toMatchObject({ valid: false })
+  })
+})

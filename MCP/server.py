@@ -103,11 +103,18 @@ SESSION_STATES = (
     "working",
     "waiting_on_owner",
     "rejected",
+    "denied",
     "failed",
     "closed",
 )
 SessionState = Literal[
-    "completed", "working", "waiting_on_owner", "rejected", "failed", "closed"
+    "completed",
+    "working",
+    "waiting_on_owner",
+    "rejected",
+    "denied",
+    "failed",
+    "closed",
 ]
 CHECK_LATER = "Call check_session later with this session_id; do not resend."
 NEW_SESSION = "Start a new session if needed: call send_message without session_id."
@@ -389,6 +396,13 @@ def with_subnets(item: dict[str, JsonValue]) -> dict[str, JsonValue]:
 
 
 def next_action(state: str, reason: str | None) -> str:
+    if state == "denied":
+        detail = f" {reason}" if reason else ""
+        return (
+            f"A check rule in Hybro stopped the request.{detail} Tell the user; "
+            "sending it again is denied the same way until the owner changes "
+            "the rules."
+        )
     if state == "failed":
         detail = f" ({reason})" if reason else ""
         return (
@@ -532,7 +546,8 @@ def create_server(
             "4) Call check_session for the agents' responses: history lists each "
             "of your messages with its state and the agent's reply. working or "
             "waiting_on_owner (the agent needs the Hybro owner's decision) is not "
-            "finished, so check again later; rejected, failed and closed end the "
+            "finished, so check again later; rejected, denied (a check rule stopped "
+            "it), failed and closed end the "
             "request. close_session ends a session. "
             "Do not resend automatically after a timeout or disconnect: remote "
             "work may continue. Sending may cost money or cause side effects. "

@@ -73,6 +73,7 @@ from execution.orchestrator.a2a_runtime.models import (
     A2ADispatchReceipt,
     NormalizedA2AObservation,
 )
+from execution.orchestrator.a2a_runtime.ports import AgentCallCheckPort
 from execution.orchestrator.a2a_runtime.preparation import (
     RunBackedDispatchRecovery,
     RunPreparedInvocationSnapshotReader,
@@ -398,6 +399,7 @@ def create_orchestrator_runtime(  # noqa: C901
     canonical_hitl_control: Callable[[str, str, str, list[str]], Any] | None = None,
     supervisor_hitl: Any | None = None,
     supervisor_hitl_cancellation: Callable[[str], Any] | None = None,
+    agent_call_check: AgentCallCheckPort | None = None,
 ) -> OrchestratorRuntime:
     """Compose the full orchestrator runtime over the registered Mongo stores.
 
@@ -548,6 +550,7 @@ def create_orchestrator_runtime(  # noqa: C901
             if settings_obj.a2a_push_callback_base_url
             else None
         ),
+        call_check=agent_call_check,
     )
 
     model_runtime = GatewayModelRuntime(llm_gateway)

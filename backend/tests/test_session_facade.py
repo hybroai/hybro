@@ -1100,6 +1100,37 @@ async def test_other_cancellation_maps_to_failed():
     assert (await h.check()).state == "failed"
 
 
+@pytest.mark.asyncio
+async def test_policy_cancellation_maps_to_denied_with_the_rule():
+    h = make_harness(
+        on_schedule=[
+            STARTED,
+            settled("canceled", cancellation_code="policy", rule_id="rule_abc"),
+        ]
+    )
+
+    await h.send()
+    status = await h.check()
+
+    assert status.state == "denied"
+    assert status.reason == ("The owner's check rule rule_abc denied this agent call.")
+    assert status.history[-1].state == "denied"
+    assert status.history[-1].reason == status.reason
+
+
+@pytest.mark.asyncio
+async def test_policy_cancellation_without_a_rule_id_still_reads_denied():
+    h = make_harness(
+        on_schedule=[STARTED, settled("canceled", cancellation_code="policy")]
+    )
+
+    await h.send()
+    status = await h.check()
+
+    assert status.state == "denied"
+    assert status.reason == "The owner's check rules denied this agent call."
+
+
 # -- Replay -------------------------------------------------------------------
 
 
