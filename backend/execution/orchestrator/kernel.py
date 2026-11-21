@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import asyncio
+import re
+import unicodedata
 from collections.abc import Awaitable, Callable, Iterable
 from contextvars import ContextVar
 from hashlib import sha256
@@ -65,6 +67,9 @@ from .run_state import (
     MAX_JOIN_DISPATCH_RETRIES,
     REQUEST_USER_INPUT_TOOL_DEFINITION,
     REQUEST_USER_INPUT_TOOL_NAME,
+    RULE_ASK_ARGUMENT_NAME_LIMIT,
+    RULE_ASK_ARGUMENT_NAMES_SHOWN,
+    RULE_ASK_LABEL_LIMIT,
     RULE_ASK_TASK_TEXT_LIMIT,
     SURFACE_AGENT_QUESTIONS_TOOL_NAME,
     KernelCancellationPending,
@@ -141,6 +146,78 @@ _kernel_logger = get_logger(__name__)
 
 class IDFactory(Protocol):
     def new_id(self, prefix: str) -> str: ...
+
+
+# Characters a question shows as "?": controls (other than newline and tab),
+# format characters such as bidi controls and tag characters, line and
+# paragraph separators, private-use, surrogate and unassigned code points,
+# variation selectors, and characters that render as blank (Hangul fillers,
+# the braille blank, the combining grapheme joiner).
+_RULE_ASK_HIDDEN_CATEGORIES = frozenset({"Cc", "Cf", "Co", "Cs", "Cn", "Zl", "Zp"})
+_RULE_ASK_BLANK_CHARACTERS = frozenset("\u034f\u115f\u1160\u2800\u3164\uffa0")
+# Combining marks shown on one base character; the rest of a run is hidden.
+_RULE_ASK_MARKS_SHOWN = 2
+_RULE_ASK_BLANK_LINES = re.compile(r"\n(?:[^\S\n]*\n){2,}")
+
+
+def _rule_ask_hidden(char: str) -> bool:
+    if char in "\n\t":
+        return False
+    point = ord(char)
+    return (
+        unicodedata.category(char) in _RULE_ASK_HIDDEN_CATEGORIES
+        or char in _RULE_ASK_BLANK_CHARACTERS
+        or 0xFE00 <= point <= 0xFE0F
+        or 0xE0100 <= point <= 0xE01EF
+    )
+
+
+def _rule_ask_one_line(text: str) -> str:
+    """Text for one line of a rule question.
+
+    Hidden characters become spaces, and combining marks past the first two
+    on one character are dropped, so the line cannot draw over the others.
+    """
+    kept: list[str] = []
+    marks = 0
+    for char in text:
+        marks = marks + 1 if unicodedata.category(char).startswith("M") else 0
+        if marks > _RULE_ASK_MARKS_SHOWN:
+            continue
+        kept.append(" " if _rule_ask_hidden(char) else char)
+    return " ".join("".join(kept).split())
+
+
+def _rule_ask_visible_text(text: str) -> tuple[str, int]:
+    """Task text as the owner sees it, and how many characters it hid.
+
+    Each hidden character, and each combining mark past the first two on one
+    base character, is shown as "?"; other spaces become a plain space; and
+    runs of blank lines collapse to one. Nothing in the text renders as
+    nothing, draws over the lines above it, or pushes the rest out of view.
+    """
+    shown: list[str] = []
+    hidden = 0
+    marks = 0
+    for char in text.replace("\r\n", "\n"):
+        category = unicodedata.category(char)
+        marks = marks + 1 if category.startswith("M") else 0
+        if _rule_ask_hidden(char) or marks > _RULE_ASK_MARKS_SHOWN:
+            shown.append("?")
+            hidden += 1
+        else:
+            shown.append(" " if category == "Zs" else char)
+    return _RULE_ASK_BLANK_LINES.sub("\n\n", "".join(shown)), hidden
+
+
+def _rule_ask_argument_name(name: str, secrets: Iterable[str]) -> str:
+    """One argument name as a rule question names it: plain and bounded."""
+    safe = sanitize_public_text(name, secret_values=secrets)
+    plain = "".join(
+        char if char.isascii() and (char.isalnum() or char in "_-.") else "_"
+        for char in safe
+    )
+    return plain[:RULE_ASK_ARGUMENT_NAME_LIMIT] or "_"
 
 
 class OrchestratorKernel:
@@ -1008,19 +1085,51 @@ class OrchestratorKernel:
         )
 
     def _rule_ask_question(self, run: OrchestratorRunState, call: ToolCall) -> str:
-        """Fixed question text, with the call's task text the owner approves."""
+        """Fixed question text, with the call's task text the owner approves.
+
+        The kernel's notes (a cut task text, the other arguments) come right
+        after the question line and before the task text, so nothing in the
+        task text can add to them or move them. The text is cut after it is
+        sanitized, so a cut never splits a secret before it is masked.
+        """
+        secrets = self.public_secret_values
         label = self._tool_label(run, call.tool_name) or call.tool_name
-        text = (
-            "Allow this call to "
-            f"{sanitize_public_text(label, secret_values=self.public_secret_values)}?"
-        )
+        label = _rule_ask_one_line(sanitize_public_text(label, secret_values=secrets))
+        lines = [f"Allow this call to {label[:RULE_ASK_LABEL_LIMIT]}?"]
         task = call.arguments.get("task")
+        body = ""
         if isinstance(task, str) and task.strip():
-            body = sanitize_public_text(
-                task.strip(), secret_values=self.public_secret_values
-            )[:RULE_ASK_TASK_TEXT_LIMIT]
-            text = f"{text}\n\n{body}"
-        return text
+            shown, hidden = _rule_ask_visible_text(
+                sanitize_public_text(task.strip(), secret_values=secrets)
+            )
+            # Again, for a secret a hidden character had split.
+            shown = sanitize_public_text(shown, secret_values=secrets)
+            body = shown[:RULE_ASK_TASK_TEXT_LIMIT]
+            if len(shown) > RULE_ASK_TASK_TEXT_LIMIT:
+                lines.append(
+                    f"The task text is {len(shown):,} characters long; only "
+                    f"the first {RULE_ASK_TASK_TEXT_LIMIT:,} are shown below."
+                )
+            if hidden:
+                lines.append(
+                    f"The task text has {hidden:,} hidden or control "
+                    'characters, shown as "?".'
+                )
+        else:
+            lines.append("The call has no task text.")
+        others = sorted(
+            _rule_ask_argument_name(name, secrets)
+            for name in call.arguments
+            if not (name == "task" and body)
+        )
+        if others:
+            named = ", ".join(others[:RULE_ASK_ARGUMENT_NAMES_SHOWN])
+            more = len(others) - RULE_ASK_ARGUMENT_NAMES_SHOWN
+            if more > 0:
+                named = f"{named}, and {more} more"
+            lines.append(f"The call also sends these arguments, not shown: {named}.")
+        text = "\n".join(lines)
+        return f"{text}\n\n{body}" if body else text
 
     async def _suspend_for_supervisor_input(
         self,
