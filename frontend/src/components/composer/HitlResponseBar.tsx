@@ -51,7 +51,7 @@ import {
 
 export interface HitlPromptView {
   hitlId: string
-  source: 'supervisor' | 'agent'
+  source: 'supervisor' | 'agent' | 'system'
   agentName?: string
   prompt: string
   promptType: HITLPromptType
@@ -592,7 +592,10 @@ export function HitlResponseBar({ hitls, onSubmit, onCancel, onRefresh }: HitlRe
     )
   }
 
-  const sourceLabel = current.source === 'agent' ? (current.agentName ?? 'Agent') : 'HYBRO AI'
+  // A system question is asked by one of the owner's own check rules.
+  const sourceLabel = current.source === 'agent'
+    ? (current.agentName ?? 'Agent')
+    : current.source === 'system' ? 'Your check rule' : 'HYBRO AI'
   const heading = (text: string) => (
     <h2
       id="hitl-heading"

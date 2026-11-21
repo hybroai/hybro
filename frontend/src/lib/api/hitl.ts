@@ -8,7 +8,7 @@ function hitlUrl(conversationId: string): string {
 export interface HitlPendingRequest {
   request_id: string
   message_id: string
-  source: 'agent' | 'supervisor'
+  source: 'agent' | 'supervisor' | 'system'
   agent_id?: string
   agent_name?: string
   prompt: string
