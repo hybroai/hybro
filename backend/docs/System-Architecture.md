@@ -1114,6 +1114,13 @@ no rules, or none that matches, every call goes as before.
   it closes the turn as it does for any locally rejected declaration and the
   model reads the refusal next. A Stop that reaches a Run first keeps its own
   cause.
+- The budget unit and the entry's `budget_reserved` mark are stored in one
+  checkpoint. A restart after that checkpoint and before the call is decided
+  (Room chat or `passthrough`) goes on to `accept` instead of reserving a
+  second unit: `accept` asks the rules for a call it never accepted, and
+  replays an acceptance the ledger already holds. The
+  mark skips only the count check: a restart past the deadline still ends
+  the Run.
 - A failure to read the rules is not a deny: it fails the Run as any other
   acceptance error does.
 

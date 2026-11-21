@@ -1113,3 +1113,108 @@ async def test_an_agent_failing_with_the_deny_code_after_a_question_is_a_failure
     assert done.run.cancellation_cause is None
     assert model.requests == []
     assert history.fold(done.run)["state"] == "failed"
+
+
+async def test_a_crash_after_the_reserve_still_ends_denied(monkeypatch):
+    # The one budget unit is stored before the rules are asked. A restart in
+    # between must ask them, not refuse the call for want of budget.
+    runtime = DenyingAgentRuntime()
+    kernel, _store, model, runtime, history, run_id = await make_passthrough_kernel(
+        runtime=runtime
+    )
+    real_checkpoint = kernel._checkpoint
+    crashed = False
+
+    async def checkpoint(run, *args, **kwargs):
+        nonlocal crashed
+        stored = await real_checkpoint(run, *args, **kwargs)
+        if not crashed and kwargs["command_id"].startswith("tool-budget-reserve:"):
+            crashed = True
+            raise ProcessDied
+        return stored
+
+    monkeypatch.setattr(kernel, "_checkpoint", checkpoint)
+    with pytest.raises(ProcessDied):
+        await kernel.run(run_id, signal=NeverCancelled(), lifecycle=history.lifecycle)
+    monkeypatch.setattr(kernel, "_checkpoint", real_checkpoint)
+
+    recovered = await kernel.run(
+        run_id, signal=NeverCancelled(), lifecycle=history.lifecycle
+    )
+
+    assert recovered.run.status == "canceled"
+    assert recovered.run.cancellation_cause == "policy"
+    assert recovered.run.denied_rule_id == "rule_deny_travel"
+    assert recovered.run.budget.agent_calls_used == 1
+    assert runtime.execute_log == []
+    assert model.requests == []
+
+
+async def test_a_crash_after_the_reserve_still_runs_an_allowed_call(monkeypatch):
+    kernel, _store, model, runtime, history, run_id = await make_passthrough_kernel()
+    runtime.answers[AGENT] = [answer("12,400 EUR")]
+    real_checkpoint = kernel._checkpoint
+    crashed = False
+
+    async def checkpoint(run, *args, **kwargs):
+        nonlocal crashed
+        stored = await real_checkpoint(run, *args, **kwargs)
+        if not crashed and kwargs["command_id"].startswith("tool-budget-reserve:"):
+            crashed = True
+            raise ProcessDied
+        return stored
+
+    monkeypatch.setattr(kernel, "_checkpoint", checkpoint)
+    with pytest.raises(ProcessDied):
+        await kernel.run(run_id, signal=NeverCancelled(), lifecycle=history.lifecycle)
+    monkeypatch.setattr(kernel, "_checkpoint", real_checkpoint)
+
+    recovered = await kernel.run(
+        run_id, signal=NeverCancelled(), lifecycle=history.lifecycle
+    )
+
+    assert recovered.outcome == "final_answer"
+    assert recovered.run.budget.agent_calls_used == 1
+    assert len(runtime.execute_log) == 1
+    assert _final_text(recovered.run) == "12,400 EUR"
+
+
+async def test_a_restart_after_the_reserve_past_the_deadline_still_stops(
+    monkeypatch,
+):
+    # The reserved unit lets the call skip only the count check: a restart
+    # after the deadline ends the Run without calling the Agent.
+    from datetime import timedelta
+
+    from tests._orchestrator_helpers import NOW as HELPER_NOW
+
+    kernel, _store, _model, runtime, history, run_id = await make_passthrough_kernel()
+    runtime.answers[AGENT] = [answer("too late")]
+    real_checkpoint = kernel._checkpoint
+    crashed = False
+
+    async def checkpoint(run, *args, **kwargs):
+        nonlocal crashed
+        stored = await real_checkpoint(run, *args, **kwargs)
+        if not crashed and kwargs["command_id"].startswith("tool-budget-reserve:"):
+            crashed = True
+            raise ProcessDied
+        return stored
+
+    monkeypatch.setattr(kernel, "_checkpoint", checkpoint)
+    with pytest.raises(ProcessDied):
+        await kernel.run(run_id, signal=NeverCancelled(), lifecycle=history.lifecycle)
+    monkeypatch.setattr(kernel, "_checkpoint", real_checkpoint)
+
+    class LateClock:
+        def now(self):
+            return HELPER_NOW + timedelta(hours=1)
+
+    kernel.clock = LateClock()
+    recovered = await kernel.run(
+        run_id, signal=NeverCancelled(), lifecycle=history.lifecycle
+    )
+
+    assert recovered.run.status == "budget_exhausted"
+    assert runtime.accept_log == []
+    assert runtime.execute_log == []

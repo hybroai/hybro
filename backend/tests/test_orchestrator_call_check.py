@@ -383,3 +383,65 @@ async def test_a_crash_while_recording_the_deny_still_returns_the_refusal(
     assert result.run.budget.agent_calls_used == 1
     assert [m.error_code for m in _tool_results(result.run)] == ["agent_call_denied"]
     assert result.run.denied_rule_id == "rule_deny_echo"
+
+
+async def _room_chat_crash_after_the_reserve(tools, monkeypatch, first_call):
+    from tests.test_orchestrator_passthrough import PublicHistory
+
+    run = make_run(max_agent_calls=1)
+    kernel, store, _, _ = await make_kernel(
+        [tool_events(first_call), final_events("done")],
+        run=run,
+        tool_runtime=tools,
+    )
+    history = PublicHistory()
+    kernel.canonical_event_reader = history.read
+    await history.lifecycle("run_started", run, {"mode": "fast"})
+    real_checkpoint = kernel._checkpoint
+    crashed = False
+
+    async def checkpoint(run, *args, **kwargs):
+        nonlocal crashed
+        stored = await real_checkpoint(run, *args, **kwargs)
+        if not crashed and kwargs["command_id"].startswith("tool-budget-reserve:"):
+            crashed = True
+            raise ProcessDied
+        return stored
+
+    monkeypatch.setattr(kernel, "_checkpoint", checkpoint)
+    with pytest.raises(ProcessDied):
+        await kernel.run(
+            run.run_id, signal=NeverCancelled(), lifecycle=history.lifecycle
+        )
+    monkeypatch.setattr(kernel, "_checkpoint", real_checkpoint)
+    return await kernel.run(
+        run.run_id, signal=NeverCancelled(), lifecycle=history.lifecycle
+    )
+
+
+async def test_a_crash_after_the_reserve_still_returns_the_refusal(monkeypatch):
+    tools = DenyingToolRuntime({DENIED: "rule_deny_echo"})
+
+    result = await _room_chat_crash_after_the_reserve(
+        tools, monkeypatch, ("denied", DENIED, '{"value":"hi"}')
+    )
+
+    assert result.outcome == "final_answer"
+    assert result.run.budget.agent_calls_used == 1
+    assert [m.error_code for m in _tool_results(result.run)] == ["agent_call_denied"]
+    assert result.run.denied_rule_id == "rule_deny_echo"
+
+
+async def test_a_crash_after_the_reserve_still_runs_an_allowed_call(monkeypatch):
+    tools = RecordingFakeToolRuntime()
+
+    result = await _room_chat_crash_after_the_reserve(
+        tools,
+        monkeypatch,
+        ("allowed", "fake_agent_delay_parallel", '{"seconds":0}'),
+    )
+
+    assert result.outcome == "final_answer"
+    assert result.run.budget.agent_calls_used == 1
+    assert tools.execute_log == ["allowed"]
+    assert [m.error_code for m in _tool_results(result.run)] == [None]

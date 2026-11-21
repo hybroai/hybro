@@ -1609,22 +1609,29 @@ class OrchestratorKernel:
                     return await self._terminate(
                         run, status="budget_exhausted", reason=exc.reason
                     )
-                run = await self._update_entry(
+                # A unit this entry already reserved before a restart covers
+                # it; only the count check is skipped, never the deadline.
+                if not entry.budget_reserved:
+                    run = await self._update_entry(
+                        run,
+                        batch_index,
+                        entry_index,
+                        state="terminal",
+                        result=_tool_error(
+                            call, "tool_call_budget_exhausted", exc.reason
+                        ),
+                        command=f"tool-budget-exhausted:{call.call_id}",
+                    )
+                    continue
+            if not entry.budget_reserved:
+                run = await self._reserve_tool_budget(
                     run,
                     batch_index,
                     entry_index,
-                    state="terminal",
-                    result=_tool_error(call, "tool_call_budget_exhausted", exc.reason),
-                    command=f"tool-budget-exhausted:{call.call_id}",
+                    command=(
+                        f"tool-budget-reserve:{assistant.message_id}:{call.call_id}"
+                    ),
                 )
-                continue
-            run = await self._checkpoint(
-                run,
-                updates={"budget": self.budget_policy.record_tool_calls(run.budget, 1)},
-                command_id=(
-                    f"tool-budget-reserve:{assistant.message_id}:{call.call_id}"
-                ),
-            )
             invocation = ToolInvocation(
                 invocation_id=call.call_id,
                 run_id=run.run_id,
@@ -3574,6 +3581,35 @@ class OrchestratorKernel:
             raise KernelConflict("terminal status store CAS lost")
         settled = await self.projection_driver.settle(run.run_id)
         return KernelRunResult(_outcome_for_status(status), settled)
+
+    async def _reserve_tool_budget(
+        self,
+        run: OrchestratorRunState,
+        batch_index: int,
+        entry_index: int,
+        *,
+        command: str,
+    ) -> OrchestratorRunState:
+        """Store one Agent-call unit and mark the entry in one checkpoint.
+
+        A restart before the call is decided finds the mark and goes on to
+        acceptance with the unit already spent, instead of counting it twice.
+        """
+        batches = list(run.tool_batches)
+        batch = batches[batch_index]
+        entries = list(batch.entries)
+        entries[entry_index] = entries[entry_index].model_copy(
+            update={"budget_reserved": True}
+        )
+        batches[batch_index] = batch.model_copy(update={"entries": entries})
+        return await self._checkpoint(
+            run,
+            updates={
+                "budget": self.budget_policy.record_tool_calls(run.budget, 1),
+                "tool_batches": batches,
+            },
+            command_id=command,
+        )
 
     async def _update_entry(
         self,
