@@ -26,6 +26,7 @@ export interface ProcessingLifecycle {
   hadSseDisconnection(): boolean
   reset(): void
   dispose(): void
+  revive(): void
 }
 
 export function createProcessingLifecycle(
@@ -215,6 +216,12 @@ export function createProcessingLifecycle(
         clearTimeout(cancelTimeout)
         cancelTimeout = null
       }
+    },
+
+    // Undoes dispose() for the same room. Only the effect that disposed it
+    // calls this, when Strict Mode or <Activity> runs that effect again.
+    revive() {
+      disposed = false
     },
   }
 }

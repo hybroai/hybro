@@ -78,7 +78,12 @@ export function useRoomWebhook({ conversationId, userId, userName, getToken }: U
 
   // After commit: dispose lifecycles for rooms we no longer view
   // (previous rooms + orphans from discarded concurrent renders).
-  // On unmount or before re-run: dispose current room's lifecycle.
+  // On unmount: dispose the current room's lifecycle at once, so a send
+  // response that arrives later cannot mark the room processing again.
+  // Strict Mode runs this cleanup and then the effect again for the same
+  // room, synchronously; the re-run revives the same lifecycle, so its
+  // identity is kept and its dependants (room reset, dispatcher) do not
+  // re-run.
   useEffect(() => {
     const map = lifecyclesMap
     for (const [id, lc] of map) {
@@ -87,14 +92,12 @@ export function useRoomWebhook({ conversationId, userId, userName, getToken }: U
         map.delete(id)
       }
     }
+    const current = map.get(conversationId)
+    current?.revive()
     return () => {
-      const lc = map.get(conversationId)
-      if (lc) {
-        lc.dispose()
-        map.delete(conversationId)
-      }
+      current?.dispose()
     }
-  }, [conversationId])
+  }, [conversationId, lifecyclesMap])
 
   // O(1) lookup index: maps HITL request_id → message entity id
   const hitlRequestIndex = useRef(new Map<string, string>())
