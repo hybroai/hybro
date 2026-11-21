@@ -1755,11 +1755,11 @@ class OrchestratorKernel:
                     and not has_placeholder_choice
                     and not has_pending_agent_questions
                 )
-                if declaration_valid and _rule_hold_asked(
-                    batch, other_than=call.call_id
+                if declaration_valid and _owner_question_open(
+                    run.tool_batches[batch_index], other_than=call.call_id
                 ):
                     # One owner Question at a time: this one is asked once the
-                    # held call's answer brings the next pass here.
+                    # open Question's answer brings the next pass here.
                     if not entry.rule_deferred:
                         run = await self._update_entry(
                             run,

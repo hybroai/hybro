@@ -1149,8 +1149,8 @@ is recorded in the ledger for a held call.
   still `asked`, a `request_user_input` call or a `surface_agent_questions`
   forward), the rule's call stays `pending` and is marked `rule_deferred`:
   no Question, no tool row, its budget unit kept. A valid
-  `request_user_input` call waits the same way while a held call is `asked`
-  and is marked `rule_deferred` too, so an Agent question presented while it
+  `request_user_input` call waits the same way while any of those Questions
+  is open and is marked `rule_deferred` too, so an Agent question presented while it
   waited does not refuse it later. A valid `surface_agent_questions` forward
   also waits. An invalid call of either kind is refused as before.
 - The answer to the open Question (approve, refuse, an ask_user answer, or

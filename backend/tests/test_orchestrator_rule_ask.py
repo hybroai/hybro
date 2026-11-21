@@ -1540,3 +1540,112 @@ async def test_a_held_call_asked_in_a_later_pass_ends_the_turn_in_order():
     assert done.outcome == "final_answer"
     assert sorted(tools.execute_log) == ["c3", "h1", "h2"]
     assert (await settled_turn(room, done.run))["state"] == "completed"
+
+
+ASK_USER_2 = ("ask-2", REQUEST_USER_INPUT_TOOL_NAME, '{"question": "Which day?"}')
+
+
+async def test_two_ask_user_calls_are_asked_one_at_a_time():
+    ask_user = RecordingAskUser()
+    kernel, store, _m, tools, port, room, run_id = await room_chat(
+        [tool_events(ASK_USER, ASK_USER_2), final_events()],
+        supervisor_hitl=ask_user,
+    )
+
+    first = await start(kernel, room, run_id)
+
+    assert first.outcome == "awaiting_user"
+    assert [call["call_id"] for call in ask_user.calls] == ["ask-1"]
+    assert entry_of(first.run, "ask-2").state == "pending"
+    assert await room.tool_starts(public_id(run_id, "ask-2")) == 0
+
+    second = await observe(
+        kernel,
+        room,
+        run_id,
+        supervisor_answer_observation(run_id, "ask-1", "Shanghai", NOW),
+    )
+
+    assert second.outcome == "awaiting_user"
+    assert [call["call_id"] for call in ask_user.calls] == ["ask-1", "ask-2"]
+    done = await observe(
+        kernel,
+        room,
+        run_id,
+        supervisor_answer_observation(run_id, "ask-2", "Monday", NOW),
+    )
+    assert done.outcome == "final_answer"
+    assert (await settled_turn(room, done.run))["state"] == "completed"
+
+
+def asked_users(ask_user) -> list[str]:
+    return [call["call_id"] for call in ask_user.calls]
+
+
+async def answer_user(kernel, room, run_id, call_id):
+    return await observe(
+        kernel,
+        room,
+        run_id,
+        supervisor_answer_observation(run_id, call_id, "Shanghai", NOW),
+    )
+
+
+async def test_two_ask_user_calls_then_a_held_call_are_asked_one_at_a_time():
+    ask_user = RecordingAskUser()
+    kernel, store, _m, tools, port, room, run_id = await room_chat(
+        [
+            tool_events(ASK_USER, ASK_USER_2, ("call-1", ECHO, '{"value":"one"}')),
+            final_events(),
+        ],
+        supervisor_hitl=ask_user,
+    )
+
+    await start(kernel, room, run_id)
+    assert (asked_users(ask_user), asked_calls(port)) == (["ask-1"], [])
+
+    await answer_user(kernel, room, run_id, "ask-1")
+    assert (asked_users(ask_user), asked_calls(port)) == (["ask-1", "ask-2"], [])
+
+    held = await answer_user(kernel, room, run_id, "ask-2")
+    assert held.outcome == "awaiting_user"
+    assert (asked_users(ask_user), asked_calls(port)) == (
+        ["ask-1", "ask-2"],
+        ["call-1"],
+    )
+
+    done = await observe(kernel, room, run_id, answer_of(run_id, "call-1", "Approve"))
+    assert done.outcome == "final_answer"
+    assert tools.execute_log == ["call-1"]
+    assert (await settled_turn(room, done.run))["state"] == "completed"
+
+
+async def test_a_restart_between_two_ask_user_calls_asks_each_once():
+    ask_user = RecordingAskUser()
+    kernel, store, _m, tools, port, room, run_id = await room_chat(
+        [tool_events(ASK_USER, ASK_USER_2), final_events()],
+        supervisor_hitl=ask_user,
+    )
+    original = kernel._checkpoint
+
+    async def die_after_the_deferral(run, *, updates, command_id, **kwargs):
+        written = await original(run, updates=updates, command_id=command_id, **kwargs)
+        if command_id == "rule-deferred:ask-2":
+            raise ProcessDied
+        return written
+
+    kernel._checkpoint = die_after_the_deferral
+    with pytest.raises(ProcessDied):
+        await start(kernel, room, run_id)
+    kernel._checkpoint = original
+
+    restarted = await start(kernel, room, run_id)
+
+    assert restarted.outcome == "awaiting_user"
+    assert asked_users(ask_user) == ["ask-1"]
+    assert entry_of(restarted.run, "ask-2").rule_deferred
+    await answer_user(kernel, room, run_id, "ask-1")
+    assert asked_users(ask_user) == ["ask-1", "ask-2"]
+    done = await answer_user(kernel, room, run_id, "ask-2")
+    assert done.outcome == "final_answer"
+    assert (await settled_turn(room, done.run))["state"] == "completed"
