@@ -373,6 +373,25 @@ describe('HitlResponseBar structured questions', () => {
 
 describe('HitlResponseBar decisions', () => {
 
+  it('names a check rule as the asker of a system approval', () => {
+    renderBar([{
+      ...baseHitl,
+      source: 'system',
+      agentName: undefined,
+      prompt: 'Allow this call to Echo?',
+      choices: ['Approve', 'Reject'],
+    }])
+
+    expect(screen.getByRole('heading', { name: 'Your check rule needs your approval' })).toBeDefined()
+    expect(screen.queryByText(/HYBRO AI/)).toBeNull()
+  })
+
+  it('keeps HYBRO AI as the asker of a supervisor question', () => {
+    renderBar([{ ...baseHitl, source: 'supervisor', agentName: undefined }])
+
+    expect(screen.getByRole('heading', { name: 'HYBRO AI needs your approval' })).toBeDefined()
+  })
+
   it('answers a single approval with one click on Approve', async () => {
     const onSubmit = vi.fn().mockResolvedValue(undefined)
     const onCancel = vi.fn().mockResolvedValue(undefined)

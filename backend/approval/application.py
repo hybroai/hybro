@@ -18,6 +18,7 @@ from approval.exceptions import (
     HITLNotFoundError,
     HITLRoomMismatchError,
     HITLRoutingFailedError,
+    HITLRunBusyError,
 )
 from approval.validation import (
     HITLAggregateCorruptionError,
@@ -25,7 +26,7 @@ from approval.validation import (
     validate_exact_member_inventory,
     validate_route_classifications,
 )
-from common.dto.hitl import HITLApplicationRoute
+from common.dto.hitl import HITLApplicationRoute, HITLPublicSource
 from common.observability import events as E
 from common.utils.logger import get_logger
 from common.utils.time import ensure_utc, utcnow
@@ -55,6 +56,20 @@ def _digest(value: str) -> str:
 def _supervisor_command_identity(interaction_id: str, revision: int) -> str:
     seed = f"{interaction_id}:{revision}:supervisor_resume"
     return f"hitl-supervisor-{hashlib.sha256(seed.encode('utf-8')).hexdigest()}"
+
+
+# A check rule's question takes exactly these answers (see the container's
+# rule question port); the kernel approves only on "Approve".
+RULE_QUESTION_CHOICES = frozenset({"Approve", "Reject"})
+
+
+def _is_rule_question(interaction: dict[str, Any]) -> bool:
+    """A run-level question the system asked for one of the owner's rules."""
+    return (
+        interaction.get("public_source") == HITLPublicSource.SYSTEM.value
+        and interaction.get("application_route")
+        == HITLApplicationRoute.SUPERVISOR_RUN.value
+    )
 
 
 class HITLApplicationCoordinator:
@@ -380,6 +395,17 @@ class HITLApplicationCoordinator:
                 f"Interaction already {interaction.get('status', 'unavailable')}"
             )
 
+        if _is_rule_question(interaction):
+            for request_id in expected_ids:
+                if (
+                    preflight_rows[request_id].get("prompt_type") == "approval"
+                    and submitted[request_id].strip() not in RULE_QUESTION_CHOICES
+                ):
+                    # Nothing is recorded, so the Question stays pending.
+                    raise HITLConflictError(
+                        "A check rule's question takes Approve or Reject"
+                    )
+
         current = interaction
         for request_id in expected_ids:
             user_input = submitted[request_id].strip()
@@ -646,6 +672,16 @@ class HITLApplicationCoordinator:
             if exc.disposition == HITLDeliveryDisposition.DELIVERY_UNCERTAIN:
                 raise HITLDeliveryUncertainError(str(exc)) from exc
             raise HITLRoutingFailedError(str(exc)) from exc
+        except HITLRunBusyError:
+            # Not a failure: the answer is durable and waits for the Run's
+            # pass to end. The reconciler applies the interaction again.
+            await self._lifecycle.mark_interaction_application_state(
+                interaction_id,
+                claim_id=claim_id,
+                status=HITLInteractionStatus.APPLYING.value,
+                error="run_busy",
+            )
+            return self._result(rows[0], status="accepted", interaction=claimed)
         except TimeoutError as exc:
             await self._lifecycle.mark_interaction_application_state(
                 interaction_id,

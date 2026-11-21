@@ -918,8 +918,15 @@ async def test_a_deny_rule_cancels_the_run_for_policy_without_dispatch():
     assert reason == "The owner's check rule rule_deny_travel denied this agent call."
 
 
+CHECKPOINT_CRASHES = {
+    "before_flush": "complete-tool-batch:",
+    "after_turn_end": "public-turn-error:",
+}
+
+
 @pytest.mark.parametrize(
-    "crash_at", ["before_flush", "before_turn_end", "before_settlement"]
+    "crash_at",
+    ["before_flush", "before_turn_end", "after_turn_end", "before_settlement"],
 )
 async def test_a_deny_survives_a_restart_and_still_ends_denied(monkeypatch, crash_at):
     runtime = DenyingAgentRuntime()
@@ -933,10 +940,10 @@ async def test_a_deny_survives_a_restart_and_still_ends_denied(monkeypatch, cras
     async def checkpoint(run, *args, **kwargs):
         nonlocal crashed
         command = kwargs.get("command_id", "")
-        if crash_at == "before_flush" and not crashed:
-            if command.startswith("complete-tool-batch:"):
-                crashed = True
-                raise ProcessDied
+        prefix = CHECKPOINT_CRASHES.get(crash_at)
+        if prefix is not None and not crashed and command.startswith(prefix):
+            crashed = True
+            raise ProcessDied
         return await real_checkpoint(run, *args, **kwargs)
 
     async def terminate(run, **kwargs):
@@ -969,7 +976,65 @@ async def test_a_deny_survives_a_restart_and_still_ends_denied(monkeypatch, cras
     assert recovered.run.denied_rule_id == "rule_deny_travel"
     assert runtime.execute_log == []
     assert model.requests == []
-    assert history.fold(recovered.run)["state"] == "canceled"
+    turn = history.fold(recovered.run)
+    assert turn["state"] == "canceled"
+    # Passthrough has no model to retry: a restart shows no retry row.
+    assert not [item for item in turn["activity"] if item["kind"] == "retry"]
+
+
+def strict_agent_tool() -> ToolDefinition:
+    """An Agent whose schema refuses the request text passthrough sends."""
+    schema = agent_tool_input_schema([])
+    schema["properties"]["task"] = {**schema["properties"]["task"], "maxLength": 1}
+    return ToolDefinition(
+        name=AGENT,
+        label="Travel",
+        description="Travel Agent",
+        input_schema=schema,
+        execution_mode="parallel",
+        side_effect_level="external",
+    )
+
+
+@pytest.mark.parametrize(
+    "crash_at", [None, "public-turn-error:", "complete-tool-batch:"]
+)
+async def test_a_rejected_declaration_fails_the_run_even_after_a_restart(
+    monkeypatch, crash_at
+):
+    kernel, _store, model, runtime, history, run_id = await make_passthrough_kernel(
+        tools=[strict_agent_tool()]
+    )
+    real_checkpoint = kernel._checkpoint
+    crashed = False
+
+    async def checkpoint(run, *args, **kwargs):
+        nonlocal crashed
+        command = kwargs.get("command_id", "")
+        if crash_at and not crashed and command.startswith(crash_at):
+            crashed = True
+            raise ProcessDied
+        return await real_checkpoint(run, *args, **kwargs)
+
+    monkeypatch.setattr(kernel, "_checkpoint", checkpoint)
+    if crash_at is not None:
+        with pytest.raises(ProcessDied):
+            await kernel.run(
+                run_id, signal=NeverCancelled(), lifecycle=history.lifecycle
+            )
+    monkeypatch.setattr(kernel, "_checkpoint", real_checkpoint)
+
+    result = await kernel.run(
+        run_id, signal=NeverCancelled(), lifecycle=history.lifecycle
+    )
+
+    assert result.run.status == "failed"
+    assert result.run.terminal_reason == "passthrough_call_rejected"
+    assert runtime.execute_log == []
+    assert model.requests == []
+    turn = history.fold(result.run)
+    assert turn["state"] == "failed"
+    assert not [item for item in turn["activity"] if item["kind"] == "retry"]
 
 
 async def test_a_deny_during_a_user_cancel_leaves_the_cancel_to_finish(monkeypatch):

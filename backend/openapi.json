@@ -10969,7 +10969,8 @@
             "type": "string",
             "enum": [
               "allow",
-              "deny"
+              "deny",
+              "ask"
             ],
             "title": "Answer"
           },
@@ -11020,7 +11021,8 @@
             "type": "string",
             "enum": [
               "allow",
-              "deny"
+              "deny",
+              "ask"
             ],
             "title": "Answer"
           },
@@ -11057,7 +11059,8 @@
             "type": "string",
             "enum": [
               "allow",
-              "deny"
+              "deny",
+              "ask"
             ],
             "title": "Answer"
           },

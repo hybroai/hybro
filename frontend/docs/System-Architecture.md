@@ -505,7 +505,9 @@ an already assembled delta stream and `message_end.text`; a mismatch requests
 protocol recovery instead of truncating/replacing text. It also owns commentary/final
 classification, opaque Tool rows, retries, exact-root HITL interactions, the
 provisional final, its three-field `agent_response` commitment, child closure,
-and `run_settled`. Activity order is `room_seq`; no timestamp, prose, content,
+and `run_settled`. A `turn_end` must name exactly the internal turn's Tool
+rows, all closed, in any order: it lists them in call order, and the rows keep
+start order. Activity order is `room_seq`; no timestamp, prose, content,
 Agent-name, card-status, or recency inference participates.
 
 `CanonicalTurnRenderer` has explicit User → Trace → Final Answer → Agent Cards
@@ -730,9 +732,11 @@ a message entity already exists, and canceled/expired/error members hydrate as
 resolved so they cannot replace the normal composer.
 Live canonical requests also populate the incumbent HITL message projection so
 the existing dedicated response composer can render the validated request.
-The projection preserves HITL `source` as first-class message state. Agent
-requests therefore render the external agent name (for example,
-`Cyber Broker Agent · Needs Input`), while supervisor requests render HYBRO AI.
+The projection preserves HITL `source` (`agent`, `supervisor` or `system`) as
+first-class message state. Agent requests therefore render the external agent
+name (for example, `Cyber Broker Agent · Needs Input`), supervisor requests
+render HYBRO AI, and `system` requests, a check rule asking the owner about one
+Agent call, render "Your check rule" with the Approve and Reject buttons.
 Raw agent task states such as `input-required`, `auth-required`, and
 `policy-required` are not actionable UI state by themselves: until the message
 has a durable `hitlRequestId`, the timeline and agent header continue to show
@@ -1062,7 +1066,9 @@ segment.
   question under its header), you answered (your answer text) or rejected,
   the agent replied after its duration (long replies fold behind Show full
   reply), or couldn't finish; a Run canceled for `policy` reads as the
-  owner's check rules denying the agent call, with the rule's id. A pending question appears at the end of the
+  owner's check rules denying the agent call, with the rule's id, and a Run
+  canceled for `owner_refused` (the owner rejected a check rule's question)
+  reads as rejected. A pending question appears at the end of the
   record in the same `HitlResponseBar` card the chat composer uses (pending
   rows from `GET /rooms/{id}/hitl/pending` mapped with the shared
   `hitlLifecycleState`; Send calls `respondToHitlBatch`, Reject cancels through

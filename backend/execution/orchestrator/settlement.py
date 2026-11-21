@@ -339,7 +339,8 @@ class TerminalStatusCommitRequest(ContractModel):
     status: Literal["failed", "canceled", "budget_exhausted"]
     terminal_reason: str
     cancellation_cause: (
-        Literal["user_requested", "room_closed", "shutdown", "policy"] | None
+        Literal["user_requested", "room_closed", "shutdown", "policy", "owner_refused"]
+        | None
     ) = None
     correlation_id: str | None = None
     created_at: datetime

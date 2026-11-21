@@ -398,6 +398,7 @@ def create_orchestrator_runtime(  # noqa: C901
     agent_call_counter: Any | None = None,
     canonical_hitl_control: Callable[[str, str, str, list[str]], Any] | None = None,
     supervisor_hitl: Any | None = None,
+    rule_question: Any | None = None,
     supervisor_hitl_cancellation: Callable[[str], Any] | None = None,
     agent_call_check: AgentCallCheckPort | None = None,
 ) -> OrchestratorRuntime:
@@ -575,6 +576,7 @@ def create_orchestrator_runtime(  # noqa: C901
             canonical_event_reader=canonical_event_reader,
             artifact_metadata_reader=resources.describe_artifact,
             supervisor_hitl=supervisor_hitl,
+            rule_question=rule_question,
         )
 
     run_factory = DefaultRunFactory()

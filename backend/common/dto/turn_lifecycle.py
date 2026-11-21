@@ -291,7 +291,8 @@ class RunSettledPayload(CanonicalEventPayloadDTO):
     ) = None
     error_summary: PublicSummary | None = None
     cancellation_code: (
-        Literal["user_requested", "room_closed", "shutdown", "policy"] | None
+        Literal["user_requested", "room_closed", "shutdown", "policy", "owner_refused"]
+        | None
     ) = None
     # The check rule that denied the call; only on a ``policy`` cancel.
     rule_id: PublicId | None = None

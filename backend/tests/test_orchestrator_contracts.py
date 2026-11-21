@@ -799,6 +799,7 @@ def test_protocols_are_narrow_and_explicit():
             "is_outcome_checkpointed",
             "has_processed_observation",
             "is_run_terminal",
+            "is_run_running",
         },
         OrchestratorRunStore: {
             "create",

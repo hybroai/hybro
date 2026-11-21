@@ -54,7 +54,7 @@ export type HitlLifecycleState =
 
 export interface PendingHitl {
   hitlId: string
-  source: 'agent' | 'supervisor'
+  source: 'agent' | 'supervisor' | 'system'
   agentName: string
   question: string
   promptType: HITLPromptType

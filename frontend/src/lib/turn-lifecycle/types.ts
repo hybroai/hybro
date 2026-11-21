@@ -184,7 +184,7 @@ export type RunSettledPayload = {
       final_message_id?: null
       failure_code?: null
       error_summary?: null
-      cancellation_code: 'user_requested' | 'room_closed' | 'shutdown' | 'policy'
+      cancellation_code: 'user_requested' | 'room_closed' | 'shutdown' | 'policy' | 'owner_refused'
       /** The check rule that denied the call; only with `policy`. */
       rule_id?: string | null
     }

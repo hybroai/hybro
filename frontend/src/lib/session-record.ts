@@ -176,6 +176,10 @@ export function foldSessionEvents(events: readonly RoomEventRecord[]): SessionEx
         draft.steps.push({ kind: 'replied', at: settledAt })
       } else if (payload.status === 'canceled' && draft.rejected) {
         draft.status = 'rejected'
+      } else if (payload.status === 'canceled' && payload.cancellation_code === 'owner_refused') {
+        // The owner refused the agent call at a check rule's question.
+        draft.status = 'rejected'
+        draft.steps.push({ kind: 'rejected', at: settledAt })
       } else if (payload.status === 'canceled' && payload.cancellation_code === 'policy') {
         // One of the owner's check rules denied the agent call.
         draft.status = 'denied'
