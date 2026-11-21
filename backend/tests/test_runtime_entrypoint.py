@@ -85,28 +85,22 @@ def test_invalid_transport_variables_stop_the_container(environment):
         entry.read_listener(environment)
 
 
-def test_loopback_listener_needs_no_authentication():
-    entry.check_listener(loopback(), auth_mode="mock", server_url=None)
+def test_loopback_listener_needs_no_flag():
+    entry.check_listener(loopback())
 
 
-def test_public_listener_with_clerk_and_server_url_starts():
-    entry.check_listener(
-        public(), auth_mode="clerk", server_url="https://hybro.example"
-    )
-
-
-@pytest.mark.parametrize(
-    ("auth_mode", "server_url"),
-    [("mock", None), ("mock", "https://hybro.example"), ("clerk", None)],
-)
-def test_public_listener_without_clerk_and_origin_is_refused(auth_mode, server_url):
-    with pytest.raises(entry.EntrypointError, match="--insecure-no-auth"):
-        entry.check_listener(public(), auth_mode=auth_mode, server_url=server_url)
+def test_a_public_listener_needs_the_flag_whatever_the_auth_mode_says():
+    # Clerk sign-in is gone, so a Clerk config opens no public listener.
+    with pytest.raises(entry.EntrypointError, match="--insecure-no-auth") as raised:
+        entry.check_listener(public())
+    assert "clerk" not in str(raised.value).lower()
+    assert "auth_mode" not in str(raised.value)
 
 
 def test_insecure_public_listener_starts_with_a_warning(capsys):
-    entry.check_listener(public(insecure=True), auth_mode="mock", server_url=None)
-    assert "without authentication" in capsys.readouterr().err
+    entry.check_listener(public(insecure=True))
+    err = capsys.readouterr().err
+    assert "source token" in err
 
 
 # ---- Projections ----
@@ -155,10 +149,10 @@ def test_public_projection_uses_the_configured_origin_and_disables_mcp():
 
 def test_each_program_sees_only_its_own_credentials():
     programs = build(loopback())
-    assert programs["frontend"].env["CLERK_SECRET_KEY"] == "sk_test_secret"
     for name, program in programs.items():
-        if name != "frontend":
-            assert "sk_test_secret" not in json.dumps(program.env), name
+        # The Clerk secrets are ignored, so no program receives them.
+        assert "sk_test_secret" not in json.dumps(program.env), name
+        assert not any(key.startswith("CLERK_") for key in program.env), name
         if not name.startswith("agent-"):
             assert SECRETS["default_agent_llm_token"] not in json.dumps(program.env)
     agent = programs["agent-echo_agent"]

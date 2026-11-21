@@ -11,16 +11,14 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 from httpx import ASGITransport, AsyncClient
 
-from common.auth import (
-    ClerkUser,
-    get_current_user,
-    get_optional_user,
-)
+from api_gateway.owner_session import get_current_user, get_optional_user
+from common.auth import ClerkUser
 from common.dto import AgentRouteResponse
 from models.response import (
     RoomCenterRoomMessageResponse,
     RoomCenterRoomSettingResponse,
 )
+from tests.fakes.account import build_service
 
 
 @pytest.fixture
@@ -74,7 +72,9 @@ class TestAuthGuardIntegration:
         from main import app
 
         original_overrides = dict(app.dependency_overrides)
+        original_account = getattr(app.state, "owner_account", None)
         app.dependency_overrides.clear()
+        app.state.owner_account = build_service()
 
         try:
             async with AsyncClient(
@@ -88,6 +88,7 @@ class TestAuthGuardIntegration:
             assert resp.status_code == 401
         finally:
             app.dependency_overrides.update(original_overrides)
+            app.state.owner_account = original_account
 
 
 # =============================================================================

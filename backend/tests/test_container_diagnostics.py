@@ -388,8 +388,6 @@ def test_create_diagnostics_access_reads_the_handoff_token(tmp_path):
     handoff.write_text(json.dumps({"token": "c" * 64}))
     settings = Settings(
         diagnostics_handoff_file=str(handoff),
-        auth_mode="clerk",
-        admin_user_ids=["admin"],
     )
 
     access = container.create_diagnostics_access(
@@ -399,8 +397,6 @@ def test_create_diagnostics_access_reads_the_handoff_token(tmp_path):
     )
 
     assert access.token_matches("c" * 64) is True
-    assert access.can_read("admin") is True
-    assert access.can_read("user") is False
 
 
 # ── The token never leaves the backend ────────────────────────────────────

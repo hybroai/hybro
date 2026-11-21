@@ -17,7 +17,7 @@ from api_gateway.dependencies import get_api_gateway_deps
 from models.agent_group import AgentGroup
 from source import SourceService
 from tests.fakes.a2a_v1 import make_agent_card
-from tests.fakes.account import build_service
+from tests.fakes.account import build_service, store_with_owner
 from tests.fakes.source import MemorySourceStore
 from tests.test_agent_facade import Resolver, _doc
 from tests.test_agent_repository import _repo
@@ -67,7 +67,12 @@ async def network_api(monkeypatch, app):
         SourceService(MemorySourceStore(), auth_mode="mock"),
         raising=False,
     )
-    monkeypatch.setattr(app.state, "owner_account", build_service(), raising=False)
+    monkeypatch.setattr(
+        app.state,
+        "owner_account",
+        build_service(store=store_with_owner()),
+        raising=False,
+    )
     app.dependency_overrides[get_api_gateway_deps] = lambda: SimpleNamespace(
         agent_service=registry, agent_matcher=registry, agent_group_store=groups
     )
@@ -170,18 +175,16 @@ async def test_search_and_profile_reject_invalid_requests(
 
 
 async def clerk_source(monkeypatch, app, client, *, owner_id: str | None):
-    """A Clerk-mode configuration, which requires a token, with one admin.
+    """A Clerk-mode configuration, which requires a token.
 
-    ``owner_id`` None sends no token; otherwise the request carries a source
-    token and acts for that admin.
+    ``owner_id`` None sends no token; otherwise the owner account took that
+    administrator's id, and the request carries a source token and acts for it.
     """
     sources = SourceService(MemorySourceStore(), auth_mode="clerk")
     monkeypatch.setattr(app.state, "source_registry", sources)
-    admins = frozenset({owner_id}) if owner_id else frozenset()
+    store = store_with_owner(owner_id or "user_local_developer")
     monkeypatch.setattr(
-        app.state,
-        "owner_account",
-        build_service(auth_mode="clerk", admin_user_ids=admins),
+        app.state, "owner_account", build_service(store=store, auth_mode="clerk")
     )
     if owner_id is not None:
         token = (await sources.create("Tests")).token

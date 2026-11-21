@@ -14,8 +14,9 @@ from fastapi import FastAPI
 from pydantic import SecretStr
 
 from api_gateway.errors import settings_request_error_handler
+from api_gateway.owner_session import get_current_user
 from api_gateway.routes.settings_routes import router
-from common.auth import ClerkUser, get_current_user
+from common.auth import ClerkUser
 from common.config.loader import Settings
 from common.config.runtime_config import (
     ApiKeyCredential,
@@ -37,7 +38,6 @@ class Harness:
         self,
         home: Path,
         *,
-        admins: frozenset[str] | None = None,
         wired: bool = True,
         restart: RestartControl | None = None,
     ) -> None:
@@ -49,9 +49,6 @@ class Harness:
             store=self.store,
             settings=Settings(),
             startup_config=RuntimeConfig(),
-            can_configure=(lambda user: True)
-            if admins is None
-            else (lambda user: user in admins),
             version="9.9.9",
             restart=self.restart,
         )
@@ -90,22 +87,6 @@ async def test_mock_mode_reads_the_settings(harness):
     log_level = next(f for f in body["fields"] if f["key"] == "backend.log_level")
     assert log_level["apply"] == "live"
     assert log_level["options"] == ["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]
-
-
-async def test_clerk_non_admin_is_forbidden_on_every_route(tmp_path):
-    harness = Harness(tmp_path / "home", admins=frozenset({"user_admin"}))
-    try:
-        harness.user = "user_other"
-        for method, path in ROUTES:
-            response = await harness.http.request(
-                method, path, json={"revision": "x", "values": {}}
-            )
-            assert response.status_code == 403, path
-            assert response.json()["code"] == "forbidden"
-        harness.user = "user_admin"
-        assert (await harness.http.get("/settings")).status_code == 200
-    finally:
-        await harness.aclose()
 
 
 async def test_missing_service_is_unavailable(tmp_path):

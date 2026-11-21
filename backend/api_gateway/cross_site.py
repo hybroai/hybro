@@ -31,7 +31,7 @@ _DEFAULT_PORTS = frozenset({80, 443})
 _ADDRESS = re.compile(r"(\[[0-9A-Fa-f:.]+\]|[A-Za-z0-9._-]+)(?::([0-9]{1,5}))?")
 
 
-def _host_and_port(netloc: str) -> tuple[str, int | None] | None:
+def host_and_port(netloc: str) -> tuple[str, int | None] | None:
     """Lower-cased host and its port, ``None`` for a default or absent port."""
     match = _ADDRESS.fullmatch(netloc)
     if match is None:
@@ -49,8 +49,8 @@ def same_address(origin: str, host: str) -> bool:
     scheme, separator, netloc = origin.partition("://")
     if not separator or scheme not in ("http", "https"):
         return False
-    ours = _host_and_port(host.strip(" "))
-    return ours is not None and _host_and_port(netloc) == ours
+    ours = host_and_port(host.strip(" "))
+    return ours is not None and host_and_port(netloc) == ours
 
 
 def from_own_address(request: Request) -> bool:
@@ -94,4 +94,9 @@ class CrossSiteCheckMiddleware:
         await self.app(scope, receive, send)
 
 
-__all__ = ["CrossSiteCheckMiddleware", "from_own_address", "same_address"]
+__all__ = [
+    "CrossSiteCheckMiddleware",
+    "from_own_address",
+    "host_and_port",
+    "same_address",
+]

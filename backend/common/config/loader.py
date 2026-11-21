@@ -189,11 +189,15 @@ class Settings(BaseModel):
     # Compaction
     compaction_concurrency: int = Field(default=5, gt=0)
 
-    # Clerk Authentication
-    clerk_secret_key: str = ""  # Clerk Secret Key for backend API
-    auth_mode: Literal["mock", "clerk"] = "mock"  # "mock" or "clerk"
-    # Clerk user IDs allowed to change the model provider in the browser. Empty
-    # disables browser setup in clerk mode; mock mode is open (loopback trust).
+    # Deprecated: Clerk sign-in is off, and the owner account signs in on every
+    # install. Still accepted so no configuration fails to load; removed in a
+    # later release. ``clerk_secret_key`` is ignored. ``auth_mode`` decides
+    # only the owner account's id (with ``admin_user_ids``) and whether the
+    # source-token requirement starts on.
+    clerk_secret_key: str = ""
+    auth_mode: Literal["mock", "clerk"] = "mock"
+    # With ``auth_mode`` "clerk": the stored identity the owner account takes
+    # over, chosen at setup when several are listed.
     admin_user_ids: list[
         Annotated[str, StringConstraints(strip_whitespace=True, min_length=1)]
     ] = Field(default_factory=list)
@@ -203,10 +207,12 @@ class Settings(BaseModel):
     # The per-start diagnostics handoff the image entrypoint writes; empty in a
     # checkout, which turns the token path of the diagnostics API off.
     diagnostics_handoff_file: str = ""
-    # The per-start token of the machine-only routes, written by the image
-    # entrypoint for the `hybro` command; empty in a checkout, which leaves
-    # those routes closed.
+    # The per-start token file of the machine-only routes: written by the image
+    # entrypoint for the `hybro` command, or in a checkout by the backend itself
+    # (`<HYBRO_HOME>/run/machine.json`, machine_handoff_by_backend). A runtime
+    # record, not a user setting. Empty leaves those routes closed.
     machine_handoff_file: str = ""
+    machine_handoff_by_backend: bool = False
     # This start's transport record the image entrypoint writes (listen mode,
     # public port, services revision); empty in a checkout. Not a user setting.
     instance_runtime_file: str = ""
@@ -458,6 +464,7 @@ PRIVATE_FIELDS = frozenset(
         "default_agent_llm_token",
         "diagnostics_handoff_file",
         "machine_handoff_file",
+        "machine_handoff_by_backend",
         "instance_runtime_file",
     }
 )
@@ -613,6 +620,8 @@ class FrontendSettings(BaseModel):
     api_base_url: str = "http://localhost:8000"
     api_prefix: str = "/api/v1"
     server_url: str = "http://localhost:3000"
+    # Deprecated and ignored: the five Clerk fields and enable_waitlist stay
+    # accepted so no configuration fails to load, and go in a later release.
     clerk_publishable_key: str = ""
     clerk_sign_in_url: str = "/sign-in"
     clerk_sign_up_url: str = "/sign-up"
@@ -723,10 +732,10 @@ def get_settings() -> Settings:
     else:
         # A checkout registers the repository's bundled agent manifest.
         values.setdefault("bundled_agents_manifest", os.fspath(_REPO_MANIFEST))
-    settings = Settings.model_validate(values)
-    if settings.auth_mode == "clerk" and not settings.clerk_secret_key:
-        raise ValueError("Clerk authentication requires auth.json credentials")
-    return settings
+        # No entrypoint writes the machine handoff here; the backend does.
+        values["machine_handoff_file"] = os.fspath(store.home / "run" / "machine.json")
+        values["machine_handoff_by_backend"] = True
+    return Settings.model_validate(values)
 
 
 def __getattr__(name: str) -> object:

@@ -199,7 +199,7 @@ jobs:
       - name: Smoke test through the one port
         run: >-
           uv run --project backend --frozen --extra mcp --no-env-file
-          python scripts/image_smoke.py http://localhost:8180
+          python scripts/image_smoke.py http://localhost:8180 hybro-image-ci
 
       - name: Stop cleanly within the stop timeout
         run: |
@@ -341,11 +341,36 @@ jobs:
           ./scripts/hybro start -d --build
           echo "Waiting for backend health check..."
           timeout 180s bash -c 'until curl -sf http://localhost:3100/health; do sleep 2; done'
+
+      # The owner's routes need sign-in, and the Source API refuses until the
+      # account exists. The password is generated here, masked, and reaches
+      # `hybro owner create` on stdin only; the later steps sign in with it.
+      - name: Create the owner account
+        env:
+          HYBRO_NO_UPDATE_CHECK: "1"
+        run: |
+          password=$(python3 -c 'import secrets; print(secrets.token_urlsafe(24))')
+          echo "::add-mask::$password"
+          printf '%s\n' "$password" | ./scripts/hybro owner create --name "CI Owner" --email ci-owner@example.com
+          {
+            echo "HYBRO_TEST_OWNER_EMAIL=ci-owner@example.com"
+            echo "HYBRO_TEST_OWNER_PASSWORD=$password"
+          } >> "$GITHUB_ENV"
+
+      - name: Wait for the agents to register
+        run: |
+          export JAR="$RUNNER_TEMP/owner-cookies"
+          # The body is built from the environment and sent on stdin, so the
+          # password is in no argument.
+          python3 -c 'import json, os; print(json.dumps({"email": os.environ["HYBRO_TEST_OWNER_EMAIL"], "password": os.environ["HYBRO_TEST_OWNER_PASSWORD"]}))' \
+            | curl -sf -o /dev/null -c "$JAR" -H "Origin: http://localhost:3100" -H "Content-Type: application/json" --data-binary @- http://localhost:3100/api/v1/auth/sign-in
           echo "Waiting for agents registration..."
-          timeout 90s bash -c 'until curl -sf "http://localhost:3100/api/v1/agent/getAllAgents?active_only=true" | grep -qi "Travel Planner"; do sleep 2; done'
-          timeout 90s bash -c 'until curl -sf "http://localhost:3100/api/v1/agent/getAllAgents?active_only=true" | grep -qi "Image Generator"; do sleep 2; done'
+          timeout 90s bash -c 'until curl -sf -b "$JAR" "http://localhost:3100/api/v1/agent/getAllAgents?active_only=true" | grep -qi "Travel Planner"; do sleep 2; done'
+          timeout 90s bash -c 'until curl -sf -b "$JAR" "http://localhost:3100/api/v1/agent/getAllAgents?active_only=true" | grep -qi "Image Generator"; do sleep 2; done'
+          rm -f "$JAR"
           echo "Agents successfully registered!"
 
+      # MCP calls the Source API without a source token.
       - name: Verify default MCP startup and tools
         run: |
           uv run --project backend --frozen --extra mcp --no-env-file python - <<'PY'

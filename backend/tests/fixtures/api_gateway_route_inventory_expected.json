@@ -116,10 +116,10 @@
     "status_code": null,
     "dependencies": [
       "get_agent_catalog",
-      "get_optional_user"
+      "get_current_user"
     ],
     "auth_dependencies": [
-      "get_optional_user"
+      "get_current_user"
     ],
     "include_in_schema": true
   },
@@ -158,10 +158,10 @@
     "status_code": null,
     "dependencies": [
       "get_agent_catalog",
-      "get_optional_user"
+      "get_current_user"
     ],
     "auth_dependencies": [
-      "get_optional_user"
+      "get_current_user"
     ],
     "include_in_schema": true
   },
@@ -1480,7 +1480,7 @@
     ],
     "status_code": null,
     "dependencies": [
-      "get_setup_reader"
+      "get_setup"
     ],
     "auth_dependencies": [],
     "include_in_schema": true
@@ -1620,11 +1620,11 @@
     ],
     "status_code": null,
     "dependencies": [
-      "get_current_user_with_query_token",
+      "get_current_user",
       "get_sse_store"
     ],
     "auth_dependencies": [
-      "get_current_user_with_query_token"
+      "get_current_user"
     ],
     "include_in_schema": true
   },
@@ -1641,12 +1641,12 @@
     ],
     "status_code": null,
     "dependencies": [
-      "get_current_user_with_query_token",
+      "get_current_user",
       "get_sse_store",
       "get_sse_transport"
     ],
     "auth_dependencies": [
-      "get_current_user_with_query_token"
+      "get_current_user"
     ],
     "include_in_schema": true
   },
@@ -1663,12 +1663,12 @@
     ],
     "status_code": null,
     "dependencies": [
-      "get_current_user_with_query_token",
+      "get_current_user",
       "get_sse_store",
       "get_sse_transport"
     ],
     "auth_dependencies": [
-      "get_current_user_with_query_token"
+      "get_current_user"
     ],
     "include_in_schema": true
   },

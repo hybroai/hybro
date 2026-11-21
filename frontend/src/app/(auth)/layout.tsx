@@ -3,7 +3,7 @@ import React from 'react'
 import type { Metadata } from 'next'
 
 export const metadata: Metadata = {
-  title: 'Auth — Hybro'
+  title: 'Sign in — Hybro'
 }
 
 export default function AuthLayout ({

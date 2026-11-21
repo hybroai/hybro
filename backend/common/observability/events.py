@@ -357,10 +357,6 @@ HITL_OPEN_PROJECTION_RECOVERY_DEFERRED = define(
 
 # common
 
-CLERK_USER_NAME_RESOLUTION_FAILED = define(
-    "clerk_user_name_resolution_failed", WARNING, required={"user_id"}
-)
-CLERK_TOKEN_VERIFICATION_FAILED = define("clerk_token_verification_failed", ERROR)
 REMOVED_CONFIG_FIELDS_IGNORED = define(
     "removed_config_fields_ignored", WARNING, required={"removed_fields"}
 )
@@ -717,6 +713,13 @@ ARTIFACT_APPEND_SKIPPED = define(
 )
 
 # diagnostics
+
+# A checkout's backend could not write its machine handoff file privately;
+# reason is "not_private" or the exception class name. The machine-only routes
+# then refuse every token.
+MACHINE_HANDOFF_UNAVAILABLE = define(
+    "machine_handoff_unavailable", WARNING, required={"reason"}
+)
 
 # reason is the exception class name; the store is then not started.
 DIAGNOSTICS_STORE_UNAVAILABLE = define(

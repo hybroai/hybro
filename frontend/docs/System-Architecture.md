@@ -35,7 +35,7 @@ The app talks to the backend through REST APIs and room-scoped Server-Sent Event
 | Component system | shadcn/ui with Radix primitives, `components.json`, New York style |
 | Icons | Lucide React |
 | Forms | React Hook Form + Zod |
-| Auth | Local self-hosted identity adapter (`src/lib/auth.tsx`) |
+| Auth | The owner account: sign-in cookie, `AuthProvider` and `AuthGate` (`src/lib/auth.tsx`) |
 | Server state | TanStack React Query |
 | Client state | Zustand |
 | Real-time transport | SSE over `fetch()` streaming |
@@ -152,8 +152,8 @@ src/app/
 |-- privacy/page.tsx
 |-- (auth)/
 |   |-- layout.tsx
-|   |-- sign-in/[[...sign-in]]/page.tsx
-|   `-- sign-up/[[...sign-up]]/page.tsx
+|   |-- sign-in/[[...sign-in]]/page.tsx   # the owner's sign-in
+|   `-- setup/page.tsx                    # create the owner account from the setup link
 `-- (portal)/
     |-- layout.tsx
     |-- page.tsx                 # Overview
@@ -242,6 +242,18 @@ not toasted; they render in the conversation as part of the agent's turn.
 Every portal route shares `PortalSidebar` and `SidebarInset`; the inset contains `PortalHeader` and the route content.
 There is no separate workspace shell or route-classified navigation renderer.
 
+`(portal)/layout.tsx` wraps every portal route in `AuthProvider` and one
+`AuthGate`. The gate reads `GET /auth/status`: signed out, it replaces the
+page with `/sign-in?redirect_url=<path>`; with no owner account yet, with
+`/setup`; while loading it shows a spinner, and when the backend cannot be
+reached it says so. No page checks sign-in on its own. The return path keeps
+the page's query string. When a session ends while a page is open (revoked,
+signed out by a password change, or expired), `apiClient` reports a 401
+`not_signed_in`, and the raw fetches of `sse.ts` and `files.ts` any 401,
+through `session-events.ts`; the provider reloads the status and the gate
+opens sign-in. A reload that fails after the first load keeps the portal as
+it is.
+
 Signed-out marketing pages
 use their public header; signed-in pages share the side menu. Desktop pages have
 no additional header, while mobile pages use the existing header and sidebar
@@ -281,7 +293,7 @@ src/components/
 |-- nav-user.tsx
 |-- nav-docs-button.tsx
 |-- nav-discord-button.tsx
-|-- require-auth.tsx
+|-- auth/                       # sign-in form, setup form, plain-HTTP warning
 |-- use-case-card.tsx
 |-- fade-in-section.tsx
 |-- cookie-banner.tsx
@@ -371,7 +383,7 @@ src/hooks/room/
 `src/app/(portal)/room/[id]/page.tsx` is the room page. It is a client component that:
 
 - Reads the `[id]` route param as `conversationId`.
-- Reads user/auth state from the local identity adapter.
+- Reads the signed-in owner from `useUser` (the portal gate has already signed in).
 - Calls `useRoomWebhook`.
 - Manages local chat mode, quote state, and prefilled input handoff.
 - Uses `useGroupManagement` for saved groups and room-team defaults.
@@ -820,7 +832,11 @@ Selectors under `src/lib/selectors/` adapt store state into UI-specific slices:
 
 `src/lib/api-client.ts` is the shared fetch wrapper. It:
 
-- Injects local identity auth headers through `getClientAuthHeaders`.
+- Sends only `Content-Type` from `getClientAuthHeaders`; the browser sends
+  the owner's `hybro_session` cookie on the same-origin request, and no
+  `Authorization` header is set. The `getToken` options that callers still
+  pass are ignored. SSE (`sse.ts`) and file downloads (`files.ts`) work the
+  same way, with no bearer header and no `?token=`.
 - Supports abort signals and a default timeout.
 - Wraps HTTP failures in `ApiError`, with the parsed JSON error body in
   `details`.
@@ -913,7 +929,16 @@ request.ts, response.ts, sse.ts
 
 Other library modules:
 
-- `auth.tsx`: local self-hosted identity and authentication-header adapter.
+- `auth.tsx`: the owner's session: `AuthProvider` (loads `/auth/status`),
+  `AuthGate`, `useUser`, `useAuth`, `useAuthRefresh` and `useAuthClient`
+  (sign out, then `/sign-in`).
+- `api/account.ts`: the `/auth` routes (status, setup, sign-in, sign-out,
+  profile, password, browsers) and `accountErrorMessage`, which shows the
+  backend's fixed message.
+- `navigation.ts`: `goTo` and `safeRedirect`, which allows only a same-site
+  path as the `redirect_url` after sign-in.
+- `plain-http.ts`: whether the page is on plain HTTP from another machine.
+- `session-events.ts`: reports a session that ended to `AuthProvider`.
 - `log.ts`: browser logger, ring buffer, and `X-Request-ID` helpers.
 - `routes.ts`: canonical public and management route vocabulary.
 - `utils.ts`: `cn`, `getApiUrl`, and formatting helpers.
@@ -1291,8 +1316,7 @@ body, Room Chat body, and action label:
   `config_unreadable`, or another `last_error` of a working provider (not
   blocking): amber "Model provider needs attention".
 
-A status that cannot be read, such as a 403 for a non-admin in clerk mode,
-shows no notice.
+A status that cannot be read shows no notice.
 
 - Overview shows `OverviewSetupBanner` under the title: a gear icon, title,
   body, the action link, and a dismiss button. Dismissal is stored per
@@ -1381,7 +1405,7 @@ during the restart.
   the ones that match no field. The form is read-only while `config.json` has
   an error or a restart starts or runs.
 - System (`SystemSection`) shows the version, how Hybro runs, port, listen
-  address, sign-in mode, MCP gateway, the configuration file, a **Restart
+  address, sign-in (`Owner account` for `auth_mode` `account`), MCP gateway, the configuration file, a **Restart
   Hybro** card (`POST /settings/restart`, image only), the `config.json`
   notices, and About links.
 - `RestartBanner` shows a restart in progress, a failed restart with its error,
@@ -1399,8 +1423,28 @@ during the restart.
 ### Account dialog
 
 The user menu's **Account** item opens `SettingsDialog` through
-`SettingsDialogProvider`, rendered outside the sidebar tree. It has Profile
-(with the danger zone), Password, and Sessions panes, all kept mounted.
+`SettingsDialogProvider`, rendered outside the sidebar tree. It has Profile,
+Password, and Sessions panes, all kept mounted, and each calls the `/auth`
+routes. Profile changes the name and email (`PATCH /auth/profile`), then
+refreshes the session. Password needs the current password and signs out
+every other browser. Sessions lists the signed-in browsers, marks this one
+**Current**, and revokes the others. The danger zone stays hidden: the owner
+account cannot be deleted.
+
+### Sign-in and setup
+
+`/sign-in` is the owner's email and password form. A wrong password clears the
+password field and shows the backend's message; the page points to
+`hybro owner reset-password` for a forgotten password. After sign-in it goes to
+the `redirect_url` that `safeRedirect` allows, else `/`. `/setup` reads the
+one-time code from the URL fragment (`#<code>`, which the browser never
+sends), asks for name, email and a password of at least 8 characters twice,
+creates the account with `POST /auth/setup`, and removes the code from the
+address. Without a code it tells the user to run `hybro status` or
+`hybro owner create`. When several administrators are listed (the deprecated
+Clerk mode), the browser cannot choose one, so the refusal names
+`hybro owner create --owner-id <id>` and the choices. Both pages show a warning when they are on plain HTTP
+and the host is not this machine. There is no sign-up page.
 
 ### Visual system
 
@@ -1447,12 +1491,19 @@ tests/
 |   |-- room.spec.ts
 |   |-- room-internal-dispatch-privacy.spec.ts
 |   |-- room-timeline.spec.ts
+|   |-- owner-sign-in.ts
 |   `-- fixtures/
 |-- fixtures/index.ts
 `-- utils/
     |-- test-utils.tsx
     `-- fetch-without-signal.ts
 ```
+
+The e2e run signs in as the owner once in `owner-sign-in.ts` (the
+`globalSetup`) with `HYBRO_TEST_OWNER_EMAIL` and `HYBRO_TEST_OWNER_PASSWORD`,
+and every page starts from that saved cookie. The `request` fixture in
+`fixtures/auth.ts` carries the cookie and the `Origin` the cross-site check
+expects. Without the two variables the run starts signed out.
 
 Component tests run in jsdom, whose `AbortSignal` Node's `fetch` rejects. A
 component test that lets MSW answer real API-client requests calls

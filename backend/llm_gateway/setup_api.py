@@ -410,8 +410,6 @@ def _callback_target(redirect_url: str) -> str:
 class SetupAccess(Protocol):
     """Route owner for browser model-provider setup."""
 
-    def can_configure(self, user_id: str) -> bool: ...
-
     async def status(self) -> SetupStatus: ...
 
     def models(self, provider: ProviderId, auth: AuthMethod) -> SetupModels: ...
@@ -437,19 +435,10 @@ class BrowserSetup:
         runtime: ProviderRuntime,
         service: SetupService,
         logins: OAuthLogins,
-        *,
-        auth_mode: Literal["mock", "clerk"],
-        admin_user_ids: frozenset[str],
     ) -> None:
         self._runtime = runtime
         self._service = service
         self._logins = logins
-        self._auth_mode = auth_mode
-        self._admins = admin_user_ids
-
-    def can_configure(self, user_id: str) -> bool:
-        # Mock mode trusts whoever reaches the API, as the loopback install does.
-        return self._auth_mode == "mock" or user_id in self._admins
 
     async def status(self) -> SetupStatus:
         return self._status(await self._runtime.refresh())

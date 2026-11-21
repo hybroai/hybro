@@ -15,7 +15,7 @@ from __future__ import annotations
 
 import asyncio
 import json
-from collections.abc import Callable, Mapping
+from collections.abc import Mapping
 from pathlib import Path
 
 from pydantic import BaseModel, ValidationError
@@ -120,14 +120,12 @@ class InstanceSettings:
         store: RuntimeConfigStore,
         settings: Settings,
         startup_config: RuntimeConfig,
-        can_configure: Callable[[str], bool],
         version: str,
         restart: RestartControl,
     ) -> None:
         self._store = store
         self._settings = settings
         self._startup = startup_config
-        self._can_configure = can_configure
         self._version = version
         self._restart = restart
         self._runtime_file = (
@@ -144,9 +142,6 @@ class InstanceSettings:
     @property
     def image(self) -> bool:
         return self._runtime_file is not None
-
-    def can_configure(self, user_id: str) -> bool:
-        return self._can_configure(user_id)
 
     async def view(self) -> SettingsView:
         try:
@@ -309,7 +304,7 @@ class InstanceSettings:
             deployment="image" if self.image else "checkout",
             port=port,
             listen=listen,
-            auth_mode=self._settings.auth_mode,
+            auth_mode="account",
             # MCP is served without sign-in, so only a loopback listener offers it.
             mcp_available=listen == "loopback" if listen is not None else None,
             config_location=CONFIG_LOCATION,

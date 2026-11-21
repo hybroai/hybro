@@ -1,19 +1,25 @@
 """Smoke test a running single image through its one port.
 
-Start the image with an empty config directory and a loopback listener, then:
+Start the image with an empty config directory, an empty data volume and a
+loopback listener, then:
 
     uv run --project backend --frozen --extra mcp --no-env-file \
-        python scripts/image_smoke.py http://localhost:<port>
+        python scripts/image_smoke.py http://localhost:<port> <container>
 
 Checks: the UI, API, and MCP answer through Caddy; a foreign Host is refused;
+before the owner account exists the owner's routes and the Source API refuse;
+the owner is created with the container's ``hybro owner`` helper and signs in;
 the sample agents register, the LLM-backed ones inactive with
-``provider_not_configured``; Echo answers through the sessions API and MCP.
+``provider_not_configured``; Echo answers through the sessions API and MCP,
+which send no source token.
 """
 
 from __future__ import annotations
 
 import argparse
 import asyncio
+import secrets
+import subprocess
 import time
 
 import httpx
@@ -27,6 +33,32 @@ LLM_SAMPLES = {
     "Image Generator Agent",
 }
 SIGNATURE = "Created by Hybro"
+OWNER_EMAIL = "smoke-owner@example.com"
+OWNER_CLI = (
+    "/app/backend/.venv/bin/python",
+    "/app/backend/owner_cli.py",
+)
+
+
+def create_owner(container: str, password: str) -> None:
+    """``hybro owner create`` inside the container; the password on stdin."""
+    subprocess.run(
+        [
+            "docker",
+            "exec",
+            "-i",
+            container,
+            *OWNER_CLI,
+            "create",
+            "--name",
+            "Smoke Owner",
+            "--email",
+            OWNER_EMAIL,
+        ],
+        input=f"{password}\n",
+        text=True,
+        check=True,
+    )
 
 
 def wait_for(check, *, timeout: float, what: str):
@@ -90,17 +122,46 @@ async def mcp_echo(url: str) -> str:
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("base_url", help="e.g. http://localhost:8080")
-    base = parser.parse_args().base_url.rstrip("/")
-    with httpx.Client(base_url=base, timeout=10, trust_env=False) as http:
+    parser.add_argument("container", help="the running container's name")
+    arguments = parser.parse_args()
+    base = arguments.base_url.rstrip("/")
+    # The cross-site check wants Hybro's own address on sign-in and on every
+    # change that carries the cookie.
+    owner = httpx.Client(
+        base_url=base, timeout=10, trust_env=False, headers={"Origin": base}
+    )
+    # The Source API without a token, as connected programs call it.
+    with (
+        owner as http,
+        httpx.Client(base_url=base, timeout=10, trust_env=False) as source,
+    ):
         wait_for(
             lambda: http.get("/health").status_code == 200,
             timeout=180,
             what="backend health",
         )
-        for path in ("/", f"{API}/setup/status", "/hybro-mcp"):
+        for path in ("/", "/hybro-mcp"):
             assert http.get(path).status_code == 200, path
         foreign = http.get("/health", headers={"Host": "rebound.example"})
         assert foreign.status_code == 421, foreign.status_code
+
+        # No account yet: the owner's routes and the Source API refuse.
+        status = http.get(f"{API}/auth/status")
+        assert status.json() == {"account_exists": False, "owner": None}, status
+        refused = http.get(f"{API}/setup/status")
+        assert refused.status_code == 401, refused.status_code
+        refused = source.get(f"{API}/agents/discovery")
+        assert refused.status_code == 503, refused.status_code
+        assert refused.json()["detail"]["code"] == "no_account", refused.text
+
+        password = secrets.token_urlsafe(24)
+        create_owner(arguments.container, password)
+        signed_in = http.post(
+            f"{API}/auth/sign-in",
+            json={"email": OWNER_EMAIL, "password": password},
+        )
+        assert signed_in.status_code == 200, signed_in.status_code
+        assert http.get(f"{API}/setup/status").status_code == 200
 
         found = wait_for(
             lambda: samples_registered(http), timeout=120, what="sample agents"
@@ -111,7 +172,7 @@ def main() -> None:
             assert agent["status"] == "inactive", agent
             assert agent["inactive_reason"] == "provider_not_configured", agent
 
-        sent = http.post(
+        sent = source.post(
             f"{API}/sessions/messages",
             json={
                 "agent_id": found["Echo Agent"]["agent_id"],
@@ -122,7 +183,7 @@ def main() -> None:
         )
         sent.raise_for_status()
         reply = wait_for(
-            lambda: reply_of(http, sent.json()["session_id"]),
+            lambda: reply_of(source, sent.json()["session_id"]),
             timeout=60,
             what="Echo through the API",
         )

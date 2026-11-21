@@ -50,15 +50,9 @@ def test_the_account_repository_creates_its_indexes_with_the_other_owners():
 def test_lifespan_binds_and_resets_the_owner_account_and_the_machine_token():
     source = inspect.getsource(container._runtime_lifespan)
 
-    assert "app.state.owner_account = create_owner_account(" in source
-    assert (
-        "app.state.machine_token = read_token(\n"
-        "                runtime.settings.machine_handoff_file\n"
-        "            )"
-    ) in source or (
-        "app.state.machine_token = read_token(runtime.settings.machine_handoff_file)"
-        in source
-    )
+    assert "owner_account = create_owner_account(" in source
+    assert "app.state.owner_account = owner_account" in source
+    assert "machine_token_at_start(runtime.settings)" in source
     assert source.count("app.state.owner_account = None") == 2
     assert source.count('app.state.machine_token = ""') == 2
 

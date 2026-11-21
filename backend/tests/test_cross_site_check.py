@@ -236,7 +236,7 @@ def test_a_refusal_carries_the_cors_headers_of_an_allowed_origin():
     response = TestClient(app).post(
         f"{settings.api_prefix}/auth/sign-in",
         json={"email": "a@b.co", "password": "x"},
-        headers={"Origin": origin, "Host": "hybro.internal:8000"},
+        headers={"Origin": origin, "Host": "10.0.0.5:8000"},
     )
 
     assert response.status_code == 403

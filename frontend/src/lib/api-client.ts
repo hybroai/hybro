@@ -5,6 +5,7 @@
 
 import { getClientAuthHeaders } from './auth'
 import { log, requestHeaders } from './log'
+import { reportIfSignedOut } from './session-events'
 
 /**
  * Custom error class for API responses that carries the HTTP status code.
@@ -36,6 +37,7 @@ interface ApiClientOptions {
   method?: 'GET' | 'POST' | 'PUT' | 'DELETE' | 'PATCH'
   body?: unknown
   headers?: HeadersInit
+  /** Ignored: the owner's sign-in cookie is the credential. */
   getToken?: () => Promise<string | null>
   signal?: AbortSignal  // Support for request cancellation
   timeoutMs?: number  // Optional per-request timeout
@@ -52,10 +54,9 @@ export async function apiClient<T = unknown>(
   url: string,
   options: ApiClientOptions = {}
 ): Promise<T> {
-  const { method = 'GET', body, headers: customHeaders, getToken, signal, timeoutMs } = options
+  const { method = 'GET', body, headers: customHeaders, signal, timeoutMs } = options
 
-  // Get auth headers (will use default getToken if not provided)
-  const authHeaders = await getClientAuthHeaders(getToken)
+  const authHeaders = await getClientAuthHeaders()
 
   // Merge auth headers with custom headers; every call gets its own X-Request-ID.
   const { headers: requestIdHeader, requestId } = requestHeaders()
@@ -102,6 +103,7 @@ export async function apiClient<T = unknown>(
       } catch {
         details = undefined
       }
+      reportIfSignedOut(response.status, details)
       throw new ApiError(
         response.status,
         `HTTP error! status: ${response.status}, message: ${errorText}`,

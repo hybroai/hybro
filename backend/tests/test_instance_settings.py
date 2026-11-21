@@ -91,7 +91,6 @@ def service(
     *,
     settings: Settings | None = None,
     startup: RuntimeConfig | None = None,
-    admins: frozenset[str] | None = None,
 ) -> InstanceSettings:
     startup = startup if startup is not None else RuntimeConfig()
     settings = (
@@ -104,9 +103,6 @@ def service(
         store=RuntimeConfigStore(home),
         settings=settings,
         startup_config=startup,
-        can_configure=(lambda user: True)
-        if admins is None
-        else (lambda user: user in admins),
         version="9.9.9",
         restart=RestartControl(
             runtime_file=Path(runtime_file) if runtime_file else None,
@@ -335,7 +331,8 @@ async def test_system_info_in_a_checkout(tmp_path):
     assert system.version == "9.9.9"
     assert system.deployment == "checkout"
     assert (system.port, system.listen, system.mcp_available) == (None, None, None)
-    assert system.auth_mode == "mock"
+    # The owner account signs in on every install, whatever auth_mode says.
+    assert system.auth_mode == "account"
     assert str(tmp_path) not in view.model_dump_json()
 
 
@@ -391,12 +388,6 @@ async def test_system_info_and_services_revision_in_the_image(tmp_path):
     assert view.restart_pending is False
     assert view.system.deployment == "image"
     assert (view.system.port, view.system.listen) == (None, None)
-
-
-def test_can_configure_delegates(tmp_path):
-    instance = service(tmp_path / "home", admins=frozenset({"user_admin"}))
-    assert instance.can_configure("user_admin")
-    assert not instance.can_configure("user_other")
 
 
 def test_registry_specs_are_frozen():

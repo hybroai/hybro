@@ -184,25 +184,26 @@ def read_listener(environment: Mapping[str, str]) -> Listener:
     )
 
 
-def check_listener(
-    listener: Listener, *, auth_mode: str, server_url: str | None
-) -> None:
-    """A public listener needs Clerk and a public origin, or an explicit opt-out."""
+def check_listener(listener: Listener) -> None:
+    """A public listener needs an explicit opt-out for now.
+
+    The Panel needs the owner's sign-in, but the Source API still takes
+    requests without a source token, so anyone who can reach the port can send
+    work to the agents.
+    """
     if listener.mode != "public":
-        return
-    if auth_mode == "clerk" and server_url:
         return
     if listener.insecure_no_auth:
         print(
-            "WARNING: Hybro is listening publicly without authentication. Anyone "
-            "who can reach this port controls the instance and its provider "
-            "credential.",
+            "WARNING: Hybro is listening publicly, and its Source API takes "
+            "requests without a source token. Anyone who can reach this port can "
+            "send work to your agents.",
             file=sys.stderr,
         )
         return
     raise EntrypointError(
-        'A public listener needs auth_mode "clerk" and frontend.server_url in '
-        "config.json. To run without authentication anyway, pass "
+        "A public listener is not available yet: the Source API takes requests "
+        "without a source token. To listen publicly anyway, pass "
         "--insecure-no-auth (HYBRO_INSECURE_NO_AUTH=1)."
     )
 
@@ -317,8 +318,6 @@ def projections(
                 "HOSTNAME": "127.0.0.1",
                 "PORT": "3000",
                 "HYBRO_FRONTEND_CONFIG": json.dumps(frontend_config),
-                "CLERK_SECRET_KEY": secrets.get("clerk_secret_key", ""),
-                "CLERK_WEBHOOK_SECRET": secrets.get("clerk_webhook_secret", ""),
             },
         ),
         "caddy": Program(
@@ -892,11 +891,7 @@ def plan_runtime(
         settings = get_settings()
     except (RuntimeConfigurationError, ValueError) as exc:
         raise EntrypointError(f"Invalid configuration: {exc}") from None
-    check_listener(
-        listener,
-        auth_mode=settings.auth_mode,
-        server_url=config.frontend.get("server_url"),
-    )
+    check_listener(listener)
     # A configured MongoDB URL wins over the embedded server.
     embedded_mongo = (
         "mongodb_url" not in config.backend and "mongodb_url" not in secrets

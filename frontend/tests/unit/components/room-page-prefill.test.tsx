@@ -13,6 +13,10 @@ vi.mock("next/navigation", () => ({
 }))
 
 // Mock useRoomWebhook — returns a stable room so the useEffect fires
+vi.mock("@/lib/auth", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/auth")>()),
+  useUser: () => ({ isLoaded: true, isSignedIn: true, user: { id: "user_local_developer" } }),
+}))
 vi.mock("@/hooks/useRoomWebhook", () => ({
   useRoomWebhook: () => ({
     room: { conversation_id: "room-abc", room_name: "Test Room", room_agent_set: { a1: "Agent One" } },
@@ -80,9 +84,6 @@ vi.mock("@/components/room-page-shell", () => ({
       />
     </div>
   ),
-}))
-vi.mock("@/components/require-auth", () => ({
-  RequireAuth: ({ children }: { children: React.ReactNode }) => <>{children}</>,
 }))
 vi.mock("@/components/subnets/subnet-dialog-host", () => ({
   SubnetDialogHost: () => null,

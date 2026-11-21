@@ -108,6 +108,11 @@ HTTP_NEXT_ACTIONS = {
         "The agent is inactive or outside the selected subnet. Choose another "
         "agent with find_agents."
     ),
+    "no_account": (
+        "Hybro has no owner account yet, so it takes no requests. Ask the user "
+        "to run hybro on Hybro's machine for the setup link, or hybro owner "
+        "create."
+    ),
     "session_closed": (
         "The session is closed. Omit session_id to start a new session."
     ),

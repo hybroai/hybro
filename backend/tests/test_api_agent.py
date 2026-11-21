@@ -142,19 +142,6 @@ class TestGetAgentByProvider:
 
 class TestGetAgent:
     @pytest.mark.asyncio
-    async def test_returns_public_agent_without_auth(self, patch_agent_deps):
-        patch_agent_deps.get_visible.return_value = AgentRouteResponse(
-            success=True, agent=_view()
-        )
-
-        response = await get_agent("agent-1", user=None, catalog=patch_agent_deps)
-
-        assert response.agent.agent_id == "agent-1"
-        patch_agent_deps.get_visible.assert_awaited_once_with(
-            agent_id="agent-1", user_id=None
-        )
-
-    @pytest.mark.asyncio
     async def test_passes_user_id_for_visibility_check(
         self, mock_user, patch_agent_deps
     ):

@@ -418,6 +418,7 @@ describe('SystemSection', () => {
     expect(screen.getByText('3100')).toBeInTheDocument()
     expect(screen.getByText('This computer only')).toBeInTheDocument()
     expect(screen.getByText('~/.hybro/config.json')).toBeInTheDocument()
+    expect(screen.getByText('Owner account')).toBeInTheDocument()
     expect(screen.getByText('backend.local_agent_discovery_excluded_ports')).toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: 'Restart Hybro' }))
     await waitFor(() => expect(restarts).toBe(1))

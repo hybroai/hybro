@@ -80,7 +80,8 @@ Usage: $CLI [command] [options]
 Commands:
   start         Start Hybro and show only its errors (the default command)
   stop          Stop Hybro
-  status        Show whether Hybro is running and its address
+  status        Show whether Hybro is running, its address, and the setup
+                link while no owner account exists
   logs          Show Hybro's logs; docker logs options such as -f pass through
   doctor        Check a running Hybro and list its problems
   owner         Create the owner account or set a new password for it
@@ -93,8 +94,9 @@ Start options:
   -d, --detach          Run in the background
   --port <port>         Host port (default $DEFAULT_PORT)
   --listen <address>    Address to listen on (default 127.0.0.1); any other
-                        address needs sign-in or --insecure-no-auth
-  --insecure-no-auth    Allow a non-loopback listener without sign-in
+                        address needs --insecure-no-auth while the
+                        Source API takes requests without a source token
+  --insecure-no-auth    Allow a non-loopback listener anyway
   --fresh               Start with an empty volume even when 0.3 data exists
   --build               Rebuild the image (checkout only)
   --recreate            Recreate a running container (checkout only)
@@ -420,6 +422,7 @@ follow_logs() {
         die "Hybro stopped before it was ready (exit code ${code:-unknown}). Show the logs with: $CLI logs"
     fi
     say "Hybro is ready at $url (${READY_SECONDS}s). Press Ctrl-C to stop."
+    print_setup_link "$url"
     say "Full logs: $CLI logs -f"
     docker logs -f "$CONTAINER" 2>&1 | filter_logs "" "$(log_levels error)" ""
     trap - INT
@@ -509,7 +512,9 @@ cmd_start() {
         if [ "$RECREATE" = 1 ]; then
             docker stop "$CONTAINER" >/dev/null || die "cannot stop $CONTAINER"
         else
-            say "Hybro is already running at $(running_url)"
+            running=$(running_url)
+            say "Hybro is already running at $running"
+            print_setup_link "$running"
             say "To change its options, run $CLI stop first."
             return 0
         fi
@@ -521,6 +526,7 @@ cmd_start() {
     if [ "$DETACH" = 1 ]; then
         say "Hybro is starting at $url"
         say "Running in the background. Stop it with: $CLI stop"
+        say "When it is ready, run $CLI status for its address and, until the owner account exists, the setup link."
         return 0
     fi
     follow_logs
@@ -543,8 +549,10 @@ cmd_status() {
     state=$(container_state)
     case $state in
     running)
-        say "Hybro is running at $(running_url)"
+        running=$(running_url)
+        say "Hybro is running at $running"
         say "Container $CONTAINER, image $(docker container inspect -f '{{.Config.Image}}' "$CONTAINER"), volume $VOLUME"
+        print_setup_link "$running"
         ;;
     '')
         say "Hybro is not running. Start it with: $CLI"
@@ -822,6 +830,30 @@ cmd_doctor() {
 }
 
 OWNER_HELPER=/app/backend/owner_cli.py
+
+# print_setup_link <url>: while no owner account exists, a link to the setup
+# page with a new one-time code after the #. Each call issues a new code, which
+# replaces the last. The code is in this output only: the helper prints it to
+# the pipe, and it is in no argument or log. An image without the helper, or
+# an account that exists (exit 1), prints nothing.
+print_setup_link() {
+    docker exec "$CONTAINER" test -f "$OWNER_HELPER" >/dev/null 2>&1 || return 0
+    setup_status=0
+    setup_code=$(docker exec "$CONTAINER" "$DIAG_PYTHON" "$OWNER_HELPER" setup-code 2>/dev/null) || setup_status=$?
+    case $setup_status in
+    0) ;;
+    1) return 0 ;;
+    *)
+        say "The setup link is not available yet; run $CLI status again once Hybro is ready."
+        return 0
+        ;;
+    esac
+    case $setup_code in
+    '' | *[!A-Za-z0-9_-]*) return 0 ;;
+    esac
+    say "Create the owner account at: $1/setup#$setup_code"
+    say "Each new link replaces the earlier ones; it works once, for 24 hours."
+}
 
 # A usage error of hybro owner or hybro source: exit 2 before Docker is used.
 owner_usage() {

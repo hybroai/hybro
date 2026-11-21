@@ -1,7 +1,9 @@
-"""The owner's sign-in cookie, and the dependency that resolves it.
+"""The owner's sign-in cookie, and the dependencies that resolve it.
 
-Nothing but the ``/auth`` routes uses the dependency yet: the other routes
-keep ``common.auth.get_current_user`` until sign-in is enforced.
+``get_current_user`` is the user dependency of every owner route. Only the
+cookie counts: a bearer header, a Clerk token or a ``?token=`` query opens
+nothing. Before the account exists no cookie resolves, so every owner route
+refuses.
 """
 
 from __future__ import annotations
@@ -18,9 +20,11 @@ from account.protocols import (
     NoAccount,
     OwnerAccount,
     OwnerIdRequired,
+    OwnerProfile,
     SignedIn,
     TooManyAttempts,
 )
+from common.auth import ClerkUser
 
 SESSION_COOKIE = "hybro_session"
 # The browser keeps the cookie as long as an unused session stays valid.
@@ -66,6 +70,27 @@ OptionalOwnerSessionDependency = Annotated[
     SignedIn | None, Depends(get_optional_owner_session)
 ]
 OwnerSessionDependency = Annotated[SignedIn, Depends(get_owner_session)]
+
+
+def _user(session: SignedIn) -> ClerkUser:
+    owner: OwnerProfile = session.owner
+    return ClerkUser(
+        user_id=owner.user_id,
+        session_id=session.session_id,
+        claims={"email": owner.email, "name": owner.name},
+    )
+
+
+async def get_current_user(session: OwnerSessionDependency) -> ClerkUser:
+    """The signed-in owner; 401 ``not_signed_in`` for anyone else."""
+    return _user(session)
+
+
+async def get_optional_user(
+    session: OptionalOwnerSessionDependency,
+) -> ClerkUser | None:
+    """The signed-in owner, or ``None`` for a request without a valid cookie."""
+    return _user(session) if session is not None else None
 
 
 def set_session_cookie(request: Request, response: Response, token: str) -> None:

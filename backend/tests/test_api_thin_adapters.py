@@ -297,7 +297,6 @@ def test_phase9_route_inventory_matches_live_app_routes():
             in {
                 "get_proxy",
                 "get_current_user",
-                "get_current_user_with_query_token",
                 "get_optional_user",
                 "get_owner_session",
                 "get_optional_owner_session",
@@ -337,7 +336,6 @@ def test_route_inventory_auth_dependencies_are_only_auth_dependencies():
     auth_dependency_names = {
         "get_proxy",
         "get_current_user",
-        "get_current_user_with_query_token",
         "get_optional_user",
         "get_owner_session",
         "get_optional_owner_session",
@@ -361,7 +359,7 @@ def test_route_inventory_auth_dependencies_are_only_auth_dependencies():
 
 
 def test_live_routes_do_not_duplicate_clerk_auth_dependency():
-    from common.auth import get_current_user
+    from api_gateway.owner_session import get_current_user
     from main import app
 
     violations: list[str] = []

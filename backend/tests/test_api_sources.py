@@ -16,9 +16,9 @@ import pytest
 
 from account.protocols import OWNER_USER_ID, OwnerCreate
 from api_gateway.dependencies import get_agent_network
+from api_gateway.owner_session import get_current_user
 from api_gateway.source_token import SourceCaller
-from common import auth
-from common.auth import ClerkUser, get_current_user
+from common.auth import ClerkUser
 from main import create_app
 from models.session import (
     SessionClosed,
@@ -29,7 +29,7 @@ from models.session import (
 from session.protocols import SessionOwner
 from source import SourceService
 from source.protocols import NO_TOKEN, SourceIdentity
-from tests.fakes.account import build_service
+from tests.fakes.account import build_service, sign_out, store_with_owner
 from tests.fakes.source import MemorySourceStore
 
 NOW = datetime(2026, 11, 20, tzinfo=UTC)
@@ -93,14 +93,14 @@ class RecordingFacade:
         raise AssertionError("not used")
 
 
-def make_app(*, auth_mode: str = "mock", admin_user_ids=frozenset(), owner=None):
+def make_app(*, auth_mode: str = "mock", owner_id: str | None = OWNER_USER_ID):
+    """The app, with the owner account under ``owner_id`` (none for ``None``)."""
     app = create_app()
     facade = RecordingFacade()
     sources = SourceService(MemorySourceStore(), auth_mode=auth_mode)
     app.state.source_registry = sources
-    app.state.owner_account = build_service(
-        auth_mode=auth_mode, admin_user_ids=admin_user_ids
-    )
+    store = store_with_owner(owner_id) if owner_id else None
+    app.state.owner_account = build_service(store=store, auth_mode=auth_mode)
     app.state.api_gateway_deps = SimpleNamespace(
         session_facade=facade,
         agent_service=object(),
@@ -108,7 +108,7 @@ def make_app(*, auth_mode: str = "mock", admin_user_ids=frozenset(), owner=None)
         agent_matcher=object(),
     )
     app.dependency_overrides[get_current_user] = lambda: ClerkUser(
-        user_id=owner or OWNER_USER_ID, session_id="s", claims={}
+        user_id=owner_id or OWNER_USER_ID, session_id="s", claims={"name": "Ada"}
     )
     return app, facade, sources
 
@@ -225,40 +225,38 @@ async def test_clerk_mode_requires_a_token():
     assert len(facade.calls) == 1
 
 
-@pytest.mark.parametrize(
-    ("admins", "expected"),
-    [(frozenset(), OWNER_USER_ID), (frozenset({"user_abc"}), "user_abc")],
-)
-async def test_clerk_mode_acts_for_the_listed_admin(admins, expected):
-    app, facade, sources = make_app(auth_mode="clerk", admin_user_ids=admins)
+async def test_the_source_api_acts_for_the_owner_record():
+    # An account created in Clerk mode took a listed administrator's id.
+    app, facade, sources = make_app(auth_mode="clerk", owner_id="user_abc")
     created = await sources.create("CI bot")
     async with client_for(app) as client:
         await client.post(SEND, json=BODY, headers=bearer(created.token))
 
-    assert facade.calls[0][1].user_id == expected
-
-
-async def test_several_admins_refuse_until_the_account_exists():
-    app, facade, sources = make_app(
-        auth_mode="clerk", admin_user_ids=frozenset({"user_a", "user_b"})
+    assert (facade.calls[0][1].user_id, facade.calls[0][1].name) == (
+        "user_abc",
+        "Ada",
     )
+
+
+@pytest.mark.parametrize("token", [False, True])
+async def test_the_source_api_refuses_until_the_account_exists(token):
+    app, facade, sources = make_app(owner_id=None)
     created = await sources.create("CI bot")
+    headers = bearer(created.token) if token else {}
     async with client_for(app) as client:
-        refused = await client.post(SEND, json=BODY, headers=bearer(created.token))
+        refused = await client.post(SEND, json=BODY, headers=headers)
         await app.state.owner_account.create_owner(
             OwnerCreate(
-                name="Ada",
-                email="ada@example.com",
-                password="correct horse battery",
-                owner_id="user_b",
+                name="Ada", email="ada@example.com", password="correct horse battery"
             )
         )
-        accepted = await client.post(SEND, json=BODY, headers=bearer(created.token))
+        accepted = await client.post(SEND, json=BODY, headers=headers)
 
     assert refused.status_code == 503
-    assert refused.json()["detail"]["code"] == "owner_unknown"
+    assert refused.json()["detail"]["code"] == "no_account"
+    assert "hybro" in refused.json()["detail"]["message"]
     assert accepted.status_code == 200
-    assert facade.calls[0][1].user_id == "user_b"
+    assert len(facade.calls) == 1
 
 
 # -- Requests that another website makes a browser send ------------------------
@@ -336,8 +334,7 @@ OWNER_SESSION_ROUTES = (
 
 
 async def test_the_owner_sees_the_sessions_sources_opened_in_clerk_mode():
-    # No admin listed and no account yet: the acting owner is the id rule's.
-    app, facade, sources = make_app(auth_mode="clerk")
+    app, facade, sources = make_app(auth_mode="clerk", owner_id="user_abc")
     created = await sources.create("CI bot")
     async with client_for(app) as client:
         await client.post(SEND, json=BODY, headers=bearer(created.token))
@@ -345,46 +342,7 @@ async def test_the_owner_sees_the_sessions_sources_opened_in_clerk_mode():
 
     assert listing.status_code == 200
     sent_for, listed_for = facade.calls[0][1], facade.calls[1][1]
-    assert sent_for.user_id == listed_for.user_id == OWNER_USER_ID
-
-
-@pytest.mark.parametrize(("method", "path"), OWNER_SESSION_ROUTES)
-async def test_another_signed_in_user_cannot_use_the_owner_session_routes(method, path):
-    app, facade, _ = make_app(
-        auth_mode="clerk", admin_user_ids=frozenset({"user_abc"}), owner="user_other"
-    )
-    async with client_for(app) as client:
-        response = await client.request(method, path)
-
-    assert response.status_code == 403
-    assert response.json()["detail"]["code"] == "forbidden"
-    assert facade.calls == []
-
-
-@pytest.mark.parametrize(("method", "path"), OWNER_SESSION_ROUTES)
-async def test_clerk_mode_without_a_listed_admin_closes_the_owner_routes(method, path):
-    # The acting owner is user_local_developer, which no Clerk user is.
-    app, facade, _ = make_app(auth_mode="clerk", owner="user_clerk")
-    async with client_for(app) as client:
-        response = await client.request(method, path)
-        listing = await client.get(f"{API}/sources")
-
-    assert response.status_code == listing.status_code == 403
-    assert facade.calls == []
-
-
-async def test_the_owner_session_routes_wait_for_the_owner_to_be_known():
-    app, facade, _ = make_app(
-        auth_mode="clerk",
-        admin_user_ids=frozenset({"user_a", "user_b"}),
-        owner="user_a",
-    )
-    async with client_for(app) as client:
-        response = await client.get(f"{API}/sessions")
-
-    assert response.status_code == 503
-    assert response.json()["detail"]["code"] == "owner_unknown"
-    assert facade.calls == []
+    assert sent_for.user_id == listed_for.user_id == "user_abc"
 
 
 async def test_the_source_close_route_needs_the_source():
@@ -461,29 +419,11 @@ async def test_a_source_needs_a_name(name):
     assert response.status_code == 422
 
 
-async def test_only_the_owner_manages_sources():
-    app, _, _ = make_app(
-        auth_mode="clerk", admin_user_ids=frozenset({"user_abc"}), owner="user_other"
-    )
-    async with client_for(app) as client:
-        listing = await client.get(f"{API}/sources")
-        create = await client.post(f"{API}/sources", json={"name": "x"})
-
-    assert listing.status_code == create.status_code == 403
-    assert create.json()["detail"]["code"] == "forbidden"
-
-
 async def test_a_source_token_does_not_open_the_sources_routes(monkeypatch):
     app, _, sources = make_app()
     created = await sources.create("CI bot")
-    app.dependency_overrides.pop(get_current_user)
-    # The owner's credential today is a Clerk session; a source token is not one.
-    monkeypatch.setattr(auth, "_require_clerk_secret_key", lambda: "sk_test")
-    monkeypatch.setattr(
-        auth,
-        "authenticate_request",
-        lambda request, options: SimpleNamespace(is_signed_in=False, payload=None),
-    )
+    # The owner's credential is the sign-in cookie; a source token is not one.
+    sign_out(app, monkeypatch)
     async with client_for(app) as client:
         response = await client.get(f"{API}/sources", headers=bearer(created.token))
     # The owner routes take the owner's credential, never a source token.

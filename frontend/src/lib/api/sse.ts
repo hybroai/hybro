@@ -1,4 +1,5 @@
 import type { AnySSEFrame, SSEConnectionStatus } from '@/lib/types/sse'
+import { reportSignedOut } from '@/lib/session-events'
 import { hasSSEFrameEnvelope } from '@/lib/types/sse'
 import { getApiUrl } from '../utils'
 import { getClientAuthHeaders } from '../auth'
@@ -67,29 +68,17 @@ export class SSEConnection {
         this.connectCancelled = false
         this.connectionState = CONNECTING
 
-        // Get auth token if available
-        const token = this.options.getToken ? await this.options.getToken() : null
-
-        // If a disconnect was requested while awaiting token, abort
-        if (this.isManualClose || this.connectCancelled) {
-          this.connectionState = CLOSED
-          return resolve()
-        }
-
         // Build URL without token in query string (security fix for issue 2.1)
         // ?snapshot=1 forces a fresh snapshot fold from the authoritative log
         // (Room Stream Snapshot plan §4 rule 3 gap recovery).
         const url = `${API_BASE_URL}/room/${this.conversationId}/stream${this.options.snapshot ? '?snapshot=1' : ''}`
 
-        // Send JWT via Authorization header instead of URL query parameter.
+        // The sign-in cookie is the credential; the browser sends it.
         // Each connect attempt carries its own X-Request-ID.
         const { headers, requestId } = requestHeaders({
           'Accept': 'text/event-stream',
           'Cache-Control': 'no-cache',
         })
-        if (token) {
-          headers['Authorization'] = `Bearer ${token}`
-        }
 
         this.abortController = new AbortController()
 
@@ -100,6 +89,8 @@ export class SSEConnection {
         })
 
         if (!response.ok) {
+          // Owner routes: a 401 means the session ended.
+          if (response.status === 401) reportSignedOut()
           log.warn('sse_connect_failed', {
             conversation_id: this.conversationId,
             request_id: requestId,
@@ -330,6 +321,8 @@ export async function getSSEStatus(
   const { headers } = requestHeaders(await getClientAuthHeaders(getToken))
   const response = await fetch(url, { headers })
   if (!response.ok) {
+    // Owner routes: a 401 means the session ended.
+    if (response.status === 401) reportSignedOut()
     throw new Error(`HTTP error! status: ${response.status}`)
   }
   return await response.json() as SSEConnectionStatus
@@ -361,6 +354,8 @@ export async function cancelMessage(
   })
   
   if (!response.ok) {
+    // Owner routes: a 401 means the session ended.
+    if (response.status === 401) reportSignedOut()
     throw new Error(`HTTP error! status: ${response.status}`)
   }
   

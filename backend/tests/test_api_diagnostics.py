@@ -9,8 +9,9 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
+from api_gateway.owner_session import get_optional_user
 from api_gateway.routes.diagnostics_routes import router
-from common.auth import ClerkUser, get_optional_user
+from common.auth import ClerkUser
 from diagnostics.models import (
     DiagnosticPage,
     DiagnosticRecord,
@@ -31,9 +32,6 @@ class _Access:
     def __init__(self) -> None:
         self.error: Exception | None = None
         self.queries: list[tuple[str, RecordQuery, str | None]] = []
-
-    def can_read(self, user_id: str) -> bool:
-        return user_id == "admin"
 
     def token_matches(self, value: str) -> bool:
         return value == TOKEN
@@ -137,15 +135,8 @@ def test_no_user_is_401(path):
 
 
 @pytest.mark.parametrize("path", [*PATHS, LOGS])
-def test_non_admin_is_403(path):
-    client, _ = _client(_Access(), user="user")
-
-    assert client.get(path).status_code == 403
-
-
-@pytest.mark.parametrize("path", [*PATHS, LOGS])
-def test_admin_reads(path):
-    client, _ = _client(_Access(), user="admin")
+def test_the_signed_in_owner_reads(path):
+    client, _ = _client(_Access(), user="user_local_developer")
 
     assert client.get(path).status_code == 200
 

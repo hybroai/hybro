@@ -8,7 +8,7 @@ import pytest
 
 from a2a_adapter.card_data import build_agent_card
 from a2a_adapter.translators import a2a_card_to_snapshot
-from agent.catalog import AgentCatalogService
+from agent.catalog import AgentCatalogService, OwnerName
 from agent.facade import AgentRegistrationConflict
 from agent.liveness import AgentLivenessService
 from common.dto import AgentCardSnapshot, AgentInfo
@@ -71,20 +71,36 @@ async def test_register_maps_failures_to_status(error, status):
     assert response.error_code == getattr(error, "code", None)
 
 
-async def test_provider_name_is_resolved_only_without_card_organization(
-    monkeypatch,
-):
-    monkeypatch.setattr("agent.catalog.resolve_provider_name", lambda _id: "Owner")
+async def test_provider_name_is_the_owner_records_name_without_an_organization():
+    async def owner():
+        return OwnerName(user_id="owner", name="Ada")
+
     facade = MagicMock(
         list_agents=AsyncMock(
-            return_value=[_info(), _info(agent_id="a2", raw_card={"name": "Bare"})]
+            return_value=[
+                _info(),
+                _info(agent_id="a2", raw_card={"name": "Bare"}),
+                _info(agent_id="a3", raw_card={"name": "B"}, provider_id="other"),
+            ]
         )
+    )
+
+    response = await AgentCatalogService(
+        facade, liveness_checker=_unchanged, owner=owner
+    ).list_for_provider(provider_id="owner")
+
+    assert [view.provider_name for view in response.agents] == [None, "Ada", None]
+    facade.list_agents.assert_awaited_once_with("owner")
+
+
+async def test_provider_name_is_empty_before_the_owner_account_exists():
+    facade = MagicMock(
+        list_agents=AsyncMock(return_value=[_info(raw_card={"name": "Bare"})])
     )
 
     response = await _catalog(facade).list_for_provider(provider_id="owner")
 
-    assert [view.provider_name for view in response.agents] == [None, "Owner"]
-    facade.list_agents.assert_awaited_once_with("owner")
+    assert response.agents[0].provider_name is None
 
 
 @pytest.mark.parametrize(

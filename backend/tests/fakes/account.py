@@ -95,6 +95,27 @@ class MemoryAccountStore:
         return True
 
 
+def store_with_owner(
+    user_id: str = "user_local_developer", name: str = "Ada"
+) -> MemoryAccountStore:
+    """A store whose owner account already exists, built without awaiting."""
+    from account.passwords import hash_password
+    from common.utils.time import utcnow
+
+    store = MemoryAccountStore()
+    now = utcnow()
+    store.owner = UserRecord(
+        user_id=user_id,
+        name=name,
+        email="ada@example.com",
+        password=hash_password("correct horse battery", FAST_SCRYPT),
+        password_id="password-1",
+        created_at=now,
+        updated_at=now,
+    )
+    return store
+
+
 class Clock:
     """A settable wall clock."""
 
@@ -147,3 +168,15 @@ def build_service(
         sleep=sleeper,
         **kwargs,
     )
+
+
+def sign_out(app, monkeypatch) -> None:
+    """Remove the test user, so the app resolves the cookie like production.
+
+    An account without an owner is bound, so no cookie resolves.
+    """
+    from api_gateway.owner_session import get_current_user, get_optional_user
+
+    for dependency in (get_current_user, get_optional_user):
+        monkeypatch.delitem(app.dependency_overrides, dependency, raising=False)
+    monkeypatch.setattr(app.state, "owner_account", build_service(), raising=False)

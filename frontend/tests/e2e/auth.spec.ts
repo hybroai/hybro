@@ -1,7 +1,8 @@
 import { test, expect } from '@playwright/test'
 
-test.describe('Local auth adapter', () => {
-  test('keeps the intentional signed-in identity on room routes', async ({ page }) => {
+// The run is signed in as the owner (tests/e2e/owner-sign-in.ts).
+test.describe('Owner sign-in', () => {
+  test('keeps the signed-in owner on room routes', async ({ page }) => {
     await page.goto('/room/test-room')
 
     await expect(page).toHaveURL(/\/room\/test-room$/)
@@ -10,15 +11,21 @@ test.describe('Local auth adapter', () => {
   })
 })
 
-test.describe('Auth Pages', () => {
-  test('should load sign-in page', async ({ page }) => {
-    await page.goto('/sign-in')
-    await expect(page).toHaveURL(/sign-in/)
+test.describe('Signed out', () => {
+  test.use({ storageState: { cookies: [], origins: [] } })
+
+  test('a portal page sends the browser to sign-in and back', async ({ page }) => {
+    await page.goto('/chat')
+
+    await expect(page).toHaveURL(/\/sign-in\?redirect_url=%2Fchat$/, { timeout: 20000 })
+    await expect(page.getByLabel('Email')).toBeVisible()
+    await expect(page.getByLabel('Password')).toBeVisible()
   })
 
-  test('should load sign-up page', async ({ page }) => {
-    await page.goto('/sign-up')
-    await expect(page).toHaveURL(/sign-up/)
+  test('there is no sign-up page', async ({ page }) => {
+    const response = await page.goto('/sign-up')
+
+    expect(response?.status()).toBe(404)
   })
 })
 
@@ -44,7 +51,7 @@ test.describe('Navigation', () => {
     // The sidebar only exists on /* routes — the root is a marketing landing page.
     await page.goto('/chat')
 
-    // Wait for the local identity adapter so the sidebar fully renders.
+    // Wait for the owner's session so the sidebar fully renders.
     await page.waitForFunction(
       () => {
         const sidebar = document.querySelector('[data-slot="sidebar"]')
@@ -64,17 +71,17 @@ test.describe('Navigation', () => {
   })
 })
 
-test.describe('Sidebar local identity', () => {
-  test('renders the signed-in user control and no sign-in action', async ({ page }) => {
+test.describe('Sidebar owner identity', () => {
+  test('renders the signed-in owner control and no sign-in action', async ({ page }) => {
     await page.goto('/chat')
 
     await expect(page.getByTestId('sidebar-sign-in')).toHaveCount(0)
-    await expect(page.getByRole('button', { name: /Developer Local/i })).toBeVisible()
+    await expect(page).not.toHaveURL(/sign-in/)
   })
 })
 
 test.describe('Agent registration', () => {
-  test('register page loads under the local identity', async ({ page }) => {
+  test('register page loads for the signed-in owner', async ({ page }) => {
     await page.goto('/network/agents/new')
 
     await page.waitForFunction(

@@ -39,10 +39,18 @@ class FakeBackend:
         return self.status, json.dumps(self.body).encode()
 
 
+@pytest.fixture(autouse=True)
+def on_the_host(monkeypatch):
+    monkeypatch.delenv("HYBRO_CONTAINER", raising=False)
+
+
 @pytest.fixture
 def handoff(tmp_path: Path) -> Path:
+    # As a backend writes it: a 0600 file in a 0700 directory of this user.
+    tmp_path.chmod(0o700)
     path = tmp_path / "machine.json"
     path.write_text(json.dumps({"base_url": BASE_URL, "token": MACHINE_TOKEN}))
+    path.chmod(0o600)
     return path
 
 

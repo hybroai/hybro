@@ -19,7 +19,7 @@ test.describe('Chat Flow', () => {
   })
 })
 
-test.describe('Chat Page with local identity', () => {
+test.describe('Chat Page for the signed-in owner', () => {
   test('should render chat page with quick-start templates', async ({ page }) => {
     await page.goto('/chat')
 
@@ -85,7 +85,7 @@ test.describe('Theme Toggle', () => {
     // ThemeToggle renders in two places depending on auth state:
     //   - Unauthenticated: small button in the sidebar footer (always visible)
     //   - Authenticated: inside the user dropdown menu (must be opened first)
-    // Wait for the local identity adapter to finish rendering the sidebar.
+    // Wait for the owner's session so the sidebar finishes rendering.
     const authReady = await page.waitForFunction(
       () => {
         const sidebar = document.querySelector('[data-slot="sidebar"]')

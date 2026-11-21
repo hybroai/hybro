@@ -75,8 +75,12 @@ on http://localhost:3100:
 ./scripts/hybro start --build --recreate # rebuild after code or dependency changes
 ```
 
-Set up a model provider on the app's Settings page; it is saved to
-`~/.hybro/config.json` and `~/.hybro/auth.json`. See
+The Panel needs the owner's sign-in. On a fresh volume `./scripts/hybro`
+prints a setup link (`./scripts/hybro status` prints it too); open it and
+create the owner account, or run
+`./scripts/hybro owner create --name <name> --email <email>`. Set up a model
+provider on the app's Settings page; it is saved to `~/.hybro/config.json` and
+`~/.hybro/auth.json`. See
 [Running](README.md#running) for the other commands.
 
 ### Backend (`backend/`)
@@ -98,12 +102,33 @@ cd backend
 # Install dependencies
 uv sync --extra dev
 
-# Run local development server
+# Run local development server. Keep port 8000: the machine handoff file
+# the backend writes names it.
 uv run uvicorn main:app --reload --port 8000
 
 # Run tests (the live functional suite is opt-in; see backend/tests/README.md)
 uv run pytest
 ```
+
+Every Panel route needs the owner's sign-in. On each start the backend writes
+`~/.hybro/run/machine.json` (under `HYBRO_HOME` when set; a runtime record,
+not configuration), which lets the owner helper reach its machine-only routes.
+Once per database, in a second terminal, create the owner account. The helper
+reads the password from the first line of standard input and never takes it
+as an option; `read -rs` asks for it without showing it:
+
+```bash
+cd backend
+read -rs PASSWORD   # type the password (8 or more characters), then Enter
+printf '%s\n' "$PASSWORD" | uv run python owner_cli.py create --name "Ada" --email ada@example.com
+unset PASSWORD
+# or print a one-time setup link code instead, and open
+# http://localhost:3000/setup#<code> after starting the frontend:
+uv run python owner_cli.py setup-code
+```
+
+`reset-password` takes a new password the same way. A Source API
+call is refused with 503 `no_account` until the account exists.
 
 ### Frontend (`frontend/`)
 ```bash
@@ -111,11 +136,21 @@ cd frontend
 # Install dependencies (use `npm install` only when changing dependencies)
 npm ci
 
-# Run dev server (Turbopack) against a backend on port 8000. It also proxies
+# Run dev server (Turbopack) against a backend on port 8000. The generated
+# public-config.json leaves api_base_url empty, so the browser calls /api on
+# the dev server's own origin and the proxy forwards it: the sign-in cookie
+# and the cross-site check need that same origin. It also proxies
 # /mcp to an MCP server on 8001, started from the repository root with:
 #   uv run --project backend --frozen --extra mcp --no-env-file python MCP/server.py
 HYBRO_FRONTEND_CONFIG="$(cat ../packaging/frontend/public-config.json)" npm run dev
+```
 
+Open http://localhost:3000 and sign in with the owner's email and password.
+Use `localhost:3000`, not the backend's port 8000: the Panel calls the API on
+its own origin, and the cross-site check compares each change's `Origin` with
+the address the browser used.
+
+```bash
 # Run tests & linters
 npm run lint
 npm run test

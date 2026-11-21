@@ -9,8 +9,9 @@ from api_gateway.dependencies import (
     get_room_store,
 )
 from api_gateway.errors import require_chat_room
+from api_gateway.owner_session import get_current_user
 from api_gateway.registry import mark_declared_owner as _mark_declared_owner
-from common.auth import ClerkUser, get_current_user
+from common.auth import ClerkUser
 from common.errors import FileStoragePlatformError
 from common.protocols import (
     FileStorage,

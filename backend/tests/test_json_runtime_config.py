@@ -138,9 +138,12 @@ def test_settings_load_without_config_json(monkeypatch, tmp_path):
     monkeypatch.delenv("HYBRO_CONTAINER", raising=False)
     get_settings.cache_clear()
     try:
-        # Outside a container a checkout registers the repository's manifest.
+        # Outside a container a checkout registers the repository's manifest
+        # and its backend writes the machine handoff under HYBRO_HOME.
         assert get_settings() == Settings(
-            bundled_agents_manifest=str(REPO_ROOT / "default_agents" / "agents.yaml")
+            bundled_agents_manifest=str(REPO_ROOT / "default_agents" / "agents.yaml"),
+            machine_handoff_file=str(tmp_path / "missing" / "run" / "machine.json"),
+            machine_handoff_by_backend=True,
         )
         assert get_settings().diagnostics_handoff_file == ""
     finally:

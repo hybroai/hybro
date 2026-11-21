@@ -4,8 +4,6 @@ import json
 import tomllib
 import warnings
 from pathlib import Path
-from types import SimpleNamespace
-from unittest.mock import MagicMock
 
 import pytest
 from pydantic import ValidationError as PydanticValidationError
@@ -254,34 +252,6 @@ def test_file_content_accepts_snake_case_mime_type_but_dumps_a2a_field():
     assert content.mimeType == "image/png"
     assert content.model_dump(mode="json")["mimeType"] == "image/png"
     assert "mime_type" not in content.model_dump(mode="json")
-
-
-@pytest.mark.asyncio
-async def test_auth_config_binds_authorized_parties(monkeypatch):
-    import common.auth as auth
-
-    captured = {}
-
-    def fake_authenticate_request(request, options):
-        captured["authorized_parties"] = options.authorized_parties
-        captured["secret_key"] = options.secret_key
-        return SimpleNamespace(
-            is_signed_in=True,
-            payload={"sub": "user-1", "sid": "session-1"},
-        )
-
-    monkeypatch.setattr(auth, "authenticate_request", fake_authenticate_request)
-
-    auth.bind_auth_config(
-        clerk_secret_key_value="secret",
-        authorized_parties=("https://test.example",),
-    )
-    user = await auth.verify_clerk_token_from_request(MagicMock())
-
-    assert user.user_id == "user-1"
-    assert captured["secret_key"] == "secret"
-    assert captured["authorized_parties"] == ("https://test.example",)
-    assert "AUTHORIZED_PARTIES" not in Path("common/auth.py").read_text()
 
 
 def test_delivery_dtos_accept_optional_trace_and_correlation_fields():

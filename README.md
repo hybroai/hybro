@@ -89,7 +89,13 @@ instead: `npm install -g @hybroai/cli`. Both install the same script.
 `hybro` (or `hybro start`) pulls the image for its own version, starts the
 container, waits until it is ready, prints the address, and then shows only
 errors (`hybro logs -f` shows everything); Ctrl-C stops Hybro.
-`hybro start -d` runs it in the background.
+`hybro start -d` runs it in the background; `hybro status` then prints the
+address once it is ready.
+
+Until the owner account exists, `hybro` and `hybro status` also print a setup
+link, `http://localhost:3000/setup#<code>`. The code after the `#` works once
+and stops after 24 hours or when a newer link is printed, and it appears only
+in that output, never in the logs.
 
 | | Released install | Source checkout |
 |---|---|---|
@@ -144,14 +150,34 @@ with **Sign in again** for the last.
 **Run on a server**
 
 `hybro` listens on `127.0.0.1` by default. `--listen <address>` serves the app on
-another address, for example `hybro start -d --listen 0.0.0.0 --port 443`. A
-non-loopback listener requires sign-in (Clerk) and a `frontend.server_url`, or
-the explicit `--insecure-no-auth` for a trusted network. MCP is served only on a
-loopback listener.
+another address, for example `hybro start -d --listen 0.0.0.0 --port 443`. The
+Panel needs the owner's sign-in on every listener, but the Source API still
+takes requests without a source token, so a non-loopback listener needs the
+explicit `--insecure-no-auth`, for a trusted network only. MCP is served only on
+a loopback listener. Without HTTPS the sign-in cookie and password cross the
+network in the clear; the setup and sign-in pages warn when they are opened
+over plain HTTP from another machine. Reached by a name (a domain, a LAN name
+such as `nas.local`, or a MagicDNS name), Hybro needs that address in `frontend.server_url` in `config.json` (for example
+`{"frontend": {"server_url": "https://hybro.example.com"}}`); without it every
+request on that name is refused with 421 `unknown_host`, which keeps other
+websites out through DNS rebinding. An IP address needs no setting. A reverse
+proxy in front of Hybro must keep the `Host` header (nginx replaces it by
+default): a `Host` replaced with a name (such as `hybro:3100`) is refused with
+421 on every request (`unknown_host` on a public listener; on a loopback
+listener Caddy answers first, with no body), and one replaced with an IP or
+loopback address fails every change in the Panel with 403
+`cross_site_request`.
 
 ### 3. Open the app
 
-Open the address that `hybro` prints. The **Overview** page shows your chats,
+Open the setup link that `hybro` prints and create the owner account: name,
+email and password. Hybro has one account, and the Panel asks for its sign-in
+on every install. Without a browser, `hybro owner create` creates it (see
+[Running](#running)); a forgotten password is reset with
+`hybro owner reset-password` on the machine. The menu at the bottom of the
+sidebar holds the profile, the password, the signed-in browsers, and sign out.
+
+The **Overview** page shows your chats,
 the five bundled agents, and whether the MCP gateway is ready. Until a model
 provider is set up, its banner links to **Settings**.
 
@@ -280,10 +306,10 @@ earlier one is still active returns `busy`.
 From an MCP client, the same loop is three tools: `discover_agents`,
 `send_message`, and `check_session`.
 
-These calls need no token in the default local mode. With sign-in turned on
-(`backend.auth_mode` set to `clerk`), they need a source token in an
-`Authorization: Bearer` header; create one with
-`hybro source create --name <name>`.
+These calls need no token by default. They are refused with 503 `no_account`
+until the owner account exists. With the deprecated `backend.auth_mode` set to
+`clerk`, they need a source token in an `Authorization: Bearer` header; create
+one with `hybro source create --name <name>`.
 
 ## Running
 
@@ -291,7 +317,7 @@ These calls need no token in the default local mode. With sign-in turned on
 hybro                        # start, then show only errors; Ctrl-C stops Hybro
 hybro start -d               # start in the background
 hybro start --port 4000      # another host port (the default is 3000, 3100 from a checkout)
-hybro status                 # running or not, with the address
+hybro status                 # running or not, the address, and the setup link until the account exists
 hybro logs -f                # follow the logs; docker logs options pass through
 hybro logs --service backend --level warning   # one program, warnings and worse
 hybro logs --trace <id>      # one request: its X-Request-ID or trace id
@@ -308,7 +334,7 @@ From a checkout, `./scripts/hybro start --build` rebuilds `hybro:dev` from the
 working tree and `--recreate` replaces a running container. Start options are
 flags only; environment variables do not become a second configuration source.
 Configuration changes apply after `hybro stop` and `hybro`, except the model
-provider, which applies at once. The admin-only Settings API restarts the
+provider, which applies at once. The owner-only Settings API restarts the
 services in place and applies the log level live; see
 [docs/configuration.md](docs/configuration.md#settings-api).
 
@@ -341,8 +367,7 @@ never a command-line option. It needs 8 to 1,024 characters. When
 `create` names them and takes `--owner-id <id>`. They exit 0 when done, 1 when
 refused with nothing changed (the account exists, no account yet, an invalid
 field or password), and 2 when they could not run or the outcome is unknown
-(a server error or no answer within 30 seconds). The Panel does not ask for
-this account yet.
+(a server error or no answer within 30 seconds).
 
 ## Configuration
 
@@ -350,7 +375,7 @@ Configuration lives in `~/.hybro/` (or the absolute path in `HYBRO_HOME`):
 `config.json` holds settings and `auth.json` holds credentials. Set up the model
 provider on the **Settings** page; it applies at once. Other settings are read
 at startup: edit `config.json` and run `hybro stop && hybro`, or save them
-through the admin-only Settings API (`/api/v1/settings`), which uses the same
+through the owner-only Settings API (`/api/v1/settings`), which uses the same
 validation, applies the log level live, and restarts the services in place for
 the rest. Repository `.env` files are not read.
 
@@ -384,6 +409,28 @@ pulls the new image. A running container is started again on the new image with
 the same port and listener. Once a day `hybro` also prints a one-line notice
 when a newer release exists; `HYBRO_NO_UPDATE_CHECK=1` turns it off. A checkout
 is updated with `git pull` and `./scripts/hybro start --build --recreate`.
+
+**Upgrading to the owner sign-in.** The release that adds the owner account
+changes these for every install:
+
+- Sign-in is required on every install. The first visit after the upgrade
+  needs the setup link that `hybro` prints, once; no data moves, and the new
+  account keeps the chats, sessions and settings of the install.
+- Connected programs (MCP clients and scripts on the Source API) are refused
+  with 503 `no_account` until the account exists.
+- Clerk sign-in and the `?token=` query parameter on the event stream stop
+  working; a Clerk token opens nothing. The Clerk settings are still accepted
+  and ignored; see
+  [docs/configuration.md](docs/configuration.md#deprecated-settings).
+- A configuration with `backend.auth_mode` set to `clerk` and a
+  `frontend.server_url` no longer opens a public listener without
+  `--insecure-no-auth`; such a start fails until the flag is passed.
+- A reverse proxy in front of Hybro must keep the `Host` header, or requests
+  are refused: 421 `unknown_host` when it sends another name, 403
+  `cross_site_request` on changes when it sends an IP address.
+- An install reached by a name (a domain, a LAN or a MagicDNS name) must set
+  `frontend.server_url` to that address, or every request on it is refused with 421 `unknown_host`.
+  Loopback names and IP addresses need no setting.
 
 ### Upgrading from 0.3
 

@@ -12,10 +12,9 @@ from a2a_adapter import bounded_http, card_resolver, client_facade, inspection
 from a2a_adapter.agent_card_health import probe_agent_card_for_health
 from a2a_adapter.card_resolver import AgentCardResolverImpl
 from api_gateway.dependencies import get_agent_catalog, get_inspection_center
-from common import auth
-from common.auth import get_current_user
 from common.dto import AgentRouteResponse
 from tests.fakes.a2a_v1 import make_agent_card
+from tests.fakes.account import sign_out
 
 _SECRET_DETAIL = "internal detail 10.1.2.3:8080 token=abc"
 _URL_ROUTES = (
@@ -44,12 +43,7 @@ def url_route_api(monkeypatch, app):
 
 
 def _sign_out(monkeypatch, app):
-    app.dependency_overrides.pop(get_current_user, None)
-    monkeypatch.setattr(
-        auth,
-        "authenticate_request",
-        lambda request, options: SimpleNamespace(is_signed_in=False, payload=None),
-    )
+    sign_out(app, monkeypatch)
 
 
 @pytest.mark.parametrize("path", _URL_ROUTES)
