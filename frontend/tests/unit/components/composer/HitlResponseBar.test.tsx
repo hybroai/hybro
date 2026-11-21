@@ -386,6 +386,14 @@ describe('HitlResponseBar decisions', () => {
     expect(screen.queryByText(/HYBRO AI/)).toBeNull()
   })
 
+  it('wraps a long unbroken prompt so none of it runs out of view', () => {
+    const prompt = `Allow this call to Echo?\n\n${'x'.repeat(1500)}`
+    renderBar([{ ...baseHitl, source: 'system', agentName: undefined, prompt, choices: ['Approve', 'Reject'] }])
+
+    const shown = screen.getByText((_content, element) => element?.textContent === prompt && element.tagName === 'P')
+    expect(shown.className).toContain('[overflow-wrap:anywhere]')
+  })
+
   it('keeps HYBRO AI as the asker of a supervisor question', () => {
     renderBar([{ ...baseHitl, source: 'supervisor', agentName: undefined }])
 

@@ -1138,8 +1138,28 @@ is recorded in the ledger for a held call.
   `supervisor_run` route, source and evidence origin `system`, prompt type
   `approval`, choices `Approve` and `Reject`, `source_step_id` the call id,
   and the interaction id `sha256("{run}:rule-ask:{call}")`. The prompt is
-  "Allow this call to {agent}?" followed by the call's `task` text, passed
-  through the public text sanitizer and cut to 2,000 characters. Then one
+  "Allow this call to {agent}?" (the label made one line, with at most two
+  combining marks on a character, and cut to 200 characters), then the kernel's notes, each on its own line, then a blank
+  line and the call's `task` text. The task text is passed through the
+  public text sanitizer; then each control (other than newline and tab),
+  format, line or paragraph separator, private-use, surrogate or unassigned
+  character,
+  variation selector, blank-rendering filler (Hangul fillers, the braille
+  blank, the combining grapheme joiner), and each combining mark past the
+  first two on one character is shown as "?"; other spaces become a plain
+  space and runs of blank lines collapse to one; the result is sanitized
+  again and cut to 2,000 characters, so a cut never splits a secret before
+  it is masked. A longer text adds the note "The task text is {N} characters
+  long; only the first 2,000 are shown below.", N being the length as shown;
+  hidden characters add "The task text has {N} hidden or control characters,
+  shown as "?"."; a call without a `task` string adds "The call has no task
+  text."; and a call
+  with other arguments adds "The call also sends these arguments, not shown:
+  {names}.", the names in sorted order, reduced to ASCII letters, digits,
+  `_`, `-` and `.`, each cut to 64 characters, at most ten and then "and {k}
+  more". The notes come before the task text, so the task text cannot add to
+  or move them, and the whole prompt stays within the 4,000 characters the
+  Room shows. Then one
   checkpoint writes the entry `input_required` with its invocation, public
   call id and `rule_hold` `{rule_id, state: asked}`, and only then the tool
   row's start is emitted under the explicit event id

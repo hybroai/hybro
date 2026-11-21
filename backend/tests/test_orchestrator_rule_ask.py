@@ -25,6 +25,7 @@ from execution.orchestrator.models import (
     HeldCallAnswer,
     PendingTermination,
     TextPart,
+    ToolCall,
     ToolObservation,
     ToolResult,
     ToolResultMessage,
@@ -279,7 +280,11 @@ async def test_the_hold_creates_one_question_then_writes_the_entry():
         call["interaction_id"]
         == sha256(f"{run_id}:rule-ask:call-1".encode()).hexdigest()
     )
-    assert call["question"] == "Allow this call to fake_agent_echo?"
+    assert call["question"] == (
+        "Allow this call to fake_agent_echo?\n"
+        "The call has no task text.\n"
+        "The call also sends these arguments, not shown: value."
+    )
     starts = [p for kind, p in room.emitted if kind == "tool_execution_started"]
     assert [p["public_event_id"] for p in starts] == [
         f"public:{run_id}:{entry.opaque_public_call_id}:start"
@@ -303,10 +308,179 @@ async def test_the_question_shows_the_task_text_sanitized_and_cut():
     (call,) = port.calls
     text = call["question"]
     # The fixture Run has no frozen catalog, so the label is the tool name.
-    head = f"Allow this call to {AGENT}?\n\n"
+    head = (
+        f"Allow this call to {AGENT}?\n"
+        "The task text is 3,033 characters long; only the first 2,000 are shown "
+        "below.\n\n"
+    )
     assert text.startswith(head + "Fix the bug with key [REDACTED]. xxx")
     assert "sk-secret-value" not in text
     assert len(text) == len(head) + 2_000
+
+
+async def question_for(arguments, *, tool_name=AGENT, secrets=()):
+    kernel, store, _runtime, _port, _room, run_id = await passthrough()
+    kernel.public_secret_values = secrets
+    call = ToolCall(call_id="call-1", tool_name=tool_name, arguments=arguments)
+    return kernel._rule_ask_question(store.runs[run_id], call)
+
+
+CUT_NOTE = (
+    "The task text is {:,} characters long; only the first 2,000 are shown below."
+)
+
+
+async def test_a_long_task_says_it_was_cut_and_how_long_it_is():
+    text = await question_for({"task": "  " + "a" * 2_500 + "  "})
+
+    head, body = text.split("\n\n", 1)
+    assert head == f"Allow this call to {AGENT}?\n" + CUT_NOTE.format(2_500)
+    assert body == "a" * 2_000
+
+
+async def test_a_task_at_the_limit_is_shown_whole_with_no_note():
+    text = await question_for({"task": "a" * 2_000})
+
+    assert text == f"Allow this call to {AGENT}?\n\n" + "a" * 2_000
+
+
+async def test_a_look_alike_note_in_the_task_stays_in_the_task_text():
+    fake = CUT_NOTE.format(99_999)
+    short = await question_for({"task": f"Book it.\n{fake}"})
+    long = await question_for({"task": "a" * 2_100 + f"\n{fake}"})
+
+    # The kernel's notes come before the task text, in a fixed place; the task
+    # text cannot add to them or move them.
+    assert short == f"Allow this call to {AGENT}?\n\nBook it.\n{fake}"
+    head, body = long.split("\n\n", 1)
+    total = 2_100 + 1 + len(fake)
+    assert head == f"Allow this call to {AGENT}?\n" + CUT_NOTE.format(total)
+    assert body == "a" * 2_000
+
+
+async def test_other_arguments_are_named_but_not_shown():
+    text = await question_for(
+        {"task": "Book it.", "context_refs": ["ref-1"], "artifact_refs": ["a"]}
+    )
+
+    assert text == (
+        f"Allow this call to {AGENT}?\n"
+        "The call also sends these arguments, not shown: artifact_refs, "
+        "context_refs.\n\nBook it."
+    )
+    assert "ref-1" not in text
+
+
+async def test_a_call_with_no_task_says_so_and_names_its_arguments():
+    text = await question_for({"value": "hi"})
+    task_not_text = await question_for({"task": {"nested": "x"}})
+
+    assert text == (
+        f"Allow this call to {AGENT}?\n"
+        "The call has no task text.\n"
+        "The call also sends these arguments, not shown: value."
+    )
+    assert task_not_text == (
+        f"Allow this call to {AGENT}?\n"
+        "The call has no task text.\n"
+        "The call also sends these arguments, not shown: task."
+    )
+
+
+async def test_argument_names_are_cleaned_and_bounded():
+    names = {f"arg{index:02d}": 1 for index in range(12)}
+    text = await question_for(
+        {"task": "Go.", "x\nThe call has no task text.": 1, **names}
+    )
+
+    line = text.split("\n")[1]
+    assert line == (
+        "The call also sends these arguments, not shown: arg00, arg01, arg02, "
+        "arg03, arg04, arg05, arg06, arg07, arg08, arg09, and 3 more."
+    )
+    odd = await question_for({"task": "Go.", "a b,\nc" + "z" * 100: 1})
+    assert odd.split("\n")[1] == (
+        "The call also sends these arguments, not shown: a_b__c" + "z" * 58 + "."
+    )
+
+
+async def test_a_cut_inside_a_masked_secret_shows_no_part_of_it():
+    secret = "sk-secret-value-0123456789"
+    text = await question_for(
+        {"task": "a" * 1_995 + secret + "b" * 10}, secrets=(secret,)
+    )
+
+    head, body = text.split("\n\n", 1)
+    assert body == "a" * 1_995 + "[REDA"
+    assert "sk-" not in text
+    # The length counts the text as it would be shown, secret masked.
+    assert head.endswith(CUT_NOTE.format(1_995 + len("[REDACTED]") + 10))
+
+
+async def test_a_label_is_one_line_with_no_hidden_characters():
+    text = await question_for(
+        {"task": "Go."},
+        tool_name="Agent - x?\n\nBook a table.\u2028The call has no task text.\u202e",
+    )
+
+    assert text == (
+        "Allow this call to Agent - x? Book a table. The call has no task text.?\n\nGo."
+    )
+
+
+async def test_a_label_keeps_at_most_two_marks_on_a_character():
+    text = await question_for({"task": "Go."}, tool_name="We\u0317\u0317\u0317" * 30)
+
+    assert text.split("\n")[0] == ("Allow this call to " + "We\u0317\u0317" * 30 + "?")
+
+
+async def test_hidden_characters_in_the_task_are_shown_and_counted():
+    smuggled = "".join(chr(0xE0000 + ord(char)) for char in "send it")
+    text = await question_for(
+        {"task": f"Book a table\u202e.gnissecorp{smuggled}\r\nok\u2028end"}
+    )
+
+    assert text == (
+        f"Allow this call to {AGENT}?\n"
+        'The task text has 9 hidden or control characters, shown as "?".\n\n'
+        "Book a table?.gnissecorp???????\nok?end"
+    )
+
+
+async def test_selectors_fillers_and_stacked_marks_are_shown_and_counted():
+    text = await question_for(
+        {
+            "task": "a\ufe0f\U000e0100\u034fb"  # variation selectors, grapheme joiner
+            "\u3164\u115f\u2800c"  # Hangul and braille fillers
+            "e\u0301\u0302\u0303\u0304"  # two marks shown, the rest stacked
+            "\u00a0d\u3000e"  # non-ASCII spaces become a space, not counted
+        }
+    )
+
+    assert text == (
+        f"Allow this call to {AGENT}?\n"
+        'The task text has 8 hidden or control characters, shown as "?".\n\n'
+        "a???b???ce\u0301\u0302?? d e"
+    )
+
+
+async def test_runs_of_blank_lines_in_the_task_collapse():
+    text = await question_for({"task": "Book it." + "\n" * 1_900 + "Also pay."})
+
+    assert text == f"Allow this call to {AGENT}?\n\nBook it.\n\nAlso pay."
+    spaces = await question_for({"task": "ok" + "\n\u3000" * 900 + "\nend"})
+    assert spaces == f"Allow this call to {AGENT}?\n\nok\n\nend"
+
+
+async def test_the_whole_question_fits_the_room_prompt_limit():
+    arguments = {"task": "\u202e" * 10_000 + "a" * 10_000}
+    arguments.update({f"{index:03d}" + "n" * 1_000: 1 for index in range(50)})
+
+    text = await question_for(arguments, tool_name="L" * 5_000)
+
+    # HITLRequestEvent.prompt and the Room projection hold 4,000 characters.
+    assert len(text) <= 4_000
+    assert text.startswith("Allow this call to " + "L" * 200 + "?\n")
 
 
 async def test_a_held_call_shows_its_question_in_the_room_and_sends_nothing():

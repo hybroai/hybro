@@ -78,6 +78,11 @@ RULE_ASK_APPROVE = "Approve"
 RULE_ASK_REJECT = "Reject"
 # The longest call task text a check rule's question shows the owner.
 RULE_ASK_TASK_TEXT_LIMIT = 2_000
+# Bounds on the rest of the question, so that the whole of it stays inside the
+# 4,000 characters the Room shows of a question prompt.
+RULE_ASK_LABEL_LIMIT = 200
+RULE_ASK_ARGUMENT_NAME_LIMIT = 64
+RULE_ASK_ARGUMENT_NAMES_SHOWN = 10
 # Bounded in-kernel re-dispatch of a model-reply join after a recoverable
 # transport suspension. Exhausting the budget terminalizes the join with a
 # diagnostic failure instead of stalling the Run in waiting_external.
