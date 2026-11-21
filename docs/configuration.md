@@ -68,9 +68,9 @@ progress to `/tmp/hybro/restart.json`. Both are runtime records inside the
 container, rewritten on each start or restart; neither is a configuration
 source.
 
-Whether the Source API requires a source token is product state, not
+Whether the Client API requires a client token is product state, not
 configuration: the backend stores it in its database, the owner changes it
-under Access, Sources without a restart, and no file or variable sets it.
+under Access, Clients without a restart, and no file or variable sets it.
 
 ## Edit configuration
 
@@ -307,7 +307,7 @@ no configuration file fails to load, and are removed in a later release:
 
 | Field | Now |
 |---|---|
-| `backend.auth_mode` | Turns no sign-in on or off. It still decides two things: which identity the owner account takes when it is created (with `clerk`, an id in `backend.admin_user_ids`; otherwise `user_local_developer`), and, with `clerk`, that the Source API refuses requests without a source token. |
+| `backend.auth_mode` | Turns no sign-in on or off. It still decides two things: which identity the owner account takes when it is created (with `clerk`, an id in `backend.admin_user_ids`; otherwise `user_local_developer`), and, with `clerk`, that the Client API refuses requests without a client token. |
 | `backend.admin_user_ids` | Read only with `backend.auth_mode` set to `clerk`, as above. The admin rule is the signed-in owner. |
 | `clerk_secret_key`, `clerk_webhook_secret` (in `auth.json`) | Ignored. A Clerk token opens nothing. |
 | `frontend.clerk_*`, `frontend.enable_waitlist` | Ignored. |

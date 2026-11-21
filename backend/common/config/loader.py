@@ -201,7 +201,7 @@ class Settings(BaseModel):
     # install. Still accepted so no configuration fails to load; removed in a
     # later release. ``clerk_secret_key`` is ignored. ``auth_mode`` decides
     # only the owner account's id (with ``admin_user_ids``) and whether the
-    # source-token requirement starts on.
+    # client-token requirement starts on.
     clerk_secret_key: str = ""
     auth_mode: Literal["mock", "clerk"] = "mock"
     # With ``auth_mode`` "clerk": the stored identity the owner account takes

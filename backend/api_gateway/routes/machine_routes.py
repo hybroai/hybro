@@ -30,9 +30,9 @@ from api_gateway.owner_session import (
 )
 from api_gateway.registry import mark_declared_owner
 from client.protocols import (
+    ClientCreate,
     ClientRegistry,
-    SourceCreate,
-    SourceWithToken,
+    ClientWithToken,
     TokenRequirement,
     TokenRequirementUnset,
 )
@@ -107,21 +107,21 @@ async def machine_reset_password(
     return Response(status_code=204)
 
 
-@router.post("/sources", status_code=201)
-async def machine_create_source(
-    body: SourceCreate, sources: MachineClientsDependency
-) -> SourceWithToken:
-    """Create a source for ``hybro source create``; its token is returned once."""
-    return await sources.create(body.name)
+@router.post("/clients", status_code=201)
+async def machine_create_client(
+    body: ClientCreate, clients: MachineClientsDependency
+) -> ClientWithToken:
+    """Create a client for ``hybro client create``; its token is returned once."""
+    return await clients.create(body.name)
 
 
-@router.get("/sources/token-requirement")
+@router.get("/clients/token-requirement")
 async def machine_get_token_requirement(
-    sources: MachineClientsDependency,
+    clients: MachineClientsDependency,
 ) -> TokenRequirement:
     """The owner's switch, for the warning ``hybro`` prints; read only."""
     try:
-        return await sources.token_requirement()
+        return await clients.token_requirement()
     except TokenRequirementUnset:
         refuse_unset_requirement()
 

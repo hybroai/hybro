@@ -143,7 +143,7 @@ the `hybro_session` cookie is marked `Secure`. If something is wrong:
 | The setup or sign-in page warns about plain HTTP | The page itself was opened over `http://`. |
 
 Programs and MCP clients use the same address, `https://hybro.example.com`
-and `https://hybro.example.com/mcp`, with a source token.
+and `https://hybro.example.com/mcp`, with a client token.
 
 With `backend.proxy_hops` above 0, the `client_ip` in Hybro's own access log
 (`caddy |` lines in `hybro logs`) is the leftmost `X-Forwarded-For` entry,

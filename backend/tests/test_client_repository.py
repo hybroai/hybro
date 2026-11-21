@@ -16,7 +16,7 @@ NOW = datetime(2026, 11, 20, tzinfo=UTC)
 
 def _record(**overrides) -> ClientRecord:
     values = {
-        "client_id": "src_1",
+        "client_id": "client_1",
         "name": "CI bot",
         "token_hash": "a" * 64,
         "token_last4": "wxyz",
@@ -67,21 +67,21 @@ async def test_insert_get_and_lookup_by_hash():
     await repository.insert(record)
     collection.find_one.return_value = record.model_dump()
     by_hash = await repository.get_by_token_hash("a" * 64)
-    by_id = await repository.get("src_1")
+    by_id = await repository.get("client_1")
 
-    assert collection.insert_one.await_args.args[0]["client_id"] == "src_1"
+    assert collection.insert_one.await_args.args[0]["client_id"] == "client_1"
     assert by_hash == by_id == record
     queries = [call.args[0] for call in collection.find_one.await_args_list]
-    assert queries == [{"token_hash": "a" * 64}, {"client_id": "src_1"}]
+    assert queries == [{"token_hash": "a" * 64}, {"client_id": "client_1"}]
 
 
 async def test_update_live_only_skips_a_revoked_client():
     repository, collection = _repository()
 
-    assert await repository.update("src_1", {"name": "x"}, live_only=True) is None
+    assert await repository.update("client_1", {"name": "x"}, live_only=True) is None
 
     query, update = collection.find_one_and_update.await_args.args
-    assert query == {"client_id": "src_1", "revoked_at": None}
+    assert query == {"client_id": "client_1", "revoked_at": None}
     assert update == {"$set": {"name": "x"}}
     assert (
         collection.find_one_and_update.await_args.kwargs["return_document"]
@@ -93,19 +93,19 @@ async def test_list_by_ids_queries_only_those_ids():
     repository, collection = _repository()
     collection.find.return_value = [_record().model_dump()]
 
-    found = await repository.list_by_ids(["src_1", "src_2"])
+    found = await repository.list_by_ids(["client_1", "client_2"])
 
-    assert [r.client_id for r in found] == ["src_1"]
+    assert [r.client_id for r in found] == ["client_1"]
     assert collection.find.await_args.args[0] == {
-        "client_id": {"$in": ["src_1", "src_2"]}
+        "client_id": {"$in": ["client_1", "client_2"]}
     }
 
 
 async def test_touch_sets_last_use():
     repository, collection = _repository()
-    await repository.touch("src_1", NOW, "mcp")
+    await repository.touch("client_1", NOW, "mcp")
     collection.update_one.assert_awaited_once_with(
-        {"client_id": "src_1"},
+        {"client_id": "client_1"},
         {"$set": {"last_used_at": NOW, "last_used_via": "mcp"}},
     )
 

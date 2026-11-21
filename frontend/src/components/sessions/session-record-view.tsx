@@ -33,7 +33,7 @@ import { getAgentAvatarUri } from '@/lib/agent-avatar'
 import { parseHitlPresentation } from '@/lib/hitl/presentation'
 import { routes } from '@/lib/routes'
 import { hitlLifecycleState } from '@/lib/selectors/select-hitl'
-import { formatSessionDuration, formatSessionTime, sessionAgentNames, sessionClientLabel, sessionRequester } from '@/lib/session-format'
+import { formatSessionDuration, formatSessionTime, sessionAgentNames, sessionClientLabel, sessionClientName } from '@/lib/session-format'
 import { ClientLabel } from './client-label'
 import { SESSION_LIST_QUERY_STORAGE_KEY, sessionName } from '@/lib/session-list-state'
 import { foldSessionEvents, type ExchangeItem, type SessionExchange } from '@/lib/session-record'
@@ -94,9 +94,9 @@ function listHref(): string {
 
 // ── Record ──────────────────────────────────────────────────────────────
 
-type Actor = 'requester' | 'agent' | 'owner'
+type Actor = 'client' | 'agent' | 'owner'
 
-// A registered agent shows its own avatar; the external requester, or an
+// A registered agent shows its own avatar; the external client, or an
 // agent the session no longer lists, shows a generic agent avatar.
 function Avatar({ actor, agentId }: { actor: Actor; agentId?: string }) {
   if (actor === 'agent' && agentId) {
@@ -193,16 +193,16 @@ function Reply({ text }: { text: string }) {
   )
 }
 
-function ExchangeEntries({ exchange, requester, agents, waitingBelow }: {
+function ExchangeEntries({ exchange, client, agents, waitingBelow }: {
   exchange: SessionExchange
-  requester: string
+  client: string
   agents: SessionRecord['agents']
   waitingBelow: boolean
 }) {
   const agent = exchange.agentName ?? 'The agent'
   const agentId = agents.find(item => item.name === exchange.agentName)?.agent_id
   const entries: ReactNode[] = [
-    <Entry key="sent" actor="requester" name={requester} action={exchange.agentName ? `asked ${exchange.agentName}` : 'sent a request'} at={exchange.startedAt}>
+    <Entry key="sent" actor="client" name={client} action={exchange.agentName ? `asked ${exchange.agentName}` : 'sent a request'} at={exchange.startedAt}>
       <p className="whitespace-pre-wrap">{exchange.task ?? 'Request text unavailable'}</p>
     </Entry>,
   ]
@@ -292,7 +292,7 @@ function DetailsPanel({ record, requests, closing, onClose }: {
       <h2 id="session-details" className="text-sm font-medium">Details</h2>
       <dl className="flex flex-col gap-3.5">
         <Detail label="Status"><StatusIndicator view={sessionStateView(record.state)} /></Detail>
-        <Detail label="Requester">{sessionRequester(record)}</Detail>
+        <Detail label="Client">{sessionClientName(record)}</Detail>
         {sessionClientLabel(record) ? (
           <Detail label="Client label"><ClientLabel label={sessionClientLabel(record)!} className="block text-sm" /></Detail>
         ) : null}
@@ -317,7 +317,7 @@ function DetailsPanel({ record, requests, closing, onClose }: {
             <AlertDialogHeader>
               <AlertDialogTitle>Close this session?</AlertDialogTitle>
               <AlertDialogDescription>
-                Any pending question or running request is canceled, and the requester can no longer send messages here. The record stays available.
+                Any pending question or running request is canceled, and the client can no longer send messages here. The record stays available.
               </AlertDialogDescription>
             </AlertDialogHeader>
             <AlertDialogFooter>
@@ -463,7 +463,7 @@ export function SessionRecordView({ sessionId }: { sessionId: string }) {
                   <ol className="flex flex-col gap-6">
                     <ExchangeEntries
                       exchange={exchange}
-                      requester={sessionRequester(data)}
+                      client={sessionClientName(data)}
                       agents={data.agents}
                       waitingBelow={deciding && exchange.status === 'waiting'}
                     />

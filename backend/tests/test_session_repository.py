@@ -25,7 +25,7 @@ def _record(**overrides) -> SessionRecord:
         "session_id": "sess-1",
         "owner_user_id": "owner-1",
         "client_label": "Buyer agent",
-        "client_id": "src_ci",
+        "client_id": "client_ci",
         "creation_request_id": "cr-1",
         "opened_at": NOW,
         "last_activity_at": NOW,
@@ -129,12 +129,12 @@ async def test_ensure_indexes_drops_the_index_keyed_on_source_id_first():
 def test_a_session_stored_before_the_rename_reads_without_a_client():
     doc = _record().model_dump()
     del doc["client_id"]
-    doc["source_id"] = "src_ci"
+    doc["source_id"] = "client_ci"
     doc["requests"] = [
         {
             "client_request_id": "cr-1",
             "user_message_id": "msg-1",
-            "source_id": "src_ci",
+            "source_id": "client_ci",
             "sent_at": NOW,
         }
     ]
@@ -171,7 +171,7 @@ async def test_reserve_returns_existing_record_on_duplicate_creation_request():
     assert stored.session_id == "sess-existing"
     assert collection.find_one.await_args.args[0] == {
         "owner_user_id": "owner-1",
-        "client_id": "src_ci",
+        "client_id": "client_ci",
         "creation_request_id": "cr-1",
     }
 
@@ -226,7 +226,7 @@ async def test_record_send_and_close_update_fields():
         "sess-1",
         client_request_id="cr-2",
         user_message_id="msg-2",
-        client_id="src_ci",
+        client_id="client_ci",
         event_seq=7,
         at=NOW,
     )
@@ -248,7 +248,7 @@ async def test_record_send_and_close_update_fields():
             "requests": {
                 "client_request_id": "cr-2",
                 "user_message_id": "msg-2",
-                "client_id": "src_ci",
+                "client_id": "client_ci",
                 "sent_at": NOW,
             }
         },
@@ -273,7 +273,7 @@ async def test_record_send_of_a_recorded_request_does_not_append_it_again():
         "sess-1",
         client_request_id="cr-2",
         user_message_id="msg-2",
-        client_id="src_ci",
+        client_id="client_ci",
         event_seq=7,
         at=NOW,
     )

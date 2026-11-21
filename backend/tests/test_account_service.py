@@ -1092,7 +1092,7 @@ async def test_a_failed_cleanup_keeps_the_first_error_and_other_browsers():
     assert set(store.sessions) == {other.session_id}
 
 
-# ---- The owner a Source API request acts for ----
+# ---- The owner a Client API request acts for ----
 
 
 @pytest.mark.asyncio

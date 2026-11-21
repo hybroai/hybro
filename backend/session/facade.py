@@ -45,6 +45,7 @@ from models.room import MAX_MESSAGE_LENGTH
 from models.session import (
     RECEIPT_TIP,
     SessionAgent,
+    SessionClient,
     SessionClosed,
     SessionHistoryEntry,
     SessionListResponse,
@@ -52,7 +53,6 @@ from models.session import (
     SessionMessageResponse,
     SessionOwnerRecord,
     SessionReceiptStatus,
-    SessionSource,
     SessionState,
     SessionStatus,
     SessionSummary,
@@ -278,7 +278,7 @@ class SessionFacade:
             sessions=[
                 SessionSummary(
                     session_id=record.session_id,
-                    source=status.source,
+                    client=status.client,
                     client_label=record.client_label,
                     title=record.title,
                     agents=status.agents,
@@ -336,7 +336,7 @@ class SessionFacade:
             if label is None and not client.has_token:
                 raise _error(
                     "invalid_request",
-                    "client_label is required to open a session without a source token",
+                    "client_label is required to open a session without a client token",
                 )
             record = await self._open(owner, client, label, client_request_id, text)
             # The reserved record may be an earlier one; it must be this
@@ -388,19 +388,19 @@ class SessionFacade:
 
     async def _client_names(
         self, records: list[SessionRecord]
-    ) -> dict[str, SessionSource]:
+    ) -> dict[str, SessionClient]:
         ids = list(dict.fromkeys(_client_id(record) for record in records))
         known = await self._clients.identities(ids)
         return {
             client_id: (
-                SessionSource(
-                    source_id=identity.client_id,
+                SessionClient(
+                    client_id=identity.client_id,
                     name=identity.name,
                     has_token=identity.has_token,
                 )
                 if (identity := known.get(client_id)) is not None
                 # Clients are never deleted; show an unknown id as it is.
-                else SessionSource(source_id=client_id, name=client_id, has_token=False)
+                else SessionClient(client_id=client_id, name=client_id, has_token=False)
             )
             for client_id in ids
         }
@@ -641,7 +641,7 @@ class SessionFacade:
         return max(times)
 
     async def _owner_record(
-        self, record: SessionRecord, clients: dict[str, SessionSource]
+        self, record: SessionRecord, clients: dict[str, SessionClient]
     ) -> SessionOwnerRecord:
         outcome = await self._outcome(record)
         closed = record.status == "closed"
@@ -653,7 +653,7 @@ class SessionFacade:
         )
         return SessionOwnerRecord(
             session_id=record.session_id,
-            source=clients[_client_id(record)],
+            client=clients[_client_id(record)],
             client_label=record.client_label,
             title=record.title,
             state=state,

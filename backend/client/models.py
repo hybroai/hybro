@@ -23,7 +23,7 @@ from common.utils.time import ensure_utc
 NO_TOKEN_CLIENT_ID = "no_token"
 NO_TOKEN_NAME = "No token"
 # Every token starts with this, so a leaked one is recognisable.
-TOKEN_PREFIX = "hybro_src_"
+TOKEN_PREFIX = "hybro_client_"
 
 # How a client's request reached the Client API: through the MCP server, which
 # marks its requests, or directly.
@@ -89,22 +89,22 @@ class ClientRecord(BaseModel):
         )
 
 
-class SourceCreate(BaseModel):
+class ClientCreate(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     name: ClientName
 
 
-class SourceRename(BaseModel):
+class ClientRename(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     name: ClientName
 
 
-class SourceView(BaseModel):
-    """A source as the owner sees it. It never carries the token."""
+class ClientView(BaseModel):
+    """A client as the owner sees it. It never carries the token."""
 
-    source_id: str
+    client_id: str
     name: str
     has_token: bool
     token_last4: str | None = None
@@ -116,18 +116,18 @@ class SourceView(BaseModel):
     _utc_times = field_validator("created_at", "last_used_at", "revoked_at")(_utc)
 
 
-class SourceWithToken(SourceView):
-    """A source with its new token, returned once by create and rotate."""
+class ClientWithToken(ClientView):
+    """A client with its new token, returned once by create and rotate."""
 
     token: str = Field(repr=False)
 
 
-class SourceList(BaseModel):
-    sources: list[SourceView] = Field(default_factory=list)
+class ClientList(BaseModel):
+    clients: list[ClientView] = Field(default_factory=list)
 
 
 class TokenRequirement(BaseModel):
-    """Whether a Source API request needs a source token (the owner's switch).
+    """Whether a Client API request needs a client token (the owner's switch).
 
     Product state, not configuration: one document, created at backend
     startup and changed by the owner in the Panel without a restart.
@@ -155,14 +155,14 @@ __all__ = [
     "NO_TOKEN_NAME",
     "NO_TOKEN_CLIENT_ID",
     "TOKEN_PREFIX",
-    "SourceCreate",
+    "ClientCreate",
     "ClientIdentity",
-    "SourceList",
+    "ClientList",
     "ClientName",
     "ClientRecord",
-    "SourceRename",
-    "SourceView",
-    "SourceWithToken",
+    "ClientRename",
+    "ClientView",
+    "ClientWithToken",
     "TokenRequirement",
     "TokenRequirementChange",
     "Via",

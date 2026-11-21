@@ -342,7 +342,7 @@ jobs:
           echo "Waiting for backend health check..."
           timeout 180s bash -c 'until curl -sf http://localhost:3100/health; do sleep 2; done'
 
-      # The owner's routes need sign-in, and the Source API refuses until the
+      # The owner's routes need sign-in, and the Client API refuses until the
       # account exists. The password is generated here, masked, and reaches
       # `hybro owner create` on stdin only; the later steps sign in with it.
       - name: Create the owner account
@@ -357,17 +357,17 @@ jobs:
             echo "HYBRO_TEST_OWNER_PASSWORD=$password"
           } >> "$GITHUB_ENV"
 
-      # A fresh install requires a source token on the Source API. The helper
+      # A fresh install requires a client token on the Client API. The helper
       # prints the token alone on its last line; it is masked before it can
       # reach the log, and the later steps send it.
-      - name: Create a source token
+      - name: Create a client token
         env:
           HYBRO_NO_UPDATE_CHECK: "1"
         run: |
-          token=$(./scripts/hybro source create --name "CI" | tail -n 1)
+          token=$(./scripts/hybro client create --name "CI" | tail -n 1)
           echo "::add-mask::$token"
           test -n "$token"
-          echo "HYBRO_TEST_SOURCE_TOKEN=$token" >> "$GITHUB_ENV"
+          echo "HYBRO_TEST_CLIENT_TOKEN=$token" >> "$GITHUB_ENV"
 
       - name: Wait for the agents to register
         run: |
@@ -382,7 +382,7 @@ jobs:
           rm -f "$JAR"
           echo "Agents successfully registered!"
 
-      # MCP passes the caller's source token on to the Source API.
+      # MCP passes the caller's client token on to the Client API.
       - name: Verify default MCP startup and tools
         run: |
           uv run --project backend --frozen --extra mcp --no-env-file python - <<'PY'
@@ -397,7 +397,7 @@ jobs:
               async with httpx.AsyncClient(timeout=5) as http:
                   panel = await http.get("http://localhost:3100/hybro-mcp")
                   assert panel.json() == {"service": "hybro-mcp", "status": "ready"}
-              token = os.environ["HYBRO_TEST_SOURCE_TOKEN"]
+              token = os.environ["HYBRO_TEST_CLIENT_TOKEN"]
               headers = {"Authorization": f"Bearer {token}"}
               async with (
                   httpx2.AsyncClient(headers=headers, timeout=30) as mcp_http,

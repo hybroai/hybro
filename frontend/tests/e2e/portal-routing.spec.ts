@@ -9,7 +9,7 @@ test.describe('Unified portal routing', () => {
       '/chat',
       '/network',
       '/network/agents/new',
-      '/connect/sources',
+      '/connect/clients',
       '/connect/mcp',
       '/connect/api',
       '/agents',

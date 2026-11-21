@@ -570,6 +570,146 @@
     "include_in_schema": true
   },
   {
+    "path": "/api/v1/clients",
+    "methods": [
+      "GET"
+    ],
+    "name": "list_clients",
+    "endpoint_module": "api_gateway.routes.client_routes",
+    "declared_owner": "api_gateway.routes.client_routes",
+    "tags": [
+      "clients"
+    ],
+    "status_code": null,
+    "dependencies": [
+      "get_owner_clients"
+    ],
+    "auth_dependencies": [
+      "get_owner_clients"
+    ],
+    "include_in_schema": true
+  },
+  {
+    "path": "/api/v1/clients",
+    "methods": [
+      "POST"
+    ],
+    "name": "create_client",
+    "endpoint_module": "api_gateway.routes.client_routes",
+    "declared_owner": "api_gateway.routes.client_routes",
+    "tags": [
+      "clients"
+    ],
+    "status_code": 201,
+    "dependencies": [
+      "get_owner_clients"
+    ],
+    "auth_dependencies": [
+      "get_owner_clients"
+    ],
+    "include_in_schema": true
+  },
+  {
+    "path": "/api/v1/clients/token-requirement",
+    "methods": [
+      "GET"
+    ],
+    "name": "get_token_requirement",
+    "endpoint_module": "api_gateway.routes.client_routes",
+    "declared_owner": "api_gateway.routes.client_routes",
+    "tags": [
+      "clients"
+    ],
+    "status_code": null,
+    "dependencies": [
+      "get_owner_clients"
+    ],
+    "auth_dependencies": [
+      "get_owner_clients"
+    ],
+    "include_in_schema": true
+  },
+  {
+    "path": "/api/v1/clients/token-requirement",
+    "methods": [
+      "PUT"
+    ],
+    "name": "set_token_requirement",
+    "endpoint_module": "api_gateway.routes.client_routes",
+    "declared_owner": "api_gateway.routes.client_routes",
+    "tags": [
+      "clients"
+    ],
+    "status_code": null,
+    "dependencies": [
+      "get_owner_clients"
+    ],
+    "auth_dependencies": [
+      "get_owner_clients"
+    ],
+    "include_in_schema": true
+  },
+  {
+    "path": "/api/v1/clients/{client_id}",
+    "methods": [
+      "PATCH"
+    ],
+    "name": "rename_client",
+    "endpoint_module": "api_gateway.routes.client_routes",
+    "declared_owner": "api_gateway.routes.client_routes",
+    "tags": [
+      "clients"
+    ],
+    "status_code": null,
+    "dependencies": [
+      "get_owner_clients"
+    ],
+    "auth_dependencies": [
+      "get_owner_clients"
+    ],
+    "include_in_schema": true
+  },
+  {
+    "path": "/api/v1/clients/{client_id}/revoke",
+    "methods": [
+      "POST"
+    ],
+    "name": "revoke_client",
+    "endpoint_module": "api_gateway.routes.client_routes",
+    "declared_owner": "api_gateway.routes.client_routes",
+    "tags": [
+      "clients"
+    ],
+    "status_code": null,
+    "dependencies": [
+      "get_owner_clients"
+    ],
+    "auth_dependencies": [
+      "get_owner_clients"
+    ],
+    "include_in_schema": true
+  },
+  {
+    "path": "/api/v1/clients/{client_id}/rotate",
+    "methods": [
+      "POST"
+    ],
+    "name": "rotate_client_token",
+    "endpoint_module": "api_gateway.routes.client_routes",
+    "declared_owner": "api_gateway.routes.client_routes",
+    "tags": [
+      "clients"
+    ],
+    "status_code": null,
+    "dependencies": [
+      "get_owner_clients"
+    ],
+    "auth_dependencies": [
+      "get_owner_clients"
+    ],
+    "include_in_schema": true
+  },
+  {
     "path": "/api/v1/diagnostics/events",
     "methods": [
       "GET"
@@ -733,6 +873,46 @@
     "include_in_schema": true
   },
   {
+    "path": "/api/v1/machine/clients",
+    "methods": [
+      "POST"
+    ],
+    "name": "machine_create_client",
+    "endpoint_module": "api_gateway.routes.machine_routes",
+    "declared_owner": "api_gateway.routes.machine_routes",
+    "tags": [
+      "machine"
+    ],
+    "status_code": 201,
+    "dependencies": [
+      "get_machine_clients"
+    ],
+    "auth_dependencies": [
+      "get_machine_clients"
+    ],
+    "include_in_schema": true
+  },
+  {
+    "path": "/api/v1/machine/clients/token-requirement",
+    "methods": [
+      "GET"
+    ],
+    "name": "machine_get_token_requirement",
+    "endpoint_module": "api_gateway.routes.machine_routes",
+    "declared_owner": "api_gateway.routes.machine_routes",
+    "tags": [
+      "machine"
+    ],
+    "status_code": null,
+    "dependencies": [
+      "get_machine_clients"
+    ],
+    "auth_dependencies": [
+      "get_machine_clients"
+    ],
+    "include_in_schema": true
+  },
+  {
     "path": "/api/v1/machine/owner",
     "methods": [
       "POST"
@@ -789,46 +969,6 @@
     ],
     "auth_dependencies": [
       "get_machine_account"
-    ],
-    "include_in_schema": true
-  },
-  {
-    "path": "/api/v1/machine/sources",
-    "methods": [
-      "POST"
-    ],
-    "name": "machine_create_source",
-    "endpoint_module": "api_gateway.routes.machine_routes",
-    "declared_owner": "api_gateway.routes.machine_routes",
-    "tags": [
-      "machine"
-    ],
-    "status_code": 201,
-    "dependencies": [
-      "get_machine_clients"
-    ],
-    "auth_dependencies": [
-      "get_machine_clients"
-    ],
-    "include_in_schema": true
-  },
-  {
-    "path": "/api/v1/machine/sources/token-requirement",
-    "methods": [
-      "GET"
-    ],
-    "name": "machine_get_token_requirement",
-    "endpoint_module": "api_gateway.routes.machine_routes",
-    "declared_owner": "api_gateway.routes.machine_routes",
-    "tags": [
-      "machine"
-    ],
-    "status_code": null,
-    "dependencies": [
-      "get_machine_clients"
-    ],
-    "auth_dependencies": [
-      "get_machine_clients"
     ],
     "include_in_schema": true
   },
@@ -1543,146 +1683,6 @@
       "get_setup_reader"
     ],
     "auth_dependencies": [],
-    "include_in_schema": true
-  },
-  {
-    "path": "/api/v1/sources",
-    "methods": [
-      "GET"
-    ],
-    "name": "list_sources",
-    "endpoint_module": "api_gateway.routes.source_routes",
-    "declared_owner": "api_gateway.routes.source_routes",
-    "tags": [
-      "sources"
-    ],
-    "status_code": null,
-    "dependencies": [
-      "get_owner_clients"
-    ],
-    "auth_dependencies": [
-      "get_owner_clients"
-    ],
-    "include_in_schema": true
-  },
-  {
-    "path": "/api/v1/sources",
-    "methods": [
-      "POST"
-    ],
-    "name": "create_source",
-    "endpoint_module": "api_gateway.routes.source_routes",
-    "declared_owner": "api_gateway.routes.source_routes",
-    "tags": [
-      "sources"
-    ],
-    "status_code": 201,
-    "dependencies": [
-      "get_owner_clients"
-    ],
-    "auth_dependencies": [
-      "get_owner_clients"
-    ],
-    "include_in_schema": true
-  },
-  {
-    "path": "/api/v1/sources/token-requirement",
-    "methods": [
-      "GET"
-    ],
-    "name": "get_token_requirement",
-    "endpoint_module": "api_gateway.routes.source_routes",
-    "declared_owner": "api_gateway.routes.source_routes",
-    "tags": [
-      "sources"
-    ],
-    "status_code": null,
-    "dependencies": [
-      "get_owner_clients"
-    ],
-    "auth_dependencies": [
-      "get_owner_clients"
-    ],
-    "include_in_schema": true
-  },
-  {
-    "path": "/api/v1/sources/token-requirement",
-    "methods": [
-      "PUT"
-    ],
-    "name": "set_token_requirement",
-    "endpoint_module": "api_gateway.routes.source_routes",
-    "declared_owner": "api_gateway.routes.source_routes",
-    "tags": [
-      "sources"
-    ],
-    "status_code": null,
-    "dependencies": [
-      "get_owner_clients"
-    ],
-    "auth_dependencies": [
-      "get_owner_clients"
-    ],
-    "include_in_schema": true
-  },
-  {
-    "path": "/api/v1/sources/{source_id}",
-    "methods": [
-      "PATCH"
-    ],
-    "name": "rename_source",
-    "endpoint_module": "api_gateway.routes.source_routes",
-    "declared_owner": "api_gateway.routes.source_routes",
-    "tags": [
-      "sources"
-    ],
-    "status_code": null,
-    "dependencies": [
-      "get_owner_clients"
-    ],
-    "auth_dependencies": [
-      "get_owner_clients"
-    ],
-    "include_in_schema": true
-  },
-  {
-    "path": "/api/v1/sources/{source_id}/revoke",
-    "methods": [
-      "POST"
-    ],
-    "name": "revoke_source",
-    "endpoint_module": "api_gateway.routes.source_routes",
-    "declared_owner": "api_gateway.routes.source_routes",
-    "tags": [
-      "sources"
-    ],
-    "status_code": null,
-    "dependencies": [
-      "get_owner_clients"
-    ],
-    "auth_dependencies": [
-      "get_owner_clients"
-    ],
-    "include_in_schema": true
-  },
-  {
-    "path": "/api/v1/sources/{source_id}/rotate",
-    "methods": [
-      "POST"
-    ],
-    "name": "rotate_source_token",
-    "endpoint_module": "api_gateway.routes.source_routes",
-    "declared_owner": "api_gateway.routes.source_routes",
-    "tags": [
-      "sources"
-    ],
-    "status_code": null,
-    "dependencies": [
-      "get_owner_clients"
-    ],
-    "auth_dependencies": [
-      "get_owner_clients"
-    ],
     "include_in_schema": true
   },
   {

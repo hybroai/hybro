@@ -19,13 +19,13 @@ from common.errors import AppError
 from main import SESSION_MESSAGE_MAX_BYTES, SESSION_MESSAGE_MAX_CONCURRENT, create_app
 from models.session import (
     SessionAgent,
+    SessionClient,
     SessionClosed,
     SessionHistoryEntry,
     SessionListResponse,
     SessionMessageRequest,
     SessionMessageResponse,
     SessionOwnerRecord,
-    SessionSource,
     SessionStatus,
     SessionSummary,
 )
@@ -34,7 +34,7 @@ from session.protocols import OwnerSessionAccess, SessionAccess, SessionOwner
 from tests.fakes.account import sign_out
 
 NOW = datetime(2026, 10, 14, tzinfo=UTC)
-NO_TOKEN_SOURCE = SessionSource(source_id="no_token", name="No token", has_token=False)
+NO_TOKEN_CLIENT = SessionClient(client_id="no_token", name="No token", has_token=False)
 SEND = "/api/v1/sessions/messages"
 
 
@@ -108,7 +108,7 @@ class AccessStub:
             sessions=[
                 SessionSummary(
                     session_id="sess-1",
-                    source=NO_TOKEN_SOURCE,
+                    client=NO_TOKEN_CLIENT,
                     client_label="Buyer agent",
                     state="waiting_on_owner",
                     conversation_id="conv-1",
@@ -122,7 +122,7 @@ class AccessStub:
         self._raise()
         return SessionOwnerRecord(
             session_id=session_id,
-            source=NO_TOKEN_SOURCE,
+            client=NO_TOKEN_CLIENT,
             client_label="Buyer agent",
             state="waiting_on_owner",
             paused_agent_id="agent-1",
@@ -284,8 +284,8 @@ async def test_check_close_list_and_record():
     assert listing.json()["sessions"][0]["conversation_id"] == "conv-1"
     assert close.json() == {"session_id": "sess-1", "status": "closed"}
     assert owner_close.json() == {"session_id": "sess-1", "status": "closed"}
-    assert listing.json()["sessions"][0]["source"] == {
-        "source_id": "no_token",
+    assert listing.json()["sessions"][0]["client"] == {
+        "client_id": "no_token",
         "name": "No token",
         "has_token": False,
     }

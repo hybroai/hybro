@@ -73,7 +73,7 @@ test.describe('Inbox', () => {
     await page.getByRole('searchbox', { name: 'Search sessions' }).fill(label)
     const table = page.getByRole('table', { name: 'Inbox' })
     await expect(table.getByRole('row')).toHaveCount(2)
-    // The Requester is the source CI created, with the client's label beside it.
+    // The Client column shows the client CI created, with the client's label beside it.
     await expect(table.getByRole('cell', { name: `CI “${label}”` })).toBeVisible()
     await table.getByRole('link', { name: 'Generate a travel plan' }).click()
     await expect(page.getByRole('heading', { level: 1, name: 'Generate a travel plan' })).toBeVisible()

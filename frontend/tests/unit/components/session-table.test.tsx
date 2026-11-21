@@ -26,7 +26,7 @@ import { SessionsTablePage } from '@/components/sessions/session-table'
 import { SESSION_LIST_QUERY_STORAGE_KEY } from '@/lib/session-list-state'
 
 const summary = (id: string, title: string | null, label: string | null, state: string, updated: string) => ({
-  session_id: id, client_label: label, source: { source_id: 'src_ci', name: 'CI bot', has_token: true }, title, agents: [{ agent_id: 'travel', name: 'Travel Planner Agent' }], state,
+  session_id: id, client_label: label, client: { client_id: 'client_ci', name: 'CI bot', has_token: true }, title, agents: [{ agent_id: 'travel', name: 'Travel Planner Agent' }], state,
   paused_agent_id: null, conversation_id: `conv-${id}`, opened_at: updated, last_activity_at: updated, closed_at: null,
 })
 
@@ -48,11 +48,11 @@ function rows() {
 }
 
 describe('SessionsTablePage', () => {
-  it('lists sessions as tickets with name, status, requester, and times', () => {
+  it('lists sessions as tickets with name, status, client, and times', () => {
     render(<SessionsTablePage />)
 
     expect(screen.getByRole('heading', { level: 1, name: 'Inbox' })).toBeInTheDocument()
-    for (const name of ['Name', 'Status', 'Requester', 'Created', 'Updated']) {
+    for (const name of ['Name', 'Status', 'Client', 'Created', 'Updated']) {
       expect(screen.getByRole('columnheader', { name: new RegExp(name) })).toBeInTheDocument()
     }
     expect(rows()).toEqual(['Weather in Kyoto', 'Generate a travel plan', 'Untitled session'])
@@ -92,7 +92,7 @@ describe('SessionsTablePage', () => {
     expect(nav.replace).toHaveBeenCalledWith('/sessions?status=waiting_on_owner', { scroll: false })
   })
 
-  it('shows the source as the requester and the client label beside it, marked as given', () => {
+  it('shows the client and the label it gave beside it, marked as given', () => {
     render(<SessionsTablePage />)
     const row = screen.getByRole('link', { name: 'Weather in Kyoto' }).closest('tr')!
     expect(within(row).getAllByText('CI bot').length).toBeGreaterThan(0)
@@ -100,18 +100,18 @@ describe('SessionsTablePage', () => {
     expect(label).toHaveTextContent('Blossom Lettings client')
   })
 
-  it('offers each source once in the requester filter and filters by its id', async () => {
-    data.sessions = [...data.sessions, { ...summary('d', 'Unsigned', 'CI bot', 'completed', '2026-10-15T10:00:00Z'), source: { source_id: 'no_token', name: 'No token', has_token: false } }]
+  it('offers each client once in the client filter and filters by its id', async () => {
+    data.sessions = [...data.sessions, { ...summary('d', 'Unsigned', 'CI bot', 'completed', '2026-10-15T10:00:00Z'), client: { client_id: 'no_token', name: 'No token', has_token: false } }]
     render(<SessionsTablePage />)
-    await userEvent.click(screen.getByRole('button', { name: 'Filter by requester' }))
+    await userEvent.click(screen.getByRole('button', { name: 'Filter by client' }))
     expect(screen.getAllByRole('menuitemcheckbox').map(item => item.textContent)).toEqual(['CI bot', 'No token'])
     await userEvent.click(screen.getByRole('menuitemcheckbox', { name: 'No token' }))
-    expect(nav.replace).toHaveBeenCalledWith('/sessions?source=no_token', { scroll: false })
+    expect(nav.replace).toHaveBeenCalledWith('/sessions?client=no_token', { scroll: false })
   })
 
-  it('opens filtered to one source from a link', () => {
-    data.sessions = [...data.sessions, { ...summary('d', 'Unsigned', 'CI bot', 'completed', '2026-10-15T10:00:00Z'), source: { source_id: 'no_token', name: 'No token', has_token: false } }]
-    nav.query = 'source=no_token'
+  it('opens filtered to one client from a link', () => {
+    data.sessions = [...data.sessions, { ...summary('d', 'Unsigned', 'CI bot', 'completed', '2026-10-15T10:00:00Z'), client: { client_id: 'no_token', name: 'No token', has_token: false } }]
+    nav.query = 'client=no_token'
     render(<SessionsTablePage />)
     // A label that claims to be the CI bot does not put the session under it.
     expect(rows()).toEqual(['Unsigned'])

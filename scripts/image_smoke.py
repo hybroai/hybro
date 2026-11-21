@@ -7,13 +7,13 @@ loopback listener, then:
         python scripts/image_smoke.py http://localhost:<port> <container>
 
 Checks: the UI, API, and MCP answer through Caddy; a foreign Host is refused;
-before the owner account exists the owner's routes and the Source API refuse;
+before the owner account exists the owner's routes and the Client API refuse;
 the owner is created with the container's ``hybro owner`` helper and signs in;
-a fresh install requires a source token, so a request without one is refused
-and a source is created with the container's ``hybro source`` helper; the
+a fresh install requires a client token, so a request without one is refused
+and a client is created with the container's ``hybro client`` helper; the
 sample agents register, the LLM-backed ones inactive with
 ``provider_not_configured``; Echo answers through the sessions API and MCP,
-which send that source token.
+which send that client token.
 """
 
 from __future__ import annotations
@@ -42,7 +42,7 @@ OWNER_CLI = (
     "/app/backend/.venv/bin/python",
     "/app/backend/owner_cli.py",
 )
-SOURCE_CLI = (
+CLIENT_CLI = (
     "/app/backend/.venv/bin/python",
     "/app/backend/client_cli.py",
 )
@@ -69,14 +69,14 @@ def create_owner(container: str, password: str) -> None:
     )
 
 
-def create_source(container: str) -> str:
-    """``hybro source create`` inside the container; returns the new token.
+def create_client(container: str) -> str:
+    """``hybro client create`` inside the container; returns the new token.
 
     The helper prints the token alone on its last line. It is kept in memory
     and never printed here.
     """
     created = subprocess.run(
-        ["docker", "exec", container, *SOURCE_CLI, "create", "--name", "Smoke"],
+        ["docker", "exec", container, *CLIENT_CLI, "create", "--name", "Smoke"],
         capture_output=True,
         text=True,
         check=True,
@@ -157,11 +157,11 @@ def main() -> None:
     owner = httpx.Client(
         base_url=base, timeout=10, trust_env=False, headers={"Origin": base}
     )
-    # The Source API as connected programs call it: without a token first,
-    # then with the source token once it exists.
+    # The Client API as connected programs call it: without a token first,
+    # then with the client token once it exists.
     with (
         owner as http,
-        httpx.Client(base_url=base, timeout=10, trust_env=False) as source,
+        httpx.Client(base_url=base, timeout=10, trust_env=False) as client,
     ):
         wait_for(
             lambda: http.get("/health").status_code == 200,
@@ -173,15 +173,15 @@ def main() -> None:
         foreign = http.get("/health", headers={"Host": "rebound.example"})
         assert foreign.status_code == 421, foreign.status_code
 
-        # No account yet: the owner's routes and the Source API refuse.
+        # No account yet: the owner's routes and the Client API refuse.
         status = http.get(f"{API}/auth/status")
         assert status.json() == {"account_exists": False, "owner": None}, status
         refused = http.get(f"{API}/setup/status")
         assert refused.status_code == 401, refused.status_code
-        # A fresh install requires a source token, so that refusal comes first.
-        refused = source.get(f"{API}/agents/discovery")
+        # A fresh install requires a client token, so that refusal comes first.
+        refused = client.get(f"{API}/agents/discovery")
         assert refused.status_code == 401, refused.status_code
-        assert refused.json()["detail"]["code"] == "source_token_required", refused.text
+        assert refused.json()["detail"]["code"] == "client_token_required", refused.text
 
         password = secrets.token_urlsafe(24)
         create_owner(arguments.container, password)
@@ -191,14 +191,14 @@ def main() -> None:
         )
         assert signed_in.status_code == 200, signed_in.status_code
         assert http.get(f"{API}/setup/status").status_code == 200
-        requirement = http.get(f"{API}/sources/token-requirement").json()
+        requirement = http.get(f"{API}/clients/token-requirement").json()
         assert requirement["required"] is True, requirement
 
-        refused = source.get(f"{API}/agents/discovery")
+        refused = client.get(f"{API}/agents/discovery")
         assert refused.status_code == 401, refused.status_code
-        token = create_source(arguments.container)
-        source.headers["Authorization"] = f"Bearer {token}"
-        assert source.get(f"{API}/agents/discovery").status_code == 200
+        token = create_client(arguments.container)
+        client.headers["Authorization"] = f"Bearer {token}"
+        assert client.get(f"{API}/agents/discovery").status_code == 200
 
         found = wait_for(
             lambda: samples_registered(http), timeout=120, what="sample agents"
@@ -209,7 +209,7 @@ def main() -> None:
             assert agent["status"] == "inactive", agent
             assert agent["inactive_reason"] == "provider_not_configured", agent
 
-        sent = source.post(
+        sent = client.post(
             f"{API}/sessions/messages",
             json={
                 "agent_id": found["Echo Agent"]["agent_id"],
@@ -220,7 +220,7 @@ def main() -> None:
         )
         sent.raise_for_status()
         reply = wait_for(
-            lambda: reply_of(source, sent.json()["session_id"]),
+            lambda: reply_of(client, sent.json()["session_id"]),
             timeout=60,
             what="Echo through the API",
         )

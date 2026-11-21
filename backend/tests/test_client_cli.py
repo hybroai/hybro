@@ -1,4 +1,4 @@
-"""The `hybro source` helper: the request, the token output and exit codes."""
+"""The `hybro client` helper: the request, the token output and exit codes."""
 
 from __future__ import annotations
 
@@ -12,17 +12,17 @@ import client_cli as cli
 
 MACHINE_TOKEN = "cd" * 32
 BASE_URL = "http://127.0.0.1:8000/api/v1/machine"
-# An obviously fake source token, as the backend would return it.
-SOURCE_TOKEN = "hybro_src_" + "x" * 43
+# An obviously fake client token, as the backend would return it.
+CLIENT_TOKEN = "hybro_client_" + "x" * 43
 CREATED = {
-    "source_id": "src_1",
+    "client_id": "client_1",
     "name": "CI bot",
     "has_token": True,
     "token_last4": "xxxx",
     "created_at": "2026-11-20T00:00:00Z",
     "last_used_at": None,
     "revoked_at": None,
-    "token": SOURCE_TOKEN,
+    "token": CLIENT_TOKEN,
 }
 
 
@@ -66,8 +66,8 @@ def test_create_posts_the_name_and_prints_the_token_once(handoff):
     code, out, err = run(["create", "--name", "CI bot"], handoff, backend)
 
     assert code == 0
-    assert backend.calls == [(f"{BASE_URL}/sources", MACHINE_TOKEN, {"name": "CI bot"})]
-    assert out.count(SOURCE_TOKEN) == 1
+    assert backend.calls == [(f"{BASE_URL}/clients", MACHINE_TOKEN, {"name": "CI bot"})]
+    assert out.count(CLIENT_TOKEN) == 1
     assert "CI bot" in out
     assert "shown once" in out
     assert MACHINE_TOKEN not in out + err
@@ -110,7 +110,7 @@ def test_a_refused_machine_token_exits_2(handoff):
 
 
 @pytest.mark.parametrize(
-    ("status", "body"), [(500, {}), (201, {"source_id": "src_1"}), (201, [])]
+    ("status", "body"), [(500, {}), (201, {"client_id": "client_1"}), (201, [])]
 )
 def test_an_unknown_outcome_exits_2_and_prints_no_token(handoff, status, body):
     code, out, err = run(
@@ -118,7 +118,7 @@ def test_an_unknown_outcome_exits_2_and_prints_no_token(handoff, status, body):
     )
     assert code == 2
     assert out == ""
-    assert "hybro source" in err
+    assert "hybro client" in err
 
 
 def test_no_handoff_file_exits_2(tmp_path):
@@ -180,7 +180,7 @@ def test_requirement_prints_on_or_off(handoff, required, word):
     code, out, err = read(handoff, reader)
 
     assert (code, out, err) == (0, f"{word}\n", "")
-    assert reader.calls == [(f"{BASE_URL}/sources/token-requirement", MACHINE_TOKEN)]
+    assert reader.calls == [(f"{BASE_URL}/clients/token-requirement", MACHINE_TOKEN)]
 
 
 @pytest.mark.parametrize(

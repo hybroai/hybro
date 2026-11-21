@@ -37,8 +37,8 @@ from tests.fakes.room_events import InMemoryRoomEventStore
 NOW = datetime(2026, 10, 14, 9, 0, tzinfo=UTC)
 OWNER = SessionOwner(user_id="owner-1", name="Estate Agent")
 CLIENT = NO_TOKEN
-CI = ClientIdentity(client_id="src_ci", name="CI bot", has_token=True)
-OTHER = ClientIdentity(client_id="src_other", name="Other bot", has_token=True)
+CI = ClientIdentity(client_id="client_ci", name="CI bot", has_token=True)
+OTHER = ClientIdentity(client_id="client_other", name="Other bot", has_token=True)
 AGENT = "agent-travel"
 OTHER_AGENT = "agent-other"
 
@@ -2046,9 +2046,9 @@ async def test_a_session_from_before_clients_counts_as_no_token():
     with pytest.raises(AppError):
         await h.check("old", client=CI)
     listing = await h.facade.list_for_owner(owner=OWNER)
-    assert listing.sessions[0].source.source_id == NO_TOKEN.client_id
-    assert listing.sessions[0].source.name == "No token"
-    assert listing.sessions[0].source.has_token is False
+    assert listing.sessions[0].client.client_id == NO_TOKEN.client_id
+    assert listing.sessions[0].client.name == "No token"
+    assert listing.sessions[0].client.has_token is False
 
 
 @pytest.mark.asyncio
@@ -2087,8 +2087,8 @@ async def test_owner_payloads_carry_the_client():
 
     for view in (listing.sessions[0], record):
         assert view.client_label is None
-        assert view.source.model_dump() == {
-            "source_id": CI.client_id,
+        assert view.client.model_dump() == {
+            "client_id": CI.client_id,
             "name": "CI bot",
             "has_token": True,
         }
@@ -2100,16 +2100,16 @@ async def test_an_unknown_stored_client_is_shown_by_its_id():
     h.store.records["s"] = SessionRecord(
         session_id="s",
         owner_user_id=OWNER.user_id,
-        client_id="src_gone",
+        client_id="client_gone",
         opened_at=NOW,
         last_activity_at=NOW,
     )
 
     record = await h.facade.record_for_owner("s", owner=OWNER)
 
-    assert record.source.model_dump() == {
-        "source_id": "src_gone",
-        "name": "src_gone",
+    assert record.client.model_dump() == {
+        "client_id": "client_gone",
+        "name": "client_gone",
         "has_token": False,
     }
 

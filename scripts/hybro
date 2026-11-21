@@ -85,7 +85,7 @@ Commands:
   logs          Show Hybro's logs; docker logs options such as -f pass through
   doctor        Check a running Hybro and list its problems
   owner         Create the owner account or set a new password for it
-  source        Create a source and print its token
+  client        Create a client and print its token
   upgrade       Install the latest release, update the image, migrate 0.3 data
   cleanup-old   Remove the Hybro 0.3 containers, volumes, and images
   version       Print the version
@@ -127,10 +127,10 @@ Owner commands (Hybro must be running):
   Exit status: 0 done, 1 refused (nothing was changed), 2 the command could
   not run or its outcome is unknown.
 
-Source commands (Hybro must be running):
-  source create         Create a source; its token is printed once
-  --name <name>         The source's name, shown on its sessions
-  Send the token as "Authorization: Bearer <token>" on the Source API and MCP.
+Client commands (Hybro must be running):
+  client create         Create a client; its token is printed once
+  --name <name>         The client's name, shown on its sessions
+  Send the token as "Authorization: Bearer <token>" on the Client API and MCP.
   The exit status is as for the owner commands.
 
 Upgrade options:
@@ -873,7 +873,7 @@ running_listen_mode() {
 }
 
 # print_open_listener_warning <listen mode>: one line when other machines can
-# reach Hybro and the owner turned the source-token requirement off. It reads
+# reach Hybro and the owner turned the client-token requirement off. It reads
 # the switch through the machine-only route and blocks nothing; an image
 # without the helper, or a switch it cannot read, prints nothing.
 print_open_listener_warning() {
@@ -881,10 +881,10 @@ print_open_listener_warning() {
     docker exec "$CONTAINER" test -f "$CLIENT_HELPER" >/dev/null 2>&1 || return 0
     requirement=$(docker exec "$CONTAINER" "$DIAG_PYTHON" "$CLIENT_HELPER" requirement 2>/dev/null) || return 0
     [ "$requirement" = off ] || return 0
-    say "WARNING: Hybro listens on an address other machines can reach, and its Source API takes requests without a source token. Anyone who can reach this port can send work to your agents. Turn the requirement on in Access, Sources."
+    say "WARNING: Hybro listens on an address other machines can reach, and its Client API takes requests without a client token. Anyone who can reach this port can send work to your agents. Turn the requirement on in Access, Clients."
 }
 
-# A usage error of hybro owner or hybro source: exit 2 before Docker is used.
+# A usage error of hybro owner or hybro client: exit 2 before Docker is used.
 owner_usage() {
     err "$*"
     usage >&2
@@ -1021,7 +1021,7 @@ cmd_owner() {
 
 CLIENT_HELPER=/app/backend/client_cli.py
 
-cmd_source() {
+cmd_client() {
     action=${1:-}
     [ $# -eq 0 ] || shift
     case $action in
@@ -1039,21 +1039,21 @@ cmd_source() {
                 usage
                 exit 0
                 ;;
-            *) owner_usage "unknown source create option: $1" ;;
+            *) owner_usage "unknown client create option: $1" ;;
             esac
             [ -n "$name" ] || owner_usage "--name needs a value"
             shift
         done
-        [ -n "$name" ] || owner_usage "source create needs --name"
+        [ -n "$name" ] || owner_usage "client create needs --name"
         ;;
     -h | --help)
         usage
         exit 0
         ;;
-    '') owner_usage "source needs a command: create" ;;
-    *) owner_usage "unknown source command: $action" ;;
+    '') owner_usage "client needs a command: create" ;;
+    *) owner_usage "unknown client command: $action" ;;
     esac
-    require_cli_helper "$CLIENT_HELPER" source
+    require_cli_helper "$CLIENT_HELPER" client
     # 0, 1 and 2 are the helper's answers; any other status is docker exec's.
     docker exec "$CONTAINER" "$DIAG_PYTHON" "$CLIENT_HELPER" create --name "$name"
     status=$?
@@ -1290,7 +1290,7 @@ status) cmd_status "$@" ;;
 logs) cmd_logs "$@" ;;
 doctor) cmd_doctor "$@" ;;
 owner) cmd_owner "$@" ;;
-source) cmd_source "$@" ;;
+client) cmd_client "$@" ;;
 upgrade) cmd_upgrade "$@" ;;
 cleanup-old) cmd_cleanup_old "$@" ;;
 version) say "hybro $HYBRO_VERSION" ;;

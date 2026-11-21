@@ -14,10 +14,10 @@ from client.models import (
     NO_TOKEN_CLIENT_ID,
     TOKEN_PREFIX,
     ClientIdentity,
+    ClientList,
     ClientRecord,
-    SourceList,
-    SourceView,
-    SourceWithToken,
+    ClientView,
+    ClientWithToken,
     TokenRequirement,
     Via,
 )
@@ -46,9 +46,9 @@ def _new_token() -> str:
     return TOKEN_PREFIX + secrets.token_urlsafe(32)
 
 
-def _view(record: ClientRecord) -> SourceView:
-    return SourceView(
-        source_id=record.client_id,
+def _view(record: ClientRecord) -> ClientView:
+    return ClientView(
+        client_id=record.client_id,
         name=record.name,
         has_token=record.has_token,
         token_last4=record.token_last4 if record.has_token else None,
@@ -59,8 +59,8 @@ def _view(record: ClientRecord) -> SourceView:
     )
 
 
-def _with_token(record: ClientRecord, token: str) -> SourceWithToken:
-    return SourceWithToken(**_view(record).model_dump(), token=token)
+def _with_token(record: ClientRecord, token: str) -> ClientWithToken:
+    return ClientWithToken(**_view(record).model_dump(), token=token)
 
 
 class ClientService:
@@ -75,11 +75,11 @@ class ClientService:
         self._auth_mode = auth_mode
         self._now = now
 
-    async def create(self, name: str) -> SourceWithToken:
+    async def create(self, name: str) -> ClientWithToken:
         token = _new_token()
         now = self._now()
         record = ClientRecord(
-            client_id="src_" + secrets.token_hex(12),
+            client_id="client_" + secrets.token_hex(12),
             name=name,
             token_hash=_digest(token),
             token_last4=token[-4:],
@@ -89,10 +89,10 @@ class ClientService:
         await self._store.insert(record)
         return _with_token(record, token)
 
-    async def list_clients(self) -> SourceList:
-        return SourceList(sources=[_view(r) for r in await self._store.list_all()])
+    async def list_clients(self) -> ClientList:
+        return ClientList(clients=[_view(r) for r in await self._store.list_all()])
 
-    async def rename(self, client_id: str, name: str) -> SourceView:
+    async def rename(self, client_id: str, name: str) -> ClientView:
         updated = await self._store.update(
             client_id, {"name": name, "updated_at": self._now()}
         )
@@ -100,7 +100,7 @@ class ClientService:
             raise ClientNotFound
         return _view(updated)
 
-    async def rotate(self, client_id: str) -> SourceWithToken:
+    async def rotate(self, client_id: str) -> ClientWithToken:
         token = _new_token()
         updated = await self._store.update(
             client_id,
@@ -117,7 +117,7 @@ class ClientService:
             raise ClientRevoked
         return _with_token(updated, token)
 
-    async def revoke(self, client_id: str) -> SourceView:
+    async def revoke(self, client_id: str) -> ClientView:
         now = self._now()
         updated = await self._store.update(
             client_id,

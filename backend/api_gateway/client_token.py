@@ -39,9 +39,9 @@ from session.protocols import SessionOwner
 VIA_HEADER = "x-hybro-via"
 
 UNKNOWN_TOKEN_MESSAGE = (
-    "The Authorization header does not carry a current source token of this "
+    "The Authorization header does not carry a current client token of this "
     "Hybro: the token is unknown, revoked, or replaced by a rotation. Send a "
-    "current source token, or no Authorization header."
+    "current client token, or no Authorization header."
 )
 
 
@@ -92,7 +92,7 @@ SignedInOwnerDependency = Annotated[SessionOwner, Depends(get_signed_in_owner)]
 def get_client_registry(request: Request) -> ClientRegistry:
     clients: ClientRegistry | None = getattr(request.app.state, "client_registry", None)
     if clients is None:
-        _refuse(503, "sources_unavailable", "Sources are unavailable.")
+        _refuse(503, "clients_unavailable", "Clients are unavailable.")
     return clients
 
 
@@ -128,12 +128,12 @@ async def get_request_client(
         via: Via = "mcp" if request.headers.get(VIA_HEADER) == "mcp" else "api"
         client = await clients.resolve(token, via=via) if token else None
         if client is None:
-            _refuse(401, "unknown_source_token", UNKNOWN_TOKEN_MESSAGE, challenge=True)
+            _refuse(401, "unknown_client_token", UNKNOWN_TOKEN_MESSAGE, challenge=True)
     elif await clients.token_required():
         _refuse(
             401,
-            "source_token_required",
-            "This Hybro requires a source token: send it as "
+            "client_token_required",
+            "This Hybro requires a client token: send it as "
             "Authorization: Bearer <token>.",
             challenge=True,
         )
@@ -141,7 +141,7 @@ async def get_request_client(
         _refuse(
             403,
             "cross_site_request",
-            "A request without a source token must not come from another website.",
+            "A request without a client token must not come from another website.",
         )
     else:
         client = NO_TOKEN

@@ -10,12 +10,12 @@ import { routes } from '@/lib/routes'
 import { usePageOrigin } from '@/hooks/usePageOrigin'
 import { buildAccessMaterial, type AccessKind } from './access-material'
 import { clientSetups } from './client-setups'
-import { SourcesPanel } from './sources-panel'
+import { ClientsPanel } from './clients-panel'
 import { TokenRequirementBanner } from './token-requirement'
 import { useCopy, type Copier } from './use-copy'
 
 const TAB_ROUTES: Record<AccessKind, string> = {
-  sources: routes.connectSources,
+  clients: routes.connectClients,
   mcp: routes.connectMcp,
   api: routes.connectApi,
 }
@@ -61,7 +61,7 @@ function McpSetup() {
       <AddressCard label="MCP address" url={url} copy={copy} />
       <section aria-labelledby="setup-heading" className="flex flex-col gap-3">
         <h2 id="setup-heading" className="text-[15px] font-semibold">Add Hybro to your assistant</h2>
-        <p className="text-sm text-muted-foreground">Replace &lt;source token&gt; with a token from the Sources tab. Each snippet sends it as an Authorization header.</p>
+        <p className="text-sm text-muted-foreground">Replace &lt;client token&gt; with a token from the Clients tab. Each snippet sends it as an Authorization header.</p>
         <Tabs defaultValue={setups[0].id} className="gap-3">
           <TabsList aria-label="Assistants" className="h-auto max-w-full flex-wrap justify-start">
             {setups.map(setup => (
@@ -103,7 +103,7 @@ function ApiPanel() {
       <AddressCard label="API base URL" url={origin} copy={copy} />
       <section aria-labelledby="requests-heading" className="flex flex-col gap-3">
         <h2 id="requests-heading" className="text-[15px] font-semibold">Requests</h2>
-        <p className="text-sm text-muted-foreground">Replace &lt;source token&gt; with a token from the Sources tab. Every request sends it as Authorization: Bearer.</p>
+        <p className="text-sm text-muted-foreground">Replace &lt;client token&gt; with a token from the Clients tab. Every request sends it as Authorization: Bearer.</p>
         <div className="flex flex-col gap-2 rounded-xl border bg-card p-5">
           <p className="text-xs font-medium text-muted-foreground">Find agents for a task</p>
           {copy.block('search', 'Search request', material.searchRequest)}
@@ -151,11 +151,11 @@ export function ConnectPage({ kind }: { kind: AccessKind }) {
         <TokenRequirementBanner />
         <Tabs value={kind} onValueChange={value => { if (value !== kind) router.push(TAB_ROUTES[value as AccessKind], { scroll: false }) }} className="gap-6">
           <TabsList aria-label="Connection methods">
-            <TabsTrigger value="sources" className="min-h-9">Sources</TabsTrigger>
+            <TabsTrigger value="clients" className="min-h-9">Clients</TabsTrigger>
             <TabsTrigger value="mcp" className="min-h-9">MCP</TabsTrigger>
             <TabsTrigger value="api" className="min-h-9">API</TabsTrigger>
           </TabsList>
-          <TabsContent value="sources">{kind === 'sources' ? <SourcesPanel /> : null}</TabsContent>
+          <TabsContent value="clients">{kind === 'clients' ? <ClientsPanel /> : null}</TabsContent>
           <TabsContent value="mcp">{kind === 'mcp' ? <McpSetup /> : null}</TabsContent>
           <TabsContent value="api">{kind === 'api' ? <ApiPanel /> : null}</TabsContent>
         </Tabs>

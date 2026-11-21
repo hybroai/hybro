@@ -2,8 +2,8 @@
 
 A DNS rebinding page points its own name at this machine; the browser then
 sends that name as ``Host`` and, on a changing request, as ``Origin``. The two
-match, so the cross-site check passes, and a request without a source token
-would reach the Source API from that website. This check refuses the name.
+match, so the cross-site check passes, and a request without a client token
+would reach the Client API from that website. This check refuses the name.
 
 Trusted are the loopback names Caddy's loopback listener accepts
 (``localhost``, ``127.0.0.1``, ``[::1]``; not names under ``.localhost``, which

@@ -30,7 +30,7 @@ async def test_create_client_registry_binds_the_clients_collection(mode):
 
     assert isinstance(clients, ClientRegistry)
     created = await clients.create("CI bot")
-    assert collection.insert_one.await_args.args[0]["client_id"] == created.source_id
+    assert collection.insert_one.await_args.args[0]["client_id"] == created.client_id
 
 
 def _mongo_with(present: set[str]):

@@ -23,7 +23,7 @@ ROUTES = (
     ("/api/v1/machine/setup-code", None),
     ("/api/v1/machine/owner", OWNER),
     ("/api/v1/machine/owner/password", {"password": "reset to this one"}),
-    ("/api/v1/machine/sources", {"name": "CI bot"}),
+    ("/api/v1/machine/clients", {"name": "CI bot"}),
 )
 
 
@@ -197,43 +197,43 @@ def test_the_routes_are_unavailable_before_the_account_service_is_bound():
     assert response.status_code == 503
 
 
-def test_create_a_source_returns_its_token_once():
+def test_create_a_client_returns_its_token_once():
     client = _client()
 
     response = client.post(
-        "/api/v1/machine/sources", json={"name": "CI bot"}, headers=AUTH
+        "/api/v1/machine/clients", json={"name": "CI bot"}, headers=AUTH
     )
 
     assert response.status_code == 201
     body = response.json()
     assert body["name"] == "CI bot"
-    assert body["token"].startswith("hybro_src_")
+    assert body["token"].startswith("hybro_client_")
     assert body["token_last4"] == body["token"][-4:]
     listed = asyncio.run(client.app.state.client_registry.list_clients())
-    assert [s.source_id for s in listed.sources] == [body["source_id"]]
+    assert [s.client_id for s in listed.clients] == [body["client_id"]]
 
 
-def test_create_a_source_needs_a_name():
+def test_create_a_client_needs_a_name():
     response = _client().post(
-        "/api/v1/machine/sources", json={"name": " "}, headers=AUTH
+        "/api/v1/machine/clients", json={"name": " "}, headers=AUTH
     )
     assert response.status_code == 422
     assert response.json()["detail"]["code"] == "invalid_request"
 
 
-def test_the_source_route_is_unavailable_before_sources_are_bound():
+def test_the_client_route_is_unavailable_before_clients_are_bound():
     app = FastAPI()
     app.include_router(machine_routes.router, prefix="/api/v1")
     app.state.machine_token = TOKEN
 
     response = TestClient(app).post(
-        "/api/v1/machine/sources", json={"name": "CI bot"}, headers=AUTH
+        "/api/v1/machine/clients", json={"name": "CI bot"}, headers=AUTH
     )
 
     assert response.status_code == 503
 
 
-REQUIREMENT = "/api/v1/machine/sources/token-requirement"
+REQUIREMENT = "/api/v1/machine/clients/token-requirement"
 
 
 def test_the_cli_reads_the_switch():

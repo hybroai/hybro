@@ -59,7 +59,7 @@ Do not inspect or treat paths outside this repository as product source unless t
 
 ## Design Direction
 
-`docs/design.md` describes the target design: the concepts, their names, the target modules, and the status of each of today's modules. `docs/roadmap.md` gives the order of work. The System-Architecture documents describe today's code. The target is a self-hosted control plane for A2A agents: sources plan, and Hybro runs, gates, and records each step.
+`docs/design.md` describes the target design: the concepts, their names, the target modules, and the status of each of today's modules. `docs/roadmap.md` gives the order of work. The System-Architecture documents describe today's code. The target is a self-hosted control plane for A2A agents: clients plan, and Hybro runs, gates, and records each step.
 
 - Read `docs/design.md` before changing module boundaries, public routes, or names.
 - Use the concept names from `docs/design.md` in new code, routes, and documents. Do not rename existing code outside the roadmap phase that migrates its module.
@@ -101,7 +101,7 @@ Run commands from the directory that owns the relevant configuration.
 - The model provider is optional. Without one, Hybro starts, the provider-free agents work, and the UI directs the user to Settings, Model provider; never select a legacy Provider implicitly.
 - Services read a startup snapshot; other changes take effect after restart. Only the provider settings and `backend.log_level` apply live. The browser setup routes own `provider`, `models`, and `image_size`. The admin-only settings API is the only API for the curated `backend.*` and `frontend.*` registry fields, and the entrypoint owns the in-place service restart. Do not add other hot reload, configuration APIs, or a separate configuration-service process without a request.
 - In the image, the entrypoint (`backend/runtime_entrypoint.py`) owns the projections: it reads `config.json` and gives the frontend, MCP, and each agent only its scoped settings and internal credential, never the whole auth store, including during restart; the backend never writes them. Runtime records under `/tmp/hybro`, and the `run/machine.json` record a checkout's backend writes under `HYBRO_HOME`, are not configuration sources.
-- Whether a source token is required is product state, not configuration. It is stored in the database and owned by the `client` module, so that the owner can change it in the Panel without a restart. This is a confirmed exception to `config.json` as the single configuration source; do not add other settings to the database.
+- Whether a client token is required is product state, not configuration. It is stored in the database and owned by the `client` module, so that the owner can change it in the Panel without a restart. This is a confirmed exception to `config.json` as the single configuration source; do not add other settings to the database.
 - Do not broaden environment-variable, secret, workflow-permission, or container exposure without an explicit security reason.
 
 ## Code Review Rules

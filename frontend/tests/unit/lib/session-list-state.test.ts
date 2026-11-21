@@ -14,7 +14,7 @@ const NOW = Date.parse('2026-10-15T12:00:00Z')
 const session = (id: string, overrides: Partial<SessionSummary> = {}): SessionSummary => ({
   session_id: id,
   client_label: `Client ${id}`,
-  source: { source_id: 'no_token', name: 'No token', has_token: false },
+  client: { client_id: 'no_token', name: 'No token', has_token: false },
   title: `Request ${id}`,
   agents: [{ agent_id: 'travel', name: 'Travel Planner Agent' }],
   state: 'completed',
@@ -26,7 +26,7 @@ const session = (id: string, overrides: Partial<SessionSummary> = {}): SessionSu
   ...overrides,
 })
 
-const ciSource = { source_id: 'src_ci', name: 'CI bot', has_token: true }
+const ciClient = { client_id: 'client_ci', name: 'CI bot', has_token: true }
 
 const sessions = [
   session('a', { title: 'Generate a travel plan', client_label: 'Northside buyer agent', state: 'waiting_on_owner', opened_at: '2026-10-14T21:16:00Z', last_activity_at: '2026-10-14T21:16:00Z' }),
@@ -41,7 +41,7 @@ describe('session list URL state', () => {
       q: 'kyoto',
       name: 'plan',
       status: ['waiting_on_owner', 'completed'] as const,
-      source: ['src_ci', 'no_token'],
+      client: ['client_ci', 'no_token'],
       created: '7d' as const,
       updated: 'today' as const,
       sort: 'created' as const,
@@ -59,7 +59,7 @@ describe('session list URL state', () => {
 
   it('reports whether any filter is active', () => {
     expect(hasActiveFilters(DEFAULT_SESSION_LIST_STATE)).toBe(false)
-    expect(hasActiveFilters({ ...DEFAULT_SESSION_LIST_STATE, source: ['x'] })).toBe(true)
+    expect(hasActiveFilters({ ...DEFAULT_SESSION_LIST_STATE, client: ['x'] })).toBe(true)
     expect(hasActiveFilters({ ...DEFAULT_SESSION_LIST_STATE, sort: 'name' })).toBe(false)
   })
 })
@@ -72,7 +72,7 @@ describe('applySessionListState', () => {
     expect(apply({})).toEqual(['b', 'a', 'c'])
   })
 
-  it('searches names, sources, client labels, agents, and session ids', () => {
+  it('searches names, clients, client labels, agents, and session ids', () => {
     expect(apply({ q: 'kyoto' })).toEqual(['b'])
     expect(apply({ q: 'northside' })).toEqual(['a'])
     expect(apply({ q: 'no token' })).toEqual(['b', 'a', 'c'])
@@ -83,8 +83,8 @@ describe('applySessionListState', () => {
   it('filters each column', () => {
     expect(apply({ name: 'travel' })).toEqual(['a'])
     expect(apply({ status: ['waiting_on_owner', 'closed'] })).toEqual(['a', 'c'])
-    expect(apply({ source: ['no_token'] })).toEqual(['b', 'a', 'c'])
-    expect(apply({ source: ['src_ci'] })).toEqual([])
+    expect(apply({ client: ['no_token'] })).toEqual(['b', 'a', 'c'])
+    expect(apply({ client: ['client_ci'] })).toEqual([])
     expect(apply({ created: 'today' })).toEqual(['b'])
     expect(apply({ updated: '7d' })).toEqual(['b', 'a'])
     expect(apply({ created: '30d' })).toEqual(['b', 'a'])
@@ -93,7 +93,7 @@ describe('applySessionListState', () => {
   it('sorts by any column in either direction', () => {
     expect(apply({ sort: 'created', dir: 'asc' })).toEqual(['c', 'a', 'b'])
     expect(apply({ sort: 'name', dir: 'asc' })).toEqual(['a', 'c', 'b'])
-    expect(apply({ sort: 'source', dir: 'asc' })).toEqual(['b', 'a', 'c'])
+    expect(apply({ sort: 'client', dir: 'asc' })).toEqual(['b', 'a', 'c'])
     expect(apply({ sort: 'status', dir: 'asc' })).toEqual(['a', 'b', 'c'])
   })
 })
@@ -104,18 +104,18 @@ describe('sessionName', () => {
     expect(sessionName(sessions[2])).toBe('Untitled session')
   })
 
-  it('filters and sorts on the source, not on the label the client gave', () => {
-    // The label claims to be the CI bot; only the source decides.
-    const list = [...sessions, session('d', { client_label: null, source: ciSource }), session('e', { client_label: 'CI bot' })]
+  it('filters and sorts on the client, not on the label the client gave', () => {
+    // The label claims to be the CI bot; only the client decides.
+    const list = [...sessions, session('d', { client_label: null, client: ciClient }), session('e', { client_label: 'CI bot' })]
     const ids = (overrides: Partial<typeof DEFAULT_SESSION_LIST_STATE>) =>
       applySessionListState(list, { ...DEFAULT_SESSION_LIST_STATE, ...overrides }, NOW).map(s => s.session_id)
     expect(ids({ q: 'ci bot' })).toEqual(['d', 'e'])
-    expect(ids({ source: ['src_ci'] })).toEqual(['d'])
-    expect(ids({ sort: 'source', dir: 'asc' })).toEqual(['d', 'b', 'e', 'a', 'c'])
+    expect(ids({ client: ['client_ci'] })).toEqual(['d'])
+    expect(ids({ sort: 'client', dir: 'asc' })).toEqual(['d', 'b', 'e', 'a', 'c'])
   })
 
-  it('reads the source filter from the URL, one id per parameter', () => {
-    expect(parseSessionListState(new URLSearchParams('source=src_ci&source=no_token')).source).toEqual(['src_ci', 'no_token'])
-    expect(parseSessionListState(new URLSearchParams('requester=Old')).source).toEqual([])
+  it('reads the client filter from the URL, one id per parameter', () => {
+    expect(parseSessionListState(new URLSearchParams('client=client_ci&client=no_token')).client).toEqual(['client_ci', 'no_token'])
+    expect(parseSessionListState(new URLSearchParams('source=Old')).client).toEqual([])
   })
 })

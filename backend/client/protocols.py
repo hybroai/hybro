@@ -1,7 +1,7 @@
 """Client ports.
 
 ``ClientRegistry`` is the surface ``api_gateway`` and ``session`` consume:
-the owner's ``/sources`` routes, the machine-only route, the client-token
+the owner's ``/clients`` routes, the machine-only route, the client-token
 check and the names on session payloads. ``ClientStore`` is the durable
 record.
 """
@@ -14,13 +14,13 @@ from typing import Any, Protocol, runtime_checkable
 from client.models import (
     NO_TOKEN,
     NO_TOKEN_CLIENT_ID,
+    ClientCreate,
     ClientIdentity,
+    ClientList,
     ClientRecord,
-    SourceCreate,
-    SourceList,
-    SourceRename,
-    SourceView,
-    SourceWithToken,
+    ClientRename,
+    ClientView,
+    ClientWithToken,
     TokenRequirement,
     TokenRequirementChange,
     Via,
@@ -45,11 +45,11 @@ class TokenRequirementLocked(Exception):
 
 @runtime_checkable
 class ClientRegistry(Protocol):
-    async def create(self, name: str) -> SourceWithToken: ...
-    async def list_clients(self) -> SourceList: ...
-    async def rename(self, client_id: str, name: str) -> SourceView: ...
-    async def rotate(self, client_id: str) -> SourceWithToken: ...
-    async def revoke(self, client_id: str) -> SourceView: ...
+    async def create(self, name: str) -> ClientWithToken: ...
+    async def list_clients(self) -> ClientList: ...
+    async def rename(self, client_id: str, name: str) -> ClientView: ...
+    async def rotate(self, client_id: str) -> ClientWithToken: ...
+    async def revoke(self, client_id: str) -> ClientView: ...
     async def resolve(
         self, token: str, *, via: Via = "api"
     ) -> ClientIdentity | None: ...
@@ -84,16 +84,16 @@ class ClientStore(Protocol):
 __all__ = [
     "NO_TOKEN",
     "NO_TOKEN_CLIENT_ID",
-    "SourceCreate",
+    "ClientCreate",
     "ClientIdentity",
-    "SourceList",
+    "ClientList",
     "ClientNotFound",
     "ClientRegistry",
-    "SourceRename",
+    "ClientRename",
     "ClientRevoked",
     "ClientStore",
-    "SourceView",
-    "SourceWithToken",
+    "ClientView",
+    "ClientWithToken",
     "TokenRequirement",
     "TokenRequirementChange",
     "TokenRequirementLocked",

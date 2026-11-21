@@ -9,6 +9,7 @@ from api_gateway.routes import (
     agent_network_routes,
     agent_routes,
     auth_routes,
+    client_routes,
     diagnostics_routes,
     files_routes,
     hitl_routes,
@@ -20,7 +21,6 @@ from api_gateway.routes import (
     session_routes,
     settings_routes,
     setup_routes,
-    source_routes,
     sse_routes,
 )
 
@@ -48,7 +48,7 @@ def build_api_gateway_router() -> APIRouter:
     gateway_router.include_router(diagnostics_routes.router, tags=["diagnostics"])
     gateway_router.include_router(auth_routes.router, tags=["auth"])
     gateway_router.include_router(machine_routes.router, tags=["machine"])
-    gateway_router.include_router(source_routes.router, tags=["sources"])
+    gateway_router.include_router(client_routes.router, tags=["clients"])
     gateway_router.include_router(rule_routes.router, tags=["rules"])
 
     return gateway_router

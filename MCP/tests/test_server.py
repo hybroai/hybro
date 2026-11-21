@@ -29,7 +29,7 @@ async def call_with_transport(handler, tool, arguments, listen="loopback"):
             return await client.call_tool(tool, arguments)
 
 
-FAKE_TOKEN = "Bearer hybro_src_" + "f" * 43
+FAKE_TOKEN = "Bearer hybro_client_" + "f" * 43
 
 
 async def call_over_http(handler, tool, arguments, headers=None, listen="loopback"):
@@ -655,7 +655,7 @@ async def test_health_checks_the_backend_health_route(code, body, status):
             transport=httpx.ASGITransport(app), base_url="http://127.0.0.1:8001"
         ) as client:
             response = await client.get(
-                "/health", headers={"authorization": "Bearer hybro_src_fake"}
+                "/health", headers={"authorization": "Bearer hybro_client_fake"}
             )
     assert response.json() == {"service": "hybro-mcp", "status": status}
     assert response.headers["cache-control"] == "no-store"
@@ -710,7 +710,7 @@ async def test_loopback_transport_retains_dns_rebinding_protection(headers, code
 
 @pytest.mark.parametrize(("headers", "_"), FOREIGN)
 async def test_public_transport_leaves_the_check_to_the_token(headers, _):
-    """On a public listener any Host and Origin reach the routes; the source
+    """On a public listener any Host and Origin reach the routes; the client
     token, checked by the backend, is the control."""
     security = server.transport_security_for("public")
     assert security.enable_dns_rebinding_protection is False
@@ -1191,7 +1191,7 @@ async def test_main_configures_logging_before_building_the_server(monkeypatch, l
     ]
 
 
-# ---- source tokens ----
+# ---- client tokens ----
 
 TOOL_CALLS = [
     ("list_subnets", {}, {"groups": []}),
@@ -1245,7 +1245,7 @@ async def test_every_tool_forwards_the_callers_authorization(tool, arguments, re
 
     assert not result["isError"], result
     assert [request.headers["authorization"] for request in sent] == [FAKE_TOKEN]
-    # The backend records that the source connected through MCP.
+    # The backend records that the client connected through MCP.
     assert [request.headers["x-hybro-via"] for request in sent] == ["mcp"]
 
 
@@ -1287,7 +1287,7 @@ async def test_the_default_label_applies_only_without_a_token():
     assert payloads[2]["client_label"] == "Laptop"
 
 
-@pytest.mark.parametrize("code", ["unknown_source_token", "source_token_required"])
+@pytest.mark.parametrize("code", ["unknown_client_token", "client_token_required"])
 async def test_a_refused_token_names_the_fix(code):
     error = {"detail": {"code": code, "message": "m"}}
     result = await call_with_transport(
@@ -1297,14 +1297,14 @@ async def test_a_refused_token_names_the_fix(code):
     )
     assert result.is_error
     hint = result.structured_content["next_action"]
-    assert "source token" in hint
+    assert "client token" in hint
     assert "mock auth" not in hint
 
 
-async def test_instructions_describe_source_tokens():
+async def test_instructions_describe_client_tokens():
     async with httpx.AsyncClient(base_url=server.BACKEND_API_URL) as http:
         instructions = create_server(http).instructions
-    assert "source token" in instructions
+    assert "client token" in instructions
     assert "mock-auth" not in instructions
 
 
@@ -1411,7 +1411,7 @@ async def test_a_web_page_without_a_token_is_told_to_send_one():
         lambda _: httpx.Response(403, json=error), "list_subnets", {}
     )
     assert result.is_error
-    assert "source token" in result.structured_content["next_action"]
+    assert "client token" in result.structured_content["next_action"]
 
 
 async def test_a_public_listener_refuses_a_call_whose_address_it_cannot_tell(

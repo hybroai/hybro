@@ -108,7 +108,7 @@ class AccountService:
         return await self._store.get_owner() is not None
 
     async def acting_owner(self) -> ActingOwner:
-        """The owner a Source API request acts for: the owner record.
+        """The owner a Client API request acts for: the owner record.
 
         ``NoAccount`` until it exists. The record's id decides, whatever
         ``auth_mode`` says now.

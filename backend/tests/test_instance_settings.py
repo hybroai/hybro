@@ -386,7 +386,7 @@ async def test_system_info_and_services_revision_in_the_image(tmp_path):
     )
     view = await instance.view()
     assert view.restart_pending is True
-    # MCP is served on every listener; the source token is its control.
+    # MCP is served on every listener; the client token is its control.
     assert (view.system.port, view.system.listen, view.system.mcp_available) == (
         8080,
         "public",

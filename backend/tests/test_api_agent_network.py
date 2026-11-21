@@ -1,6 +1,6 @@
-"""Exercise HTTP access to the agent network's read routes on the Source API.
+"""Exercise HTTP access to the agent network's read routes on the Client API.
 
-The caller is a source; the routes read the agents of the owner it acts for.
+The caller is a client; the routes read the agents of the owner it acts for.
 """
 
 from datetime import UTC, datetime
@@ -178,16 +178,16 @@ async def clerk_client(monkeypatch, app, client, *, owner_id: str | None):
     """A Clerk-mode configuration, which requires a token.
 
     ``owner_id`` None sends no token; otherwise the owner account took that
-    administrator's id, and the request carries a source token and acts for it.
+    administrator's id, and the request carries a client token and acts for it.
     """
-    sources = ClientService(store_with_requirement(required=True), auth_mode="clerk")
-    monkeypatch.setattr(app.state, "client_registry", sources)
+    clients = ClientService(store_with_requirement(required=True), auth_mode="clerk")
+    monkeypatch.setattr(app.state, "client_registry", clients)
     store = store_with_owner(owner_id or "user_local_developer")
     monkeypatch.setattr(
         app.state, "owner_account", build_service(store=store, auth_mode="clerk")
     )
     if owner_id is not None:
-        token = (await sources.create("Tests")).token
+        token = (await clients.create("Tests")).token
         client.headers["Authorization"] = f"Bearer {token}"
 
 

@@ -5,7 +5,7 @@ import type { SessionSummary } from '@/lib/api/session'
 const summary = (id: string, state: SessionSummary['state']): SessionSummary => ({
   session_id: id,
   client_label: 'Client',
-  source: { source_id: 'no_token', name: 'No token', has_token: false },
+  client: { client_id: 'no_token', name: 'No token', has_token: false },
   agents: [],
   state,
   paused_agent_id: null,
