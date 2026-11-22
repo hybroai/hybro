@@ -394,6 +394,7 @@ describe('Rules page', () => {
     await userEvent.click(within(await screen.findByRole('alertdialog')).getByRole('button', { name: 'Delete' }))
     await waitFor(() => expect(state.writes).toEqual(['DELETE rule_2']))
     await waitFor(() => expect(screen.getByRole('heading', { name: 'Check rules' })).toHaveFocus())
+    expect(screen.getByRole('status')).toHaveTextContent('Rule 2 deleted.')
   })
 
   it('shows the id, without calling it missing, while the agents load', async () => {
@@ -441,6 +442,7 @@ describe('Rules page', () => {
     await userEvent.click(screen.getByRole('button', { name: 'Add rule' }))
     await userEvent.click(within(await screen.findByRole('dialog')).getByRole('button', { name: 'Add' }))
     await waitFor(() => expect(screen.getByRole('button', { name: 'Add rule' })).toHaveFocus())
+    expect(screen.getByRole('status')).toHaveTextContent('Rule added at the bottom: Deny for any agent.')
   })
 
   it('says deleting a rule that is off changes no answer', async () => {
@@ -475,9 +477,11 @@ describe('Rules page', () => {
     expect(within(row).getByRole('button', { name: 'Move rule 2 up' })).toHaveAttribute('aria-disabled', 'true')
     expect(within(row).getByRole('button', { name: 'Delete rule 2' })).toHaveAttribute('aria-disabled', 'true')
     await userEvent.click(within(row).getByRole('switch', { name: 'Rule 2 on' }))
-    expect(state.writes).toHaveLength(1)
+    // An edit that went through would show at once.
+    expect(within(row).getByRole('switch', { name: 'Rule 2 on' })).not.toBeChecked()
     await userEvent.click(screen.getByRole('button', { name: 'Reload' }))
     await waitFor(() => expect(screen.queryByText(/couldn.t reload/)).not.toBeInTheDocument())
+    expect(state.writes).toHaveLength(1)
     await userEvent.click(within((await items())[1]).getByRole('switch', { name: 'Rule 2 on' }))
     await waitFor(() => expect(state.writes).toHaveLength(2))
   })

@@ -134,9 +134,11 @@ interface AddProps {
   returnFocus: () => void
   /** A refused create: the list is reloading and may be stale until then. */
   onRefused: () => void
+  /** Says the result aloud; the focus alone would not. */
+  announce: (text: string) => void
 }
 
-function AddRuleDialog({ open, onOpenChange, agents, returnFocus, onRefused }: AddProps) {
+function AddRuleDialog({ open, onOpenChange, agents, returnFocus, onRefused, announce }: AddProps) {
   const queryClient = useQueryClient()
   const [agentId, setAgentId] = useState(ANY)
   const [answer, setAnswer] = useState<RuleAnswer>('deny')
@@ -144,7 +146,10 @@ function AddRuleDialog({ open, onOpenChange, agents, returnFocus, onRefused }: A
     ...RULE_WRITE,
     mutationFn: (fields: RuleFields) => createRule(fields),
     // Close here, not through `close`: this render still sees the request pending.
-    onSuccess: () => finish(),
+    onSuccess: saved => {
+      announce(`Rule added at the bottom: ${ANSWER_LABEL[saved.answer]} for ${agentName(saved.agent_id, agents)}.`)
+      finish()
+    },
     onError: onRefused,
     onSettled: () => reloadAfterLastWrite(queryClient),
   })
@@ -213,13 +218,16 @@ interface DeleteProps {
   returnFocus: (deleted: boolean) => void
   /** A refused delete, a 404 included: the list is reloading and may be stale until then. */
   onRefused: () => void
+  /** Says the result aloud; the focus alone would not. */
+  announce: (text: string) => void
 }
 
-function DeleteRuleDialog({ rule, position, agents, onClose, returnFocus, onRefused }: DeleteProps) {
+function DeleteRuleDialog({ rule, position, agents, onClose, returnFocus, onRefused, announce }: DeleteProps) {
   const queryClient = useQueryClient()
   const removed = useRef(false)
   const done = () => {
     removed.current = true
+    announce(`Rule ${position} deleted.`)
     // Drop the row at once, so it cannot be edited before the reload lands.
     queryClient.setQueryData<RuleList>(rulesQueryKey, current => current && {
       rules: current.rules.filter(item => item.rule_id !== rule.rule_id),
@@ -572,7 +580,7 @@ export function RulesPage() {
           <p role="status" className="sr-only">{announcement}</p>
         </section>
       </div>
-      <AddRuleDialog open={adding} onOpenChange={setAdding} agents={agents} returnFocus={() => addButton.current?.focus()} onRefused={() => setRefused(true)} />
+      <AddRuleDialog open={adding} onOpenChange={setAdding} agents={agents} returnFocus={() => addButton.current?.focus()} onRefused={() => setRefused(true)} announce={setAnnouncement} />
       {deleting ? (
         <DeleteRuleDialog
           key={deleting.rule.rule_id}
@@ -581,6 +589,7 @@ export function RulesPage() {
           agents={agents}
           onClose={() => setDeleting(null)}
           onRefused={() => setRefused(true)}
+          announce={setAnnouncement}
           // Back to the row's Delete button, or to the list heading once the row is gone.
           returnFocus={deleted => {
             const button = deleted ? undefined : buttons.current.get(`${deleting.rule.rule_id}:delete`)
