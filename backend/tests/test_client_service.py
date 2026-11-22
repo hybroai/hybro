@@ -334,7 +334,8 @@ async def test_the_owner_sets_and_clears_the_grant_and_it_is_logged(
     # The id reaches the log only through log_id.
     assert passed_through == [created.client_id, created.client_id]
     assert created.token not in caplog.text
-    assert created.token[-4:] not in caplog.text
+    # Nor any part of a token: every token starts with the prefix.
+    assert TOKEN_PREFIX not in caplog.text
 
 
 async def test_any_number_of_clients_hold_the_grant_at_once():
