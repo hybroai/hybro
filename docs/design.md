@@ -145,7 +145,7 @@ module.
 | Agent | An agent Hybro can reach: its card, address and protocol. | `agent` | agent (`agents`) |
 | Group | A named set of agents. | `agent` | agent group (`agent_groups`) |
 | Standard | A requirement a step's result must meet, such as a time limit or a required field. It attaches to a label the client sends, or to an agent. | `evaluation` | new |
-| Rule | One line set by the instance owner. There are three kinds: route, access and check. | `policy` | new |
+| Rule | One line set by the instance owner. There are three kinds: route, access and check. | `policy` | check rule (`rules`); route and access rules are new |
 | Client | One program that asks for work. The owner creates it and gives it a token, and Hybro records on every Step which client sent it. Today a client names itself, and the name is not verified. | `client` | client (`clients`); the name it gives itself is `client_label` |
 
 How the records of one piece of work hang together:
@@ -171,6 +171,13 @@ The states of each record:
 | Score | pass, fail |
 | Agent | active, inactive |
 | Rule, Standard | on, off |
+
+Today a step from the Client API that a check rule refused, or that was
+refused at a check rule's Question, has one of two states: `denied` when a
+check rule denied the call, and `rejected` when the owner or a client with the
+owner's grant refused it at the Question. `rejected` also covers a step whose
+Question the owner canceled. They become the one state denied when the
+`session` module migrates in phase 5.
 
 Four more words:
 
@@ -200,7 +207,7 @@ bundled orchestrator has no private path.
 | Open a session | Starts one piece of work. | `POST /sessions/messages` without a `session_id` |
 | Send a step | Sends one prompt. It returns a step id at once and does not wait for the agent. | `POST /sessions/messages` |
 | Follow events | Reads what happened to the session's steps, live. | `GET /sessions/{session_id}`, by polling |
-| Answer a question | Answers an information question that an agent asked. | None. Today every question goes to the owner in the app. |
+| Answer a question | Answers an information question that an agent asked. | None for information questions, which go to the owner in the app. `POST /sessions/{session_id}/questions/{question_id}/answer` answers a permission question, by a client with the owner's grant only. |
 | Cancel | Stops a step, or closes the session. | `POST /sessions/{session_id}/close` |
 
 What a step carries:
@@ -453,6 +460,14 @@ attaches what the step points to. It never rewords the prompt.
 | Access | Who may use what? | This client may not use Agent Y. | Inside routing, as a filter on the agents it may choose | Enterprise |
 | Check | May this call go now? | Ask before any step goes to Agent Z. | After routing and before the call. It answers allow, deny or ask, and "ask" pauses the Session. | Community |
 
+Check rules are an ordered list. A check rule matches one agent or any
+agent, the first rule that is on and matches decides, and no match means
+allow. A check rule gates a new agent call only.
+
+Today the check sits where `execution` accepts a new agent call, so one check
+covers Room chat and the `/sessions` routes. Phase 4 moves its caller up into
+`session`, where the target puts it.
+
 A check rule runs before the call. It knows the step and the chosen agent, not
 what the agent will do during the call. When an agent wants to do something
 that needs permission, such as pushing code, the agent asks, and that is a
@@ -495,7 +510,7 @@ A step stops on a Question for one of two reasons:
 
 | Kind | Example | Who answers |
 |---|---|---|
-| Permission | "May the agent push to `main`?" | The owner, in the Panel. The owner can grant one client the right to answer these too, for setups where the user and the owner are the same person. |
+| Permission | "May the agent push to `main`?" | The owner, in the Panel. The owner can grant a client the right to answer these too, for setups where the user and the owner are the same person. |
 | Information | "Which branch should I fix?" | The client that wrote the prompt. |
 
 What happens next:
@@ -505,6 +520,12 @@ What happens next:
 - An answer lets the step continue from where it stopped.
 - A refusal ends the step as denied, and the client is told why.
 - Every answer is recorded with who gave it: the owner or a client.
+
+Today the permission questions are a check rule's ask and an agent's own
+approval question (stored as `policy_decision`). A questionnaire, a sign-in
+request (`auth_challenge`) and every other question go to the owner. A
+client's answer is applied as the owner's, and the client that gave it is
+recorded.
 
 ## Evaluation
 
@@ -564,7 +585,7 @@ work on it starts. This list fixes which pages exist and what belongs on each.
 | Chat | Room chat, where a person places an order with the bundled orchestrator. | Exists |
 | Sessions | Every Session from every client, Room chat included. One Session shows its Steps: the prompt, the agent and how it was chosen, the result, the timing, the Questions and the Scores. | Exists under the name Inbox, for API and MCP clients; the step view is new |
 | Network | Agents and Groups. | Exists |
-| Rules | The ordered route rules, and the check rules. | New |
+| Rules | The ordered route rules, and the check rules. | Exists, with the check rules; route rules are new |
 | Evaluation | Standards, and checking one against a run. | New |
 | Connect | The owner's clients and their tokens, and how a client connects, over the API or MCP. | Exists under the name Access, without clients |
 | Settings | Model provider, configuration and system. | Exists |
@@ -637,6 +658,7 @@ Each module in today's code has one of three statuses:
 | `diagnostics`, `room_files` | Stable | Support: logs and files |
 | `account` | Stable | `account` |
 | `client` | Stable | `client` |
+| `policy` | Stable | `policy`; it holds the check rules, and route and access rules are new |
 | `jobs` | Stable | `scheduler` |
 | `MCP/server.py` | Stable | A client that uses the Client API |
 | `default_agents` | Stable | The bundled agents |
@@ -664,6 +686,7 @@ flowchart LR
         t_jobs["jobs"]
         t_settings["instance_settings"]
         t_approval["approval"]
+        t_policy["policy"]
         t_agent["agent and local_agents"]
         t_a2a["a2a_adapter"]
         t_chat["chat"]
@@ -680,9 +703,10 @@ flowchart LR
         n_sched["scheduler"]
         n_settings["settings"]
         n_approval["approval"]
+        n_policy["policy"]
         n_agent["agent"]
         n_adapter["Protocol adapter"]
-        n_new["routing, policy and evaluation: new"]
+        n_new["routing and evaluation: new"]
     end
 
     subgraph outside["Outside the core"]
@@ -699,6 +723,7 @@ flowchart LR
     t_jobs --> n_sched
     t_settings --> n_settings
     t_approval --> n_approval
+    t_policy --> n_policy
     t_agent --> n_agent
     t_a2a --> n_adapter
     t_chat --> o_orch
