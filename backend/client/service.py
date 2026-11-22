@@ -10,6 +10,7 @@ from datetime import datetime, timedelta
 from typing import Literal
 
 from client.models import (
+    BUILT_IN_CLIENT_IDS,
     NO_TOKEN,
     NO_TOKEN_CLIENT_ID,
     TOKEN_PREFIX,
@@ -22,6 +23,7 @@ from client.models import (
     Via,
 )
 from client.protocols import (
+    ClientBuiltIn,
     ClientNotFound,
     ClientRevoked,
     ClientStore,
@@ -29,6 +31,7 @@ from client.protocols import (
     TokenRequirementUnset,
 )
 from common.observability import events as E
+from common.observability import log_id
 from common.utils.logger import get_logger
 from common.utils.time import utcnow
 
@@ -51,6 +54,7 @@ def _view(record: ClientRecord) -> ClientView:
         client_id=record.client_id,
         name=record.name,
         has_token=record.has_token,
+        answer_grant=record.answer_grant and record.has_token,
         token_last4=record.token_last4 if record.has_token else None,
         created_at=record.created_at,
         last_used_at=record.last_used_at,
@@ -124,6 +128,8 @@ class ClientService:
             {
                 "token_hash": None,
                 "token_last4": None,
+                # In the same write as the revoke, so no revoked client keeps it.
+                "answer_grant": False,
                 "revoked_at": now,
                 "updated_at": now,
             },
@@ -136,6 +142,46 @@ class ClientService:
                 raise ClientNotFound
             return _view(current)
         return _view(updated)
+
+    async def set_answer_grant(self, client_id: str, granted: bool) -> ClientView:
+        """Let a client answer permission questions, or stop it.
+
+        Never on a built-in client. The write applies only while the client is
+        live, so a grant that races a revoke never leaves a revoked holder.
+        Rotate and rename keep it: it belongs to the client, not the token.
+        """
+        if client_id in BUILT_IN_CLIENT_IDS:
+            raise ClientBuiltIn
+        updated = await self._store.update(
+            client_id,
+            {"answer_grant": granted, "updated_at": self._now()},
+            live_only=True,
+        )
+        if updated is None:
+            current = await self._store.get(client_id)
+            if current is None:
+                raise ClientNotFound
+            if granted:
+                raise ClientRevoked
+            # A revoked client holds no grant; clearing it changes nothing.
+            return _view(current)
+        logger.emit(
+            E.CLIENT_ANSWER_GRANT_CHANGED,
+            client_id=log_id(client_id),
+            granted=granted,
+        )
+        return _view(updated)
+
+    async def may_answer_permission_questions(self, client: ClientIdentity) -> bool:
+        """Whether this client may answer permission questions now.
+
+        False for a built-in client, an unknown one and a revoked one, whatever
+        a record carries; the stored record decides, not the identity passed in.
+        """
+        if client.client_id in BUILT_IN_CLIENT_IDS or not client.has_token:
+            return False
+        record = await self._store.get(client.client_id)
+        return record is not None and record.has_token and record.answer_grant
 
     async def resolve(self, token: str, *, via: Via = "api") -> ClientIdentity | None:
         """The client of a current token; ``None`` for any other value.

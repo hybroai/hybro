@@ -12,6 +12,7 @@ class MemoryClientStore:
     def __init__(self) -> None:
         self.records: dict[str, ClientRecord] = {}
         self.touched: list[tuple[str, datetime, str]] = []
+        self.updates: list[tuple[str, dict[str, Any]]] = []
         self.requirement: TokenRequirement | None = None
 
     async def ensure_indexes(self) -> None:
@@ -38,6 +39,7 @@ class MemoryClientStore:
     async def update(
         self, client_id: str, fields: dict[str, Any], *, live_only: bool = False
     ) -> ClientRecord | None:
+        self.updates.append((client_id, dict(fields)))
         record = self.records.get(client_id)
         if record is None or (live_only and record.revoked_at is not None):
             return None

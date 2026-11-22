@@ -8,8 +8,15 @@ from datetime import UTC, datetime, timedelta
 import pytest
 
 from client import ClientService
-from client.models import NO_TOKEN, NO_TOKEN_CLIENT_ID, TOKEN_PREFIX
+from client.models import (
+    NO_TOKEN,
+    NO_TOKEN_CLIENT_ID,
+    TOKEN_PREFIX,
+    ClientIdentity,
+    ClientRecord,
+)
 from client.protocols import (
+    ClientBuiltIn,
     ClientNotFound,
     ClientRegistry,
     ClientRevoked,
@@ -271,3 +278,220 @@ async def test_resolve_records_how_the_client_connected():
     assert len(store.touched) == 2
     listed = await service.list_clients()
     assert listed.clients[0].last_used_via == "mcp"
+
+
+# -- The grant: a client may answer permission questions ----------------------
+
+
+def ident(client_id: str) -> ClientIdentity:
+    """The identity a request carries; the read must not trust its fields."""
+    return ClientIdentity(client_id=client_id, name="any", has_token=True)
+
+
+async def test_a_new_client_has_no_grant():
+    service, _, _ = make()
+    created = await service.create("CI bot")
+
+    assert created.answer_grant is False
+    assert (await service.list_clients()).clients[0].answer_grant is False
+    assert (
+        await service.may_answer_permission_questions(ident(created.client_id)) is False
+    )
+
+
+async def test_the_owner_sets_and_clears_the_grant_and_it_is_logged(
+    caplog, monkeypatch
+):
+    service, store, clock = make()
+    created = await service.create("CI bot")
+    clock.now = NOW + timedelta(minutes=1)
+    caplog.set_level("INFO")
+    passed_through: list[object] = []
+
+    def recording_log_id(value):
+        passed_through.append(value)
+        return value
+
+    monkeypatch.setattr("client.service.log_id", recording_log_id)
+
+    granted = await service.set_answer_grant(created.client_id, True)
+
+    assert granted.answer_grant is True
+    assert store.records[created.client_id].updated_at == clock.now
+    assert (
+        await service.may_answer_permission_questions(ident(created.client_id)) is True
+    )
+    cleared = await service.set_answer_grant(created.client_id, False)
+    assert cleared.answer_grant is False
+    assert (
+        await service.may_answer_permission_questions(ident(created.client_id)) is False
+    )
+    events = [r for r in caplog.records if r.msg == "client_answer_grant_changed"]
+    assert [(r.client_id, r.granted) for r in events] == [
+        (created.client_id, True),
+        (created.client_id, False),
+    ]
+    # The id reaches the log only through log_id.
+    assert passed_through == [created.client_id, created.client_id]
+    assert created.token not in caplog.text
+    assert created.token[-4:] not in caplog.text
+
+
+async def test_any_number_of_clients_hold_the_grant_at_once():
+    service, _, _ = make()
+    first = await service.create("one")
+    second = await service.create("two")
+
+    await service.set_answer_grant(first.client_id, True)
+    await service.set_answer_grant(second.client_id, True)
+
+    assert await service.may_answer_permission_questions(ident(first.client_id)) is True
+    assert (
+        await service.may_answer_permission_questions(ident(second.client_id)) is True
+    )
+
+
+async def test_rotate_and_rename_keep_the_grant():
+    service, _, _ = make()
+    created = await service.create("CI bot")
+    await service.set_answer_grant(created.client_id, True)
+
+    rotated = await service.rotate(created.client_id)
+    renamed = await service.rename(created.client_id, "Nightly")
+
+    assert rotated.answer_grant is True
+    assert renamed.answer_grant is True
+    assert (
+        await service.may_answer_permission_questions(ident(created.client_id)) is True
+    )
+
+
+async def test_revoke_clears_the_grant_in_the_same_write():
+    service, store, _ = make()
+    created = await service.create("CI bot")
+    await service.set_answer_grant(created.client_id, True)
+
+    revoked = await service.revoke(created.client_id)
+
+    assert revoked.answer_grant is False
+    assert store.records[created.client_id].answer_grant is False
+    # One write: the revoke itself carries the cleared flag.
+    assert store.updates[-1][1]["answer_grant"] is False
+    assert store.updates[-1][1]["revoked_at"] is not None
+    assert (
+        await service.may_answer_permission_questions(ident(created.client_id)) is False
+    )
+
+
+async def test_the_grant_cannot_be_set_on_a_revoked_client():
+    service, store, _ = make()
+    created = await service.create("CI bot")
+    await service.revoke(created.client_id)
+
+    with pytest.raises(ClientRevoked):
+        await service.set_answer_grant(created.client_id, True)
+    # Clearing it on a revoked client is harmless and changes nothing.
+    cleared = await service.set_answer_grant(created.client_id, False)
+    assert cleared.answer_grant is False
+    assert store.records[created.client_id].answer_grant is False
+
+
+async def test_a_grant_that_races_a_revoke_never_leaves_a_revoked_holder():
+    # The revoke lands between the set's read and its write: the write is
+    # conditional on the client being live, so it does not apply.
+    service, store, _ = make()
+    created = await service.create("CI bot")
+    original_update = store.update
+
+    async def revoke_first(client_id, fields, *, live_only=False):
+        if "answer_grant" in fields and "revoked_at" not in fields:
+            store.update = original_update
+            await service.revoke(client_id)
+        return await original_update(client_id, fields, live_only=live_only)
+
+    store.update = revoke_first
+
+    with pytest.raises(ClientRevoked):
+        await service.set_answer_grant(created.client_id, True)
+    assert store.records[created.client_id].answer_grant is False
+    assert store.records[created.client_id].revoked_at is not None
+
+
+@pytest.mark.parametrize("granted", [True, False])
+async def test_the_grant_cannot_be_set_on_no_token(granted):
+    service, store, _ = make()
+
+    with pytest.raises(ClientBuiltIn):
+        await service.set_answer_grant(NO_TOKEN_CLIENT_ID, granted)
+    assert store.updates == []
+
+
+async def test_an_unknown_client_has_no_grant_and_cannot_get_one():
+    service, _, _ = make()
+
+    assert (
+        await service.may_answer_permission_questions(ident("client_missing")) is False
+    )
+    with pytest.raises(ClientNotFound):
+        await service.set_answer_grant("client_missing", True)
+
+
+async def test_the_read_answers_false_for_a_built_in_or_revoked_client_whatever_is_stored():
+    service, store, clock = make()
+    # A record that carries the flag under the built-in id, and a revoked one
+    # that still carries it: neither may answer.
+    store.records[NO_TOKEN_CLIENT_ID] = ClientRecord(
+        client_id=NO_TOKEN_CLIENT_ID,
+        name="No token",
+        token_hash="a" * 64,
+        token_last4="wxyz",
+        created_at=NOW,
+        updated_at=NOW,
+        answer_grant=True,
+    )
+    created = await service.create("CI bot")
+    store.records[created.client_id] = store.records[created.client_id].model_copy(
+        update={
+            "answer_grant": True,
+            "revoked_at": NOW,
+            "token_hash": None,
+            "token_last4": None,
+        }
+    )
+
+    # Neither the constant nor an identity that claims a token under its id.
+    assert await service.may_answer_permission_questions(NO_TOKEN) is False
+    assert (
+        await service.may_answer_permission_questions(ident(NO_TOKEN_CLIENT_ID))
+        is False
+    )
+    assert (
+        await service.may_answer_permission_questions(ident(created.client_id)) is False
+    )
+
+
+async def test_a_stored_record_without_the_field_reads_as_no_grant():
+    record = ClientRecord.model_validate(
+        {
+            "client_id": "client_old",
+            "name": "Old",
+            "token_hash": "a" * 64,
+            "token_last4": "wxyz",
+            "created_at": NOW,
+            "updated_at": NOW,
+        }
+    )
+    assert record.answer_grant is False
+
+
+async def test_the_read_answers_false_for_an_identity_without_a_token():
+    # The stored client holds the grant, but the identity passed in carries no
+    # token: the read never trusts the stored flag alone.
+    service, _, _ = make()
+    created = await service.create("CI bot")
+    await service.set_answer_grant(created.client_id, True)
+    tokenless = ClientIdentity(
+        client_id=created.client_id, name="CI bot", has_token=False
+    )
+
+    assert await service.may_answer_permission_questions(tokenless) is False

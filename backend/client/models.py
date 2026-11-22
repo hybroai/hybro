@@ -22,6 +22,9 @@ from common.utils.time import ensure_utc
 # revoked or granted anything.
 NO_TOKEN_CLIENT_ID = "no_token"
 NO_TOKEN_NAME = "No token"
+# Every built-in client: none is a stored client with a token, so none can be
+# granted anything that trusts a client by which client it is.
+BUILT_IN_CLIENT_IDS = frozenset({NO_TOKEN_CLIENT_ID})
 # Every token starts with this, so a leaked one is recognisable.
 TOKEN_PREFIX = "hybro_client_"
 
@@ -74,6 +77,9 @@ class ClientRecord(BaseModel):
     # client last used before this was recorded.
     last_used_via: Via | None = None
     revoked_at: datetime | None = None
+    # The owner's grant: this client may answer permission questions. A record
+    # stored before the grant existed reads as false; revoking clears it.
+    answer_grant: bool = False
 
     _utc_times = field_validator(
         "created_at", "updated_at", "last_used_at", "revoked_at"
@@ -101,12 +107,20 @@ class ClientRename(BaseModel):
     name: ClientName
 
 
+class ClientAnswerGrantChange(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    granted: StrictBool
+
+
 class ClientView(BaseModel):
     """A client as the owner sees it. It never carries the token."""
 
     client_id: str
     name: str
     has_token: bool
+    # Whether the client may answer permission questions; false once revoked.
+    answer_grant: bool
     token_last4: str | None = None
     created_at: datetime
     last_used_at: datetime | None = None
@@ -151,10 +165,12 @@ class TokenRequirementChange(BaseModel):
 
 
 __all__ = [
+    "BUILT_IN_CLIENT_IDS",
     "NO_TOKEN",
     "NO_TOKEN_NAME",
     "NO_TOKEN_CLIENT_ID",
     "TOKEN_PREFIX",
+    "ClientAnswerGrantChange",
     "ClientCreate",
     "ClientIdentity",
     "ClientList",

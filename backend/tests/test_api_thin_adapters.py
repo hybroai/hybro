@@ -731,7 +731,14 @@ def test_route_owner_protocols_match_handler_calls():
         },
         SessionAccess: {"check", "close", "send"},
         OwnerSessionAccess: {"close", "get_record", "list_sessions"},
-        ClientRegistry: {"create", "list_clients", "rename", "revoke", "rotate"},
+        ClientRegistry: {
+            "create",
+            "list_clients",
+            "rename",
+            "revoke",
+            "rotate",
+            "set_answer_grant",
+        },
         RuleRegistry: {"create", "delete", "list_rules", "reorder", "update"},
         RoomRouteReader: {"get_room_by_room_id"},
         SSEStateReader: {

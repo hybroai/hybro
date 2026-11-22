@@ -921,6 +921,10 @@ LOCAL_AGENT_RECORDS_PRUNED = define(
 CLIENT_LAST_USE_WRITE_FAILED = define(
     "client_last_use_write_failed", WARNING, required={"client_id"}
 )
+# The owner gave or took back a client's right to answer permission questions.
+CLIENT_ANSWER_GRANT_CHANGED = define(
+    "client_answer_grant_changed", INFO, required={"client_id", "granted"}
+)
 # Once at startup: other machines can reach the port, and a request without a
 # client token is accepted.
 CLIENT_TOKEN_NOT_REQUIRED_ON_PUBLIC_LISTENER = define(

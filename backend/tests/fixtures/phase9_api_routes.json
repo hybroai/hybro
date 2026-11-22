@@ -2196,6 +2196,34 @@
       "get_owner_clients"
     ],
     "methods": [
+      "PUT"
+    ],
+    "module": "api_gateway.routes.client_routes",
+    "name": "set_client_answer_grant",
+    "openapi_response_codes": [
+      "200",
+      "401",
+      "403",
+      "404",
+      "409",
+      "422",
+      "503"
+    ],
+    "owning_protocol": "client.protocols.ClientRegistry",
+    "path": "/api/v1/clients/{client_id}/answer-grant",
+    "response_class": null,
+    "response_model": "ClientView",
+    "status_code": null,
+    "streaming_response": null
+  },
+  {
+    "auth_dependencies": [
+      "get_owner_clients"
+    ],
+    "dependencies": [
+      "get_owner_clients"
+    ],
+    "methods": [
       "POST"
     ],
     "module": "api_gateway.routes.client_routes",

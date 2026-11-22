@@ -993,7 +993,8 @@ the service to `app.state.client_registry`.
   characters), `name` (1 to 120 characters), `token_hash` (SHA-256 of the
   token), `token_last4`, `created_at`, `updated_at`, `last_used_at`,
   `last_used_via` (`api` or `mcp`; absent before the first use recorded with
-  it), `revoked_at`. Indexes: `client_id_unique`, and `client_token_hash_unique`,
+  it), `revoked_at`, `answer_grant` (the owner's grant to answer permission
+  questions; absent reads as false). Indexes: `client_id_unique`, and `client_token_hash_unique`,
   partial on a string hash. `client_settings`, one document
   (`_id` `token_requirement`): `required`, `started_off`, `updated_at`.
 - Exposes: `ClientRegistry` to `api_gateway` and, as `ClientDirectory`, to
@@ -1012,7 +1013,22 @@ when the channel changes. The client-token dependency passes `via="mcp"` when
 the request carries `X-Hybro-Via: mcp` (the MCP server's mark; any other value
 counts as `api`); the mark decides nothing. A failed write of it is logged
 (`client_last_use_write_failed`) and the request goes on. The built-in "No token" client
-(id `no_token`) is a constant, never a document.
+(id `no_token`) is a constant, never a document; `BUILT_IN_CLIENT_IDS` lists
+every built-in client.
+
+The grant (`answer_grant`) lets a client answer permission questions; nothing
+reads it yet. It is a flag per client, so any number of clients may hold it.
+`set_answer_grant` refuses a built-in client (`ClientBuiltIn`) and writes only
+while the client is not revoked (`live_only`), so a set that races a revoke
+never leaves a revoked client holding it; it refuses to set it on a revoked
+client (`ClientRevoked`) and clearing it there changes nothing. Revoke clears
+it in the same write that clears the hash. Rotate and rename keep it. Each
+change logs `client_answer_grant_changed` (`client_id` through `log_id`,
+`granted`). The owner's views show it as false once the client is revoked.
+`may_answer_permission_questions(identity)` reads the stored record and is
+false for a built-in client, an identity without a token, an unknown client
+and a revoked one, whatever a record carries. The Client API never shows the
+grant.
 
 Whether a token is required is the stored switch, product state that the
 owner changes without a restart. `container.seed_token_requirement` creates it
@@ -1054,11 +1070,12 @@ reach them.
 
 | Route | Does |
 |---|---|
-| `GET /clients` | Every client, oldest first: `client_id`, `name`, `has_token`, `token_last4`, `created_at`, `last_used_at`, `last_used_via`, `revoked_at`. |
+| `GET /clients` | Every client, oldest first: `client_id`, `name`, `has_token`, `answer_grant`, `token_last4`, `created_at`, `last_used_at`, `last_used_via`, `revoked_at`. |
 | `POST /clients` | Creates a client (`name`); 201 with the same fields and `token`. |
 | `PATCH /clients/{client_id}` | Renames it (`name`). |
 | `POST /clients/{client_id}/rotate` | A new token, returned once. 409 `client_revoked`. |
-| `POST /clients/{client_id}/revoke` | Revokes it. |
+| `POST /clients/{client_id}/revoke` | Revokes it and clears its grant. |
+| `PUT /clients/{client_id}/answer-grant` | Sets or clears the grant (`granted`, a strict boolean, the only field); returns the client. 409 `client_built_in` for "No token" or another built-in client, 409 `client_revoked` to set it on a revoked client. A bad body is 422 `invalid_request` with `fields: ["granted"]` and no echoed value. |
 | `GET /clients/token-requirement` | The switch: `required`, `started_off`, `updated_at`. |
 | `PUT /clients/token-requirement` | Sets it (`required`, a strict boolean); returns the switch. 409 `token_required_by_auth_mode` for `false` with `backend.auth_mode="clerk"`. |
 
