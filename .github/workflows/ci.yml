@@ -416,6 +416,7 @@ jobs:
                       "send_message",
                       "check_session",
                       "close_session",
+                      "answer_question",
                   }
                   result = await client.call_tool("discover_agents", {})
                   assert not result.is_error

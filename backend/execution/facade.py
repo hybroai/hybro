@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from typing import Any, Literal, Protocol
 
 from approval import (
+    HITLConflictError,
     hitl_response_dict_to_common,
     model_hitl_request_to_common,
 )
@@ -123,6 +124,7 @@ class HITLServicePort(Protocol):
         answers: list[dict[str, str]],
         user_id: str,
         client_request_id: str | None = None,
+        answered_by_client_id: str | None = None,
     ) -> dict[str, Any]: ...
 
     async def get_pending_requests(self, conversation_id: str) -> list[Any]: ...
@@ -813,7 +815,16 @@ class ExecutionFacade:
         answers: list[dict[str, str]],
         responder_id: str,
         client_request_id: str | None = None,
+        answered_by_client_id: str | None = None,
     ) -> HITLResponse:
+        """Apply the answers as ``responder_id``, the owner.
+
+        ``answered_by_client_id`` names a client with the owner's grant that
+        gave them; it is recorded with the answer. A client's answer to a Run
+        that ended before it was recorded is refused in both stores (the
+        router refuses it for an Agent's question); the Panel's reads as
+        before.
+        """
         router = self._orchestrator_router
         if router is not None:
             try:
@@ -822,6 +833,7 @@ class ExecutionFacade:
                     answers=answers,
                     responder_id=responder_id,
                     conversation_id=conversation_id,
+                    answered_by_client_id=answered_by_client_id,
                 )
             except OrchestratorHITLNotOwnedError:
                 # Supervisor ask_user interactions live in the unified HITL
@@ -845,9 +857,12 @@ class ExecutionFacade:
             answers=answers,
             user_id=responder_id,
             client_request_id=client_request_id,
+            answered_by_client_id=answered_by_client_id,
         )
         if hasattr(result, "model_dump"):
             result = result.model_dump(mode="json")
+        if result.get("status") == "canceled" and answered_by_client_id is not None:
+            raise HITLConflictError("The question is no longer pending")
         result.setdefault("request_id", interaction_id)
         result.setdefault("responder_id", responder_id)
         if client_request_id:

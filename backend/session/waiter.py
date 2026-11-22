@@ -19,6 +19,7 @@ from session.protocols import ConversationEventsPort
 
 _RUN_EVENT = "run_event"
 _HITL_RESPONSE = "hitl_response"
+_HITL_REQUEST = "hitl_request"
 _SETTLED = "run_settled"
 _WAITING_INPUT = "run_waiting_input"
 _RESUMED = "run_resumed"
@@ -173,6 +174,26 @@ class SessionWaiter:
             last = max((int(r.get("room_seq") or 0) for r in page), default=cursor)
             if len(page) < self._page_size or last <= cursor:
                 return outcomes
+            cursor = last
+
+    async def asked(self, conversation_id: str, interaction_id: str) -> bool:
+        """Whether the conversation ever showed a question of this interaction."""
+        cursor = 0
+        while True:
+            page = await self._events.read_range(
+                conversation_id, after=cursor, limit=self._page_size
+            )
+            for record in page:
+                payload = record.get("payload_public")
+                if (
+                    record.get("kind") == _HITL_REQUEST
+                    and isinstance(payload, dict)
+                    and payload.get("interaction_id") == interaction_id
+                ):
+                    return True
+            last = max((int(r.get("room_seq") or 0) for r in page), default=cursor)
+            if len(page) < self._page_size or last <= cursor:
+                return False
             cursor = last
 
     async def _read_new(

@@ -143,6 +143,31 @@ class SessionHistoryEntry(BaseModel):
     _utc_times = field_validator("sent_at", "replied_at")(_utc)
 
 
+SessionAnswer = Literal["approve", "refuse"]
+
+
+def _answers() -> list[SessionAnswer]:
+    return ["approve", "refuse"]
+
+
+class SessionQuestion(BaseModel):
+    """A permission question the client may answer, shown only with the grant.
+
+    A permission question is a check rule's ask or an Agent's own approval
+    question. Every other question stays with the owner and is never shown.
+    """
+
+    question_id: str = Field(description="Answer it with this id.")
+    kind: Literal["permission"] = "permission"
+    text: str = Field(
+        description="The question; several questions of one ask are separated "
+        "by a blank line, and one answer applies to all of them."
+    )
+    agent_id: str | None = Field(default=None, description="The agent it concerns.")
+    agent_name: str | None = None
+    answers: list[SessionAnswer] = Field(default_factory=_answers)
+
+
 class SessionStatus(BaseModel):
     """The client's view of a session. It never carries the container id."""
 
@@ -153,8 +178,32 @@ class SessionStatus(BaseModel):
     created_at: datetime
     updated_at: datetime
     history: list[SessionHistoryEntry] = Field(default_factory=list)
+    question: SessionQuestion | None = Field(
+        default=None,
+        description="The permission question waiting for an answer. Present "
+        "only for a client the owner allowed to answer permission questions; "
+        "absent otherwise.",
+        exclude_if=lambda value: value is None,
+    )
 
     _utc_times = field_validator("created_at", "updated_at")(_utc)
+
+
+class SessionQuestionAnswer(BaseModel):
+    """A client's answer to a permission question of its session."""
+
+    model_config = ConfigDict(extra="forbid", strict=True)
+
+    answer: SessionAnswer
+
+
+class SessionQuestionAnswered(BaseModel):
+    """The answer was accepted; the session's state shows what follows."""
+
+    session_id: str
+    question_id: str
+    answer: SessionAnswer
+    status: Literal["accepted"] = "accepted"
 
 
 class SessionClosed(BaseModel):
@@ -205,10 +254,23 @@ class SessionErrorDetail(BaseModel):
     message: str
     session_id: str | None = None
     client_request_id: str | None = None
+    question_id: str | None = None
 
 
 class SessionErrorResponse(BaseModel):
     detail: SessionErrorDetail
+
+
+class SessionInvalidRequestDetail(BaseModel):
+    """A 422 of the answer route: fixed text and the fields at fault."""
+
+    code: Literal["invalid_request"]
+    message: str
+    fields: list[str]
+
+
+class SessionInvalidRequest(BaseModel):
+    detail: SessionInvalidRequestDetail
 
 
 __all__ = [
@@ -217,11 +279,17 @@ __all__ = [
     "SessionClosed",
     "SessionErrorDetail",
     "SessionErrorResponse",
+    "SessionInvalidRequest",
+    "SessionInvalidRequestDetail",
     "SessionListResponse",
     "SessionMessageRequest",
     "SessionMessageResponse",
     "SessionOwnerRecord",
     "SessionHistoryEntry",
+    "SessionAnswer",
+    "SessionQuestion",
+    "SessionQuestionAnswer",
+    "SessionQuestionAnswered",
     "SessionReceiptStatus",
     "SessionClient",
     "SessionState",

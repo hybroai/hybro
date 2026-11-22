@@ -1655,6 +1655,34 @@
   {
     "auth_dependencies": [],
     "dependencies": [
+      "get_session_access"
+    ],
+    "methods": [
+      "POST"
+    ],
+    "module": "api_gateway.routes.session_routes",
+    "name": "answer_session_question",
+    "openapi_response_codes": [
+      "200",
+      "400",
+      "401",
+      "403",
+      "404",
+      "409",
+      "422",
+      "502",
+      "503"
+    ],
+    "owning_protocol": "session.protocols.SessionAccess",
+    "path": "/api/v1/sessions/{session_id}/questions/{question_id}/answer",
+    "response_class": null,
+    "response_model": "SessionQuestionAnswered",
+    "status_code": null,
+    "streaming_response": null
+  },
+  {
+    "auth_dependencies": [],
+    "dependencies": [
       "get_owner_session_access"
     ],
     "methods": [

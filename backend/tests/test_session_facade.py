@@ -350,6 +350,13 @@ class FakeClients:
         return {i: self.known[i] for i in client_ids if i in self.known}
 
 
+class NoGrants:
+    """AnswerGrants with no client granted: the behavior before the grant."""
+
+    async def may_answer_permission_questions(self, client: ClientIdentity) -> bool:
+        return False
+
+
 class FakeResolver:
     def __init__(self, error: Exception | None = None) -> None:
         self.error = error
@@ -468,6 +475,7 @@ def make_harness(
     on_schedule: list[tuple[str, dict[str, Any]]] | None = None,
     start_grace_seconds: float = 10.0,
     resolver: FakeResolver | None = None,
+    grants: Any | None = None,
 ) -> Harness:
     events = InMemoryRoomEventStore()
     clock = VirtualClock()
@@ -487,6 +495,7 @@ def make_harness(
         approvals=approvals,
         waiter=waiter,
         clients=FakeClients(),
+        grants=grants if grants is not None else NoGrants(),
         now=lambda: NOW + timedelta(seconds=clock.now),
         id_factory=iter(f"sess-{n}" for n in range(1, 100)).__next__,
     )

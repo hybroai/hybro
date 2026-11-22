@@ -597,6 +597,8 @@ class DurableHITLAnswerRecord(A2ADurableModel):
     interaction_revision: int = Field(ge=1)
     route_fingerprint: str
     authenticated_answerer_id: str
+    # The client that answered as the owner; None when the owner answered.
+    answered_by_client_id: str | None = None
     answer_digest: str
     answers: list[HITLQuestionAnswer]
     verified_auth_reference_digests: list[str] = Field(default_factory=list)

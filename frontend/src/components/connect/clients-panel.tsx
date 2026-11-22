@@ -1,7 +1,7 @@
 'use client'
 
 import Link from 'next/link'
-import { useState, type FormEvent } from 'react'
+import { useRef, useState, type FormEvent } from 'react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { KeyRound, Loader2, MoreHorizontal, Plus, RefreshCw } from 'lucide-react'
 import { Alert, AlertDescription } from '@/components/ui/alert'
@@ -33,14 +33,19 @@ import {
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Skeleton } from '@/components/ui/skeleton'
+import { Switch } from '@/components/ui/switch'
 import { clientsQueryKey, useClients } from '@/hooks/useClients'
 import { usePageOrigin } from '@/hooks/usePageOrigin'
+import { ApiError } from '@/lib/api-client'
 import {
+  BUILT_IN_CLIENT_IDS,
   createClient,
   renameClient,
+  setAnswerGrant,
   revokeClient,
   rotateClient,
   clientErrorMessage,
+  type ClientList,
   type ClientView,
   type ClientWithToken,
 } from '@/lib/api/clients'
@@ -242,7 +247,83 @@ function TokenActionDialog({ client, action, onClose }: { client: ClientView; ac
 
 type Pending = { client: ClientView; action: 'rename' | 'rotate' | 'revoke' }
 
-function ClientRow({ client, onAction }: { client: ClientView; onAction: (pending: Pending) => void }) {
+const GRANT_HELP_ID = 'answer-grant-help'
+const GRANT_HELP = 'This client can approve or reject permission questions (a check rule\'s ask and an agent\'s own approval question) in its own sessions. Other questions stay with you.'
+
+/** Fixed text for a refusal; the list is reloaded, since it was out of date. */
+function grantErrorMessage(error: unknown): string {
+  if (error instanceof ApiError && error.status === 404) return 'This client no longer exists. The list is up to date again.'
+  if (error instanceof ApiError && error.status === 409) return 'This client is revoked or built in, so it cannot answer questions. The list is up to date again.'
+  return clientErrorMessage(error)
+}
+
+function canHoldGrant(client: ClientView): boolean {
+  return client.has_token && !BUILT_IN_CLIENT_IDS.has(client.client_id)
+}
+
+/** Turning the grant on asks first; turning it off applies at once. */
+function useAnswerGrant(onError: (message: string | null) => void) {
+  const queryClient = useQueryClient()
+  // Per client: one shared mutation only knows its latest call.
+  const [inFlight, setInFlight] = useState<ReadonlySet<string>>(() => new Set())
+  const mark = (clientId: string, busy: boolean) => setInFlight(current => {
+    const next = new Set(current)
+    if (busy) next.add(clientId)
+    else next.delete(clientId)
+    return next
+  })
+  const mutation = useMutation({
+    mutationFn: ({ client, granted }: { client: ClientView; granted: boolean }) => setAnswerGrant(client.client_id, granted),
+    onMutate: ({ client }) => { onError(null); mark(client.client_id, true) },
+    onSettled: (_data, _error, { client }) => mark(client.client_id, false),
+    onSuccess: view => {
+      queryClient.setQueryData<ClientList>(clientsQueryKey, list => list && { clients: list.clients.map(item => item.client_id === view.client_id ? view : item) })
+    },
+    onError: error => {
+      onError(grantErrorMessage(error))
+      void queryClient.invalidateQueries({ queryKey: clientsQueryKey })
+    },
+  })
+  return { mutate: mutation.mutate, inFlight }
+}
+
+function GrantSwitch({ client, pending, onChange }: { client: ClientView; pending: boolean; onChange: (granted: boolean, opener: HTMLElement) => void }) {
+  const ref = useRef<HTMLButtonElement>(null)
+  if (!canHoldGrant(client)) return <><span aria-hidden="true">—</span><span className="sr-only">Not available</span></>
+  // Not disabled while the change is in flight: a disabled switch loses focus.
+  return (
+    <Switch
+      ref={ref}
+      checked={client.answer_grant}
+      aria-busy={pending || undefined}
+      aria-label={`${client.name} can answer permission questions`}
+      aria-describedby={GRANT_HELP_ID}
+      onCheckedChange={granted => { if (!pending && ref.current) onChange(granted, ref.current) }}
+    />
+  )
+}
+
+function GrantConfirmDialog({ client, opener, onConfirm, onClose }: { client: ClientView; opener: HTMLElement; onConfirm: () => void; onClose: () => void }) {
+  return (
+    <AlertDialog open onOpenChange={open => { if (!open) onClose() }}>
+      {/* Opened without a trigger, so focus is handed back to the switch. */}
+      <AlertDialogContent onCloseAutoFocus={event => { event.preventDefault(); opener.focus() }}>
+        <AlertDialogHeader>
+          <AlertDialogTitle>{`Let ${client.name} answer permission questions?`}</AlertDialogTitle>
+          <AlertDialogDescription>
+            It can approve or reject a check rule&apos;s ask and an agent&apos;s own approval question in its own sessions, as you can in Hybro. Other questions stay with you. You can turn this off at any time.
+          </AlertDialogDescription>
+        </AlertDialogHeader>
+        <AlertDialogFooter>
+          <AlertDialogCancel>Cancel</AlertDialogCancel>
+          <AlertDialogAction onClick={onConfirm}>Allow</AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
+  )
+}
+
+function ClientRow({ client, onAction, grant }: { client: ClientView; onAction: (pending: Pending) => void; grant: { pending: boolean; onChange: (granted: boolean, opener: HTMLElement) => void } }) {
   const revoked = !client.has_token
   return (
     <tr className="border-t">
@@ -263,6 +344,9 @@ function ClientRow({ client, onAction }: { client: ClientView; onAction: (pendin
       </td>
       <td className="hidden px-3 py-3 whitespace-nowrap tabular-nums text-muted-foreground lg:table-cell">
         <time dateTime={client.created_at}>{formatSessionTime(client.created_at)}</time>
+      </td>
+      <td className="px-3 py-3 whitespace-nowrap text-muted-foreground">
+        <GrantSwitch client={client} {...grant} />
       </td>
       <td className="py-3 pr-4 pl-3 text-right whitespace-nowrap">
         <div className="flex items-center justify-end gap-1">
@@ -294,7 +378,16 @@ function ClientRow({ client, onAction }: { client: ClientView; onAction: (pendin
 function ClientsTable({ onAction }: { onAction: (pending: Pending) => void }) {
   const clients = useClients()
   const list = clients.data?.clients
+  const [grantError, setGrantError] = useState<string | null>(null)
+  const [confirming, setConfirming] = useState<{ client: ClientView; opener: HTMLElement } | null>(null)
+  const grant = useAnswerGrant(setGrantError)
+  const change = (client: ClientView) => (granted: boolean, opener: HTMLElement) => {
+    if (granted) setConfirming({ client, opener })
+    else grant.mutate({ client, granted: false })
+  }
   return (
+    <>
+    {grantError ? <Alert variant="destructive"><AlertDescription>{grantError}</AlertDescription></Alert> : null}
     <div className="overflow-hidden rounded-lg border">
       <table className="w-full table-fixed text-sm">
         <caption className="sr-only">Clients</caption>
@@ -305,12 +398,13 @@ function ClientsTable({ onAction }: { onAction: (pending: Pending) => void }) {
             <th scope="col" className="hidden w-36 px-3 py-2 font-medium md:table-cell">Last used</th>
             <th scope="col" className="hidden w-36 px-3 py-2 font-medium md:table-cell">Connects through</th>
             <th scope="col" className="hidden w-36 px-3 py-2 font-medium lg:table-cell">Created</th>
+            <th scope="col" className="w-[4.5rem] px-3 py-2 font-medium sm:w-28 sm:whitespace-nowrap">Can answer</th>
             <th scope="col" className="w-36 py-2 pr-4 pl-3"><span className="sr-only">Actions</span></th>
           </tr>
         </thead>
         <tbody>
           {clients.isError ? (
-            <tr><td colSpan={6} className="p-4">
+            <tr><td colSpan={7} className="p-4">
               <div className="flex flex-wrap items-center gap-3">
                 <span>Clients couldn&apos;t load.</span>
                 <Button variant="secondary" size="sm" onClick={() => { void clients.refetch() }}>
@@ -320,18 +414,35 @@ function ClientsTable({ onAction }: { onAction: (pending: Pending) => void }) {
             </td></tr>
           ) : clients.isLoading ? (
             Array.from({ length: 3 }, (_, index) => (
-              <tr key={index} className="border-t"><td colSpan={6} className="px-4 py-3"><Skeleton className="h-5" /></td></tr>
+              <tr key={index} className="border-t"><td colSpan={7} className="px-4 py-3"><Skeleton className="h-5" /></td></tr>
             ))
           ) : !list?.length ? (
-            <tr><td colSpan={6} className="px-4 py-8 text-muted-foreground">
+            <tr><td colSpan={7} className="px-4 py-8 text-muted-foreground">
               No clients yet. Create one for each app, assistant, or script that sends work to Hybro, over the API or MCP.
             </td></tr>
           ) : (
-            list.map(client => <ClientRow key={client.client_id} client={client} onAction={onAction} />)
+            list.map(client => (
+              <ClientRow
+                key={client.client_id}
+                client={client}
+                onAction={onAction}
+                grant={{ pending: grant.inFlight.has(client.client_id), onChange: change(client) }}
+              />
+            ))
           )}
         </tbody>
       </table>
     </div>
+    {confirming ? (
+      <GrantConfirmDialog
+        key={confirming.client.client_id}
+        client={confirming.client}
+        opener={confirming.opener}
+        onConfirm={() => grant.mutate({ client: confirming.client, granted: true })}
+        onClose={() => setConfirming(null)}
+      />
+    ) : null}
+    </>
   )
 }
 
@@ -350,6 +461,9 @@ export function ClientsPanel() {
           <div className="flex flex-col gap-1">
             <h2 id="clients-heading" className="text-[15px] font-semibold">Clients</h2>
             <p className="text-sm text-muted-foreground">Each connected app, assistant, or script has its own token, and every step it sends is recorded under its name.</p>
+            <p className="text-sm text-muted-foreground">
+              <span className="font-medium text-foreground">Can answer: </span><span id={GRANT_HELP_ID}>{GRANT_HELP}</span>
+            </p>
           </div>
           <Button onClick={() => setCreating(true)}>
             <Plus data-icon="inline-start" aria-hidden="true" />Create client

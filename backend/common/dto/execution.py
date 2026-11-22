@@ -102,7 +102,7 @@ class HITLRequest(FrozenDTO):
     request_id: str
     conversation_id: str
     user_message_id: str
-    source: Literal["agent", "supervisor"]
+    source: Literal["agent", "supervisor", "system"]
     prompt: str
     message_id: str | None = None
     source_step_id: str | None = None
@@ -131,6 +131,10 @@ class HITLRequest(FrozenDTO):
     allow_other: bool = False
     choice_options: list[HITLChoiceOption] | None = None
     interaction_id: str | None = None
+    # The stored kind of an Agent's typed question; None for other questions.
+    interaction_kind: (
+        Literal["questionnaire", "auth_challenge", "policy_decision"] | None
+    ) = None
     interaction_status: str | None = None
     interaction_version: int | None = None
     application_status: str | None = None

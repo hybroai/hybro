@@ -185,3 +185,20 @@ async def test_an_answer_that_finds_the_run_busy_reads_as_accepted(monkeypatch):
     marked = lifecycle.mark_interaction_application_state.await_args
     assert marked.kwargs["status"] == "applying"
     assert marked.kwargs["error"] == "run_busy"
+
+
+def test_a_pending_rule_question_reaches_the_common_request():
+    """The pending list carries a check rule's question as asked by the system.
+
+    ``ExecutionFacade.get_pending_hitl`` translates every row; a ``system``
+    source used to fail validation there.
+    """
+    from approval.service import _public_hitl_request_from_doc
+    from approval.translators import model_hitl_request_to_common
+
+    common = model_hitl_request_to_common(
+        _public_hitl_request_from_doc(_rule_question())
+    )
+
+    assert common.source == "system"
+    assert common.prompt_type == "approval"

@@ -61,6 +61,14 @@ export function revokeClient(clientId: string): Promise<ClientView> {
   return apiClient<ClientView>(clientUrl(clientId, '/revoke'), { method: 'POST' })
 }
 
+/** Built-in clients, such as "No token": they never answer questions. */
+export const BUILT_IN_CLIENT_IDS: ReadonlySet<string> = new Set(['no_token'])
+
+/** Let the client answer permission questions in its own sessions, or stop it. */
+export function setAnswerGrant(clientId: string, granted: boolean): Promise<ClientView> {
+  return apiClient<ClientView>(clientUrl(clientId, '/answer-grant'), { method: 'PUT', body: { granted } })
+}
+
 export function getTokenRequirement(signal?: AbortSignal): Promise<TokenRequirement> {
   return apiClient<TokenRequirement>(REQUIREMENT_URL(), { signal })
 }

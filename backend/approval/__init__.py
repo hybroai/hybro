@@ -2,7 +2,10 @@
 
 from approval.exceptions import (
     HITLConflictError,
+    HITLContinuationLostError,
     HITLDeliveryUncertainError,
+    HITLExpiredError,
+    HITLNotFoundError,
     HITLRoomMismatchError,
 )
 from approval.repository import HITLLifecycleStore, HITLRequestStore
@@ -15,8 +18,11 @@ from approval.translators import (
 __all__ = [
     "MAX_HITL_ROUNDS",
     "HITLConflictError",
+    "HITLContinuationLostError",
     "HITLDeliveryUncertainError",
+    "HITLExpiredError",
     "HITLLifecycleStore",
+    "HITLNotFoundError",
     "HITLRequestStore",
     "HITLRoomMismatchError",
     "HITLService",

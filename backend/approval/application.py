@@ -357,12 +357,18 @@ class HITLApplicationCoordinator:
         answers: list[dict[str, str]],
         user_id: str,
         client_request_id: str | None = None,
+        answered_by_client_id: str | None = None,
     ) -> dict[str, Any]:
         """Durably record a complete questionnaire, then apply it exactly once.
 
         Request rows may be written over multiple CAS operations, but execution is
         never resumed until the aggregate proves that every required answer is
         present. A retry repairs any partially-recorded batch idempotently.
+
+        ``answered_by_client_id`` names a client that answers as the owner
+        ``user_id``. It is part of the answer's identity: the same text from
+        another answerer is a different answer, so the one that loses the
+        pending claim is refused instead of replaying the winner.
         """
         interaction = await self._lifecycle.get_interaction_strict(interaction_id)
         if interaction is None:
@@ -457,6 +463,7 @@ class HITLApplicationCoordinator:
                     answered_at=utcnow(),
                     responded_at=None,
                     responded_by_user_id=user_id,
+                    answered_by_client_id=answered_by_client_id,
                 )
                 if not claimed:
                     row = await service.persistence.get_hitl_request(request_id)
@@ -468,6 +475,7 @@ class HITLApplicationCoordinator:
                             "user_input": user_input,
                             "answer_digest": answer_digest,
                             "responded_by_user_id": user_id,
+                            "answered_by_client_id": answered_by_client_id,
                         }
                     )
                     status = HITLStatus.ANSWER_RECORDED.value
@@ -479,6 +487,7 @@ class HITLApplicationCoordinator:
                 if (
                     row.get("user_input") != user_input
                     or row.get("answer_digest") != answer_digest
+                    or row.get("answered_by_client_id") != answered_by_client_id
                 ):
                     raise HITLConflictError(
                         f"Request {request_id} already has a different answer"
@@ -517,11 +526,8 @@ class HITLApplicationCoordinator:
         current = await self._lifecycle.get_interaction_strict(interaction_id)
         if current is None:
             raise HITLRoutingFailedError("HITL interaction disappeared")
-        if current.get("status") == HITLInteractionStatus.APPLIED.value:
-            result = await self.apply_interaction(service, current)
-            result["client_request_id"] = authoritative_client_id
-            return result
         if current.get("status") not in {
+            HITLInteractionStatus.APPLIED.value,
             HITLInteractionStatus.ANSWERS_RECORDED.value,
             HITLInteractionStatus.APPLYING.value,
         }:
@@ -529,6 +535,26 @@ class HITLApplicationCoordinator:
                 "Questionnaire answers are durable but application is not ready"
             )
         result = await self.apply_interaction(service, current)
+        if answered_by_client_id is not None and result.get("status") == "canceled":
+            # The Run ended, but another worker may have applied the answer
+            # first; then it counted, and the client is told so.
+            latest = await self._lifecycle.get_interaction_strict(interaction_id)
+            if (latest or {}).get("status") == HITLInteractionStatus.APPLIED.value:
+                result["status"] = "accepted"
+        elif answered_by_client_id is not None and result.get("status") == "accepted":
+            # apply_interaction also reads "accepted" for an interaction that
+            # ended or went uncertain meanwhile; a client is told the truth.
+            ended = result.get("interaction_status")
+            if ended == HITLInteractionStatus.DELIVERY_UNCERTAIN.value:
+                raise HITLDeliveryUncertainError(
+                    "HITL answer delivery is not confirmed"
+                )
+            if ended not in {
+                HITLInteractionStatus.APPLIED.value,
+                HITLInteractionStatus.ANSWERS_RECORDED.value,
+                HITLInteractionStatus.APPLYING.value,
+            }:
+                result["status"] = "canceled"
         result["client_request_id"] = authoritative_client_id
         return result
 

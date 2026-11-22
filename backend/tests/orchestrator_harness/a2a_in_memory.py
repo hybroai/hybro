@@ -936,6 +936,7 @@ class InMemoryHITLApplicationPort:
         authenticated_answerer_id: str,
         verified_auth_reference_digests: list[str],
         verified_auth_references: list[VerifiedAuthReferenceBinding],
+        answered_by_client_id: str | None = None,
     ) -> str:
         stored = self._interactions.get(interaction_id)
         if (
@@ -959,6 +960,7 @@ class InMemoryHITLApplicationPort:
             interaction_revision=interaction_revision,
             route_fingerprint=route_fingerprint,
             authenticated_answerer_id=authenticated_answerer_id,
+            answered_by_client_id=answered_by_client_id,
             answer_digest=answer_digest,
             answers=answers,
             verified_auth_reference_digests=verified_auth_reference_digests,
@@ -982,6 +984,7 @@ def _answer_identity(record: DurableHITLAnswerRecord) -> tuple[object, ...]:
         record.interaction_revision,
         record.route_fingerprint,
         record.authenticated_answerer_id,
+        record.answered_by_client_id,
         record.answer_digest,
         tuple(record.answers),
         tuple(record.verified_auth_reference_digests),

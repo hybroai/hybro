@@ -5,8 +5,9 @@ per request; ``OwnerSessionAccess`` is the owner's surface in the Panel. Every
 parameter and return of both is a public DTO from ``models.session``.
 ``SessionService`` is the facade surface the gateway holds, ``SessionStore``
 the durable record, ``ClientDirectory`` the names of the clients on the
-owner's payloads, and ``ConversationEventsPort`` the durable room event log
-the bounded wait reads.
+owner's payloads, ``AnswerGrants`` the owner's grant to answer permission
+questions, and ``ConversationEventsPort`` the durable room event log the
+bounded wait reads.
 """
 
 from __future__ import annotations
@@ -32,6 +33,8 @@ from models.session import (
     SessionMessageRequest,
     SessionMessageResponse,
     SessionOwnerRecord,
+    SessionQuestionAnswer,
+    SessionQuestionAnswered,
     SessionStatus,
 )
 from session.models import SessionRecord
@@ -83,6 +86,9 @@ class SessionAccess(Protocol):
     async def send(self, request: SessionMessageRequest) -> SessionMessageResponse: ...
     async def check(self, session_id: str) -> SessionStatus: ...
     async def close(self, session_id: str) -> SessionClosed: ...
+    async def answer(
+        self, session_id: str, question_id: str, request: SessionQuestionAnswer
+    ) -> SessionQuestionAnswered: ...
 
 
 @runtime_checkable
@@ -95,6 +101,11 @@ class OwnerSessionAccess(Protocol):
 @runtime_checkable
 class ClientDirectory(Protocol):
     async def identities(self, client_ids: list[str]) -> dict[str, ClientIdentity]: ...
+
+
+@runtime_checkable
+class AnswerGrants(Protocol):
+    async def may_answer_permission_questions(self, client: ClientIdentity) -> bool: ...
 
 
 @runtime_checkable
@@ -113,6 +124,15 @@ class SessionService(Protocol):
     async def close(
         self, session_id: str, *, owner: SessionOwner, client: ClientIdentity
     ) -> SessionClosed: ...
+    async def answer(
+        self,
+        session_id: str,
+        question_id: str,
+        request: SessionQuestionAnswer,
+        *,
+        owner: SessionOwner,
+        client: ClientIdentity,
+    ) -> SessionQuestionAnswered: ...
     async def list_for_owner(self, *, owner: SessionOwner) -> SessionListResponse: ...
     async def record_for_owner(
         self, session_id: str, *, owner: SessionOwner
@@ -160,6 +180,7 @@ class ConversationEventsPort(Protocol):
 
 
 __all__ = [
+    "AnswerGrants",
     "ConversationEventsPort",
     "OwnerSessionAccess",
     "RoomManagement",

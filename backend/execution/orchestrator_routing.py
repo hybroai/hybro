@@ -786,6 +786,7 @@ class DualRuntimeRouter:
         answers: list[dict[str, str]],
         responder_id: str,
         conversation_id: str,
+        answered_by_client_id: str | None = None,
     ) -> str:
         if self._runtime is None:
             raise OrchestratorRoutingError("orchestrator HITL ingress is not bound")
@@ -797,6 +798,10 @@ class DualRuntimeRouter:
             raise HITLRoomMismatchError("Room mismatch")
         run = await self._runtime.run_store.load(route.orchestration_run_id)
         if run is None or run.status in {"canceling", *TERMINAL_RUN_STATUSES}:
+            if answered_by_client_id is not None:
+                # The answer is not recorded; a client is told so. The Panel
+                # reads this as before.
+                raise HITLConflictError("The question is no longer pending")
             return "canceled"
         mapped = _map_interaction_answers(spec, answers)
         try:
@@ -807,6 +812,7 @@ class DualRuntimeRouter:
                 route_fingerprint=route.fingerprint,
                 answers=mapped,
                 authenticated_answerer_id=responder_id,
+                answered_by_client_id=answered_by_client_id,
             )
         except (PermissionError, ValueError) as exc:
             # Durable answer identity/inventory/owner conflicts are stale
@@ -1100,6 +1106,7 @@ class DualRuntimeRouter:
                         choices=choices,
                         **public_question_fields(question, secret_values=secret_values),
                         interaction_id=spec.interaction_id,
+                        interaction_kind=question.interaction_kind.value,
                         interaction_status="pending",
                         interaction_version=route.interaction_revision,
                         question_count=len(spec.questions),

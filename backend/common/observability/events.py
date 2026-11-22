@@ -954,5 +954,22 @@ SESSION_CLOSE_RUN_CANCEL_FAILED = define(
     WARNING,
     required={"conversation_id", "run_id"},
 )
+# A client with the owner's grant answered a permission question as the owner.
+SESSION_QUESTION_ANSWERED = define(
+    "session_question_answered",
+    INFO,
+    required={"session_id", "question_id", "client_id", "answer"},
+)
+SESSION_QUESTION_ANSWER_FAILED = define(
+    "session_question_answer_failed",
+    WARNING,
+    required={"session_id", "question_id", "client_id"},
+)
+SESSION_QUESTIONS_READ_FAILED = define(
+    "session_questions_read_failed", WARNING, required={"session_id"}
+)
+SESSION_ANSWER_GRANT_READ_FAILED = define(
+    "session_answer_grant_read_failed", WARNING, required={"client_id"}
+)
 
 del define
