@@ -231,3 +231,40 @@ async def test_the_panels_answer_to_an_ended_run_reads_as_before():
 
     assert response.status == "accepted"
     assert router.route_hitl_answer.await_args.kwargs["answered_by_client_id"] is None
+
+
+@pytest.mark.parametrize("router_bound", [True, False])
+async def test_a_client_answer_to_an_ended_run_in_the_approval_store_is_refused(
+    router_bound,
+):
+    """A check rule's ask lives in the approval store, not the orchestrator."""
+    facade, deps = _make_facade()
+    if router_bound:
+        facade.bind_orchestrator_router(
+            SimpleNamespace(
+                route_hitl_answer=AsyncMock(side_effect=KeyError("interaction-2")),
+                get_pending_hitl=AsyncMock(return_value=[]),
+            )
+        )
+    deps["hitl_manager"].handle_batch_response.return_value = {
+        "request_id": "interaction-2",
+        "status": "canceled",
+        "responder_id": "user-1",
+    }
+
+    with pytest.raises(HITLConflictError):
+        await facade.resolve_hitl_batch(
+            "room-1",
+            "interaction-2",
+            [{"request_id": "q1", "user_input": "Approve"}],
+            "user-1",
+            answered_by_client_id="client_ci",
+        )
+
+    panel = await facade.resolve_hitl_batch(
+        "room-1",
+        "interaction-2",
+        [{"request_id": "q1", "user_input": "Approve"}],
+        "user-1",
+    )
+    assert panel.status == "canceled"

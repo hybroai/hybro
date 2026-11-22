@@ -165,8 +165,26 @@ async def close_session(
         raise _http_error(exc, session_id=session_id) from exc
 
 
+_ANSWER_PATH_FIELDS = frozenset({"session_id", "question_id"})
+_ANSWER_FIELD_HINTS = {
+    "answer": "answer, approve or refuse, and the only field",
+}
+
+
+def _answer_fields(exc: RequestValidationError) -> list[str]:
+    """The path parameter at fault, else the body's one field, ``answer``."""
+    names: set[str] = set()
+    for error in exc.errors():
+        loc = error.get("loc", ())
+        if len(loc) > 1 and loc[0] == "path" and loc[1] in _ANSWER_PATH_FIELDS:
+            names.add(str(loc[1]))
+        else:
+            names.add("answer")
+    return sorted(names)
+
+
 class _AnswerRoute(APIRoute):
-    """A 422 that names the field, ``answer``, and never echoes the input."""
+    """A 422 that names the field at fault and never echoes the input."""
 
     def get_route_handler(self) -> Callable[[Request], Coroutine[Any, Any, Response]]:
         original = super().get_route_handler()
@@ -174,14 +192,17 @@ class _AnswerRoute(APIRoute):
         async def handle(request: Request) -> Response:
             try:
                 return await original(request)
-            except RequestValidationError:
+            except RequestValidationError as exc:
+                fields = _answer_fields(exc)
+                hint = ", ".join(
+                    _ANSWER_FIELD_HINTS.get(field, field) for field in fields
+                )
                 return JSONResponse(
                     {
                         "detail": {
                             "code": "invalid_request",
-                            "message": "Invalid request; check: answer, approve "
-                            "or refuse, and the only field.",
-                            "fields": ["answer"],
+                            "message": f"Invalid request; check: {hint}.",
+                            "fields": fields,
                         }
                     },
                     status_code=422,

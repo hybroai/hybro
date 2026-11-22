@@ -252,13 +252,20 @@ class SessionFacade:
         status = await self._client_status(record)
         if status.state != "waiting_on_owner":
             return status
+        # Without the grant nothing more is read, so what the client sees
+        # stays as it was, outages included.
+        if not await self._questions.shown_to(client):
+            return status
+        question = await self._questions.visible(record)
+        if question is None:
+            return status
         agent_id = await self._paused_agent_id(record)
         names = {agent.agent_id: agent.name for agent in status.agents}
-        question = await self._questions.visible(
-            record,
-            client,
-            agent_id=agent_id,
-            agent_name=names.get(agent_id) if agent_id else None,
+        question = question.model_copy(
+            update={
+                "agent_id": agent_id,
+                "agent_name": names.get(agent_id) if agent_id else None,
+            }
         )
         return status.model_copy(update={"question": question})
 

@@ -3899,17 +3899,21 @@ supervisor's question stay with the owner.
   shown only when the session's latest request (its `last_user_message_id`)
   waits on exactly one interaction, every member of it is listed, pending and
   a permission question, and nothing of it is answered. Without the grant the
-  field is absent, and the body is what it was before.
+  field is absent and nothing more is read, so the body is what it was
+  before; a failed grant read shows no `question` and logs
+  `session_answer_grant_read_failed`.
 - The answer route reads the grant first (403 `answer_not_granted`; a failed
   read is 503 `clients_unavailable`), then the session (404
   `session_not_found` for another client's session or an unknown one, 409
-  `session_closed`). The question must be that one interaction: an id this
+  `session_closed`). The question must be an interaction the latest request
+  waits on (one of them when several wait at once): an id this
   conversation never showed (no `hitl_request` record in its event log) is the
   same 404 `session_not_found`; an id it showed earlier, or one no longer
   pending, is 409 `question_not_pending`; one with a member that is not a
   permission question is 403 `question_owner_only`. A failed pending read is
   503 `questions_unavailable`. The body is strict; any other shape is 422
-  `invalid_request` with `fields: ["answer"]`, never echoing the input.
+  `invalid_request` with `fields: ["answer"]` (a path parameter over its
+  limit names `session_id` or `question_id`), never echoing the input.
 - `approve` and `refuse` map to what the Panel's Approve and Reject send,
   `Approve` and `Reject`, for every member, and go through
   `HITLManager.resolve_hitl_batch` as the owner (`responder_id` is the acting
@@ -3921,8 +3925,8 @@ supervisor's question stay with the owner.
   in both stores (the `approval` row's pending claim and the Agent answer
   record's insert-if-absent), so when the owner and a client answer at once,
   the loser is refused and reads 409 `question_not_pending`, also with the same
-  text. A client's answer to a Run that ended is refused the same way; the
-  Panel's still reads `accepted`. An unconfirmed delivery is 503
+  text. A client's answer to a Run that ended is refused the same way in both
+  stores; the Panel's reads as before. An unconfirmed delivery is 503
   `answer_unconfirmed`, any other failure 502 `answer_failed`, both with fixed
   text; the cause goes to `session_question_answer_failed`. A recorded answer
   logs `session_question_answered` (`session_id`, `question_id`, `client_id`

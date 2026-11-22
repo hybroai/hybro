@@ -821,7 +821,7 @@ class ExecutionFacade:
 
         ``answered_by_client_id`` names a client with the owner's grant that
         gave them; it is recorded with the answer. A client's answer to a Run
-        that ended is refused; the Panel's reads as accepted, as before.
+        that ended is refused in both stores; the Panel's reads as before.
         """
         router = self._orchestrator_router
         if router is not None:
@@ -861,6 +861,8 @@ class ExecutionFacade:
         )
         if hasattr(result, "model_dump"):
             result = result.model_dump(mode="json")
+        if result.get("status") == "canceled" and answered_by_client_id is not None:
+            raise HITLConflictError("The question is no longer pending")
         result.setdefault("request_id", interaction_id)
         result.setdefault("responder_id", responder_id)
         if client_request_id:

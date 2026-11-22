@@ -110,3 +110,23 @@ async def test_the_route_is_in_the_schema_with_its_body():
     assert body["additionalProperties"] is False
     status = schema["components"]["schemas"]["SessionStatus"]
     assert "question" in status["properties"]
+
+
+@pytest.mark.parametrize(
+    ("path", "field"),
+    [
+        (f"/api/v1/sessions/sess-1/questions/{'q' * 300}/answer", "question_id"),
+        (f"/api/v1/sessions/{'s' * 300}/questions/int-1/answer", "session_id"),
+    ],
+)
+async def test_a_bad_path_parameter_names_that_parameter(path, field):
+    app, access = make_app()
+    async with client_for(app) as client:
+        response = await client.post(path, json={"answer": "approve"})
+
+    assert response.status_code == 422
+    detail = response.json()["detail"]
+    assert detail["fields"] == [field]
+    assert field in detail["message"]
+    assert "q" * 300 not in response.text and "s" * 300 not in response.text
+    assert access.answered == []

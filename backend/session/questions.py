@@ -151,26 +151,27 @@ class PermissionQuestions:
             )
             raise _error(CLIENTS_UNAVAILABLE) from exc
 
-    async def visible(
-        self,
-        record: SessionRecord,
-        client: ClientIdentity,
-        *,
-        agent_id: str | None,
-        agent_name: str | None,
-    ) -> SessionQuestion | None:
-        """The open permission question, for a client with the grant only."""
-        if not await self.granted(client):
+    async def shown_to(self, client: ClientIdentity) -> bool:
+        """Whether a check shows the question; a failed read shows none."""
+        try:
+            return await self.granted(client)
+        except AppError:
+            # granted() logged the failure; the client sees its plain status.
+            return False
+
+    async def visible(self, record: SessionRecord) -> SessionQuestion | None:
+        """The one open permission question; the caller checked the grant.
+
+        Several interactions waiting at once show none, as it is not clear
+        which one the client would be answering.
+        """
+        groups = await self._pending(record)
+        if len(groups) != 1:
             return None
-        current = await self._current(record)
-        if current is None or not current.permission or not current.open:
+        (current,) = groups.values()
+        if not current.permission or not current.open:
             return None
-        return SessionQuestion(
-            question_id=current.interaction_id,
-            text=current.text,
-            agent_id=agent_id,
-            agent_name=agent_name,
-        )
+        return SessionQuestion(question_id=current.interaction_id, text=current.text)
 
     async def answer(
         self,
@@ -183,8 +184,8 @@ class PermissionQuestions:
     ) -> SessionQuestionAnswered:
         """Apply the answer as the owner; the caller checked the grant."""
         assert record.conversation_id is not None
-        current = await self._current(record)
-        if current is None or current.interaction_id != question_id:
+        current = (await self._pending(record)).get(question_id)
+        if current is None:
             if await self._asked(record, question_id):
                 raise _error(NOT_PENDING)
             raise _error(NOT_FOUND)
@@ -240,12 +241,12 @@ class PermissionQuestions:
             session_id=record.session_id, question_id=question_id, answer=answer
         )
 
-    async def _current(self, record: SessionRecord) -> PendingInteraction | None:
-        """The one interaction the session's latest request waits on, if any."""
+    async def _pending(self, record: SessionRecord) -> dict[str, PendingInteraction]:
+        """The interactions the session's latest request waits on, by id."""
         conversation_id = record.conversation_id
         message_id = record.last_user_message_id
         if not conversation_id or not message_id:
-            return None
+            return {}
         try:
             pending = await self._approvals.get_pending_hitl(conversation_id)
         except Exception as exc:
@@ -263,10 +264,12 @@ class PermissionQuestions:
                 and row.interaction_id
             ):
                 groups.setdefault(row.interaction_id, []).append(row)
-        if len(groups) != 1:
-            return None
-        ((interaction_id, rows),) = groups.items()
-        return PendingInteraction(interaction_id=interaction_id, rows=tuple(rows))
+        return {
+            interaction_id: PendingInteraction(
+                interaction_id=interaction_id, rows=tuple(rows)
+            )
+            for interaction_id, rows in groups.items()
+        }
 
     async def _asked(self, record: SessionRecord, question_id: str) -> bool:
         assert record.conversation_id is not None

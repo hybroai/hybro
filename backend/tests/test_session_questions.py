@@ -310,15 +310,39 @@ async def test_another_sessions_question_is_not_shown():
     assert (await s.check(session_id, client)).question is None
 
 
-async def test_a_failed_grant_read_refuses_the_check():
+async def test_a_failed_grant_read_shows_the_status_without_a_question(caplog):
     s, client, session_id = await setup_with(rule_ask())
+    before = await setup_with(rule_ask(), granted=False)
+    expected = await before[0].check(before[2], before[1])
 
     async def broken(_client):
         raise RuntimeError("store down")
 
     s.clients.may_answer_permission_questions = broken
 
-    await expect_error(s.check(session_id, client), "clients_unavailable")
+    with caplog.at_level(logging.WARNING):
+        status = await s.check(session_id, client)
+
+    assert status.question is None
+    assert status.state == expected.state
+    assert "question" not in status.model_dump(mode="json")
+    assert "session_answer_grant_read_failed" in caplog.text
+
+
+async def test_without_the_grant_the_check_reads_nothing_more():
+    """An outage of the question reads cannot change what it sees."""
+    s, client, session_id = await setup_with(rule_ask(), granted=False)
+
+    async def down(*_args, **_kwargs):
+        raise RuntimeError("down")
+
+    s.h.facade._paused_agent_id = down
+    s.h.approvals.get_pending_hitl = down
+
+    status = await s.check(session_id, client)
+
+    assert status.state == "waiting_on_owner"
+    assert "question" not in status.model_dump(mode="json")
 
 
 # -- Answering ----------------------------------------------------------------
@@ -635,3 +659,19 @@ def test_the_facade_takes_the_grant_port():
     import inspect
 
     assert "grants" in inspect.signature(SessionFacade.__init__).parameters
+
+
+async def test_a_pending_question_beside_another_interaction_can_be_answered():
+    s, client, session_id = await setup_with(
+        rule_ask(),
+        agent_decision(interaction_id="int-2", request_id="req-2"),
+    )
+    # Two questions wait at once: none is shown, as it is not clear which one.
+    assert (await s.check(session_id, client)).question is None
+
+    await s.answer(session_id, "int-2", "approve", client)
+
+    assert [call["interaction_id"] for call in s.answers.resolved] == ["int-2"]
+    assert s.answers.resolved[0]["answers"] == [
+        {"request_id": "req-2", "user_input": "Approve"}
+    ]
