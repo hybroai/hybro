@@ -541,6 +541,20 @@ class HITLApplicationCoordinator:
             latest = await self._lifecycle.get_interaction_strict(interaction_id)
             if (latest or {}).get("status") == HITLInteractionStatus.APPLIED.value:
                 result["status"] = "accepted"
+        elif answered_by_client_id is not None and result.get("status") == "accepted":
+            # apply_interaction also reads "accepted" for an interaction that
+            # ended or went uncertain meanwhile; a client is told the truth.
+            ended = result.get("interaction_status")
+            if ended == HITLInteractionStatus.DELIVERY_UNCERTAIN.value:
+                raise HITLDeliveryUncertainError(
+                    "HITL answer delivery is not confirmed"
+                )
+            if ended not in {
+                HITLInteractionStatus.APPLIED.value,
+                HITLInteractionStatus.ANSWERS_RECORDED.value,
+                HITLInteractionStatus.APPLYING.value,
+            }:
+                result["status"] = "canceled"
         result["client_request_id"] = authoritative_client_id
         return result
 

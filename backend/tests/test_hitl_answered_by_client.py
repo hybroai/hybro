@@ -13,7 +13,7 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from approval.exceptions import HITLConflictError
+from approval.exceptions import HITLConflictError, HITLDeliveryUncertainError
 from models.hitl import HITLInteractionStatus, HITLRequest
 from tests.test_rule_ask_answer import _coordinator, _interaction_for, _rule_question
 
@@ -112,7 +112,7 @@ def _digest(value: str) -> str:
     return hashlib.sha256(value.encode("utf-8")).hexdigest()
 
 
-async def _apply_reads(latest_status, *, client_id):
+async def _apply_reads(latest_status, *, client_id, applied=None):
     """Record the last answer; the application reads ``canceled``."""
     row = _rule_question()
     interaction = _interaction_for(row)
@@ -128,7 +128,7 @@ async def _apply_reads(latest_status, *, client_id):
         side_effect=[interaction, recorded, latest]
     )
     coordinator.apply_interaction = AsyncMock(
-        return_value={"request_id": "request-1", "status": "canceled"}
+        return_value=applied or {"request_id": "request-1", "status": "canceled"}
     )
     return await _answer(coordinator, service, "Approve", client_id=client_id)
 
@@ -150,3 +150,63 @@ async def test_the_panels_canceled_answer_reads_as_before():
     result = await _apply_reads(HITLInteractionStatus.APPLIED.value, client_id=None)
 
     assert result["status"] == "canceled"
+
+
+def _accepted(interaction_status):
+    """What apply_interaction returns when another worker moved it on."""
+    return {
+        "request_id": "request-1",
+        "status": "accepted",
+        "interaction_status": interaction_status,
+    }
+
+
+@pytest.mark.parametrize(
+    "ended",
+    [
+        HITLInteractionStatus.FAILED.value,
+        HITLInteractionStatus.CANCELED.value,
+        HITLInteractionStatus.EXPIRED.value,
+        None,
+    ],
+)
+async def test_a_client_answer_to_an_interaction_that_ended_meanwhile_reads_canceled(
+    ended,
+):
+    """The interaction ended without the answer: it did not count."""
+    result = await _apply_reads(
+        HITLInteractionStatus.FAILED.value, client_id="c", applied=_accepted(ended)
+    )
+
+    assert result["status"] == "canceled"
+
+
+async def test_a_client_answer_whose_delivery_turned_uncertain_says_so():
+    with pytest.raises(HITLDeliveryUncertainError):
+        await _apply_reads(
+            HITLInteractionStatus.DELIVERY_UNCERTAIN.value,
+            client_id="c",
+            applied=_accepted(HITLInteractionStatus.DELIVERY_UNCERTAIN.value),
+        )
+
+
+@pytest.mark.parametrize(
+    "still_going",
+    [HITLInteractionStatus.APPLYING.value, HITLInteractionStatus.APPLIED.value],
+)
+async def test_a_client_answer_still_being_applied_reads_accepted(still_going):
+    result = await _apply_reads(
+        still_going, client_id="c", applied=_accepted(still_going)
+    )
+
+    assert result["status"] == "accepted"
+
+
+async def test_the_panels_answer_to_an_ended_interaction_reads_as_before():
+    result = await _apply_reads(
+        HITLInteractionStatus.FAILED.value,
+        client_id=None,
+        applied=_accepted(HITLInteractionStatus.FAILED.value),
+    )
+
+    assert result["status"] == "accepted"
