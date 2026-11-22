@@ -175,9 +175,9 @@ The states of each record:
 Today a step from the Client API that a check rule refused, or that was
 refused at a check rule's Question, has one of two states: `denied` when a
 check rule denied the call, and `rejected` when the owner or a client with the
-owner's grant refused it at the Question. `rejected` also covers a step whose
-Question the owner canceled. They become the one state denied when the
-`session` module migrates in phase 5.
+owner's grant refused it at the Question. These two become the one state
+denied when the `session` module migrates in phase 5. A step whose Question
+the owner canceled also reads `rejected` today.
 
 Four more words:
 

@@ -360,7 +360,8 @@ what each step did.
    as "ask me before any call goes to the coder agent". The rules are an
    ordered list: the first rule that is on and matches decides, and no match
    means allow. A rule gates a new agent call only: a call already accepted
-   and a reply to an agent that asked a question are not checked again.
+   is not checked again, and a reply to an agent that asked a question is
+   never checked.
    - Deny: in Room chat the model is told the call was refused; a step from
      the Client API ends as `denied`, with the rule named in its reason.
    - Ask: the call is held, and a Question asks the owner to approve or
@@ -526,8 +527,9 @@ example, `hitl_requests` is renamed after Question and
 
 **Carried from phase 3.** A step from the Client API that a check rule refused
 reads `denied` (a deny rule) or `rejected` (refused at the rule's Question).
-`rejected` also covers a request whose Question the owner canceled. They
-become the one state denied of the design when `session` migrates.
+These two become the one state denied of the design when `session` migrates.
+`rejected` also covers a request whose Question the owner canceled; which
+state that case takes is decided in the same change.
 
 **Carried from phase 1.**
 

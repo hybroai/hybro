@@ -209,6 +209,10 @@ your own. **Next** moves to the following question, and the last question uses
 **Send**. **Reject** cancels the request. The **Chats** badge counts chats that
 need input.
 
+<p align="center">
+  <img src="assets/screenshots/chat-input-request.png" alt="A chat waiting for the user's answer" width="800">
+</p>
+
 **Set check rules.** **Rules** in the sidebar holds your check rules. Each rule
 names one agent or any agent and answers Allow, Deny or Ask. Rules are read
 from the top: the first rule that is on and matches decides, and with no match
@@ -217,10 +221,6 @@ sent, in chats and for sessions that clients open alike. Deny refuses the
 call: a chat's model is told, and a session request ends `denied`. Ask holds
 the call until you approve or reject it, or until a client you allowed to
 answer does so in its own session.
-
-<p align="center">
-  <img src="assets/screenshots/chat-input-request.png" alt="A chat waiting for the user's answer" width="800">
-</p>
 
 **Explore the network.** **Network** shows every registered agent and the
 subnets (teams) that group them. Use **Add agent** to register your own A2A
@@ -351,7 +351,8 @@ To continue a session, send again with its `session_id` and a new
 earlier one is still active returns `busy`.
 
 From an MCP client, the same loop is three tools: `discover_agents`,
-`send_message`, and `check_session`.
+`send_message`, and `check_session`, and a client with the grant answers with
+`answer_question`.
 
 A new install requires a client token on these calls: without one they are
 refused with 401 `client_token_required`. An install that already had data when

@@ -65,7 +65,7 @@ flowchart TD
 | Core | `approval` | Human-in-the-loop requests, interactions, answers, cancellation, and reconciliation. |
 | Support | `agent`, `local_agents`, `delivery`, `context_memory`, `room_files`, `llm_gateway` | Agent directory, local discovery, SSE delivery, room memory, files, and model access. |
 | Support | `diagnostics` | The local store of system events and warnings (two capped collections). |
-| Support | `client` | The clients that send work through the Client API: their names, token hashes, rotation and revocation, and the token check. |
+| Support | `client` | The clients that send work through the Client API: their names, token hashes, rotation and revocation, the token check, and the owner's grant to answer permission questions. |
 | Support | `policy` | The owner's check rules: an ordered list that answers allow, deny or ask for an agent. Asked before each new Agent call. |
 | Support | `account` | The owner account: the instance's one user record, its password hash, the signed-in browsers, the setup code, and the attempt limit of sign-in and setup. |
 | Support | `instance_settings` | The admin settings API: the curated field registry, validated `config.json` writes, the live log level, and the in-place service restart trigger. |
@@ -1342,8 +1342,9 @@ key is `unknown field`); the submitted values are never echoed. An `answer`
 other than `allow`, `deny` or `ask` is refused this way.
 
 The rules have no access control beyond the owner's sign-in and the
-cross-site check that every owner write takes: there is no role, and no audit
-record or log event of a rule change.
+cross-site check that every owner write takes. There is no role and no audit
+record, and the only log line of a rule change is the generic request log
+(`http_request_completed`), which names neither the rule nor what changed.
 
 ### `models`
 
