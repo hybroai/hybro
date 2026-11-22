@@ -918,6 +918,25 @@ async def test_a_failed_question_port_leaves_no_open_tool_row(profile, caplog):
     assert [item for item in turn["activity"] if item["kind"] == "tool"] == []
 
 
+async def test_a_failed_question_port_logs_no_free_text_request_id(caplog):
+    port = RecordingRuleQuestion(fail=True)
+    kernel, store, _tools, _p, room, run_id = await passthrough(port=port)
+    # The request id is the caller's text; only an id-shaped value is logged.
+    store.runs[run_id] = store.runs[run_id].model_copy(
+        update={"client_request_id": "note: free text"}
+    )
+
+    with caplog.at_level(logging.ERROR, logger="execution.orchestrator.kernel"):
+        with pytest.raises(RuntimeError, match="secret-detail"):
+            await start(kernel, room, run_id)
+
+    [record] = [
+        r for r in caplog.records if r.getMessage() == "rule_ask_creation_failed"
+    ]
+    assert record.client_request_id == "invalid"
+    assert "free text" not in caplog.text
+
+
 async def test_an_unbound_question_port_fails_the_hold():
     kernel, store, _m, tools, _p, room, run_id = await room_chat(
         [tool_events(("call-1", ECHO, '{"value":"hi"}'))]

@@ -1037,7 +1037,7 @@ class OrchestratorKernel:
                 exc=exc,
                 run_id=run.run_id,
                 conversation_id=run.conversation_id,
-                client_request_id=run.client_request_id,
+                client_request_id=log_id(run.client_request_id),
                 call_id=log_id(call.call_id),
                 interaction_id=log_id(interaction_id),
             )
@@ -1222,9 +1222,9 @@ class OrchestratorKernel:
                 exc=exc,
                 run_id=run.run_id,
                 conversation_id=run.conversation_id,
-                client_request_id=run.client_request_id,
-                call_id=call.call_id,
-                interaction_id=interaction_id,
+                client_request_id=log_id(run.client_request_id),
+                call_id=log_id(call.call_id),
+                interaction_id=log_id(interaction_id),
             )
             raise
         invocation = ToolInvocation(
