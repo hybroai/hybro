@@ -22,6 +22,7 @@ const CI: ClientView = {
   client_id: 'client_ci',
   name: 'CI bot',
   has_token: true,
+  answer_grant: false,
   token_last4: 'c1c1',
   created_at: '2026-11-18T10:00:00Z',
   last_used_at: '2026-11-20T09:30:00Z',

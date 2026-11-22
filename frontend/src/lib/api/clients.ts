@@ -11,6 +11,8 @@ export interface ClientView {
   name: string
   /** False once revoked. */
   has_token: boolean
+  /** May answer permission questions through the Client API; false once revoked. */
+  answer_grant: boolean
   token_last4: string | null
   created_at: string
   last_used_at: string | null
