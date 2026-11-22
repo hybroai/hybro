@@ -822,8 +822,8 @@ class ExecutionFacade:
         ``answered_by_client_id`` names a client with the owner's grant that
         gave them; it is recorded with the answer. A client's answer to a Run
         that ended before it was recorded is refused in both stores (the
-        router refuses it for an Agent's question); the Panel's reads as
-        before.
+        router refuses it for an Agent's question). An owner's answer in the
+        Panel is not refused this way.
         """
         router = self._orchestrator_router
         if router is not None:
