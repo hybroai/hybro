@@ -253,7 +253,8 @@ its `text`, `sent_at`, `agent_id`, `agent_name`, `state`, `reason`, and the
 agent's final `reply` and `replied_at`. The owner's decisions are never
 included. A waiting request shows `waiting_on_owner`; for a client with the
 owner's grant, a pending permission question (a check rule's ask or an agent's
-own approval question) is added as `question`, with its `question_id`, `kind`
+own approval question of interaction kind `policy_decision`) is added as
+`question`, with its `question_id`, `kind`
 (`permission`), `text`, the agent, and the answers `approve` and `refuse`. The client answers it with
 `POST /sessions/{session_id}/questions/{question_id}/answer` and
 `{"answer": "approve"}` or `{"answer": "refuse"}`; every other question stays
@@ -393,11 +394,26 @@ A missing `client_label` defaults to "MCP client" when a session is opened
 without a token; with a token the backend uses the client's name.
 
 Every tool publishes an output schema. Results are sent as both MCP structured
-content and JSON text. HTTP/transport errors set `isError`, keep the backend
-`detail`, and add a `next_action` hint; a `401` hint asks for a current
-client token, and a `409` hint depends on the backend code
-(`session_closed`: start a new session; `request_conflict`: use a new
-`client_request_id`; otherwise the agent is inactive or outside the subnet).
+content and JSON text. HTTP and transport errors set `isError` and add a
+`next_action` hint; an HTTP error keeps the backend `detail`. A transport
+failure carries the adapter's own code (`BACKEND_TIMEOUT`,
+`BACKEND_UNAVAILABLE`, `INVALID_BACKEND_RESPONSE` or `CALLER_ADDRESS_UNKNOWN`)
+with a fixed hint. For an HTTP error the hint follows the backend error code
+when the adapter knows it, else the HTTP status:
+
+- By code: `session_closed` and `session_not_found` say to start a new
+  session; `request_conflict` to use a new `client_request_id`; `no_account`
+  to create the owner account; `unknown_host` to set `frontend.server_url`;
+  `cross_site_request` to send a client token; and `answer_not_granted`,
+  `question_owner_only`, `question_not_pending`, `answer_unconfirmed` and
+  `answer_failed` each have their own hint.
+- `answer_question` reads its own hints first: its `session_not_found` points
+  to `check_session` and its `session_closed` to the user, never to a new
+  session.
+- By status: a `401` asks for a current client token, a `409` with no known
+  code says the agent is inactive or outside the subnet, and `403`, `404`,
+  `413`, `422`, `429`, `502` and `504` each have a hint. Any other status gets
+  a hint to tell the user the request failed.
 
 The adapter allows 610 seconds per backend call; a session send returns its
 receipt at once. There are no automatic retries.

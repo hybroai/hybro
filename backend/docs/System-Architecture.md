@@ -1301,7 +1301,7 @@ is recorded in the ledger for a held call.
   approved or refused, an ended `request_user_input` or
   `surface_agent_questions` call) writes its own suspend checkpoint
   (`suspend-tool-batch:{message}:{answered questions}`), so an approved call
-  that then parks, or the next held call, is stored.
+  that then parks, or a waiting call that is then held or asked, is stored.
 - Stop, a canceled Question and expiry close a held entry like a parked
   `request_user_input` entry: the terminal closure plan closes a parked entry
   that has neither a ledger record id nor an interaction id.
@@ -2719,8 +2719,10 @@ its `session_not_found` and `session_closed` hints (`ANSWER_NEXT_ACTIONS`)
 point to `check_session` or the user, never to a new session.
 `close_session` returns `session_id` and `status`. Every tool publishes an output schema; HTTP and
 transport failures become tool errors that keep the backend body, with a
-`409`/`404` hint keyed on the backend error code; a `401` hint asks for a
-current client token.
+hint keyed on the backend error code when the adapter knows it
+(`HTTP_NEXT_ACTIONS`: for example `session_closed`, `request_conflict`,
+`no_account`, `unknown_host`, `cross_site_request` and the answer codes), else
+on the HTTP status; a `401` hint asks for a current client token.
 
 The adapter has no MCP authentication of its own, user
 isolation, auth-store access, retry loop, or orchestration. The backend checks

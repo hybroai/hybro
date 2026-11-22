@@ -367,8 +367,9 @@ what each step did.
    - Ask: the call is held, and a Question asks the owner to approve or
      reject it in the Panel. A refusal ends a step from the Client API as
      `rejected`; in Room chat the model is told. One owner Question of a
-     batch of calls is open at a time; the next held call is asked about
-     once it is answered.
+     batch of calls is open at a time. Another call the rules ask about
+     waits, not yet held, and the rules are asked about it again once that
+     Question is answered.
 2. **One place for the check.** Done. Until phase 4, Room chat calls agents on
    its own path and not through the Client API. The check sits where an agent
    call is accepted, which both paths pass, so one check covers Room chat and
