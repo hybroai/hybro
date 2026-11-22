@@ -26,6 +26,7 @@ from models.session import (
     SessionClosed,
     SessionListResponse,
     SessionMessageResponse,
+    SessionQuestionAnswered,
     SessionStatus,
 )
 from session.protocols import SessionOwner
@@ -45,6 +46,7 @@ SOURCE_ROUTES = (
     ("POST", SEND, BODY),
     ("GET", f"{API}/sessions/sess-1", None),
     ("POST", f"{API}/sessions/sess-1/close", None),
+    ("POST", f"{API}/sessions/sess-1/questions/int-1/answer", {"answer": "approve"}),
     ("GET", f"{API}/agents/discovery", None),
     ("GET", f"{API}/agents/search?query=trip", None),
     ("GET", f"{API}/agents/groups", None),
@@ -80,6 +82,12 @@ class RecordingFacade:
     async def close(self, session_id, *, owner, client):
         self.calls.append(("close", owner, client))
         return SessionClosed(session_id=session_id, status="closed")
+
+    async def answer(self, session_id, question_id, request, *, owner, client):
+        self.calls.append(("answer", owner, client))
+        return SessionQuestionAnswered(
+            session_id=session_id, question_id=question_id, answer=request.answer
+        )
 
     async def close_for_owner(self, session_id, *, owner):
         self.calls.append(("close_for_owner", owner, None))
