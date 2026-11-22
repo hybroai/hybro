@@ -1070,7 +1070,8 @@ segment.
   the agent replied after its duration (long replies fold behind Show full
   reply), or couldn't finish; a Run canceled for `policy` reads as the
   owner's check rules denying the agent call, with the rule's id, and a Run
-  canceled for `owner_refused` (the owner rejected a check rule's question)
+  canceled for `owner_refused` (the owner, or a client with the grant,
+  rejected a check rule's question)
   reads as rejected. A pending question appears at the end of the
   record in the same `HitlResponseBar` card the chat composer uses (pending
   rows from `GET /rooms/{id}/hitl/pending` mapped with the shared
