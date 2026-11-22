@@ -4943,6 +4943,67 @@
           }
         }
       }
+    },
+    "/api/v1/clients/{client_id}/answer-grant": {
+      "put": {
+        "tags": [
+          "clients"
+        ],
+        "summary": "Set Client Answer Grant",
+        "description": "Let the client answer permission questions, or stop it.\n\nAny number of clients may hold it. Rotating and renaming keep it; revoking\nclears it.",
+        "operationId": "set_client_answer_grant_api_v1_clients__client_id__answer_grant_put",
+        "parameters": [
+          {
+            "name": "client_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Client Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ClientAnswerGrantChange"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ClientView"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required"
+          },
+          "403": {
+            "description": "Only the owner manages clients"
+          },
+          "503": {
+            "description": "The owner is not known yet"
+          },
+          "404": {
+            "description": "No client has this id"
+          },
+          "409": {
+            "description": "The client is revoked, or a built-in client"
+          },
+          "422": {
+            "description": "The body is not {\"granted\": true or false}"
+          }
+        }
+      }
     }
   },
   "components": {
@@ -10811,6 +10872,10 @@
               }
             ],
             "title": "Revoked At"
+          },
+          "answer_grant": {
+            "type": "boolean",
+            "title": "Answer Grant"
           }
         },
         "type": "object",
@@ -10818,6 +10883,7 @@
           "client_id",
           "name",
           "has_token",
+          "answer_grant",
           "created_at"
         ],
         "title": "ClientView",
@@ -10895,6 +10961,10 @@
           "token": {
             "type": "string",
             "title": "Token"
+          },
+          "answer_grant": {
+            "type": "boolean",
+            "title": "Answer Grant"
           }
         },
         "type": "object",
@@ -10902,6 +10972,7 @@
           "client_id",
           "name",
           "has_token",
+          "answer_grant",
           "created_at",
           "token"
         ],
@@ -11078,6 +11149,20 @@
         ],
         "title": "RuleReplace",
         "description": "The whole of an existing rule. Every field is required, so a field left\nout never falls back to a default: ``agent_id`` is null for any agent."
+      },
+      "ClientAnswerGrantChange": {
+        "properties": {
+          "granted": {
+            "type": "boolean",
+            "title": "Granted"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "granted"
+        ],
+        "title": "ClientAnswerGrantChange"
       }
     },
     "securitySchemes": {

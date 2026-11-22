@@ -20,6 +20,7 @@ const VIEW = {
   client_id: 'client_1',
   name: 'CI bot',
   has_token: true,
+  answer_grant: false,
   token_last4: 'ests',
   created_at: '2026-11-20T10:00:00Z',
   last_used_at: null,

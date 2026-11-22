@@ -670,6 +670,26 @@
     "include_in_schema": true
   },
   {
+    "path": "/api/v1/clients/{client_id}/answer-grant",
+    "methods": [
+      "PUT"
+    ],
+    "name": "set_client_answer_grant",
+    "endpoint_module": "api_gateway.routes.client_routes",
+    "declared_owner": "api_gateway.routes.client_routes",
+    "tags": [
+      "clients"
+    ],
+    "status_code": null,
+    "dependencies": [
+      "get_owner_clients"
+    ],
+    "auth_dependencies": [
+      "get_owner_clients"
+    ],
+    "include_in_schema": true
+  },
+  {
     "path": "/api/v1/clients/{client_id}/revoke",
     "methods": [
       "POST"

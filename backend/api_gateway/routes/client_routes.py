@@ -6,9 +6,13 @@ is returned once, by create and rotate, and never again.
 
 from __future__ import annotations
 
-from typing import Annotated, NoReturn
+from collections.abc import Callable, Coroutine
+from typing import Annotated, Any, NoReturn
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request, Response
+from fastapi.exceptions import RequestValidationError
+from fastapi.responses import JSONResponse
+from fastapi.routing import APIRoute
 
 from api_gateway.client_token import (
     ClientRegistryDependency,
@@ -18,6 +22,8 @@ from api_gateway.client_token import (
 from api_gateway.errors import QuietValidationRoute
 from api_gateway.registry import mark_declared_owner
 from client.protocols import (
+    ClientAnswerGrantChange,
+    ClientBuiltIn,
     ClientCreate,
     ClientList,
     ClientNotFound,
@@ -40,6 +46,11 @@ _ERRORS = {
     503: {"description": "The owner is not known yet"},
     404: {"description": "No client has this id"},
     409: {"description": "The client is revoked"},
+}
+_GRANT_ERRORS = {
+    **_ERRORS,
+    409: {"description": "The client is revoked, or a built-in client"},
+    422: {"description": 'The body is not {"granted": true or false}'},
 }
 _REQUIREMENT_READ_ERRORS = {
     401: {"description": "Authentication required"},
@@ -64,6 +75,31 @@ async def get_owner_clients(
 
 
 OwnerClientsDependency = Annotated[ClientRegistry, Depends(get_owner_clients)]
+
+
+class _GrantRoute(APIRoute):
+    """A 422 that names the field, ``granted``, and never echoes the input."""
+
+    def get_route_handler(self) -> Callable[[Request], Coroutine[Any, Any, Response]]:
+        original = super().get_route_handler()
+
+        async def handle(request: Request) -> Response:
+            try:
+                return await original(request)
+            except RequestValidationError:
+                return JSONResponse(
+                    {
+                        "detail": {
+                            "code": "invalid_request",
+                            "message": "Invalid request; check: granted, a "
+                            "boolean and the only field.",
+                            "fields": ["granted"],
+                        }
+                    },
+                    status_code=422,
+                )
+
+        return handle
 
 
 def _missing(exc: Exception) -> NoReturn:
@@ -140,6 +176,37 @@ async def revoke_client(client_id: str, clients: OwnerClientsDependency) -> Clie
         return await clients.revoke(client_id)
     except ClientNotFound as exc:
         _missing(exc)
+
+
+async def set_client_answer_grant(
+    client_id: str, body: ClientAnswerGrantChange, clients: OwnerClientsDependency
+) -> ClientView:
+    """Let the client answer permission questions, or stop it.
+
+    Any number of clients may hold it. Rotating and renaming keep it; revoking
+    clears it.
+    """
+    try:
+        return await clients.set_answer_grant(client_id, body.granted)
+    except ClientBuiltIn:
+        _refuse(
+            409,
+            "client_built_in",
+            "A built-in client, such as No token, cannot be granted anything. "
+            "Create a client with a token.",
+        )
+    except (ClientNotFound, ClientRevoked) as exc:
+        _missing(exc)
+
+
+# Added directly: only this route names the invalid field in its 422.
+router.add_api_route(
+    "/{client_id}/answer-grant",
+    set_client_answer_grant,
+    methods=["PUT"],
+    responses=_GRANT_ERRORS,
+    route_class_override=_GrantRoute,
+)
 
 
 mark_declared_owner(router, "api_gateway.routes.client_routes")

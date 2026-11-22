@@ -12,8 +12,10 @@ from datetime import datetime
 from typing import Any, Protocol, runtime_checkable
 
 from client.models import (
+    BUILT_IN_CLIENT_IDS,
     NO_TOKEN,
     NO_TOKEN_CLIENT_ID,
+    ClientAnswerGrantChange,
     ClientCreate,
     ClientIdentity,
     ClientList,
@@ -32,7 +34,11 @@ class ClientNotFound(Exception):
 
 
 class ClientRevoked(Exception):
-    """The client is revoked; its token cannot be rotated."""
+    """The client is revoked; its token cannot be rotated, nor a grant given."""
+
+
+class ClientBuiltIn(Exception):
+    """A built-in client, such as "No token": it can never be granted anything."""
 
 
 class TokenRequirementUnset(Exception):
@@ -50,6 +56,8 @@ class ClientRegistry(Protocol):
     async def rename(self, client_id: str, name: str) -> ClientView: ...
     async def rotate(self, client_id: str) -> ClientWithToken: ...
     async def revoke(self, client_id: str) -> ClientView: ...
+    async def set_answer_grant(self, client_id: str, granted: bool) -> ClientView: ...
+    async def may_answer_permission_questions(self, client: ClientIdentity) -> bool: ...
     async def resolve(
         self, token: str, *, via: Via = "api"
     ) -> ClientIdentity | None: ...
@@ -82,8 +90,11 @@ class ClientStore(Protocol):
 
 
 __all__ = [
+    "BUILT_IN_CLIENT_IDS",
     "NO_TOKEN",
     "NO_TOKEN_CLIENT_ID",
+    "ClientAnswerGrantChange",
+    "ClientBuiltIn",
     "ClientCreate",
     "ClientIdentity",
     "ClientList",

@@ -680,3 +680,136 @@ async def test_clients_are_unavailable_without_the_registry():
     assert response.status_code == 503
     assert response.json()["detail"]["code"] == "clients_unavailable"
     assert facade.calls == []
+
+
+# -- The grant to answer permission questions ------------------------------------
+
+
+def grant_url(client_id: str) -> str:
+    return f"{API}/clients/{client_id}/answer-grant"
+
+
+async def test_the_owner_grants_and_clears_the_right_to_answer():
+    app, _, clients = make_app()
+    first = await clients.create("CI bot")
+    second = await clients.create("Chat app")
+    async with client_for(app) as client:
+        granted = await client.put(grant_url(first.client_id), json={"granted": True})
+        also = await client.put(grant_url(second.client_id), json={"granted": True})
+        listed = await client.get(f"{API}/clients")
+        renamed = await client.patch(
+            f"{API}/clients/{first.client_id}", json={"name": "Nightly"}
+        )
+        rotated = await client.post(f"{API}/clients/{first.client_id}/rotate")
+        cleared = await client.put(grant_url(second.client_id), json={"granted": False})
+        revoked = await client.post(f"{API}/clients/{first.client_id}/revoke")
+        created = await client.post(f"{API}/clients", json={"name": "New"})
+
+    assert granted.status_code == 200
+    assert granted.json()["answer_grant"] is True
+    assert also.json()["answer_grant"] is True
+    assert {c["name"]: c["answer_grant"] for c in listed.json()["clients"]} == {
+        "CI bot": True,
+        "Chat app": True,
+    }
+    assert renamed.json()["answer_grant"] is True
+    assert rotated.json()["answer_grant"] is True
+    assert cleared.json()["answer_grant"] is False
+    assert revoked.json()["answer_grant"] is False
+    assert created.json()["answer_grant"] is False
+
+
+@pytest.mark.parametrize("granted", [True, False])
+async def test_the_grant_is_refused_for_no_token(granted):
+    app, _, _ = make_app(required=False)
+    async with client_for(app) as client:
+        response = await client.put(
+            grant_url(NO_TOKEN.client_id), json={"granted": granted}
+        )
+
+    assert response.status_code == 409
+    assert response.json()["detail"] == {
+        "code": "client_built_in",
+        "message": "A built-in client, such as No token, cannot be granted "
+        "anything. Create a client with a token.",
+    }
+
+
+async def test_the_grant_is_refused_for_a_revoked_client():
+    app, _, clients = make_app()
+    created = await clients.create("CI bot")
+    await clients.revoke(created.client_id)
+    async with client_for(app) as client:
+        refused = await client.put(grant_url(created.client_id), json={"granted": True})
+        cleared = await client.put(
+            grant_url(created.client_id), json={"granted": False}
+        )
+
+    assert refused.status_code == 409
+    assert refused.json()["detail"]["code"] == "client_revoked"
+    assert cleared.status_code == 200
+    assert cleared.json()["answer_grant"] is False
+
+
+async def test_the_grant_on_an_unknown_client_is_not_found():
+    app, _, _ = make_app()
+    async with client_for(app) as client:
+        response = await client.put(grant_url("client_nope"), json={"granted": True})
+
+    assert response.status_code == 404
+    assert response.json()["detail"]["code"] == "client_not_found"
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        {},
+        {"granted": "yes-please-secret"},
+        {"granted": 1},
+        {"granted": None},
+        {"granted": True, "x": 1},
+        {"name": "x"},
+    ],
+)
+async def test_the_grant_needs_a_strict_boolean(body):
+    app, _, clients = make_app()
+    created = await clients.create("CI bot")
+    async with client_for(app) as client:
+        response = await client.put(grant_url(created.client_id), json=body)
+
+    assert response.status_code == 422
+    detail = response.json()["detail"]
+    assert detail["code"] == "invalid_request"
+    assert detail["fields"] == ["granted"]
+    assert "granted" in detail["message"]
+    assert "yes-please-secret" not in response.text
+    assert (await clients.list_clients()).clients[0].answer_grant is False
+
+
+async def test_the_grant_is_the_owners_only(monkeypatch):
+    app, _, clients = make_app(required=True)
+    created = await clients.create("CI bot")
+    sign_out(app, monkeypatch)
+    async with client_for(app) as client:
+        response = await client.put(
+            grant_url(created.client_id),
+            json={"granted": True},
+            headers=bearer(created.token),
+        )
+
+    assert response.status_code == 401
+    assert (await clients.list_clients()).clients[0].answer_grant is False
+
+
+async def test_the_client_api_does_not_show_the_grant():
+    # The grant is the owner's view only; a client's own calls are unchanged.
+    app, facade, clients = make_app()
+    created = await clients.create("CI bot")
+    await clients.set_answer_grant(created.client_id, True)
+    async with client_for(app) as client:
+        response = await client.post(SEND, json=BODY, headers=bearer(created.token))
+
+    assert response.status_code == 200
+    assert "answer_grant" not in response.text
+    identity = facade.calls[0][2]
+    assert not hasattr(identity, "answer_grant")
