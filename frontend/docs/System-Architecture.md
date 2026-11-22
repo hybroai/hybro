@@ -1373,7 +1373,8 @@ each puts the focus back itself: Cancel returns it to the row's Delete button,
 and the Add dialog returns it to **Add rule**. A move sends every id once in the new
 order with `PUT /rules/order`; the move buttons stay focusable (they use
 `aria-disabled`, never `disabled`), the moved rule's button keeps the keyboard
-focus, and a polite status line announces the new position.
+focus, and a polite status line announces the new position and names the
+rule.
 
 Every rule write shares the mutation key `['rules']` and the scope `rules`, so
 the writes run one at a time in the order sent. The list is reloaded when the
@@ -1394,7 +1395,8 @@ Errors show fixed text from `ruleErrorMessage`, never the backend's message:
 lists (only its known names), and 503. Because the list reloads once the
 writes settle, the owner never edits or orders a stale list after a 404 or
 409: after any refused write (a 404 on delete included), edits and moves are
-ignored until that reload settles.
+ignored until that reload settles. A refused edit's text clears once a later
+edit of the same rule, which carries the refused change too, is saved.
 `useRules` does not retry. If a reload fails while a list is shown, the list
 stays with a **Reload** button and a note that it may be out of date, and its
 rows cannot be edited or moved until a reload succeeds; with no list, the

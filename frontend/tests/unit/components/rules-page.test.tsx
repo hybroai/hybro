@@ -209,13 +209,14 @@ describe('Rules page', () => {
       expect(within(moved).getByRole('combobox', { name: 'Agent for rule 2' })).toHaveValue('writer')
       expect(within(moved).getByRole('button', { name: 'Move rule 2 down' })).toHaveFocus()
     })
-    expect(screen.getByRole('status')).toHaveTextContent('Rule moved to position 2 of 3.')
+    expect(screen.getByRole('status')).toHaveTextContent('Rule moved to position 2 of 3: Deny for Writer.')
     // The next press waits until the reload after the move has settled.
     await waitFor(async () => expect(within((await items())[1]).getByRole('button', { name: 'Move rule 2 down' })).toHaveAttribute('aria-disabled', 'false'))
     await user.keyboard('{Enter}')
     await waitFor(() => expect(state.writes).toEqual(['ORDER rule_2,rule_1,rule_3', 'ORDER rule_2,rule_3,rule_1']))
     // At the bottom, focus moves to the control that can still act.
     await waitFor(async () => expect(within((await items())[2]).getByRole('button', { name: 'Move rule 3 up' })).toHaveFocus())
+    expect(screen.getByRole('status')).toHaveTextContent('Rule moved to position 3 of 3: Deny for Writer.')
   })
 
   it('shows fixed text after a 404 and reloads the list', async () => {
@@ -530,5 +531,55 @@ describe('Rules page', () => {
     release()
     await waitFor(async () => expect(await items()).toHaveLength(2))
     expect(state.writes).toEqual([])
+  })
+
+  it('clears the error once a later edit of the same rule saves the refused change', async () => {
+    let calls = 0
+    let release = () => {}
+    const held = new Promise<void>(resolve => { release = resolve })
+    server.use(http.put(getApiUrl('rules/:id'), async ({ request, params }) => {
+      const call = ++calls
+      const body = await request.json() as Pick<RuleView, 'agent_id' | 'answer' | 'enabled'>
+      state.writes.push(`PUT ${String(params.id)} ${JSON.stringify(body)}`)
+      if (call === 1) {
+        await held
+        return HttpResponse.json({ detail: { code: 'rules_unavailable', message: 'x' } }, { status: 503 })
+      }
+      state.rules = state.rules.map(item => item.rule_id === params.id ? { ...item, ...body } : item)
+      return HttpResponse.json(state.rules.find(item => item.rule_id === params.id))
+    }))
+    render(<RulesPage />)
+    const row = (await items())[0]
+    await userEvent.selectOptions(within(row).getByRole('combobox', { name: 'Answer for rule 1' }), 'ask')
+    await userEvent.click(within(row).getByRole('switch', { name: 'Rule 1 on' }))
+    release()
+    await waitFor(() => expect(state.writes).toHaveLength(2))
+    expect(state.writes[1]).toBe('PUT rule_1 {"agent_id":"writer","answer":"ask","enabled":false}')
+    await waitFor(async () => expect(within((await items())[0]).getByRole('switch', { name: 'Rule 1 on' })).not.toBeChecked())
+    await waitFor(() => expect(screen.queryByText('Rules are unavailable right now. Try again.')).not.toBeInTheDocument())
+  })
+
+  it('keeps the error when a later edit saves a different rule', async () => {
+    let calls = 0
+    let release = () => {}
+    const held = new Promise<void>(resolve => { release = resolve })
+    server.use(http.put(getApiUrl('rules/:id'), async ({ request, params }) => {
+      const call = ++calls
+      const body = await request.json() as Pick<RuleView, 'agent_id' | 'answer' | 'enabled'>
+      if (call === 1) {
+        await held
+        return HttpResponse.json({ detail: { code: 'rules_unavailable', message: 'x' } }, { status: 503 })
+      }
+      state.rules = state.rules.map(item => item.rule_id === params.id ? { ...item, ...body } : item)
+      return HttpResponse.json(state.rules.find(item => item.rule_id === params.id))
+    }))
+    render(<RulesPage />)
+    const rows = await items()
+    await userEvent.selectOptions(within(rows[0]).getByRole('combobox', { name: 'Answer for rule 1' }), 'ask')
+    await userEvent.click(within(rows[1]).getByRole('switch', { name: 'Rule 2 on' }))
+    release()
+    expect(await screen.findByText('Rules are unavailable right now. Try again.')).toBeInTheDocument()
+    await waitFor(async () => expect(within((await items())[0]).getByRole('combobox', { name: 'Answer for rule 1' })).toHaveValue('deny'))
+    expect(screen.getByText('Rules are unavailable right now. Try again.')).toBeInTheDocument()
   })
 })

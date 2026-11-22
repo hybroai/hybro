@@ -393,6 +393,8 @@ export function RulesPage() {
   const [actionError, setActionError] = useState<string | null>(null)
   // Set by any refused write; with a write still settling, the list is reloading.
   const [refused, setRefused] = useState(false)
+  // The rule whose edit the error text is about.
+  const failedRule = useRef<string | null>(null)
   const [announcement, setAnnouncement] = useState('')
   // The move button to focus once the moved list renders.
   const focusAfterMove = useRef<string | null>(null)
@@ -403,6 +405,7 @@ export function RulesPage() {
   const reload = () => reloadAfterLastWrite(queryClient)
 
   const failed = (error: unknown) => {
+    failedRule.current = null
     setRefused(true)
     setActionError(ruleErrorMessage(error))
   }
@@ -411,6 +414,7 @@ export function RulesPage() {
   // one another each send the whole rule as it now stands.
   const edit = (rule: RuleView, fields: RuleFields) => {
     setActionError(null)
+    failedRule.current = null
     setRefused(false)
     void queryClient.cancelQueries({ queryKey: rulesQueryKey })
     queryClient.setQueryData<RuleList>(rulesQueryKey, current => current && {
@@ -423,7 +427,17 @@ export function RulesPage() {
     ...RULE_WRITE,
     mutationFn: ({ ruleId, fields }: { ruleId: string; fields: RuleFields }) => updateRule(ruleId, fields),
     // A refusal shows its text; the reload on settle puts the stored rule back.
-    onError: failed,
+    onError: (error, { ruleId }) => {
+      failed(error)
+      failedRule.current = ruleId
+    },
+    // A later edit of the same rule carries the refused change too, so once it
+    // is saved the refusal no longer applies.
+    onSuccess: saved => {
+      if (failedRule.current !== saved.rule_id) return
+      failedRule.current = null
+      setActionError(null)
+    },
     onSettled: reload,
   })
 
@@ -442,7 +456,9 @@ export function RulesPage() {
       if (index >= 0) {
         const atEnd = direction === 'up' ? index === 0 : index === saved.rules.length - 1
         focusAfterMove.current = `${ruleId}:${atEnd ? (direction === 'up' ? 'down' : 'up') : direction}`
-        setAnnouncement(`Rule moved to position ${index + 1} of ${saved.rules.length}.`)
+        const movedRule = saved.rules[index]
+        // Naming the rule makes two moves to the same position both heard.
+        setAnnouncement(`Rule moved to position ${index + 1} of ${saved.rules.length}: ${ANSWER_LABEL[movedRule.answer]} for ${agentName(movedRule.agent_id, agents)}.`)
       }
       queryClient.setQueryData(rulesQueryKey, saved)
     },
