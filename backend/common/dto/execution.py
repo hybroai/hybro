@@ -102,7 +102,7 @@ class HITLRequest(FrozenDTO):
     request_id: str
     conversation_id: str
     user_message_id: str
-    source: Literal["agent", "supervisor"]
+    source: Literal["agent", "supervisor", "system"]
     prompt: str
     message_id: str | None = None
     source_step_id: str | None = None
