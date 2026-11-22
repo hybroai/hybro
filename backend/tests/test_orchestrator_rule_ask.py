@@ -2202,3 +2202,27 @@ async def test_a_held_call_beside_a_parked_and_a_working_agent_waits_on_the_agen
     )
     assert done.outcome == "final_answer"
 
+
+async def test_a_failed_question_closeout_is_logged_and_the_run_still_ends(caplog):
+    import logging
+
+    kernel, store, _m, _t, _p, room, run_id = await room_chat(
+        [tool_events(("call-1", ECHO, '{"value":"hi"}'))]
+    )
+    await start(kernel, room, run_id)
+
+    async def closeout(_run):
+        raise RuntimeError("closeout secret-detail")
+
+    kernel.run_question_closeout = closeout
+    with caplog.at_level(logging.WARNING):
+        ended = await kernel.terminalize(
+            run_id, status="failed", reason="interrupted", lifecycle=room.lifecycle
+        )
+
+    assert ended.run.status == "failed"
+    [record] = [
+        r for r in caplog.records if r.getMessage() == "run_question_closeout_failed"
+    ]
+    assert record.run_id == run_id
+    assert "secret-detail" not in caplog.text

@@ -19,6 +19,7 @@ from contextlib import asynccontextmanager
 from types import SimpleNamespace
 
 import container
+import orchestrator_composition
 from approval.adapters import HITLDeliveryAdapter
 from approval.application import HITLApplicationCoordinator
 from approval.factory import create_hitl_service
@@ -254,6 +255,9 @@ async def _owner_and_two_held_calls(*, pass_end=False, live_session=False):
         application.bind_parked_run_check(container.parked_run_check(lambda: runtime))
 
     kernel.rule_question = container.rule_question_port(service)
+    kernel.run_question_closeout = orchestrator_composition.run_question_closeout(
+        service.cancel_requests_for_message
+    )
     kernel.canonical_event_reader = room.read
     await room.lifecycle("run_started", store.runs[run_id], {"mode": "fast"})
     held = await kernel.run(run_id, signal=NeverCancelled(), lifecycle=room.lifecycle)
@@ -262,6 +266,7 @@ async def _owner_and_two_held_calls(*, pass_end=False, live_session=False):
     return SimpleNamespace(
         hooks=hooks,
         session_host=session_host,
+        kernel=kernel,
         service=service,
         application=application,
         reconciler=reconciler,
@@ -562,3 +567,62 @@ async def test_shutdown_settles_a_pass_a_hook_drives_as_interrupted():
     ended = await world.store.load(world.run_id)
     assert ended.status == "failed"
     assert ended.terminal_reason == "interrupted"
+
+
+async def _fail_the_run(world):
+    await world.kernel.terminalize(
+        world.run_id,
+        status="failed",
+        reason="interrupted",
+        lifecycle=world.room.lifecycle,
+    )
+
+
+async def test_a_question_left_open_when_the_run_fails_is_closed():
+    world = await _owner_and_two_held_calls()
+    question = await _question_for(world, "call-1")
+
+    await _fail_the_run(world)
+
+    conversation_id = world.store.runs[world.run_id].conversation_id
+    pending = await world.service.persistence.get_pending_hitl_requests_strict(
+        conversation_id
+    )
+    assert pending == []
+    closed = await world.lifecycle.get_interaction_strict(question.interaction_id)
+    assert closed["status"] == "canceled"
+    # A late click finds nothing to answer.
+    assert (await world.reconciler.reconcile_lifecycle())["errors"] == 0
+
+
+async def test_a_parked_answer_of_a_run_that_failed_is_closed():
+    world = await _owner_and_two_held_calls()
+    first = await _question_for(world, "call-1")
+    parked: list[object] = []
+    original_execute = world.tools.execute
+
+    async def execute_while_the_owner_answers(invocation, acceptance, *, signal):
+        if invocation.invocation_id == "call-1":
+            second = await _question_for(world, "call-2")
+            parked.append(second)
+            assert (await _answer(world, second, "Approve"))["status"] == "accepted"
+        return await original_execute(invocation, acceptance, signal=signal)
+
+    world.tools.execute = execute_while_the_owner_answers
+    await _answer(world, first, "Approve")
+    (second,) = parked
+    assert (await world.lifecycle.get_interaction_strict(second.interaction_id))[
+        "application_error"
+    ] == "run_busy"
+
+    await _fail_the_run(world)
+    counts = await world.reconciler.reconcile_lifecycle()
+
+    assert counts["errors"] == 0
+    closed = await world.lifecycle.get_interaction_strict(second.interaction_id)
+    assert closed["status"] == "failed"
+    # Its answer was already shown as received; nothing is left to reconcile.
+    assert closed["terminal_reconciled"] is True
+    again = await world.reconciler.reconcile_lifecycle()
+    assert again["terminal_interactions"] == 0
+    assert world.tools.execute_log == ["call-1"]

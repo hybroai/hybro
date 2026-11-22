@@ -242,6 +242,8 @@ class OrchestratorKernel:
         | None = None,
         supervisor_hitl: SupervisorHITLPort | None = None,
         rule_question: SupervisorHITLPort | None = None,
+        run_question_closeout: Callable[[OrchestratorRunState], Awaitable[object]]
+        | None = None,
     ) -> None:
         self.run_store = run_store
         self.model_runtime = model_runtime
@@ -261,6 +263,8 @@ class OrchestratorKernel:
         self.supervisor_hitl = supervisor_hitl
         # Creates the permission Question when a check rule answers "ask".
         self.rule_question = rule_question
+        # Closes the owner Questions still open when the Run ends.
+        self.run_question_closeout = run_question_closeout
         self._lifecycle_context: ContextVar[KernelLifecycle | None] = ContextVar(
             f"kernel-lifecycle-{id(self)}", default=None
         )
@@ -4194,7 +4198,28 @@ class OrchestratorKernel:
                 return KernelRunResult("cancellation_pending", stored.run)
             raise KernelConflict("terminal status store CAS lost")
         settled = await self.projection_driver.settle(run.run_id)
+        await self._close_run_questions(settled)
         return KernelRunResult(_outcome_for_status(status), settled)
+
+    async def _close_run_questions(self, run: OrchestratorRunState) -> None:
+        """Close the owner Questions of a Run that just ended.
+
+        A Stop closes them before the Run ends; any other end (a failed
+        sibling, the budget, an interrupted driver) leaves them open, and
+        they would keep asking the owner about a Run that is over.
+        """
+        if self.run_question_closeout is None:
+            return
+        try:
+            await self.run_question_closeout(run)
+        except Exception as exc:
+            # An answer to such a Question is closed when it is applied.
+            _kernel_logger.emit(
+                E.RUN_QUESTION_CLOSEOUT_FAILED,
+                exc=exc,
+                run_id=run.run_id,
+                conversation_id=run.conversation_id,
+            )
 
     async def _reserve_tool_budget(
         self,

@@ -451,3 +451,54 @@ def entry_of_call(run, call_id):
         for entry in batch.entries
         if entry.call_id == call_id
     )
+
+
+def test_an_ended_runs_questions_are_closed_through_the_stop_cleanup():
+    import orchestrator_composition
+
+    compose = inspect.getsource(orchestrator_composition.create_orchestrator_runtime)
+
+    assert compose.count("run_question_closeout(supervisor_hitl_cancellation)") == 1
+
+
+async def test_the_closeout_cancels_the_runs_message_questions_with_a_reason():
+    from types import SimpleNamespace
+
+    import orchestrator_composition
+
+    calls: list[tuple[str, str | None]] = []
+
+    async def cancel(user_message_id, *, failure_reason=None):
+        calls.append((user_message_id, failure_reason))
+
+    close = orchestrator_composition.run_question_closeout(cancel)
+    for status in ("failed", "canceled"):
+        await close(
+            SimpleNamespace(
+                status=status, request=SimpleNamespace(user_message_id="user-1")
+            )
+        )
+
+    assert calls == [
+        ("user-1", "The Run ended before the question was answered"),
+        ("user-1", None),
+    ]
+
+
+@pytest.mark.parametrize(
+    ("row", "settled"),
+    [
+        ({"status": "canceled", "cancellation_reconciled": True}, True),
+        ({"status": "canceled", "cancellation_reconciled": False}, False),
+        ({"status": "responded", "application_projected": True}, True),
+        # The answer's received event has not gone out yet.
+        ({"status": "responded", "application_projected": False}, False),
+        ({"status": "answer_recorded", "application_projected": True}, False),
+    ],
+)
+def test_a_terminal_interactions_member_is_settled_once_its_event_went_out(
+    row, settled
+):
+    from approval.service import _terminal_member_settled
+
+    assert _terminal_member_settled(row) is settled

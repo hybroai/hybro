@@ -15,7 +15,7 @@ from __future__ import annotations
 
 import asyncio
 import uuid
-from collections.abc import Callable, Iterator, Mapping
+from collections.abc import Awaitable, Callable, Iterator, Mapping
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from typing import Any, Literal
@@ -381,6 +381,32 @@ async def _run_with_recovery_lease(
         raise
 
 
+def run_question_closeout(
+    cancel_requests_for_message: Callable[..., Any],
+) -> Callable[[Any], Awaitable[None]]:
+    """The kernel's closeout of an ended Run's open owner Questions.
+
+    The Run is already terminal, so closing its Questions ends nothing else.
+    A canceled Run's Questions are canceled as a Stop cancels them.
+    """
+
+    async def close(run: Any) -> None:
+        result = cancel_requests_for_message(
+            run.request.user_message_id,
+            **(
+                {}
+                if run.status == "canceled"
+                else {
+                    "failure_reason": "The Run ended before the question was answered"
+                }
+            ),
+        )
+        if hasattr(result, "__await__"):
+            await result
+
+    return close
+
+
 def create_orchestrator_runtime(  # noqa: C901
     *,
     mongo: Any,
@@ -584,6 +610,11 @@ def create_orchestrator_runtime(  # noqa: C901
             artifact_metadata_reader=resources.describe_artifact,
             supervisor_hitl=supervisor_hitl,
             rule_question=rule_question,
+            run_question_closeout=(
+                None
+                if supervisor_hitl_cancellation is None
+                else run_question_closeout(supervisor_hitl_cancellation)
+            ),
         )
 
     run_factory = DefaultRunFactory()

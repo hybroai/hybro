@@ -1222,7 +1222,22 @@ is recorded in the ledger for a held call.
   answer, for example one parked on another process. An answer that loses the race to a pass that
   starts after the port read the Run is treated the same way. A
   replayed answer to a call already decided on a `running` Run returns as
-  applied without reaching the kernel.
+  applied without reaching the kernel. An answered interaction whose Run
+  ended before the answer was applied (for example a `run_busy` answer,
+  then the Run failed) is claimed and failed by `apply_interaction`
+  instead of staying `applying`. A terminal interaction is marked
+  reconciled once each member is either canceled with its event sent or
+  `responded` with its received event sent (`application_projected`).
+- When a Run ends by any path through the kernel's terminal commit (a
+  failed sibling, the budget, an interrupted driver, as well as a Stop),
+  the kernel calls its `run_question_closeout` port after the terminal
+  status is stored. The composition binds it to the Stop cleanup
+  (`cancel_requests_for_message` for the Run's user message, with a
+  failure reason unless the Run was canceled), which closes the owner
+  Questions of the ended Run, a check rule's or an `ask_user` one. It is
+  best effort: a failed closeout logs `run_question_closeout_failed`, a
+  crash after the terminal commit skips it, and an answer to a Question it
+  missed is failed when applied (above).
 - A tool batch whose other calls ended beside an Agent question already
   presented to the model, with no owner Question open and no Agent at work,
   hands the decision to the model (status `running`) instead of waiting

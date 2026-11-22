@@ -41,6 +41,14 @@ from models.hitl import (
 
 logger = get_logger(__name__)
 
+# An answered interaction no application owns; its Run ended before it.
+_CLOSABLE_ANSWERED_STATUSES = frozenset(
+    {
+        HITLInteractionStatus.ANSWERS_RECORDED.value,
+        HITLInteractionStatus.APPLYING.value,
+    }
+)
+
 
 def _as_utc_datetime(value: Any) -> datetime:
     """Require BSON-native datetimes in the R1 persisted schema."""
@@ -568,12 +576,38 @@ class HITLApplicationCoordinator:
                 current = recorded
         return current
 
+    async def _close_answer_of_ended_run(
+        self, service, interaction: dict[str, Any]
+    ) -> None:
+        """Fail an answered interaction whose Run ended before it was applied.
+
+        For example an answer that waited for the Run's pass to end, then the
+        Run failed. The claim fences out an application still in progress.
+        """
+        if interaction.get("status") not in _CLOSABLE_ANSWERED_STATUSES:
+            return
+        claim_id = uuid4().hex
+        claimed = await self._lifecycle.claim_interaction_application(
+            interaction["interaction_id"],
+            claim_id=claim_id,
+            lease_seconds=self.LEASE_SECONDS,
+        )
+        if claimed is None:
+            return
+        await self.fail_interaction(
+            service,
+            claimed,
+            reason="The Run ended before the answer was applied",
+            application_claim_id=claim_id,
+        )
+
     async def apply_interaction(  # noqa: C901
         self, service, interaction: dict[str, Any]
     ) -> dict[str, Any]:
         allows_resume = getattr(service, "canonical_run_allows_resume", None)
         if callable(allows_resume) and not await allows_resume(interaction):
             rows = await self._request_rows(service, interaction)
+            await self._close_answer_of_ended_run(service, interaction)
             return self._result(rows[0], status="canceled", interaction=interaction)
         interaction = await self.repair_persisted_answer_refs(service, interaction)
         interaction_id = interaction["interaction_id"]
