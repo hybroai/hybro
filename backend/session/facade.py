@@ -253,8 +253,7 @@ class SessionFacade:
         status = await self._client_status(record)
         if status.state != "waiting_on_owner":
             return status
-        # Without the grant nothing more is read, so what the client sees
-        # stays as it was, outages included.
+        # Without the grant nothing more is read.
         if not await self._questions.shown_to(client):
             return status
         try:

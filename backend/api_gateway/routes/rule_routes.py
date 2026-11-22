@@ -1,7 +1,8 @@
 """The owner's check rules; behaviour lives in ``policy``.
 
 Every route takes the owner's sign-in. The rules are stored and listed here;
-nothing enforces them yet.
+Execution asks them when it accepts each new Agent call
+(``PolicyService.check_agent_call``).
 """
 
 from __future__ import annotations

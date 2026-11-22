@@ -182,13 +182,16 @@ hybro client create --name "CI bot"
 or, signed in as the owner, through the owner routes: `GET /clients`,
 `POST /clients` (returns the token once), `PATCH /clients/{client_id}`
 (rename), `POST /clients/{client_id}/rotate` (a new token; the old one stops
-working) and `POST /clients/{client_id}/revoke`. Hybro stores only a SHA-256
+working), `POST /clients/{client_id}/revoke` and
+`PUT /clients/{client_id}/answer-grant` (`{"granted": true}` lets the client
+answer permission questions in its own sessions). Hybro stores only a SHA-256
 hash of a token and its last four characters.
 
-The Client API is the seven routes a client calls: `GET /agents/discovery`,
+The Client API is the eight routes a client calls: `GET /agents/discovery`,
 `GET /agents/groups`, `GET /agents/search`, `GET /agents/{agent_id}/profile`,
-`POST /sessions/messages`, `GET /sessions/{session_id}` and
-`POST /sessions/{session_id}/close`. Each takes an optional
+`POST /sessions/messages`, `GET /sessions/{session_id}`,
+`POST /sessions/{session_id}/close` and
+`POST /sessions/{session_id}/questions/{question_id}/answer`. Each takes an optional
 `Authorization: Bearer <client token>` header:
 
 - A current token names the client on its sessions.
@@ -207,8 +210,9 @@ without a token, cannot read, continue or close it (`404 session_not_found`).
 
 A session is a conversation a client of the instance owner opens with the
 owner's agents. Each message names one agent; every turn is recorded in Hybro;
-when an agent needs the owner's permission, the owner approves or rejects in the
-app (**Inbox** in the sidebar). Sessions are stored under the owner's
+when an agent or a check rule needs the owner's permission, the owner approves
+or rejects in the app (**Inbox** in the sidebar), or a client with the owner's grant does it in
+its own session. Sessions are stored under the owner's
 identity; a client reaches only the sessions it opened, and the owner's routes
 need the owner's sign-in.
 
@@ -246,9 +250,17 @@ confirmation with the tip to query the session), and the session's
 `GET /sessions/{session_id}`: `state`, `reason`, `agents`, `created_at`,
 `updated_at`, and `history`, which lists each client message oldest first with
 its `text`, `sent_at`, `agent_id`, `agent_name`, `state`, `reason`, and the
-agent's final `reply` and `replied_at`. Agents' questions to the owner and the
-owner's decisions are never included; a waiting request shows only
-`waiting_on_owner`. A request with no run event within
+agent's final `reply` and `replied_at`. The owner's decisions are never
+included. A waiting request shows `waiting_on_owner`; for a client with the
+owner's grant, a pending permission question (a check rule's ask or an agent's
+own approval question) is added as `question`, with its `question_id`, `kind`
+(`permission`), `text`, the agent, and the answers `approve` and `refuse`. The client answers it with
+`POST /sessions/{session_id}/questions/{question_id}/answer` and
+`{"answer": "approve"}` or `{"answer": "refuse"}`; every other question stays
+with the owner. A request a check rule denied reads `denied`; one the owner or
+the client refused at a check rule's ask, or whose question the owner
+canceled, reads `rejected`. A refused `policy_decision` is the agent's deny decision, and
+the request's state follows the agent's result. A request with no run event within
 `backend.session_run_start_grace_seconds` (10) of its send reports `failed`
 with `run_not_started`, unless the backend is still running the task that starts
 the run. Text is limited to 10,000 characters; `data` and files
@@ -316,7 +328,7 @@ PYTHONPATH=backend uv run --project backend --frozen --extra mcp --no-env-file p
 ```
 
 The adapter runs from the backend environment with its `mcp` extra (one lock,
-`backend/uv.lock`) and exposes seven tools. Backend
+`backend/uv.lock`) and exposes eight tools. Backend
 saved groups appear as **subnets** (`subnet_id`) in tool arguments and results.
 
 - `list_subnets()`: the caller's subnets with active member counts, from
@@ -335,6 +347,10 @@ saved groups appear as **subnets** (`subnet_id`) in tool arguments and results.
 - `check_session(session_id)`: the session state and its history of client
   messages and agents' replies, from `GET /sessions/{session_id}`.
 - `close_session(session_id)`: `POST /sessions/{session_id}/close`.
+- `answer_question(session_id, question_id, answer)`: approves or refuses the
+  permission question that `check_session` shows a client with the owner's
+  grant, through `POST /sessions/{session_id}/questions/{question_id}/answer`;
+  `answer` is `approve` or `refuse`.
 
 For example, after `find_agents`, call `send_message` with:
 
@@ -364,10 +380,13 @@ The result is:
 `status: busy` means the message was not recorded because an earlier message
 in the session is still active; send it again once `check_session` shows that
 request finished. `check_session` returns `state` (`completed`, `working`,
-`waiting_on_owner` while the owner decides in the Hybro app, `rejected`,
-`failed`, or `closed`) and `history`; the latest reply is the last entry's
-`reply`. A `failed` receipt sets `isError`. The client view never contains the
-owner's question or answer. `include_raw: true` adds the backend response as
+`waiting_on_owner` while the owner decides (or, for a permission question, a
+client with the grant), `rejected`,
+`denied`, `failed`, or `closed`) and `history`; the latest reply is the last
+entry's `reply`. A `failed` receipt sets `isError`. The client view never
+contains the owner's answer; it carries the permission `question` only for a
+client with the owner's grant, and `check_session` then points to
+`answer_question`. `include_raw: true` adds the backend response as
 `raw`. A missing `client_request_id` is generated; a retried call must pass the
 same value to get the same receipt instead of a new send.
 A missing `client_label` defaults to "MCP client" when a session is opened

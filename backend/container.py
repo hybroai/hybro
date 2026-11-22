@@ -1838,7 +1838,8 @@ async def _runtime_lifespan(app: Any, runtime: ApplicationRuntime):  # noqa: C90
                 supervisor_hitl=request_supervisor_input_port,
                 rule_question=rule_question_port(hitl_manager),
                 supervisor_hitl_cancellation=(hitl_manager.cancel_requests_for_message),
-                # The owner's check rules, asked once per new Agent call.
+                # The owner's check rules, asked when a new Agent call is
+                # accepted.
                 agent_call_check=app.state.policy_rules,
                 # Answers that found the Run busy are applied when its pass
                 # ends, not at the next stale-task sweep.

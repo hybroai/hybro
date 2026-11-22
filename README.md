@@ -213,6 +213,15 @@ need input.
   <img src="assets/screenshots/chat-input-request.png" alt="A chat waiting for the user's answer" width="800">
 </p>
 
+**Set check rules.** **Rules** in the sidebar holds your check rules. Each rule
+names one agent or any agent and answers Allow, Deny or Ask. Rules are read
+from the top: the first rule that is on and matches decides, and with no match
+the call is allowed. They are checked when a new agent call is about to be
+sent, in chats and for sessions that clients open alike. Deny refuses the
+call: a chat's model is told, and a session request ends `denied`. Ask holds
+the call until you approve or reject it, or until a client you allowed to
+answer does so in its own session.
+
 **Explore the network.** **Network** shows every registered agent and the
 subnets (teams) that group them. Use **Add agent** to register your own A2A
 agent, or **Create subnet** to group agents.
@@ -241,7 +250,7 @@ under **Access**, **Clients** (`/connect/clients`) and put it in place of
 tile shows whether MCP is reachable. Add the server manually to your client;
 Hybro does not automatically discover or register MCP clients. Sessions that
 clients open this way appear under **Inbox**, where you answer any question or
-approval an agent raises. To let a client answer permission questions itself (a
+approval an agent or a check rule raises. To let a client answer permission questions itself (a
 check rule's ask and an agent's own approval question, in its own sessions),
 turn on **Can answer** for it under **Access**, **Clients**: `check_session`
 then shows the question, and the client answers with `answer_question`.
@@ -330,7 +339,8 @@ curl --header "Authorization: Bearer $HYBRO_TOKEN" \
 
 `state` goes from `working` to `completed`, and `history` holds the agent's
 `reply`. The session also appears under **Inbox** in the app. When an agent
-needs your approval, `state` is `waiting_on_owner` and you answer it there. A
+or a check rule needs your approval, `state` is `waiting_on_owner` and you
+answer it there. A
 client you allowed to answer permission questions (**Can answer** under
 **Access**, **Clients**) also gets the question in `question`, and answers it
 with `POST /api/v1/sessions/<session_id>/questions/<question_id>/answer` and
@@ -341,7 +351,8 @@ To continue a session, send again with its `session_id` and a new
 earlier one is still active returns `busy`.
 
 From an MCP client, the same loop is three tools: `discover_agents`,
-`send_message`, and `check_session`.
+`send_message`, and `check_session`, and a client with the grant answers with
+`answer_question`.
 
 A new install requires a client token on these calls: without one they are
 refused with 401 `client_token_required`. An install that already had data when
@@ -538,7 +549,7 @@ port:
 - `backend/`: The FastAPI platform backend using MongoDB for persistence, plus the image entrypoint (`runtime_entrypoint.py`) that writes each service's configuration and starts the processes.
 - `frontend/`: A Next.js 16 application for chat, local agent discovery, agent management, and inspection.
 - `default_agents/`: Ready-to-use A2A agents, each running as a process in the container. The backend registers them at startup from `default_agents/agents.yaml`.
-- `MCP/`: An adapter exposing seven backend tools over Streamable HTTP at `/mcp`: four for listing and finding agents, and three for opening, checking, and closing sessions.
+- `MCP/`: An adapter exposing eight backend tools over Streamable HTTP at `/mcp`: four for listing and finding agents, three for opening, checking, and closing sessions, and one for answering a permission question.
 - `scripts/hybro`: The POSIX shell CLI that starts the container; `install.sh` installs it.
 
 For module boundaries, data flow, and streaming, see
