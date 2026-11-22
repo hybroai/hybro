@@ -1573,7 +1573,8 @@ async def test_answer_question_takes_only_approve_or_refuse(answer):
         (409, "question_not_pending", "check_session"),
         (503, "answer_unconfirmed", "check_session"),
         (502, "answer_failed", "check_session"),
-        (404, "session_not_found", "new session"),
+        (404, "session_not_found", "check_session"),
+        (409, "session_closed", "Tell the user"),
     ],
 )
 async def test_answer_refusals_name_the_next_step(status, code, hint):
@@ -1594,3 +1595,20 @@ async def test_instructions_describe_answering_permission_questions():
     async with httpx.AsyncClient(base_url=server.BACKEND_API_URL) as http:
         mcp_server = create_server(http)
     assert "answer_question" in mcp_server.instructions
+
+
+@pytest.mark.parametrize("code", ["session_not_found", "session_closed"])
+async def test_an_answer_refusal_never_says_to_start_a_new_session(code):
+    """A wrong question_id is no reason to send the user's message again."""
+    error = {"detail": {"code": code, "message": "Fixed text."}}
+
+    result = await call_with_transport(
+        lambda _: httpx.Response(
+            404 if code == "session_not_found" else 409, json=error
+        ),
+        "answer_question",
+        {"session_id": "s1", "question_id": "int-9", "answer": "approve"},
+    )
+
+    assert "new session" not in result.structured_content["next_action"]
+    assert "send_message" not in result.structured_content["next_action"]

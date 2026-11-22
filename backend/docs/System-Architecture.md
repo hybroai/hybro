@@ -2700,7 +2700,9 @@ with the user and call `answer_question`. `answer_question` takes
 `session_id`, `question_id` and `answer` (`approve` or `refuse`, nothing else)
 and returns the backend's answer with a `next_action`; its refusals
 (`answer_not_granted`, `question_owner_only`, `question_not_pending`,
-`answer_unconfirmed`, `answer_failed`) each get a hint keyed on the code.
+`answer_unconfirmed`, `answer_failed`) each get a hint keyed on the code, and
+its `session_not_found` and `session_closed` hints (`ANSWER_NEXT_ACTIONS`)
+point to `check_session` or the user, never to a new session.
 `close_session` returns `session_id` and `status`. Every tool publishes an output schema; HTTP and
 transport failures become tool errors that keep the backend body, with a
 `409`/`404` hint keyed on the backend error code; a `401` hint asks for a

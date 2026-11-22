@@ -222,6 +222,20 @@ HTTP_NEXT_ACTIONS = {
     ),
 }
 
+# answer_question reads these before HTTP_NEXT_ACTIONS: a wrong question_id is
+# no reason to open a new session and send the user's message again.
+ANSWER_NEXT_ACTIONS = {
+    "session_not_found": (
+        "The session or the question was not found. Call check_session with "
+        "this session_id for the current question; sending the message again "
+        "in another session does not answer it."
+    ),
+    "session_closed": (
+        "The session is closed, so its question can no longer be answered. "
+        "Tell the user."
+    ),
+}
+
 # The MCP server's own event catalog, rendered by the backend's formatter.
 EVENTS = Catalog()
 # Emitted before uvicorn binds; uvicorn's own startup line confirms the bind.
@@ -463,9 +477,15 @@ def next_action(state: str, reason: str | None) -> str:
     return NEXT_ACTIONS.get(state, CHECK_LATER)
 
 
-def http_next_action(status: int, body: dict[str, JsonValue]) -> str:
+def http_next_action(
+    status: int,
+    body: dict[str, JsonValue],
+    hints: Mapping[str, str] | None = None,
+) -> str:
     detail = body.get("detail")
     code = detail.get("code") if isinstance(detail, dict) else None
+    if isinstance(code, str) and hints is not None and code in hints:
+        return hints[code]
     if isinstance(code, str) and code in HTTP_NEXT_ACTIONS:
         return HTTP_NEXT_ACTIONS[code]
     return HTTP_NEXT_ACTIONS.get(status, "Tell the user the Hybro request failed.")
@@ -648,8 +668,12 @@ def create_server(
         *,
         params: dict[str, str | int] | None = None,
         payload: dict[str, JsonValue] | None = None,
+        hints: Mapping[str, str] | None = None,
     ) -> dict[str, JsonValue] | CallToolResult:
-        """Return the JSON body of a successful call, or a tool error result."""
+        """Return the JSON body of a successful call, or a tool error result.
+
+        hints maps a backend error code to this tool's own next step.
+        """
         # Bound by logged_tool for every tool call.
         http_request_id = get_log_context()["request_id"]
         correlation = (
@@ -736,7 +760,10 @@ def create_server(
         if not response.is_success:
             failed("HTTP_ERROR", response.status_code)
             return tool_result(
-                {**body, "next_action": http_next_action(response.status_code, body)},
+                {
+                    **body,
+                    "next_action": http_next_action(response.status_code, body, hints),
+                },
                 is_error=True,
             )
         return body
@@ -1052,6 +1079,7 @@ def create_server(
             f"sessions/{quote(session_id, safe='')}/questions/"
             f"{quote(question_id, safe='')}/answer",
             payload={"answer": answer},
+            hints=ANSWER_NEXT_ACTIONS,
         )
         if isinstance(body, CallToolResult):
             return body
