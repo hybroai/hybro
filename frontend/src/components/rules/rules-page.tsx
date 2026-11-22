@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useMemo, useRef, useState, type FocusEvent, type FormEvent } from 'react'
+import { useEffect, useMemo, useRef, useState, type FocusEvent, type FormEvent, type KeyboardEvent, type MouseEvent } from 'react'
 import { useIsMutating, useMutation, useQueryClient, type QueryClient } from '@tanstack/react-query'
 import { AlertTriangle, ArrowDown, ArrowUp, Loader2, Plus, RefreshCw, Trash2 } from 'lucide-react'
 import { PageHeader } from '@/components/page-header'
@@ -298,6 +298,24 @@ interface RowProps {
   buttonRef: (key: string, element: HTMLButtonElement | null) => void
 }
 
+// How a locked control looks; it stays focusable, so `disabled:` never applies.
+const LOCKED = 'aria-disabled:cursor-not-allowed aria-disabled:opacity-50'
+
+// Keys that open a select or change its value: arrows, paging, Space, Enter, typeahead.
+const SELECT_KEYS = new Set(['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Home', 'End', 'PageUp', 'PageDown', ' ', 'Enter'])
+
+/** Keeps a locked select from opening or changing by mouse or key; other keys pass. */
+function lockSelect(locked: boolean) {
+  if (!locked) return {}
+  return {
+    onMouseDown: (event: MouseEvent<HTMLSelectElement>) => event.preventDefault(),
+    onKeyDown: (event: KeyboardEvent<HTMLSelectElement>) => {
+      if (event.metaKey || event.ctrlKey) return
+      if (event.altKey ? event.key === 'ArrowUp' || event.key === 'ArrowDown' : SELECT_KEYS.has(event.key) || event.key.length === 1) event.preventDefault()
+    },
+  }
+}
+
 function RuleRow({ rule, position, count, agents, editBlocked, moveBlocked, onChange, onMove, onDelete, buttonRef }: RowProps) {
   const fields = fieldsOf(rule)
   const missing = isMissing(rule.agent_id, agents)
@@ -313,7 +331,7 @@ function RuleRow({ rule, position, count, agents, editBlocked, moveBlocked, onCh
         ref={element => buttonRef(`${rule.rule_id}:${direction}`, element)}
         variant="ghost"
         size="iconSm"
-        className="size-8 aria-disabled:cursor-not-allowed aria-disabled:opacity-40"
+        className={cn('size-8', LOCKED)}
         aria-label={`Move rule ${position} ${direction}`}
         aria-disabled={blocked || moveBlocked}
         onClick={() => { if (!blocked && !moveBlocked) onMove(rule, direction) }}
@@ -330,11 +348,12 @@ function RuleRow({ rule, position, count, agents, editBlocked, moveBlocked, onCh
           <Label htmlFor={`${id}-agent`} className="sr-only">{`Agent for rule ${position}`}</Label>
           <select
             id={`${id}-agent`}
-            className={cn(SELECT_CLASS, missing && 'border-destructive')}
+            className={cn(SELECT_CLASS, LOCKED, missing && 'border-destructive')}
             value={rule.agent_id ?? ANY}
             aria-describedby={missing ? `${id}-missing` : undefined}
             aria-invalid={missing || undefined}
             aria-disabled={editBlocked || undefined}
+            {...lockSelect(editBlocked)}
             onChange={event => change({ agent_id: event.target.value === ANY ? null : event.target.value })}
           >
             <AgentOptions current={rule.agent_id} agents={agents} />
@@ -344,9 +363,10 @@ function RuleRow({ rule, position, count, agents, editBlocked, moveBlocked, onCh
           <Label htmlFor={`${id}-answer`} className="sr-only">{`Answer for rule ${position}`}</Label>
           <select
             id={`${id}-answer`}
-            className={SELECT_CLASS}
+            className={cn(SELECT_CLASS, LOCKED)}
             value={rule.answer}
             aria-disabled={editBlocked || undefined}
+            {...lockSelect(editBlocked)}
             onChange={event => change({ answer: event.target.value as RuleAnswer })}
           >
             <AnswerOptions />
@@ -356,6 +376,7 @@ function RuleRow({ rule, position, count, agents, editBlocked, moveBlocked, onCh
           <Switch
             id={`${id}-on`}
             checked={rule.enabled}
+            className={LOCKED}
             aria-label={`Rule ${position} on`}
             aria-disabled={editBlocked || undefined}
             onCheckedChange={enabled => change({ enabled })}
@@ -368,7 +389,7 @@ function RuleRow({ rule, position, count, agents, editBlocked, moveBlocked, onCh
           <Button
             variant="ghost"
             size="iconSm"
-            className="size-8 text-destructive hover:text-destructive"
+            className={cn('size-8 text-destructive hover:text-destructive', LOCKED)}
             ref={element => buttonRef(`${rule.rule_id}:delete`, element)}
             aria-label={`Delete rule ${position}`}
             aria-disabled={editBlocked}
@@ -381,7 +402,7 @@ function RuleRow({ rule, position, count, agents, editBlocked, moveBlocked, onCh
       {missing ? (
         <p id={`${id}-missing`} className="flex items-start gap-1.5 pl-9 text-xs text-destructive">
           <AlertTriangle className="mt-px size-3.5 shrink-0" aria-hidden="true" />
-          <span>{`This agent is no longer in your agents (id ${rule.agent_id}). The rule matches only calls to that id; choose another agent or delete the rule.`}</span>
+          <span className="min-w-0 wrap-anywhere">{`This agent is no longer in your agents (id ${rule.agent_id}). The rule matches only calls to that id; choose another agent or delete the rule.`}</span>
         </p>
       ) : null}
     </li>
@@ -416,6 +437,7 @@ export function RulesPage() {
   const announce = (text: string) => setAnnouncement(current => (current === text ? `${text}\u00a0` : text))
   // The move button to focus once the moved list renders.
   const focusAfterMove = useRef<string | null>(null)
+  const listRef = useRef<HTMLOListElement>(null)
   const buttons = useRef(new Map<string, HTMLButtonElement>())
   const addButton = useRef<HTMLButtonElement>(null)
   const heading = useRef<HTMLHeadingElement>(null)
@@ -504,7 +526,9 @@ export function RulesPage() {
   const lastFocused = useRef<HTMLElement | null>(null)
   useEffect(() => {
     if (focusAfterMove.current) {
-      buttons.current.get(focusAfterMove.current)?.focus()
+      // Only while the focus is still in the list, or was dropped by the reorder.
+      const active = document.activeElement
+      if (!active || active === document.body || listRef.current?.contains(active)) buttons.current.get(focusAfterMove.current)?.focus()
       focusAfterMove.current = null
       return
     }
@@ -539,7 +563,7 @@ export function RulesPage() {
               <h2 id="rules-heading" ref={heading} tabIndex={-1} className="text-[15px] font-semibold outline-none">Check rules</h2>
               <p className="text-sm text-muted-foreground">Each rule matches one agent or any agent, and answers Allow, Deny or Ask.</p>
             </div>
-            <Button ref={addButton} onClick={() => setAdding(true)} disabled={!list}>
+            <Button ref={addButton} onClick={() => { setActionError(null); setAdding(true) }} disabled={!list}>
               <Plus data-icon="inline-start" aria-hidden="true" />Add rule
             </Button>
           </div>
@@ -575,6 +599,7 @@ export function RulesPage() {
             </div>
           ) : (
             <ol
+              ref={listRef}
               aria-label="Check rules"
               className="overflow-hidden rounded-lg border"
               onFocus={event => { if (event.target instanceof HTMLElement) lastFocused.current = event.target }}

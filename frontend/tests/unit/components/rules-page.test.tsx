@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { delay, http, HttpResponse } from 'msw'
 import { focusManager } from '@tanstack/react-query'
 import userEvent from '@testing-library/user-event'
-import { cleanup, render, screen, waitFor, within } from '../../utils/test-utils'
+import { cleanup, fireEvent, render, screen, waitFor, within } from '../../utils/test-utils'
 import { server } from '../../setup/msw-server'
 import { stubFetchWithoutSignal } from '../../utils/fetch-without-signal'
 import { getApiUrl } from '@/lib/utils'
@@ -345,6 +345,73 @@ describe('Rules page', () => {
     release()
     await waitFor(() => expect(within(row).getByRole('button', { name: 'Move rule 1 down' })).toHaveAttribute('aria-disabled', 'false'))
     expect(state.writes).toEqual(['PUT rule_1'])
+  })
+
+  it('shows locked controls as locked and keeps a locked select from opening', async () => {
+    let release = () => {}
+    const held = new Promise<void>(resolve => { release = resolve })
+    server.use(http.put(getApiUrl('rules/order'), async ({ request }) => {
+      const { rule_ids } = await request.json() as { rule_ids: string[] }
+      state.writes.push('ORDER')
+      await held
+      state.rules = order(rule_ids)
+      return HttpResponse.json({ rules: state.rules })
+    }))
+    render(<RulesPage />)
+    const rows = await items()
+    await userEvent.click(within(rows[0]).getByRole('button', { name: 'Move rule 1 down' }))
+    const agent = within(rows[2]).getByRole('combobox', { name: 'Agent for rule 3' })
+    const answer = within(rows[2]).getByRole('combobox', { name: 'Answer for rule 3' })
+    for (const control of [agent, answer, within(rows[2]).getByRole('switch', { name: 'Rule 3 on' }), within(rows[2]).getByRole('button', { name: 'Delete rule 3' })]) {
+      expect(control).toHaveAttribute('aria-disabled', 'true')
+      expect(control.className).toContain('aria-disabled:opacity-50')
+    }
+    for (const select of [agent, answer]) {
+      expect(fireEvent.mouseDown(select)).toBe(false)
+      expect(fireEvent.keyDown(select, { key: ' ' })).toBe(false)
+      expect(fireEvent.keyDown(select, { key: 'ArrowDown' })).toBe(false)
+      expect(fireEvent.keyDown(select, { key: 'w' })).toBe(false)
+      expect(fireEvent.keyDown(select, { key: 'ArrowDown', altKey: true })).toBe(false)
+      expect(fireEvent.keyDown(select, { key: 'Tab' })).toBe(true)
+      expect(fireEvent.keyDown(select, { key: 'ArrowLeft', altKey: true })).toBe(true)
+      expect(fireEvent.keyDown(select, { key: 'F5' })).toBe(true)
+    }
+    release()
+    await waitFor(() => expect(within(rows[2]).getByRole('combobox', { name: 'Answer for rule 3' })).not.toHaveAttribute('aria-disabled'))
+    expect(fireEvent.mouseDown(answer)).toBe(true)
+    expect(fireEvent.keyDown(answer, { key: 'ArrowDown' })).toBe(true)
+  })
+
+  it('leaves the focus where the owner put it when a move lands', async () => {
+    let release = () => {}
+    const held = new Promise<void>(resolve => { release = resolve })
+    server.use(http.put(getApiUrl('rules/order'), async ({ request }) => {
+      const { rule_ids } = await request.json() as { rule_ids: string[] }
+      state.writes.push('ORDER')
+      await held
+      state.rules = order(rule_ids)
+      return HttpResponse.json({ rules: state.rules })
+    }))
+    render(<RulesPage />)
+    const rows = await items()
+    await userEvent.click(within(rows[0]).getByRole('button', { name: 'Move rule 1 down' }))
+    const add = screen.getByRole('button', { name: 'Add rule' })
+    add.focus()
+    release()
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Delete rule 2' })).toHaveAttribute('aria-disabled', 'false'))
+    expect(screen.getByRole('status')).toHaveTextContent('Rule moved to position 2 of 3')
+    expect(add).toHaveFocus()
+  })
+
+  it('clears an earlier error when Add rule opens', async () => {
+    server.use(http.put(getApiUrl('rules/order'), () => HttpResponse.json({ detail: { code: 'rule_order_mismatch', message: 'x' } }, { status: 409 }), { once: true }))
+    render(<RulesPage />)
+    const rows = await items()
+    await userEvent.click(within(rows[1]).getByRole('button', { name: 'Move rule 2 up' }))
+    expect(await screen.findByText('The rules changed since this page loaded. Try again.')).toBeInTheDocument()
+    await userEvent.click(screen.getByRole('button', { name: 'Add rule' }))
+    await screen.findByRole('dialog', { name: 'Add a rule' })
+    expect(screen.queryByText('The rules changed since this page loaded. Try again.')).not.toBeInTheDocument()
   })
 
   it('ignores edits and deletes while a move is running', async () => {

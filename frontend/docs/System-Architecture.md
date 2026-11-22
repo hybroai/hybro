@@ -1360,8 +1360,8 @@ approves or rejects it, and if the work stops first the call is not sent.
 The list comes from `useRules` (`GET {api_prefix}/rules`, key `['rules']`)
 through `src/lib/api/rules.ts`. Each row shows its position, an agent select
 (**Any agent** sends `agent_id: null`; the other choices are `useNetworks`'s
-`directory`: every agent that is not deleted, including bundled agents that
-are not running, with an inactive agent labelled "(inactive)", and no network
+`directory`: every agent that is not deleted, including local and bundled
+agents that are not running, with an inactive agent labelled "(inactive)", and no network
 placeholders), an answer select
 (Allow, Deny, Ask), an on/off switch, move up and move down buttons, and a
 delete button. **Add rule** opens a dialog that sends `POST /rules` (the rule
@@ -1373,8 +1373,8 @@ each puts the focus back itself: Cancel returns it to the row's Delete button,
 and the Add dialog returns it to **Add rule**. A move sends every id once in the new
 order with `PUT /rules/order`; the move buttons stay focusable (they use
 `aria-disabled`, never `disabled`), the moved rule's button keeps the keyboard
-focus, and a polite status line announces the new position and names the
-rule. The same line announces an added rule and a deleted one; a repeat of
+focus (unless the owner moved the focus elsewhere before the move landed), and a polite status line announces the new position and names the
+rule. Opening **Add rule** clears an earlier error. The same line announces an added rule and a deleted one; a repeat of
 the same text gets a trailing non-breaking space so it is read again.
 
 Every rule write shares the mutation key `['rules']` and the scope `rules`, so
@@ -1400,7 +1400,9 @@ writes settle, the owner never edits or orders a stale list after a 404 or
 409: after any refused write (a 404 on delete included), edits and moves are
 ignored until the reload after the last queued write settles; then the lock
 lifts, so a later write is not blocked by an old refusal. Locked selects,
-switches and buttons carry `aria-disabled` and keep the keyboard focus. A
+switches and buttons carry `aria-disabled`, look dimmed, and keep the keyboard
+focus; a locked select ignores the mouse and the keys that open or
+change it, and drops any change that still reaches it. A
 refused edit's text clears once a later
 edit of the same rule, which carries the refused change too, is saved.
 `useRules` does not retry. If a reload fails while a list is shown, the list
