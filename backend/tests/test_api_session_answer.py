@@ -130,3 +130,16 @@ async def test_a_bad_path_parameter_names_that_parameter(path, field):
     assert field in detail["message"]
     assert "q" * 300 not in response.text and "s" * 300 not in response.text
     assert access.answered == []
+
+
+async def test_the_422_is_in_the_schema_with_its_fields():
+    app, _access = make_app()
+    schema = app.openapi()
+    operation = schema["paths"][
+        "/api/v1/sessions/{session_id}/questions/{question_id}/answer"
+    ]["post"]
+    ref = operation["responses"]["422"]["content"]["application/json"]["schema"]["$ref"]
+    model = schema["components"]["schemas"][ref.rsplit("/", 1)[-1]]
+    detail_ref = model["properties"]["detail"]["$ref"]
+    detail = schema["components"]["schemas"][detail_ref.rsplit("/", 1)[-1]]
+    assert {"code", "message", "fields"} <= set(detail["properties"])

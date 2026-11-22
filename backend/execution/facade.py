@@ -821,12 +821,14 @@ class ExecutionFacade:
 
         ``answered_by_client_id`` names a client with the owner's grant that
         gave them; it is recorded with the answer. A client's answer to a Run
-        that ended is refused in both stores; the Panel's reads as before.
+        that ended before it was recorded is refused in both stores (the
+        router refuses it for an Agent's question); the Panel's reads as
+        before.
         """
         router = self._orchestrator_router
         if router is not None:
             try:
-                state = await router.route_hitl_answer(
+                await router.route_hitl_answer(
                     interaction_id=interaction_id,
                     answers=answers,
                     responder_id=responder_id,
@@ -843,8 +845,6 @@ class ExecutionFacade:
                 if exc.args != (interaction_id,):
                     raise
             else:
-                if state == "canceled" and answered_by_client_id is not None:
-                    raise HITLConflictError("The question is no longer pending")
                 return HITLResponse(
                     request_id=interaction_id,
                     status="accepted",

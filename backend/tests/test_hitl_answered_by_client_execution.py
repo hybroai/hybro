@@ -199,7 +199,36 @@ async def test_the_facade_passes_the_answering_client_to_both_paths():
     assert manager_kwargs["user_id"] == "user-1"
 
 
-async def test_a_client_answer_to_an_ended_run_is_refused():
+@pytest.mark.parametrize("run_status", ["canceling", "canceled", "completed", None])
+async def test_a_client_answer_to_an_ended_run_is_refused(run_status):
+    router, runtime = _router_with(_spec_and_route(), run_status=run_status)
+    if run_status is None:
+        runtime.run_store.load = AsyncMock(return_value=None)
+
+    with pytest.raises(HITLConflictError):
+        await router.route_hitl_answer(
+            interaction_id="interaction-1",
+            answers=[{"request_id": "q1", "user_input": "a"}],
+            responder_id="user-1",
+            conversation_id="room-1",
+            answered_by_client_id="client_ci",
+        )
+
+    runtime.continuation.resume.assert_not_awaited()
+    # The Panel's answer to the same ended Run reads as before.
+    assert (
+        await router.route_hitl_answer(
+            interaction_id="interaction-1",
+            answers=[{"request_id": "q1", "user_input": "a"}],
+            responder_id="user-1",
+            conversation_id="room-1",
+        )
+        == "canceled"
+    )
+
+
+async def test_a_delivered_answer_whose_call_ends_canceled_is_accepted():
+    """The call's own state after delivery is not the Run ending first."""
     facade, _deps = _make_facade()
     router = SimpleNamespace(
         route_hitl_answer=AsyncMock(return_value="canceled"),
@@ -207,14 +236,15 @@ async def test_a_client_answer_to_an_ended_run_is_refused():
     )
     facade.bind_orchestrator_router(router)
 
-    with pytest.raises(HITLConflictError):
-        await facade.resolve_hitl_batch(
-            "room-1",
-            "orch-1",
-            [{"request_id": "q1", "user_input": "Approve"}],
-            "user-1",
-            answered_by_client_id="client_ci",
-        )
+    response = await facade.resolve_hitl_batch(
+        "room-1",
+        "orch-1",
+        [{"request_id": "q1", "user_input": "Approve"}],
+        "user-1",
+        answered_by_client_id="client_ci",
+    )
+
+    assert response.status == "accepted"
 
 
 async def test_the_panels_answer_to_an_ended_run_reads_as_before():

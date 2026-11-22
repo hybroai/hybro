@@ -3925,8 +3925,10 @@ supervisor's question stay with the owner.
   in both stores (the `approval` row's pending claim and the Agent answer
   record's insert-if-absent), so when the owner and a client answer at once,
   the loser is refused and reads 409 `question_not_pending`, also with the same
-  text. A client's answer to a Run that ended is refused the same way in both
-  stores; the Panel's reads as before. An unconfirmed delivery is 503
+  text. A client's answer to a Run that ended before the answer was recorded
+  is refused the same way in both stores; the Panel's reads as before. An
+  answer that was delivered stays accepted, whatever the call's own state
+  after it. An unconfirmed delivery is 503
   `answer_unconfirmed`, any other failure 502 `answer_failed`, both with fixed
   text; the cause goes to `session_question_answer_failed`. A recorded answer
   logs `session_question_answered` (`session_id`, `question_id`, `client_id`

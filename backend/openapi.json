@@ -5099,7 +5099,14 @@
             }
           },
           "422": {
-            "description": "The body is not {\"answer\": \"approve\" or \"refuse\"}"
+            "description": "The body is not {\"answer\": \"approve\" or \"refuse\"}, or a path parameter is invalid",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SessionInvalidRequest"
+                }
+              }
+            }
           },
           "401": {
             "description": "Unknown, revoked or missing client token"
@@ -11421,6 +11428,46 @@
         ],
         "title": "SessionQuestionAnswered",
         "description": "The answer was accepted; the session's state shows what follows."
+      },
+      "SessionInvalidRequest": {
+        "properties": {
+          "detail": {
+            "$ref": "#/components/schemas/SessionInvalidRequestDetail"
+          }
+        },
+        "type": "object",
+        "required": [
+          "detail"
+        ],
+        "title": "SessionInvalidRequest"
+      },
+      "SessionInvalidRequestDetail": {
+        "properties": {
+          "code": {
+            "type": "string",
+            "const": "invalid_request",
+            "title": "Code"
+          },
+          "message": {
+            "type": "string",
+            "title": "Message"
+          },
+          "fields": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Fields"
+          }
+        },
+        "type": "object",
+        "required": [
+          "code",
+          "message",
+          "fields"
+        ],
+        "title": "SessionInvalidRequestDetail",
+        "description": "A 422 of the answer route: fixed text and the fields at fault."
       }
     },
     "securitySchemes": {

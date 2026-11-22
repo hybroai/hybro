@@ -24,6 +24,7 @@ from models.session import (
     SessionErrorDetail,
     SessionErrorResponse,
     SessionIdentifier,
+    SessionInvalidRequest,
     SessionListResponse,
     SessionMessageRequest,
     SessionMessageResponse,
@@ -253,7 +254,11 @@ router.add_api_route(
             "description": "The session is closed, or the question is no "
             "longer pending",
         },
-        422: {"description": 'The body is not {"answer": "approve" or "refuse"}'},
+        422: {
+            "model": SessionInvalidRequest,
+            "description": 'The body is not {"answer": "approve" or "refuse"}, '
+            "or a path parameter is invalid",
+        },
         502: {"model": SessionErrorResponse, "description": "Not applied"},
         503: {
             "model": SessionErrorResponse,

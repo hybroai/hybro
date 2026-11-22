@@ -261,12 +261,26 @@ class SessionErrorResponse(BaseModel):
     detail: SessionErrorDetail
 
 
+class SessionInvalidRequestDetail(BaseModel):
+    """A 422 of the answer route: fixed text and the fields at fault."""
+
+    code: Literal["invalid_request"]
+    message: str
+    fields: list[str]
+
+
+class SessionInvalidRequest(BaseModel):
+    detail: SessionInvalidRequestDetail
+
+
 __all__ = [
     "RECEIPT_TIP",
     "SessionAgent",
     "SessionClosed",
     "SessionErrorDetail",
     "SessionErrorResponse",
+    "SessionInvalidRequest",
+    "SessionInvalidRequestDetail",
     "SessionListResponse",
     "SessionMessageRequest",
     "SessionMessageResponse",

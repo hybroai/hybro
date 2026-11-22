@@ -798,6 +798,10 @@ class DualRuntimeRouter:
             raise HITLRoomMismatchError("Room mismatch")
         run = await self._runtime.run_store.load(route.orchestration_run_id)
         if run is None or run.status in {"canceling", *TERMINAL_RUN_STATUSES}:
+            if answered_by_client_id is not None:
+                # The answer is not recorded; a client is told so. The Panel
+                # reads this as before.
+                raise HITLConflictError("The question is no longer pending")
             return "canceled"
         mapped = _map_interaction_answers(spec, answers)
         try:
