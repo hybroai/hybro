@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react'
+import { useEffect, useMemo, useRef, useState, type FocusEvent, type FormEvent } from 'react'
 import { useIsMutating, useMutation, useQueryClient, type QueryClient } from '@tanstack/react-query'
 import { AlertTriangle, ArrowDown, ArrowUp, Loader2, Plus, RefreshCw, Trash2 } from 'lucide-react'
 import { PageHeader } from '@/components/page-header'
@@ -183,7 +183,7 @@ function AddRuleDialog({ open, onOpenChange, agents, returnFocus, onRefused, ann
             <select id="new-rule-agent" className={SELECT_CLASS} value={agentId} onChange={event => setAgentId(event.target.value)}>
               <AgentOptions current={null} agents={agents} />
             </select>
-            {agents.failed ? <p className="text-xs text-muted-foreground">Agents couldn&apos;t load, so only Any agent can be chosen.</p> : null}
+            {agents.failed ? <p className="text-xs text-muted-foreground">Agents couldn&apos;t load, so the list of agents may be incomplete.</p> : null}
           </div>
           <div className="flex flex-col gap-2">
             <Label htmlFor="new-rule-answer">Answer</Label>
@@ -498,8 +498,9 @@ export function RulesPage() {
     reorder.mutate({ ids, ruleId: rule.rule_id, direction })
   }
 
-  // The control last focused in the list. A reload that removes its row would
-  // leave the focus nowhere; it then goes to the list heading.
+  // The control focused in the list right now. A reload that removes its row
+  // would leave the focus nowhere; it then goes to the list heading. Focus that
+  // leaves the list (the row is still there) forgets it.
   const lastFocused = useRef<HTMLElement | null>(null)
   useEffect(() => {
     if (focusAfterMove.current) {
@@ -509,9 +510,17 @@ export function RulesPage() {
     }
     const last = lastFocused.current
     if (last && !last.isConnected && (!document.activeElement || document.activeElement === document.body)) {
+      lastFocused.current = null
       heading.current?.focus()
     }
   }, [list])
+
+  const forgetFocus = (event: FocusEvent<HTMLOListElement>) => {
+    const left = event.target
+    if (event.relatedTarget instanceof Node && event.currentTarget.contains(event.relatedTarget)) return
+    // A blur caused by removing the row must keep it, so check after React's commit.
+    queueMicrotask(() => { if (left.isConnected && lastFocused.current === left) lastFocused.current = null })
+  }
 
   const buttonRef = (key: string, element: HTMLButtonElement | null) => {
     if (element) buttons.current.set(key, element)
@@ -536,7 +545,7 @@ export function RulesPage() {
           </div>
           {actionError ? <Alert variant="destructive"><AlertDescription>{actionError}</AlertDescription></Alert> : null}
           {agents.failed && list?.length ? (
-            <p className="text-xs text-muted-foreground">Agents couldn&apos;t load, so rules show agent ids.</p>
+            <p className="text-xs text-muted-foreground">Agents couldn&apos;t load, so a rule may show an agent id instead of a name.</p>
           ) : null}
           {rules.isError && list ? (
             <Alert variant="destructive">
@@ -569,6 +578,7 @@ export function RulesPage() {
               aria-label="Check rules"
               className="overflow-hidden rounded-lg border"
               onFocus={event => { if (event.target instanceof HTMLElement) lastFocused.current = event.target }}
+              onBlur={forgetFocus}
             >
               {list.map((rule, index) => (
                 <RuleRow

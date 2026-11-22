@@ -1382,13 +1382,15 @@ the writes run one at a time in the order sent. The list is reloaded when the
 last queued write settles (a reload between two queued writes would show the
 list without the later, unsaved change), and `useRules` turns off its
 window-focus and reconnect refetches while a write runs. When a reload removes
-the row that held the keyboard focus, the focus moves to the list heading. A move is computed from the list on screen, so it is ignored while
+the row that holds the keyboard focus, the focus moves to the list heading;
+once the focus has left the list, a later reload leaves it alone. A move is computed from the list on screen, so it is ignored while
 any rule write runs; edits and deletes are ignored while a move runs.
 
 A rule whose `agent_id` is not in the directory is shown as
 "Missing agent (id)" with a line that says so and how to fix it; while the
 agents are loading or failed to load, the page shows the id without calling it
-missing. With no rules, the page says that every agent call is allowed.
+missing. After a failed agent load the page notes that the agent list may be
+incomplete, because an earlier load may still be shown. With no rules, the page says that every agent call is allowed.
 
 Errors show fixed text from `ruleErrorMessage`, never the backend's message:
 404 (the rule is gone), 409 `rule_order_mismatch` (the list changed), 409

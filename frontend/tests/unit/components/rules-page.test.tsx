@@ -471,6 +471,22 @@ describe('Rules page', () => {
     await waitFor(() => expect(screen.getByRole('heading', { name: 'Check rules' })).toHaveFocus())
   })
 
+  it('leaves the focus alone when a reload removes a row the focus already left', async () => {
+    render(<RulesPage />)
+    const rows = await items()
+    within(rows[1]).getByRole('switch', { name: 'Rule 2 on' }).focus()
+    ;(document.activeElement as HTMLElement).blur()
+    await new Promise(resolve => setTimeout(resolve, 0))
+    // Another tab deleted rule 2; this tab refetches.
+    state.rules = state.rules.filter(item => item.rule_id !== 'rule_2')
+    focusManager.setFocused(false)
+    focusManager.setFocused(true)
+    focusManager.setFocused(undefined)
+    await waitFor(async () => expect(await items()).toHaveLength(2))
+    expect(screen.getByRole('heading', { name: 'Check rules' })).not.toHaveFocus()
+    expect(document.activeElement).toBe(document.body)
+  })
+
   it('keeps a list that failed to reload, locked until a reload succeeds', async () => {
     render(<RulesPage />)
     const rows = await items()
