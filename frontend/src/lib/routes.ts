@@ -9,6 +9,7 @@ export const routes = {
   sessions: '/sessions',
   session: (id: string) => withId('/sessions', id),
   sessionsFromClient: (clientId: string) => `/sessions?${new URLSearchParams({ client: clientId })}`,
+  rules: '/rules',
   network: '/network',
   networkWith: (query: string) => (query ? `/network?${query}` : '/network'),
   networkAgent: (id: string) => withId('/network/agents', id),

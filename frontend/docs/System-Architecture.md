@@ -160,6 +160,7 @@ src/app/
     |-- network/page.tsx         # Network workspace (topology and structure views)
     |-- network/agents/[id]/page.tsx
     |-- network/agents/new/page.tsx
+    |-- rules/page.tsx           # Rules: the owner's check rules
     |-- connect/mcp/page.tsx
     |-- connect/api/page.tsx
     |-- settings/layout.tsx      # Settings title, section tabs, restart banner
@@ -271,6 +272,7 @@ src/components/
 |-- networks/                 # Network workspace: toolbar, SVG graph, structure view, details panel, add-to-subnet menu, Agent picker
 |-- subnets/                  # one subnet dialog (create/edit), delete confirmation, room/chat dialog host
 |-- connect/                  # Access pages, per-assistant setups, copyable access materials
+|-- rules/                    # Rules page: ordered check rules, add/edit/delete/reorder
 |-- providers/                # React Query provider
 |-- settings/                 # Settings page sections, tabs, restart banner; Account dialog sections
 |-- setup/                    # model provider banners
@@ -328,13 +330,14 @@ src/hooks/
 |-- useRoomSSE.ts              # low-level SSE connection hook
 |-- useChatRoomCreation.ts     # room creation and navigation
 |-- useGroupManagement.ts      # saved subnets and room scope selection
-|-- useNetworks.ts             # owner-scoped subnet queries, agent inventory, and confirmed CRUD writes
+|-- useNetworks.ts             # owner-scoped subnet queries, agent inventory and directory, and confirmed CRUD writes
 |-- useNetworkUrlState.ts      # Network workspace URL state bound to the router
 |-- useGraphDisplayPrefs.ts    # graph label switches persisted in localStorage
 |-- useRoomHistory.ts          # shared room history query (sidebar, Chats badge, Overview)
 |-- useRoomFile.ts             # authenticated room-file blob and preview lifecycle
 |-- useSessions.ts             # owner session list, polled every 15 s (sidebar badge, Overview, /sessions)
 |-- useSessionListUrlState.ts  # Inbox list view state bound to the URL
+|-- useRules.ts               # the owner's check rules in order (/rules)
 |-- useHitlInteractionController.ts # HITL questionnaire state reducer (lib/hitl/interaction-controller)
 |-- useDetailPaneScroll.ts     # Agent detail pane scroll restore and tail follow
 |-- useMcpStatus.ts            # shared /hybro-mcp gateway status query
@@ -1120,7 +1123,7 @@ selects the saved subnet in the group selector and prefills the composer; room c
 navigation do not occur until the user sends the message. A failed create re-reads the saved groups once and selects a subnet a concurrent tab created.
 
 The shared side menu is `PortalSidebar`, a 14.5rem Sidebar with a 4rem
-icon-only collapsed state. `NavAgent` renders the six flat `CONSUMER_NAV`
+icon-only collapsed state. `NavAgent` renders the seven flat `CONSUMER_NAV`
 destinations; the active item's icon uses the primary color:
 
 - **Overview** opens `/` (exact match only).
@@ -1132,13 +1135,14 @@ destinations; the active item's icon uses the primary color:
 - **Inbox** opens `/sessions` and stays active on `/sessions/*`. It lists the
   sessions that outside clients open through MCP or the Sessions API and shows
   a count badge for sessions in `waiting_on_owner`.
+- **Rules** opens `/rules`, the owner's check rules.
 - **Access** opens `/connect/mcp` and stays active on `/connect/*`.
 - **Settings** opens `/settings/model-provider` and stays active on
   `/settings/*`.
 
 The order tells the story in sequence: Chats is where a new user starts, the
-Inbox fills once a client is set up, and Access is where that client is set
-up. Settings comes last because it configures the instance itself.
+Inbox fills once a client is set up, Rules decide which agent calls go out,
+and Access is where that client is set up. Settings comes last because it configures the instance itself.
 
 The same primary menu is used on `/about`, the other existing portal pages, and
 the feature pages. Chat and Room routes add a separate History column
@@ -1340,6 +1344,69 @@ The MCP and API tabs never execute discovery, register clients, send messages,
 or invoke a model. Copy failures expose manual-copy instructions and select the
 text; outside the show-once dialog, copied text never includes a real token. The Overview Gateway tile is
 the only place that probes `/hybro-mcp`, through `useMcpStatus`.
+
+### Rules page
+
+`/rules` renders `RulesPage` (`src/components/rules/rules-page.tsx`), titled
+"Rules". A **How rules work** card says, in plain words, which calls the rules
+cover and how they are read: the first rule that is on and matches the agent
+decides; no match allows the call; rules are checked when a new agent call is
+about to be sent, in Room chat and through the Client API alike; a call that
+already passed the check, and a reply to an agent that asked a question, are
+not checked again; Allow sends, Deny refuses (Room chat tells the model; a
+Client API step ends as denied), and Ask holds the call until the owner
+approves or rejects it, and if the work stops first the call is not sent.
+
+The list comes from `useRules` (`GET {api_prefix}/rules`, key `['rules']`)
+through `src/lib/api/rules.ts`. Each row shows its position, an agent select
+(**Any agent** sends `agent_id: null`; the other choices are `useNetworks`'s
+`directory`: every agent that is not deleted, including bundled agents that
+are not running, with an inactive agent labelled "(inactive)", and no network
+placeholders), an answer select
+(Allow, Deny, Ask), an on/off switch, move up and move down buttons, and a
+delete button. **Add rule** opens a dialog that sends `POST /rules` (the rule
+goes to the bottom, on). A change to the agent, answer or switch shows at once
+and sends the whole rule with `PUT /rules/{rule_id}`. Delete asks for
+confirmation, then sends `DELETE /rules/{rule_id}`; a 404 there counts as done,
+the row leaves the list at once, and the focus moves to the list heading. The dialogs have no Radix trigger, so
+each puts the focus back itself: Cancel returns it to the row's Delete button,
+and the Add dialog returns it to **Add rule**. A move sends every id once in the new
+order with `PUT /rules/order`; the move buttons stay focusable (they use
+`aria-disabled`, never `disabled`), the moved rule's button keeps the keyboard
+focus, and a polite status line announces the new position and names the
+rule. The same line announces an added rule and a deleted one; a repeat of
+the same text gets a trailing non-breaking space so it is read again.
+
+Every rule write shares the mutation key `['rules']` and the scope `rules`, so
+the writes run one at a time in the order sent. The list is reloaded when the
+last queued write settles (a reload between two queued writes would show the
+list without the later, unsaved change), and `useRules` turns off its
+window-focus and reconnect refetches while a write runs. When a reload removes
+the row that holds the keyboard focus, the focus moves to the list heading;
+once the focus has left the list, a later reload leaves it alone. A move is computed from the list on screen, so it is ignored while
+any rule write runs; edits and deletes are ignored while a move runs.
+
+A rule whose `agent_id` is not in the directory is shown as
+"Missing agent (id)" with a line that says so and how to fix it; while the
+agents are loading or failed to load, the page shows the id without calling it
+missing. After a failed agent load the page notes that the agent list may be
+incomplete, because an earlier load may still be shown. With no rules, the page says that every agent call is allowed.
+
+Errors show fixed text from `ruleErrorMessage`, never the backend's message:
+404 (the rule is gone), 409 `rule_order_mismatch` (the list changed), 409
+`rule_limit_reached` (the rule limit), 422 with the field names the backend
+lists (only its known names), and 503. Because the list reloads once the
+writes settle, the owner never edits or orders a stale list after a 404 or
+409: after any refused write (a 404 on delete included), edits and moves are
+ignored until the reload after the last queued write settles; then the lock
+lifts, so a later write is not blocked by an old refusal. Locked selects,
+switches and buttons carry `aria-disabled` and keep the keyboard focus. A
+refused edit's text clears once a later
+edit of the same rule, which carries the refused change too, is saved.
+`useRules` does not retry. If a reload fails while a list is shown, the list
+stays with a **Reload** button and a note that it may be out of date, and its
+rows cannot be edited or moved until a reload succeeds; with no list, the
+page shows "Rules couldn't load." and **Retry**.
 
 ### Model provider setup
 

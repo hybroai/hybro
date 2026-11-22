@@ -1,4 +1,4 @@
-import { Globe, Inbox, LayoutDashboard, MessagesSquare, Plug, Settings } from 'lucide-react'
+import { Globe, Inbox, LayoutDashboard, MessagesSquare, Plug, Settings, ShieldCheck } from 'lucide-react'
 import type { NavAgentItem } from '@/lib/nav-items'
 import { routes } from '@/lib/routes'
 
@@ -7,6 +7,7 @@ export const CONSUMER_NAV: NavAgentItem[] = [
   { name: 'Network', url: routes.network, icon: Globe, colorClass: 'text-icon-network' },
   { name: 'Chats', url: routes.chat, activePaths: ['/room'], icon: MessagesSquare, colorClass: 'text-icon-create' },
   { name: 'Inbox', url: routes.sessions, activePaths: ['/sessions'], icon: Inbox, colorClass: 'text-icon-create' },
+  { name: 'Rules', url: routes.rules, icon: ShieldCheck, colorClass: 'text-icon-architecture' },
   { name: 'Access', url: routes.connectClients, activePaths: ['/connect'], icon: Plug, colorClass: 'text-hybro-bro' },
   { name: 'Settings', url: routes.settingsModelProvider, activePaths: [routes.settings], icon: Settings, colorClass: 'text-icon-moon' },
 ]
