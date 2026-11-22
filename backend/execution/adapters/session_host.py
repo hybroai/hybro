@@ -84,6 +84,8 @@ class RoomSessionHost:
             clock=self._clock, id_factory=self._id_factory
         )
         self._sessions: dict[str, RoomAgentSession] = {}
+        # Set by shutdown: no session and no run-addressed pass starts after.
+        self._closed = False
 
     async def create_session(
         self,
@@ -97,6 +99,8 @@ class RoomSessionHost:
         conversation_history: tuple[ModelMessage, ...] = (),
         run_factory: RunFactory | None = None,
     ) -> RoomAgentSession:
+        if self._closed:
+            raise SessionConflict("the runtime is shutting down")
         if conversation_id in self._sessions:
             raise SessionConflict("a session is already active for this Room")
         epoch = await self._epoch_store.read_active(conversation_id)
@@ -265,6 +269,7 @@ class RoomSessionHost:
             lifecycle_factory=lifecycle_for_run,
             clock=self._clock,
             pass_end_hooks=self._pass_end_hooks,
+            closed=lambda: self._closed,
         )
 
     def _new_lifecycle_emitter(self) -> LifecycleEmitter:
@@ -289,11 +294,14 @@ class RoomSessionHost:
         ``RoomAgentSession.abort`` is the user-facing cancellation path and
         persists ``canceled``; do not call it here.
         """
+        self._closed = True
         for session in list(self._sessions.values()):
             await session.shutdown()
         self._sessions.clear()
 
     def _require_session(self, conversation_id: str) -> RoomAgentSession:
+        if self._closed:
+            raise SessionConflict("the runtime is shutting down")
         session = self._sessions.get(conversation_id)
         if session is None:
             raise SessionConflict("no active session for this Room")

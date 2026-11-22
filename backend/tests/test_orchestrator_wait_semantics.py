@@ -563,6 +563,208 @@ async def test_closed_hooks_start_no_more():
     assert ended == ["run-1"]
 
 
+async def test_a_pass_that_starts_while_shutdown_runs_is_refused(monkeypatch):
+    # A pass-end hook delivers an answer through the live session; shutdown
+    # starts while that delivery waits for its lease. Shutdown finds no pass
+    # to settle, so the delivery must not start one after it.
+    from execution.orchestrator.session import SessionConflict
+
+    model = ScriptedModelRuntime([_pause("input_required"), final_events("done")])
+    runtime, store, clock, _constructed, _events = await _composed(monkeypatch, model)
+    paused = await runtime.session_host.prompt(
+        "room-1", user_message(), client_request_id="request-1"
+    )
+    run_id = paused.run.run_id
+    entry = (await store.load(run_id)).tool_batches[0].entries[0]
+    claim = store.claim_recovery
+    claiming = asyncio.Event()
+    release = asyncio.Event()
+
+    async def slow_claim(*args, **kwargs):
+        claiming.set()
+        await release.wait()
+        return await claim(*args, **kwargs)
+
+    monkeypatch.setattr(store, "claim_recovery", slow_claim)
+    delivery = asyncio.create_task(
+        runtime.session_host.observe_tool(
+            "room-1", _completion(entry, observation_id="late", at=clock.value)
+        )
+    )
+    await claiming.wait()
+
+    await runtime.session_host.shutdown()
+    release.set()
+
+    with pytest.raises(SessionConflict):
+        await delivery
+    parked = await store.load(run_id)
+    assert parked.status == "awaiting_user"
+    assert parked.recovery_claim.owner_id is None
+
+
+async def test_shutdown_after_a_pass_ended_leaves_its_lease_to_the_pass(monkeypatch):
+    # The pass ended and its session still sends its idle event when
+    # shutdown runs. Shutdown settles nothing, so the pass releases its lease.
+    model = ScriptedModelRuntime([_pause("input_required"), final_events("done")])
+    runtime, store, clock, _constructed, _events = await _composed(monkeypatch, model)
+    session = runtime.session_host.get_session("room-1")
+    emit = session._emit
+    emitting = asyncio.Event()
+    release = asyncio.Event()
+
+    async def slow_idle(event_type, run, **kwargs):
+        if event_type == "session_idle":
+            emitting.set()
+            await release.wait()
+        return await emit(event_type, run, **kwargs)
+
+    monkeypatch.setattr(session, "_emit", slow_idle)
+    prompt = asyncio.create_task(
+        runtime.session_host.prompt(
+            "room-1", user_message(), client_request_id="request-1"
+        )
+    )
+    await emitting.wait()
+
+    await runtime.session_host.shutdown()
+    release.set()
+    paused = await prompt
+
+    parked = await store.load(paused.run.run_id)
+    assert parked.status == "awaiting_user"
+    assert parked.recovery_claim.owner_id is None
+
+
+async def test_a_prompt_that_races_shutdown_ends_its_run_as_interrupted(
+    monkeypatch,
+):
+    # Shutdown runs while the prompt writes its Run: the Run is created but
+    # no pass may start, so it ends as interrupted instead of hanging.
+    from execution.orchestrator.session import SessionConflict
+
+    model = ScriptedModelRuntime([final_events("done")])
+    runtime, store, clock, _constructed, events = await _composed(monkeypatch, model)
+    create = store.create
+
+    async def create_then_shut_down(*args, **kwargs):
+        created = await create(*args, **kwargs)
+        await runtime.session_host.shutdown()
+        return created
+
+    monkeypatch.setattr(store, "create", create_then_shut_down)
+
+    with pytest.raises(SessionConflict):
+        await runtime.session_host.prompt(
+            "room-1", user_message(), client_request_id="request-1"
+        )
+    (run,) = [await store.load(run_id) for run_id in store.runs]
+    assert run.status == "failed"
+    assert run.terminal_reason == "interrupted"
+    assert run.recovery_claim.owner_id is None
+
+
+async def test_a_prompt_that_races_shutdown_keeps_its_claim_if_it_cannot_end(
+    monkeypatch,
+):
+    # Ending the Run fails: the session keeps its execution claim, so
+    # recovery ends the Run as interrupted instead of resuming the prompt.
+    from execution.orchestrator.kernel import OrchestratorKernel
+    from execution.orchestrator.session import SessionConflict
+
+    model = ScriptedModelRuntime([final_events("done")])
+    runtime, store, clock, _constructed, _events = await _composed(monkeypatch, model)
+    create = store.create
+
+    async def create_then_shut_down(*args, **kwargs):
+        created = await create(*args, **kwargs)
+        await runtime.session_host.shutdown()
+        return created
+
+    async def cannot_end(self, *_args, **_kwargs):
+        raise RuntimeError("store unavailable")
+
+    monkeypatch.setattr(store, "create", create_then_shut_down)
+    monkeypatch.setattr(OrchestratorKernel, "terminalize", cannot_end)
+
+    with pytest.raises(SessionConflict):
+        await runtime.session_host.prompt(
+            "room-1", user_message(), client_request_id="request-1"
+        )
+    (run,) = [await store.load(run_id) for run_id in store.runs]
+    assert run.status == "running"
+    assert run.recovery_claim.owner_id is not None
+    assert run.recovery_claim.owner_id.startswith("session:")
+
+
+async def test_a_prompt_after_its_session_shut_down_writes_no_run(monkeypatch):
+    from execution.orchestrator.session import SessionConflict
+
+    model = ScriptedModelRuntime([final_events("done")])
+    runtime, store, clock, _constructed, _events = await _composed(monkeypatch, model)
+    session = runtime.session_host.get_session("room-1")
+    await session.shutdown()
+
+    with pytest.raises(SessionConflict):
+        await session.prompt(user_message(), client_request_id="request-1")
+    assert store.runs == {}
+
+
+async def test_the_sink_starts_no_pass_once_shutdown_began(monkeypatch):
+    from execution.orchestrator.session import SessionConflict
+
+    model = ScriptedModelRuntime([_pause("input_required"), final_events("done")])
+    runtime, store, clock, _constructed, _events = await _composed(monkeypatch, model)
+    paused = await runtime.session_host.prompt(
+        "room-1", user_message(), client_request_id="request-1"
+    )
+    run_id = paused.run.run_id
+    entry = (await store.load(run_id)).tool_batches[0].entries[0]
+
+    await runtime.session_host.shutdown()
+
+    with pytest.raises(SessionConflict):
+        await runtime.observation_sink.deliver(
+            run_id, _completion(entry, observation_id="late", at=clock.value)
+        )
+    assert (await store.load(run_id)).status == "awaiting_user"
+    with pytest.raises(SessionConflict):
+        await runtime.session_host.prompt("room-1", user_message())
+
+
+async def test_the_sink_starts_no_pass_when_shutdown_begins_mid_delivery(
+    monkeypatch,
+):
+    from execution.orchestrator.session import SessionConflict
+
+    model = ScriptedModelRuntime([_pause("input_required"), final_events("done")])
+    runtime, store, clock, _constructed, _events = await _composed(monkeypatch, model)
+    paused = await runtime.session_host.prompt(
+        "room-1", user_message(), client_request_id="request-1"
+    )
+    run_id = paused.run.run_id
+    entry = (await store.load(run_id)).tool_batches[0].entries[0]
+    load = store.load
+    shut: list[bool] = []
+
+    async def load_then_shut_down(*args, **kwargs):
+        loaded = await load(*args, **kwargs)
+        if not shut:
+            # Shutdown begins while the delivery reads the Run.
+            shut.append(True)
+            await runtime.session_host.shutdown()
+        return loaded
+
+    monkeypatch.setattr(store, "load", load_then_shut_down)
+
+    with pytest.raises(SessionConflict):
+        await runtime.observation_sink.deliver(
+            run_id, _completion(entry, observation_id="late", at=clock.value)
+        )
+    monkeypatch.setattr(store, "load", load)
+    assert (await store.load(run_id)).status == "awaiting_user"
+
+
 async def test_waiting_external_run_completes_from_a_late_result(monkeypatch):
     model = ScriptedModelRuntime([_pause("waiting_external"), final_events("done")])
     runtime, store, clock, _constructed, _events = await _composed(monkeypatch, model)

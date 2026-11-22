@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+from collections.abc import Callable, Coroutine
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from hashlib import sha256
@@ -214,8 +215,10 @@ class RoomAgentSession:
         self._idle.set()
         self._lease_owner: str | None = None
         self._lease_task: asyncio.Task[None] | None = None
-        # Set once by shutdown() and never reset: a shut-down session is
-        # discarded by its host and must not start another Run.
+        # Both set by shutdown() and never reset. Closed: a shut-down session
+        # is discarded by its host and starts no other pass. Shutting down:
+        # shutdown cancelled a live pass and owns its lease.
+        self._closed = False
         self._shutting_down = False
 
     async def _acquire_execution_lease(self) -> None:
@@ -317,6 +320,8 @@ class RoomAgentSession:
         *,
         client_request_id: str | None = None,
     ) -> KernelRunResult:
+        if self._closed:
+            raise SessionConflict("the session is shutting down")
         if self._task is not None and not self._task.done():
             raise SessionConflict("a Run is already active")
         if await self.has_active_run():
@@ -349,7 +354,17 @@ class RoomAgentSession:
                 "mode": created.run.profile.profile_id,
             },
         )
-        return await self._start_kernel()
+        try:
+            return await self._start_kernel()
+        except SessionConflict:
+            if not self._closed:
+                raise
+            # Shutdown began after the Run was written; no pass may start,
+            # so end it as interrupted, as shutdown ends a running pass. The
+            # claim taken first stays if that fails, so recovery ends it.
+            await self._acquire_execution_lease()
+            await self._terminalize_interrupted_run()
+            raise
 
     async def continue_run(self) -> KernelRunResult:
         run = await self._current_run()
@@ -362,17 +377,14 @@ class RoomAgentSession:
             raise SessionConflict("no active Run")
         if self._task is not None and not self._task.done():
             raise SessionConflict("Run is currently executing")
-        self._idle.clear()
-        await self._acquire_execution_lease()
-        self._task = asyncio.create_task(
-            self.kernel.observe_tool(
-                self._run_id,
+        await self._start_task(
+            lambda run_id: self.kernel.observe_tool(
+                run_id,
                 observation,
                 signal=self._signal,
                 lifecycle=self._emit_kernel_event,
             )
         )
-        self._settled_task = None
         return await self._await_task()
 
     async def signal_interrupt(self, run_id: str, cancellation_command_id: str) -> None:
@@ -434,6 +446,9 @@ class RoomAgentSession:
         before this completes, the execution lease expires and recovery applies
         the same outcome.
         """
+        # Set first: a delivery already waiting for its lease must not start
+        # a pass this shutdown no longer sees (see _start_task).
+        self._closed = True
         task = self._task
         if task is None or task.done():
             return
@@ -493,17 +508,29 @@ class RoomAgentSession:
     async def _start_kernel(self) -> KernelRunResult:
         if self._run_id is None:
             raise SessionConflict("no active Run")
-        self._idle.clear()
-        await self._acquire_execution_lease()
-        self._task = asyncio.create_task(
-            self.kernel.run(
-                self._run_id,
-                signal=self._signal,
-                lifecycle=self._emit_kernel_event,
+        await self._start_task(
+            lambda run_id: self.kernel.run(
+                run_id, signal=self._signal, lifecycle=self._emit_kernel_event
             )
         )
-        self._settled_task = None
         return await self._await_task()
+
+    async def _start_task(
+        self, work: Callable[[str], Coroutine[object, object, KernelRunResult]]
+    ) -> None:
+        """Take the execution lease, then start the pass, unless shut down."""
+        if self._closed:
+            raise SessionConflict("the session is shutting down")
+        self._idle.clear()
+        await self._acquire_execution_lease()
+        if self._closed or self._run_id is None:
+            # Shutdown ran while the lease was taken; it settled nothing for
+            # this pass, so none may start.
+            await self._release_execution_lease()
+            self._idle.set()
+            raise SessionConflict("the session is shutting down")
+        self._task = asyncio.create_task(work(self._run_id))
+        self._settled_task = None
 
     async def _await_task(self) -> KernelRunResult:
         task = self._task
