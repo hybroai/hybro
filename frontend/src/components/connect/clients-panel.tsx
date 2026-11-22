@@ -1,7 +1,7 @@
 'use client'
 
 import Link from 'next/link'
-import { useState, type FormEvent } from 'react'
+import { useRef, useState, type FormEvent } from 'react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { KeyRound, Loader2, MoreHorizontal, Plus, RefreshCw } from 'lucide-react'
 import { Alert, AlertDescription } from '@/components/ui/alert'
@@ -277,23 +277,27 @@ function useAnswerGrant(onError: (message: string | null) => void) {
   })
 }
 
-function GrantSwitch({ client, pending, onChange }: { client: ClientView; pending: boolean; onChange: (granted: boolean) => void }) {
+function GrantSwitch({ client, pending, onChange }: { client: ClientView; pending: boolean; onChange: (granted: boolean, opener: HTMLElement) => void }) {
+  const ref = useRef<HTMLButtonElement>(null)
   if (!canHoldGrant(client)) return <><span aria-hidden="true">—</span><span className="sr-only">Not available</span></>
+  // Not disabled while the change is in flight: a disabled switch loses focus.
   return (
     <Switch
+      ref={ref}
       checked={client.answer_grant}
-      disabled={pending}
+      aria-busy={pending || undefined}
       aria-label={`${client.name} can answer permission questions`}
       aria-describedby={GRANT_HELP_ID}
-      onCheckedChange={onChange}
+      onCheckedChange={granted => { if (!pending && ref.current) onChange(granted, ref.current) }}
     />
   )
 }
 
-function GrantConfirmDialog({ client, onConfirm, onClose }: { client: ClientView; onConfirm: () => void; onClose: () => void }) {
+function GrantConfirmDialog({ client, opener, onConfirm, onClose }: { client: ClientView; opener: HTMLElement; onConfirm: () => void; onClose: () => void }) {
   return (
     <AlertDialog open onOpenChange={open => { if (!open) onClose() }}>
-      <AlertDialogContent>
+      {/* Opened without a trigger, so focus is handed back to the switch. */}
+      <AlertDialogContent onCloseAutoFocus={event => { event.preventDefault(); opener.focus() }}>
         <AlertDialogHeader>
           <AlertDialogTitle>{`Let ${client.name} answer permission questions?`}</AlertDialogTitle>
           <AlertDialogDescription>
@@ -309,7 +313,7 @@ function GrantConfirmDialog({ client, onConfirm, onClose }: { client: ClientView
   )
 }
 
-function ClientRow({ client, onAction, grant }: { client: ClientView; onAction: (pending: Pending) => void; grant: { pending: boolean; onChange: (granted: boolean) => void } }) {
+function ClientRow({ client, onAction, grant }: { client: ClientView; onAction: (pending: Pending) => void; grant: { pending: boolean; onChange: (granted: boolean, opener: HTMLElement) => void } }) {
   const revoked = !client.has_token
   return (
     <tr className="border-t">
@@ -365,10 +369,10 @@ function ClientsTable({ onAction }: { onAction: (pending: Pending) => void }) {
   const clients = useClients()
   const list = clients.data?.clients
   const [grantError, setGrantError] = useState<string | null>(null)
-  const [confirming, setConfirming] = useState<ClientView | null>(null)
+  const [confirming, setConfirming] = useState<{ client: ClientView; opener: HTMLElement } | null>(null)
   const grant = useAnswerGrant(setGrantError)
-  const change = (client: ClientView) => (granted: boolean) => {
-    if (granted) setConfirming(client)
+  const change = (client: ClientView) => (granted: boolean, opener: HTMLElement) => {
+    if (granted) setConfirming({ client, opener })
     else grant.mutate({ client, granted: false })
   }
   const pendingId = grant.isPending ? grant.variables?.client.client_id : undefined
@@ -385,7 +389,7 @@ function ClientsTable({ onAction }: { onAction: (pending: Pending) => void }) {
             <th scope="col" className="hidden w-36 px-3 py-2 font-medium md:table-cell">Last used</th>
             <th scope="col" className="hidden w-36 px-3 py-2 font-medium md:table-cell">Connects through</th>
             <th scope="col" className="hidden w-36 px-3 py-2 font-medium lg:table-cell">Created</th>
-            <th scope="col" className="w-24 px-3 py-2 font-medium">Can answer</th>
+            <th scope="col" className="w-[4.5rem] px-3 py-2 font-medium sm:w-28 sm:whitespace-nowrap">Can answer</th>
             <th scope="col" className="w-36 py-2 pr-4 pl-3"><span className="sr-only">Actions</span></th>
           </tr>
         </thead>
@@ -422,9 +426,10 @@ function ClientsTable({ onAction }: { onAction: (pending: Pending) => void }) {
     </div>
     {confirming ? (
       <GrantConfirmDialog
-        key={confirming.client_id}
-        client={confirming}
-        onConfirm={() => grant.mutate({ client: confirming, granted: true })}
+        key={confirming.client.client_id}
+        client={confirming.client}
+        opener={confirming.opener}
+        onConfirm={() => grant.mutate({ client: confirming.client, granted: true })}
         onClose={() => setConfirming(null)}
       />
     ) : null}

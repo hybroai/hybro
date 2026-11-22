@@ -393,6 +393,27 @@ describe('the answer grant', () => {
     expect(within(confirm).getByRole('button', { name: 'Allow' })).toHaveFocus()
     await user.keyboard('{Enter}')
     await waitFor(() => expect(state.grants).toEqual([{ client_id: 'client_ci', granted: true }]))
+    await waitFor(async () => expect(await grantSwitch('CI bot')).toBeChecked())
+    // Focus comes back to the switch, so the keyboard user keeps their place.
+    await waitFor(async () => expect(await grantSwitch('CI bot')).toHaveFocus())
+
+    await user.keyboard(' ')
+    await waitFor(() => expect(state.grants).toHaveLength(2))
+    await waitFor(async () => expect(await grantSwitch('CI bot')).not.toBeChecked())
+    expect(await grantSwitch('CI bot')).toHaveFocus()
+  })
+
+  it('keeps focus on the switch after a cancelled confirmation', async () => {
+    const user = userEvent.setup()
+    render(<ConnectPage kind="clients" />)
+    const toggle = await grantSwitch('CI bot')
+    toggle.focus()
+    await user.keyboard(' ')
+    await screen.findByRole('alertdialog')
+    await user.keyboard('{Escape}')
+    await waitFor(() => expect(screen.queryByRole('alertdialog')).toBeNull())
+    await waitFor(() => expect(toggle).toHaveFocus())
+    expect(state.grants).toEqual([])
   })
 
   it.each([
