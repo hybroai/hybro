@@ -13,6 +13,7 @@ describe('canonical portal routes', () => {
     expect(routes.registerAgent).toBe('/network/agents/new')
     expect(routes.connectMcp).toBe('/connect/mcp')
     expect(routes.connectApi).toBe('/connect/api')
+    expect(routes.rules).toBe('/rules')
   })
 
   it('builds workspace links with and without a query', () => {

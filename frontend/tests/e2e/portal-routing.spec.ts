@@ -88,7 +88,7 @@ test.describe('Unified portal routing', () => {
       await openNavigation()
       await expect(page.locator('[data-sidebar="sidebar"]')).toHaveCount(1)
       await expect(page.getByRole('region', { name: 'History', exact: true })).toHaveCount(0)
-      for (const name of ['Overview', 'Network', 'Chats', 'Inbox', 'Access', 'Settings']) {
+      for (const name of ['Overview', 'Network', 'Chats', 'Inbox', 'Rules', 'Access', 'Settings']) {
         await expect(modules.getByRole('link', { name: new RegExp(`^${name}`) })).toHaveCount(1)
       }
       if (width >= 768) {

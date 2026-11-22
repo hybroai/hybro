@@ -4,7 +4,7 @@ import { useCallback, useMemo } from 'react'
 import { useIsMutating, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useAuth } from '@/lib/auth'
 import { getAgentsByProviderId, getAllAgents } from '@/lib/api/agent'
-import { mergeAgents } from '@/lib/agent-inventory'
+import { mergeAgentDirectory, mergeAgents } from '@/lib/agent-inventory'
 import { createAgentGroup, deleteAgentGroup, listAgentGroups, updateAgentGroup } from '@/lib/api/agent-group'
 import { isBuiltinGroup } from '@/lib/types/agent-group'
 import type {
@@ -176,6 +176,12 @@ export function useNetworks() {
     return projected
   }, [discoveredQuery.data, registeredQuery.data, catalogConfirmed, networks])
 
+  // Every agent that is not deleted, running or not; no network placeholders.
+  const directory = useMemo(
+    () => mergeAgentDirectory(discoveredQuery.data ?? EMPTY_AGENTS, registeredQuery.data ?? EMPTY_AGENTS).map(projectAgent),
+    [discoveredQuery.data, registeredQuery.data]
+  )
+
   const requireOwner = useCallback(() => {
     if (!enabled || !userId) throw new Error('Sign in to manage networks.')
     return userId
@@ -237,6 +243,7 @@ export function useNetworks() {
   return {
     networks,
     agents,
+    directory,
     loading: !isLoaded || groupsQuery.isLoading,
     error: groupsQuery.error?.message ?? (isLoaded && !enabled ? 'Sign in to view networks.' : null),
     agentsLoading: !isLoaded || discoveredQuery.isLoading || registeredQuery.isLoading,
