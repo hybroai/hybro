@@ -347,29 +347,49 @@ Open items found in this phase, each a small change of its own:
 
 ## Phase 3: Owner check rules and the step view
 
+**Status.** Not finished. Items 1 to 4 are done. Item 5, the step view
+(issue #273), is open.
+
 **Goal.** The owner decides which agent calls need an answer first, and sees
 what each step did.
 
 **Work.**
 
-1. **Check rules.** The `policy` module starts here. The owner writes rules
-   that answer allow, deny or ask, such as "ask me before any step goes to the
-   coder agent". An "ask" becomes a Question that the owner answers in the
-   Panel.
-2. **One place for the check.** Until phase 4, Room chat calls agents on its
-   own path and not through the Client API. A check rule must still apply to
-   those calls, so the check sits where both paths send an agent call. If that
-   cannot be done, the rules apply to steps from the Client API only, and the
-   Rules page says so until phase 4.
-3. **The grant.** The owner can grant one client the right to answer permission
-   questions. It relies on the client tokens of phase 2, and it can never be
-   given to the "No token" client. It also adds the first way for a client to
-   answer a Question through the Client API, for permission questions only.
-   Information questions follow in phase 4.
-4. **The Rules page** in the Panel, with the check rules.
-5. **The step view.** The Sessions page shows each step's input, output and
-   timing. Until phase 4 it covers sessions from the Client API only, because
-   Room chat's agent calls are not Steps yet.
+1. **Check rules.** Done. The `policy` module stores the owner's check rules.
+   A rule matches one agent or any agent and answers allow, deny or ask, such
+   as "ask me before any call goes to the coder agent". The rules are an
+   ordered list: the first rule that is on and matches decides, and no match
+   means allow. A rule gates a new agent call only: a call already accepted
+   is not checked again, and a reply to an agent that asked a question is
+   never checked.
+   - Deny: in Room chat the model is told the call was refused; a step from
+     the Client API ends as `denied`, with the rule named in its reason.
+   - Ask: the call is held, and a Question asks the owner to approve or
+     reject it in the Panel. A refusal ends a step from the Client API as
+     `rejected`; in Room chat the model is told. One owner Question of a
+     batch of calls is open at a time. Another call the rules ask about
+     waits, not yet held, and the rules are asked about it again once that
+     Question is answered.
+2. **One place for the check.** Done. Until phase 4, Room chat calls agents on
+   its own path and not through the Client API. The check sits where an agent
+   call is accepted, which both paths pass, so one check covers Room chat and
+   the `/sessions` routes. Phase 4 moves its caller up into `session`.
+3. **The grant.** Done. The owner can grant a client the right to answer
+   permission questions, under Access, Clients. It is a flag per client, so any
+   number of clients with a token may hold it; it can never be given to the
+   "No token" client, and revoking a client clears it. This is the first way for a client to answer a Question through the
+   Client API: a client with the grant sees the pending permission question
+   of its own session and answers approve or refuse, over the API or with
+   the MCP tool `answer_question`. A permission question is a check rule's
+   ask or an agent's own approval question (`policy_decision`); a
+   questionnaire, a sign-in request (`auth_challenge`) and every other
+   question stay with the owner. The answer is applied as the owner's, and
+   the client that gave it is recorded. Information questions follow in
+   phase 4.
+4. **The Rules page** in the Panel, with the check rules. Done.
+5. **The step view.** Open (issue #273). The Sessions page shows each step's
+   input, output and timing. Until phase 4 it covers sessions from the Client
+   API only, because Room chat's agent calls are not Steps yet.
 
 **Renamed: Source to Client** (issue #276). The concept that phase 2 called a
 Source is now a Client, everywhere: the design, the Panel, the CLI, the routes,
@@ -383,20 +403,21 @@ as "No token", and the token requirement is seeded again, off when the
 database already has data. The rule "no upgrade leaves an install more open"
 is about released versions.
 
-**Done when.**
+**Done when.** The first three and the last hold today; the step view is
+open.
 
 - A check rule that answers "ask" stops a call until the owner answers, and a
-  rule that answers "deny" ends the step with a reason.
-- The documents and the Rules page say which calls the rules cover.
+  rule that answers "deny" ends the step with a reason. Holds.
+- The documents and the Rules page say which calls the rules cover. Holds.
 - A client with the grant can answer a permission question, and a client
-  without it is refused.
+  without it is refused. Holds.
 - The Sessions page shows the input, output and timing of each step sent
-  through the Client API.
-- With no rules, every call goes as it does today.
+  through the Client API. Open, with item 5.
+- With no rules, every call goes as it does without the check. Holds.
 
-**Carried from phase 1.** Decide whether the step view reads
-`orchestrator_run_events` or replaces it. Today every Run writes it, and no
-product feature reads it.
+**Carried from phase 1.** Decided: the step view does not read
+`orchestrator_run_events`. Whether that collection stays is settled in
+phase 4.
 
 **What stays the same.** Sessions and chats on an instance with no rules.
 
@@ -457,6 +478,14 @@ flowchart TB
 - the reserved profile dimensions `initial_routing` and `finalization`
 - `room_summary` and `room_facts` on `room_memories`
 
+**Carried from phase 3.**
+
+- The check rules: today the check sits where `execution` accepts an agent
+  call. This phase moves its caller up into `session`.
+- Open question: whether `orchestrator_run_events` stays or is replaced.
+  Today every Run writes it, and no product feature reads it; the step view
+  does not read it.
+
 **What stays the same.** The chat pages and the rooms API. The `/sessions`
 routes keep working, and new fields are optional.
 
@@ -495,6 +524,12 @@ example, `hitl_requests` is renamed after Question and
 - An existing install upgrades without losing data, and the release notes say
   how to go back.
 - One module's collections move per change.
+
+**Carried from phase 3.** A step from the Client API that a check rule refused
+reads `denied` (a deny rule) or `rejected` (refused at the rule's Question).
+These two become the one state denied of the design when `session` migrates.
+`rejected` also covers a request whose Question the owner canceled; which
+state that case takes is decided in the same change.
 
 **Carried from phase 1.**
 
@@ -580,8 +615,9 @@ feature is in which edition.
 
 The step path exists in a small form. `POST /sessions/messages` sends one
 message to one named agent, returns a receipt without waiting, and uses
-`client_request_id` so that a retry is safe. The owner approves in the app, and
-the state is read from the event log.
+`client_request_id` so that a retry is safe. The owner approves in the app, or
+a client with the owner's grant answers a permission question through the
+Client API, and the state is read from the event log.
 
 It has five limits:
 

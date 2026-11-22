@@ -1,4 +1,4 @@
-"""The owner's /rules routes: the check rules, in order. Not enforced."""
+"""The owner's /rules routes: the check rules, in order."""
 
 from __future__ import annotations
 

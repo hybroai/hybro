@@ -1,7 +1,8 @@
 """Client-facing session state.
 
 The projection never reads the approval question: a paused run is reported
-as ``waiting_on_owner`` with the paused agent's id only.
+as ``waiting_on_owner`` with the paused agent's id only. The permission
+question a client with the owner's grant sees comes from ``questions``.
 """
 
 from __future__ import annotations
@@ -28,7 +29,8 @@ def resolve_state(
             return "completed", None
         if status == "canceled":
             code = settlement.get("cancellation_code")
-            # The owner refused the call at a check rule's question.
+            # The owner canceled a question, or the owner or a granted client
+            # refused the call at a check rule's question.
             if outcome.rejected or code == "owner_refused":
                 return "rejected", None
             if code == "policy":

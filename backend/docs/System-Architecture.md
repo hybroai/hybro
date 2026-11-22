@@ -65,7 +65,7 @@ flowchart TD
 | Core | `approval` | Human-in-the-loop requests, interactions, answers, cancellation, and reconciliation. |
 | Support | `agent`, `local_agents`, `delivery`, `context_memory`, `room_files`, `llm_gateway` | Agent directory, local discovery, SSE delivery, room memory, files, and model access. |
 | Support | `diagnostics` | The local store of system events and warnings (two capped collections). |
-| Support | `client` | The clients that send work through the Client API: their names, token hashes, rotation and revocation, and the token check. |
+| Support | `client` | The clients that send work through the Client API: their names, token hashes, rotation and revocation, the token check, and the owner's grant to answer permission questions. |
 | Support | `policy` | The owner's check rules: an ordered list that answers allow, deny or ask for an agent. Asked before each new Agent call. |
 | Support | `account` | The owner account: the instance's one user record, its password hash, the signed-in browsers, the setup code, and the attempt limit of sign-in and setup. |
 | Support | `instance_settings` | The admin settings API: the curated field registry, validated `config.json` writes, the live log level, and the in-place service restart trigger. |
@@ -335,7 +335,7 @@ Route groups:
   the container (see [Owner account API](#owner-account-api)).
 
 Four more files hold request checks. `client_token.py` defines
-`get_request_client`, the dependency of the seven Client API routes (see
+`get_request_client`, the dependency of the eight Client API routes (see
 [`client`](#client)). `owner_session.py` names the owner's
 sign-in cookie (`hybro_session`) and defines `get_owner_session`, the
 dependency that resolves it (401 `not_signed_in` without a valid cookie), and
@@ -1033,7 +1033,9 @@ change logs `client_answer_grant_changed` (`client_id` through `log_id`,
 false for a built-in client, an identity without a token, an unknown client
 and a revoked one, whatever a record carries; the session reads it on every
 check of a waiting session and every answer, never from a cache. The Client
-API never shows the grant itself.
+API never shows the grant itself. Setting the grant takes the owner's sign-in
+and the cross-site check that every owner write takes, and nothing more: no
+second confirmation on the server.
 
 Whether a token is required is the stored switch, product state that the
 owner changes without a restart. `container.seed_token_requirement` creates it
@@ -1050,10 +1052,11 @@ missing, so a deleted switch fails closed. When the switch is off (never with
 runtime record says the listener is public (`InstanceSettings.listen()`), the
 backend logs `client_token_not_required_on_public_listener` once at startup.
 
-`get_request_client` (`api_gateway/client_token.py`) runs on the seven Client
+`get_request_client` (`api_gateway/client_token.py`) runs on the eight Client
 API routes: `GET /agents/discovery`, `/agents/groups`, `/agents/search`,
 `/agents/{agent_id}/profile`, `POST /sessions/messages`,
-`GET /sessions/{session_id}` and `POST /sessions/{session_id}/close`.
+`GET /sessions/{session_id}`, `POST /sessions/{session_id}/close` and
+`POST /sessions/{session_id}/questions/{question_id}/answer`.
 
 - An `Authorization` header that is not `Bearer` and a current client token is
   401 `unknown_client_token` with `WWW-Authenticate: Bearer`, whatever the
@@ -1105,15 +1108,17 @@ Enforcement. `PolicyService.check_agent_call(agent_id)` evaluates the stored
 rules and implements `execution`'s `AgentCallCheckPort`
 (`execution/orchestrator/a2a_runtime/ports.py`); the container passes
 `app.state.policy_rules` to `create_orchestrator_runtime` as
-`agent_call_check`. `A2AAgentToolRuntime.accept` asks it once for each new
-Agent call, after the binding, room epoch and Run checks and before
+`agent_call_check`. `A2AAgentToolRuntime.accept` asks it for each new Agent
+call until the call is accepted, held or refused, after the binding, room epoch and Run checks and before
 authorization and the ledger insert, so one check covers Room chat and the
 `/sessions` routes. A replayed acceptance returns before the check, and a
 model reply, an answer continuation and a recovery re-dispatch never pass
-through `accept`: a call is checked once. The answer `ask` raises
+through `accept`: an accepted call is never checked again. A call that
+waits while another owner Question is open (`rule_deferred`, under Ask) has
+not been accepted, so the rules are asked again when it is reached. The answer `ask` raises
 `AgentCallNeedsAnswer` and any other answer than `allow` raises
 `AgentCallDenied`, each with the deciding `rule_id` and no other text. With
-no rules, or none that matches, every call goes as before.
+no rules, or none that matches, the answer is allow.
 
 - Room chat (`fast`, `ultimate`): the kernel ends the call's entry as a
   refused tool result (`error_code` `agent_call_denied`, one fixed sentence)
@@ -1199,7 +1204,7 @@ is recorded in the ledger for a held call.
   `request_user_input` call waits the same way while any of those Questions
   is open and is marked `rule_deferred` too, so an Agent question presented while it
   waited does not refuse it later. A valid `surface_agent_questions` forward
-  also waits. An invalid call of either kind is refused as before.
+  also waits. An invalid call of either kind is refused.
 - The answer to the open Question (approve, refuse, an ask_user answer, or
   the parent Agent's answer that closes a forward) starts the next pass,
   which reaches the waiting call and evaluates the rule again. After that
@@ -1296,7 +1301,7 @@ is recorded in the ledger for a held call.
   approved or refused, an ended `request_user_input` or
   `surface_agent_questions` call) writes its own suspend checkpoint
   (`suspend-tool-batch:{message}:{answered questions}`), so an approved call
-  that then parks, or the next held call, is stored.
+  that then parks, or a waiting call that is then held or asked, is stored.
 - Stop, a canceled Question and expiry close a held entry like a parked
   `request_user_input` entry: the terminal closure plan closes a parked entry
   that has neither a ledger record id nor an interaction id.
@@ -1335,6 +1340,11 @@ An unknown id is 404 `rule_not_found`. A body that does not validate is 422
 `invalid_request` with `fields`, the names of the fields at fault (any other
 key is `unknown field`); the submitted values are never echoed. An `answer`
 other than `allow`, `deny` or `ask` is refused this way.
+
+The rules have no access control beyond the owner's sign-in and the
+cross-site check that every owner write takes. There is no role and no audit
+record, and the only log line of a rule change is the generic request log
+(`http_request_completed`), which names neither the rule nor what changed.
 
 ### `models`
 
@@ -1454,7 +1464,8 @@ recreation, so coordinate index-shape changes with a maintenance window.
 | `diagnostic_system_events` | `diagnostics.repository.mongo.DiagnosticsMongoRepository` (capped, 16 MiB) |
 | `diagnostic_log_records` | `diagnostics.repository.mongo.DiagnosticsMongoRepository` (capped, 32 MiB) |
 | `users`, `user_sessions`, `setup_codes` | `account.repository.mongo.MongoAccountRepository` |
-| `clients` | `client.repository.mongo.MongoClientRepository` |
+| `clients`, `client_settings` | `client.repository.mongo.MongoClientRepository` |
+| `rules` | `policy.repository.mongo.MongoRuleRepository` |
 
 Room-state deletion is per owner: `RoomFiles.delete_room_state` calls every bound
 `RoomStateOwner` (`MessageMongoRepository`, `RoomQuoteMongoRepository`,
@@ -1466,8 +1477,11 @@ Room-state deletion is per owner: `RoomFiles.delete_room_state` calls every boun
 deleted per room epoch by the orchestrator epoch cleanup;
 `orchestrator_room_epochs` keeps the deactivated epoch record; and
 `orchestrator_hitl_interactions`, `orchestrator_recovery_leases`, `room_events`,
-`room_event_seq`, `sessions`, `clients`, `migration_markers`, and
-`agent_capability_issues` are retained, with no deletion or TTL. `diagnostic_system_events` and
+`room_event_seq`, `sessions`, `clients`, `client_settings`,
+`migration_markers`, and
+`agent_capability_issues` are retained, with no deletion or TTL. A rule in
+`rules` is deleted only by the owner's `DELETE /rules/{rule_id}`, and the
+reorder counter there is kept. `diagnostic_system_events` and
 `diagnostic_log_records` are capped: MongoDB evicts their oldest documents by
 size. `users` is retained; a `user_sessions` document is deleted at sign-out,
 at revocation, at a password change or reset, and by a TTL index 30 days after
@@ -2705,8 +2719,10 @@ its `session_not_found` and `session_closed` hints (`ANSWER_NEXT_ACTIONS`)
 point to `check_session` or the user, never to a new session.
 `close_session` returns `session_id` and `status`. Every tool publishes an output schema; HTTP and
 transport failures become tool errors that keep the backend body, with a
-`409`/`404` hint keyed on the backend error code; a `401` hint asks for a
-current client token.
+hint keyed on the backend error code when the adapter knows it
+(`HTTP_NEXT_ACTIONS`: for example `session_closed`, `request_conflict`,
+`no_account`, `unknown_host`, `cross_site_request` and the answer codes), else
+on the HTTP status; a `401` hint asks for a current client token.
 
 The adapter has no MCP authentication of its own, user
 isolation, auth-store access, retry loop, or orchestration. The backend checks
@@ -3907,9 +3923,9 @@ supervisor's question stay with the owner.
   `agent_name` (the paused agent), and `answers` (`approve`, `refuse`). It is
   shown only when the session's latest request (its `last_user_message_id`)
   waits on exactly one interaction, every member of it is listed, pending and
-  a permission question, and nothing of it is answered. Without the grant the
-  field is absent and nothing more is read, so the body is what it was
-  before. A failed read (the grant, the pending questions, or the paused
+  a permission question, and nothing of it is answered. An interaction that
+  mixes a permission question with another kind stays with the owner. Without the grant the
+  field is absent and nothing more is read. A failed read (the grant, the pending questions, or the paused
   agent) shows no `question` and logs `session_answer_grant_read_failed` or
   `session_questions_read_failed`.
 - The answer route reads the grant first (403 `answer_not_granted`; a failed
@@ -3939,7 +3955,9 @@ supervisor's question stay with the owner.
   for an Agent's question before anything is recorded (also when the Run ends
   between the router's read and the continuation's); for a check rule's ask
   after the rows are claimed, when the application finds the Run ended and
-  fails the interaction. The Panel's reads as before. An
+  fails the interaction. A client's answer whose interaction ended while it
+  was applied is refused the same way. An owner's answer in the Panel is not refused
+  this way. An
   answer that was delivered stays accepted, whatever the call's own state
   after it. An unconfirmed delivery is 503
   `answer_unconfirmed`, any other failure 502 `answer_failed`, both with fixed
@@ -4007,7 +4025,8 @@ State resolution (`session/waiter.py`, `session/projection.py`) reads only the
 durable room event log (`app.state.room_event_store`), matching run events by
 `correlation_id` (the request's `client_request_id`) and paging after the
 recorded sequence; nothing waits for a run. A request is `completed`, `rejected`
-(a `hitl_response` with `status: canceled` preceded a canceled settlement for the
+(a canceled settlement with `cancellation_code: owner_refused`, or a
+`hitl_response` with `status: canceled` preceded a canceled settlement for the
 same run), `denied` (a canceled settlement with `cancellation_code: policy`; the
 reason is one fixed sentence naming the settlement's `rule_id`, never text the
 owner wrote), or `failed` (the public `error_summary`) once `run_settled` arrives;

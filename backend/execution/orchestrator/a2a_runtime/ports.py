@@ -45,8 +45,9 @@ class AgentCallAnswer(Protocol):
 @runtime_checkable
 class AgentCallCheckPort(Protocol):
     """May this new Agent call go? ``policy`` implements it; the container
-    wires it. It is asked once per new call, never for a reply, a continuation
-    or a recovery re-dispatch of a call that already passed."""
+    wires it. It is asked each time a new call reaches acceptance, until the
+    call is accepted, held or refused, never for a reply, a continuation or a recovery
+    re-dispatch of a call that already passed."""
 
     async def check_agent_call(self, agent_id: str) -> AgentCallAnswer: ...
 

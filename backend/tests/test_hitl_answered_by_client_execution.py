@@ -3,7 +3,7 @@
 The answer is applied as the owner and its record keeps the client's id. The
 id is part of the answer's identity: when the owner and a client answer the
 same question at once with the same text, the second is refused instead of
-replaying the first, and the Panel's own retries replay as before.
+replaying the first, and the Panel's own retries replay.
 """
 
 from __future__ import annotations
@@ -215,7 +215,7 @@ async def test_a_client_answer_to_an_ended_run_is_refused(run_status):
         )
 
     runtime.continuation.resume.assert_not_awaited()
-    # The Panel's answer to the same ended Run reads as before.
+    # The Panel's answer to the same ended Run is not refused.
     assert (
         await router.route_hitl_answer(
             interaction_id="interaction-1",
@@ -312,5 +312,5 @@ async def test_a_client_answer_the_run_ends_before_recording_is_refused():
 
     assert await hitl.read_answer_record("interaction-1", 1) is None
     assert dispatch.commands == []
-    # The Panel's answer reads as before.
+    # The Panel's answer is not refused; it reads canceled.
     assert await _resume(coordinator, call, route, client_id=None) == "canceled"
