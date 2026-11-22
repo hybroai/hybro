@@ -376,8 +376,7 @@ what each step did.
 3. **The grant.** Done. The owner can grant a client the right to answer
    permission questions, under Access, Clients. It is a flag per client, so any
    number of clients with a token may hold it; it can never be given to the
-   "No token" client or another built-in client, and revoking a client clears
-   it. This is the first way for a client to answer a Question through the
+   "No token" client, and revoking a client clears it. This is the first way for a client to answer a Question through the
    Client API: a client with the grant sees the pending permission question
    of its own session and answers approve or refuse, over the API or with
    the MCP tool `answer_question`. A permission question is a check rule's

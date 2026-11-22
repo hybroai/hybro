@@ -1066,7 +1066,10 @@ segment.
   an avatar per actor (a registered agent's own `getAgentAvatarUri` avatar,
   matched by name to the session's agents; a generic agent avatar for the
   external client or an unmatched agent; "You" for the owner): the client asked an agent, the agent asked you (each
-  question under its header), you answered (your answer text) or rejected,
+  question under its header), you answered (your answer text) or rejected
+  (an answer from a client with the grant reads the same way, because the
+  `hitl_response` frame does not carry the client; only the approval and
+  Agent answer records keep `answered_by_client_id`),
   the agent replied after its duration (long replies fold behind Show full
   reply), or couldn't finish; a Run canceled for `policy` reads as the
   owner's check rules denying the agent call, with the rule's id, and a Run

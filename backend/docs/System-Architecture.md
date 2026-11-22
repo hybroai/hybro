@@ -1109,7 +1109,7 @@ rules and implements `execution`'s `AgentCallCheckPort`
 (`execution/orchestrator/a2a_runtime/ports.py`); the container passes
 `app.state.policy_rules` to `create_orchestrator_runtime` as
 `agent_call_check`. `A2AAgentToolRuntime.accept` asks it for each new Agent
-call until the call is accepted or held, after the binding, room epoch and Run checks and before
+call until the call is accepted, held or refused, after the binding, room epoch and Run checks and before
 authorization and the ledger insert, so one check covers Room chat and the
 `/sessions` routes. A replayed acceptance returns before the check, and a
 model reply, an answer continuation and a recovery re-dispatch never pass
