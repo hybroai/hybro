@@ -7,6 +7,14 @@ function isVisibleAgent(agent: Agent): boolean {
 }
 
 export function mergeAgents(discovered: Agent[], registered: Agent[]): Agent[] {
+  return mergeAgentDirectory(discovered, registered).filter(isVisibleAgent)
+}
+
+/**
+ * Every agent the owner has that is not deleted, including bundled (local)
+ * agents that are not running. Rules name these, so they are not "missing".
+ */
+export function mergeAgentDirectory(discovered: Agent[], registered: Agent[]): Agent[] {
   const agentsById = new Map<string, Agent>()
 
   for (const agent of discovered) {
@@ -19,5 +27,5 @@ export function mergeAgents(discovered: Agent[], registered: Agent[]): Agent[] {
     agentsById.set(agent.agent_id, agent)
   }
 
-  return [...agentsById.values()].filter(isVisibleAgent)
+  return [...agentsById.values()].filter(agent => agent.status !== 'deleted')
 }
