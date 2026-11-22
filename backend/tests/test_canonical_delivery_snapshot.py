@@ -571,3 +571,113 @@ async def test_snapshot_builds_for_one_room_are_serialized_and_monotonic():
     assert store.max_active == 1
     assert [snapshot["room_seq"] for snapshot in snapshots] == [1, 1]
     assert service._checkpoints["room-1"][0] == 1
+
+
+def _tool_turn_events(start_order: list[str], turn_end_ids: list[str]) -> list[dict]:
+    events = [
+        _run_event(
+            1,
+            "run_started",
+            {
+                "hybro_turn_id": "run-1",
+                "user_message_id": "user-1",
+                "started_at": NOW.isoformat(),
+                "mode": "fast",
+            },
+        ),
+        _run_event(2, "turn_start", {"internal_turn_id": "turn-1", "attempt": 1}),
+        _run_event(
+            3,
+            "message_start",
+            {
+                "internal_turn_id": "turn-1",
+                "message_id": "assistant-1",
+                "role": "assistant",
+            },
+        ),
+        _run_event(
+            4,
+            "message_end",
+            {
+                "internal_turn_id": "turn-1",
+                "message_id": "assistant-1",
+                "stop_reason": "tool_use",
+                "disposition": "commentary",
+                "text": "",
+            },
+        ),
+    ]
+    seq = 5
+    for call_id in start_order:
+        events.append(
+            _run_event(
+                seq,
+                "tool_execution_start",
+                {
+                    "internal_turn_id": "turn-1",
+                    "tool_call_id": call_id,
+                    "tool_name": "Weather Agent",
+                    "input": {},
+                },
+            )
+        )
+        seq += 1
+    for call_id in start_order:
+        events.append(
+            _run_event(
+                seq,
+                "tool_execution_end",
+                {
+                    "internal_turn_id": "turn-1",
+                    "tool_call_id": call_id,
+                    "tool_name": "Weather Agent",
+                    "outcome": "completed",
+                    "result": "ok",
+                    "is_error": False,
+                    "duration_ms": 1,
+                },
+            )
+        )
+        seq += 1
+    events.append(
+        _run_event(
+            seq,
+            "turn_end",
+            {
+                "internal_turn_id": "turn-1",
+                "message_id": "assistant-1",
+                "tool_call_ids": turn_end_ids,
+                "status": "completed",
+            },
+        )
+    )
+    return events
+
+
+def test_turn_end_lists_the_turns_tools_in_any_order():
+    # A call asked about in a later pass starts after a later sibling; the
+    # Run lists its tools in call order.
+    fold = RoomEventFold()
+    for event in _tool_turn_events(
+        ["inv_tool_b_0001", "inv_tool_a_0001"],
+        ["inv_tool_a_0001", "inv_tool_b_0001"],
+    ):
+        assert fold.apply(event), event["room_seq"]
+
+
+@pytest.mark.parametrize(
+    "turn_end_ids",
+    [
+        ["inv_tool_a_0001"],
+        ["inv_tool_a_0001", "inv_tool_b_0001", "inv_tool_c_0001"],
+        ["inv_tool_a_0001", "inv_tool_c_0001"],
+    ],
+)
+def test_turn_end_still_names_exactly_the_turns_tools(turn_end_ids):
+    fold = RoomEventFold()
+    *events, turn_end = _tool_turn_events(
+        ["inv_tool_a_0001", "inv_tool_b_0001"], turn_end_ids
+    )
+    for event in events:
+        assert fold.apply(event), event["room_seq"]
+    assert not fold.apply(turn_end)

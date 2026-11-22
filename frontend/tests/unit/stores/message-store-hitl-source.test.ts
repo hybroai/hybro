@@ -3,7 +3,11 @@ import { buildPendingHitlIncomingMessage } from '@/lib/hitl/hitl-message-project
 import { applyUpsert } from '@/stores/message-store/upsert'
 
 function supervisorHitl() {
-  return buildPendingHitlIncomingMessage({
+  return buildPendingHitlIncomingMessage(supervisorHitlInput())
+}
+
+function supervisorHitlInput(): Parameters<typeof buildPendingHitlIncomingMessage>[0] {
+  return {
     conversationId: 'room-1',
     messageId: 'message-1',
     requestId: 'request-1',
@@ -23,7 +27,7 @@ function supervisorHitl() {
     totalSteps: null,
     relatedMessageId: 'user-message-1',
     clientRequestId: 'client-1',
-  })
+  }
 }
 
 describe('message store HITL source projection', () => {
@@ -32,6 +36,18 @@ describe('message store HITL source projection', () => {
     const result = applyUpsert({}, [], incoming, 'db')
 
     expect(result?.entities[incoming.id].hitlSource).toBe('supervisor')
+  })
+
+  it('preserves a check rule as the source of a system question', () => {
+    const incoming = buildPendingHitlIncomingMessage({
+      ...supervisorHitlInput(),
+      source: 'system',
+      promptType: 'approval',
+      choices: ['Approve', 'Reject'],
+    })
+    const result = applyUpsert({}, [], incoming, 'db')
+
+    expect(result?.entities[incoming.id].hitlSource).toBe('system')
   })
 
   it('does not regress an answered interaction from stale REST pending data', () => {

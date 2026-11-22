@@ -115,7 +115,9 @@ export function buildPendingHitlIncomingMessage(
     taskError: input.applicationError ?? null,
     hitlRequestId: input.requestId,
     hitlMessageId: input.messageId,
-    hitlSource: input.source === 'supervisor' ? 'supervisor' : 'agent',
+    hitlSource: input.source === 'supervisor' || input.source === 'system'
+      ? input.source
+      : 'agent',
     hitlPrompt: input.prompt || '',
     hitlPromptType: normalizePromptType(input.promptType),
     hitlChoices: Array.isArray(input.choices) ? input.choices : null,

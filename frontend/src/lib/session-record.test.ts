@@ -34,6 +34,16 @@ describe('foldSessionEvents settlement', () => {
     expect(exchange.steps).toEqual([{ kind: 'denied', at: '2026-11-21T00:00:01Z' }])
   })
 
+  it('records a call the owner refused at a check rule as rejected', () => {
+    const [exchange] = foldSessionEvents([
+      started,
+      settled({ status: 'canceled', cancellation_code: 'owner_refused' }),
+    ])
+
+    expect(exchange.status).toBe('rejected')
+    expect(exchange.steps).toEqual([{ kind: 'rejected', at: '2026-11-21T00:00:01Z' }])
+  })
+
   it('keeps any other cancel as canceled', () => {
     const [exchange] = foldSessionEvents([
       started,

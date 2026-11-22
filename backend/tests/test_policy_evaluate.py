@@ -36,6 +36,12 @@ def test_a_rule_for_the_agent_decides():
     assert evaluate(rules, "coder") == RuleDecision(answer="deny", rule_id="r1")
 
 
+def test_a_rule_that_asks_decides_with_its_id():
+    rules = [_rule("r1", "coder", "ask"), _rule("r2", None, "allow")]
+    assert evaluate(rules, "coder") == RuleDecision(answer="ask", rule_id="r1")
+    assert evaluate(rules, "writer") == RuleDecision(answer="allow", rule_id="r2")
+
+
 def test_the_first_match_decides_in_list_order():
     rules = [_rule("r1", "coder", "allow"), _rule("r2", "coder", "deny")]
     assert evaluate(rules, "coder") == RuleDecision(answer="allow", rule_id="r1")

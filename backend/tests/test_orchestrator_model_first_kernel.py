@@ -3252,6 +3252,9 @@ async def test_real_continuation_ingress_preserves_follow_up_for_kernel_surface(
         async def is_run_terminal(self, *args):
             return False
 
+        # The Run is never running here: both answers are False.
+        is_run_running = is_run_terminal
+
         async def has_processed_observation(self, *args):
             return self.processed
 

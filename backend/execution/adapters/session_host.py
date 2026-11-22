@@ -18,6 +18,7 @@ from common.observability import get_logger
 from execution.orchestrator.a2a_runtime.catalog import FrozenToolCatalog
 from execution.orchestrator.a2a_runtime.observations import (
     RunAddressedToolObservationSink,
+    RunPassEndHooks,
     await_recoverable,
 )
 from execution.orchestrator.a2a_runtime.ports import RoomEpochStore
@@ -70,7 +71,9 @@ class RoomSessionHost:
         run_factory: RunFactory | None = None,
         clock: SystemClock | None = None,
         id_factory: UUIDFactory | None = None,
+        pass_end_hooks: RunPassEndHooks | None = None,
     ) -> None:
+        self._pass_end_hooks = pass_end_hooks or RunPassEndHooks()
         self._kernel_factory = kernel_factory
         self._run_store = run_store
         self._epoch_store = epoch_store
@@ -81,6 +84,8 @@ class RoomSessionHost:
             clock=self._clock, id_factory=self._id_factory
         )
         self._sessions: dict[str, RoomAgentSession] = {}
+        # Set by shutdown: no session and no run-addressed pass starts after.
+        self._closed = False
 
     async def create_session(
         self,
@@ -94,6 +99,8 @@ class RoomSessionHost:
         conversation_history: tuple[ModelMessage, ...] = (),
         run_factory: RunFactory | None = None,
     ) -> RoomAgentSession:
+        if self._closed:
+            raise SessionConflict("the runtime is shutting down")
         if conversation_id in self._sessions:
             raise SessionConflict("a session is already active for this Room")
         epoch = await self._epoch_store.read_active(conversation_id)
@@ -154,15 +161,19 @@ class RoomSessionHost:
     async def _await_recoverable(
         self, session: RoomAgentSession, work: Awaitable[KernelRunResult]
     ) -> KernelRunResult:
-        return await await_recoverable(
-            work,
-            schedule_recovery=lambda due: session.schedule_recovery(
-                next_attempt_at=due
-            ),
-            now=self._clock.now,
-            conversation_id=session.config.conversation_id,
-            run_id=lambda: session.run_id,
-        )
+        # The session releases its execution lease before the pass ends here.
+        with self._pass_end_hooks.after_pass(
+            lambda: session.run_id, conversation_id=session.config.conversation_id
+        ):
+            return await await_recoverable(
+                work,
+                schedule_recovery=lambda due: session.schedule_recovery(
+                    next_attempt_at=due
+                ),
+                now=self._clock.now,
+                conversation_id=session.config.conversation_id,
+                run_id=lambda: session.run_id,
+            )
 
     async def abort(self, conversation_id: str) -> None:
         await self._require_session(conversation_id).abort()
@@ -257,6 +268,8 @@ class RoomSessionHost:
             signal_factory=EventCancellationSignal,
             lifecycle_factory=lifecycle_for_run,
             clock=self._clock,
+            pass_end_hooks=self._pass_end_hooks,
+            closed=lambda: self._closed,
         )
 
     def _new_lifecycle_emitter(self) -> LifecycleEmitter:
@@ -281,11 +294,14 @@ class RoomSessionHost:
         ``RoomAgentSession.abort`` is the user-facing cancellation path and
         persists ``canceled``; do not call it here.
         """
+        self._closed = True
         for session in list(self._sessions.values()):
             await session.shutdown()
         self._sessions.clear()
 
     def _require_session(self, conversation_id: str) -> RoomAgentSession:
+        if self._closed:
+            raise SessionConflict("the runtime is shutting down")
         session = self._sessions.get(conversation_id)
         if session is None:
             raise SessionConflict("no active session for this Room")

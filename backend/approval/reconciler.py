@@ -183,6 +183,24 @@ class HITLLifecycleReconciler:
                 )
         return repaired
 
+    async def apply_parked_run_answers(self, run_id: str) -> None:
+        """Apply a Run's answers that came in while a pass over it ran.
+
+        Called when the pass ends. An answer that finds the Run busy again
+        is parked again and waits for the end of that pass.
+        """
+        async for interaction in self._lifecycle.iter_run_busy_applications(
+            run_id, limit=self._limit
+        ):
+            try:
+                await self._application.apply_interaction(self._service, interaction)
+            except Exception as exc:
+                logger.emit(
+                    E.HITL_APPLICATION_RESUME_DEFERRED,
+                    exc=exc,
+                    **_interaction_ids(interaction),
+                )
+
     async def _finish_confirmed_command(self, command: dict) -> None:
         interaction = await self._lifecycle.get_interaction_strict(
             command["interaction_id"]

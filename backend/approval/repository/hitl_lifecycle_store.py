@@ -590,6 +590,26 @@ class HITLLifecycleStore:
         for row in rows:
             yield row
 
+    async def iter_run_busy_applications(
+        self, run_id: str, *, limit: int = 100
+    ) -> AsyncIterator[dict[str, Any]]:
+        """A Run's answers parked while the Run was busy, oldest first.
+
+        A busy answer keeps its claim with an expired lease, so it can be
+        claimed again at once.
+        """
+        rows = await self._interactions.find(
+            {
+                "orchestration_run_id": run_id,
+                "status": HITLInteractionStatus.APPLYING.value,
+                "application_error": "run_busy",
+            },
+            sort=[("updated_at", 1), ("interaction_id", 1)],
+            limit=limit,
+        )
+        for row in rows:
+            yield row
+
     async def iter_active_interactions(
         self, *, limit: int = 100
     ) -> AsyncIterator[dict[str, Any]]:

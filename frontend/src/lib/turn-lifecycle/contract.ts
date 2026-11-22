@@ -243,7 +243,7 @@ function validatePayload(type: CanonicalRunEventType, value: unknown): boolean {
           && (value.cancellation_code === undefined || value.cancellation_code === null)
           && (value.rule_id === undefined || value.rule_id === null)
       }
-      return oneOf(value.cancellation_code, ['user_requested', 'room_closed', 'shutdown', 'policy'])
+      return oneOf(value.cancellation_code, ['user_requested', 'room_closed', 'shutdown', 'policy', 'owner_refused'])
         && (value.rule_id === undefined || value.rule_id === null
           || (value.cancellation_code === 'policy' && id(value.rule_id)))
         && (value.final_message_id === undefined || value.final_message_id === null)
@@ -525,7 +525,7 @@ export function isRoomSnapshotTurn(value: unknown): value is RoomSnapshotTurn {
     'budget_exhausted', 'provider_error', 'assembly_error', 'tool_failure',
     'hitl_error', 'rejected', 'internal_error',
   ])
-  const cancellationCodes = new Set(['user_requested', 'room_closed', 'shutdown', 'policy'])
+  const cancellationCodes = new Set(['user_requested', 'room_closed', 'shutdown', 'policy', 'owner_refused'])
   if (value.state === 'active' || value.state === 'awaiting_input') {
     if (value.settled_at !== null || value.duration_ms !== null
       || value.terminal_code !== null || value.terminal_summary !== null) return false

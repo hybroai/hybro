@@ -253,13 +253,36 @@ class ToolSuspension(ContractModel):
 ToolExecutionOutcome = ToolResult | ToolSuspension
 
 
+class HeldCallAnswer(ContractModel):
+    """The owner's answer to a check rule's question about one held call.
+
+    Only the container's answer port builds it, so an Agent cannot produce
+    one: it is an observation outcome, never an ``execute`` result.
+    """
+
+    kind: Literal["held_call_answer"] = "held_call_answer"
+    invocation_id: str
+    approved: bool
+
+
 class ToolObservation(ContractModel):
     observation_id: str
     invocation_id: str
-    outcome: ToolExecutionOutcome
+    outcome: ToolExecutionOutcome | HeldCallAnswer
     observed_at: datetime
     # The user's answers to the interaction this call was last resumed with.
     interaction_answers: ToolInteractionAnswers | None = None
+
+
+class RuleHold(ContractModel):
+    """A check rule answered "ask": the call waits for the owner's answer.
+
+    ``asked`` until the owner answers; ``approved`` sends the call on to
+    acceptance without the rule check, ``refused`` ends it unsent.
+    """
+
+    rule_id: str | None = None
+    state: Literal["asked", "approved", "refused"]
 
 
 ToolBatchEntryState = Literal[
@@ -309,6 +332,15 @@ class ToolBatchEntry(ContractModel):
     # Agent's own error code is copied into accepted, joined and surface
     # entries' results.
     denied_by_rule: bool = False
+    # A check rule asked the owner about this call before acceptance. Every
+    # decision about a held call reads this flag, never an error code.
+    rule_hold: RuleHold | None = None
+    # This call waits ``pending`` and unasked because another owner Question
+    # of the batch was open: a check rule asked about it, or it is a valid
+    # ``request_user_input`` call. It is a new call: the next pass sends it to
+    # the rule again, never as a reply to an Agent, and an ask_user call is
+    # not refused for an Agent question presented while it waited.
+    rule_deferred: bool = False
     # Parent call a ``surface_agent_questions`` entry forwards to the user.
     # Closed by ``observe_tool`` when that parent resolves, because the user's
     # answer flows through the parent continuation, not the surface entry.
@@ -738,7 +770,21 @@ class CandidateScopeSnapshot(ContractModel):
     authorization_basis: AuthorizationBasis
 
 
-CancellationCause = Literal["user_requested", "room_closed", "shutdown", "policy"]
+CancellationCause = Literal[
+    "user_requested", "room_closed", "shutdown", "policy", "owner_refused"
+]
+
+
+class PendingTermination(ContractModel):
+    """A decision to end the Run, stored before its turn is closed.
+
+    The close publishes the turn's error or abort first; a restart before the
+    terminal status is stored finishes this decision instead of resuming.
+    """
+
+    status: Literal["failed", "canceled", "budget_exhausted"]
+    reason: str
+    cancellation_cause: CancellationCause | None = None
 
 
 RunStatus = Literal[
@@ -798,6 +844,7 @@ class OrchestratorRunState(ContractModel):
     # The check rule that last refused a new Agent call in this Run. A
     # passthrough Run settles with it as the reason it was denied.
     denied_rule_id: str | None = None
+    pending_termination: PendingTermination | None = None
     projection_state: Literal["pending", "settled", "blocked"]
     recovery_claim: RecoveryClaim
     projection_outbox: list[ProjectionIntent]

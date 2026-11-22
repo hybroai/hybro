@@ -1199,66 +1199,9 @@ async def _runtime_lifespan(app: Any, runtime: ApplicationRuntime):  # noqa: C90
                         "supervisor input interaction was not materialized"
                     )
 
-            async def resume_supervisor_hitl_port(
-                run_id,
-                *,
-                call_id,
-                answers,
-            ):
-                """HITL-facing port: recorded answer → suspended kernel Run."""
-                from approval.service import ContinuationLostError
-                from execution.orchestrator.kernel import (
-                    supervisor_answer_observation,
-                )
-
-                orchestrator_runtime = getattr(app.state, "orchestrator_runtime", None)
-                if orchestrator_runtime is None:
-                    raise ContinuationLostError("orchestrator runtime is unavailable")
-                run = await orchestrator_runtime.run_store.load(run_id)
-                if run is None:
-                    raise ContinuationLostError("orchestration run is missing")
-                if run.status in {"canceling", *TERMINAL_RUN_STATUSES}:
-                    return False
-                try:
-                    observation = supervisor_answer_observation(
-                        run_id,
-                        call_id,
-                        answers,
-                        datetime.now(UTC),
-                    )
-                    session = orchestrator_runtime.session_host.get_session(
-                        run.conversation_id
-                    )
-                    if session is not None and session.owns_run(run_id):
-                        resume_result = (
-                            await orchestrator_runtime.session_host.observe_tool(
-                                run.conversation_id, observation
-                            )
-                        )
-                    else:
-                        # Suspended Runs may outlive their process-local
-                        # session (restart/recovery). The run-addressed sink
-                        # re-enters the same kernel observation path with a
-                        # fresh lifecycle emitter.
-                        resume_result = (
-                            await orchestrator_runtime.observation_sink.deliver(
-                                run_id, observation
-                            )
-                        )
-                    if getattr(resume_result, "outcome", None) == (
-                        "cancellation_pending"
-                    ):
-                        return False
-                except Exception as exc:
-                    logger.emit(
-                        E.SUPERVISOR_ASK_USER_RESUME_FAILED,
-                        exc=exc,
-                        run_id=run_id,
-                        call_id=call_id,
-                        conversation_id=run.conversation_id,
-                    )
-                    raise
-                return True
+            resume_supervisor_hitl_port = supervisor_resume_port(
+                lambda: getattr(app.state, "orchestrator_runtime", None)
+            )
 
             hitl_manager = create_hitl_service(
                 persistence=hitl_runtime_store,
@@ -1892,9 +1835,18 @@ async def _runtime_lifespan(app: Any, runtime: ApplicationRuntime):  # noqa: C90
                 canonical_event_reader=_read_canonical_run_events,
                 canonical_hitl_control=publish_orchestrator_hitl_control,
                 supervisor_hitl=request_supervisor_input_port,
+                rule_question=rule_question_port(hitl_manager),
                 supervisor_hitl_cancellation=(hitl_manager.cancel_requests_for_message),
                 # The owner's check rules, asked once per new Agent call.
                 agent_call_check=app.state.policy_rules,
+                # Answers that found the Run busy are applied when its pass
+                # ends, not at the next stale-task sweep.
+                run_pass_ended=hitl_reconciler.apply_parked_run_answers,
+            )
+            hitl_application.bind_parked_run_check(
+                parked_run_check(
+                    lambda: getattr(app.state, "orchestrator_runtime", None)
+                )
             )
             missing = validate_orchestrator_runtime(app.state.orchestrator_runtime)
             if missing:
@@ -2256,8 +2208,20 @@ async def _runtime_lifespan(app: Any, runtime: ApplicationRuntime):  # noqa: C90
             shutdown_steps.append(
                 ("leader-locks", lambda: _leader.release_all(ALL_JOB_NAMES))
             )
+
+        async def close_pass_end_hooks() -> None:
+            orchestrator_runtime = getattr(app.state, "orchestrator_runtime", None)
+            if orchestrator_runtime is not None:
+                # Before execution: a new hook could start a pass over a Run
+                # that shutdown is settling.
+                orchestrator_runtime.pass_end_hooks.close()
+
         shutdown_steps.extend(
-            [("execution", cancel_execution), ("delivery-drain", drain_delivery)]
+            [
+                ("run-pass-end-hooks-close", close_pass_end_hooks),
+                ("execution", cancel_execution),
+                ("delivery-drain", drain_delivery),
+            ]
         )
         if _eventing_bus is not None:
             shutdown_steps.append(("eventing", _eventing_bus.stop))
@@ -2681,6 +2645,225 @@ def create_policy_rules(*, mongo: MongoDAL) -> PolicyService:
     """The owner's check rules, over their own collection. The orchestrator
     runtime asks them before each new Agent call."""
     return PolicyService(MongoRuleRepository(mongo))
+
+
+async def _deliver_run_level_answer(runtime: Any, run: Any, observation: Any):
+    """Deliver through the Run's live session, or the run-addressed sink."""
+    session = runtime.session_host.get_session(run.conversation_id)
+    if session is not None and session.owns_run(run.run_id):
+        return await runtime.session_host.observe_tool(run.conversation_id, observation)
+    # Suspended Runs may outlive their process-local session (restart or
+    # recovery). The run-addressed sink re-enters the same kernel observation
+    # path with a fresh lifecycle emitter.
+    return await runtime.observation_sink.deliver(run.run_id, observation)
+
+
+def _run_level_answer_settled_without_delivery(run: Any, call_id: str) -> bool | None:
+    """The port's answer when the kernel must not be called, else None."""
+    from approval.exceptions import HITLRunBusyError
+    from execution.orchestrator.kernel import run_level_answer_disposition
+
+    if run.status in {"canceling", *TERMINAL_RUN_STATUSES}:
+        return False
+    disposition = run_level_answer_disposition(run, call_id)
+    if disposition == "busy":
+        # Another held call's approved pass is running; the answer waits
+        # for it to end.
+        raise HITLRunBusyError("the Run is executing")
+    if disposition == "applied":
+        # A replay: the decision is durable and the running pass, or
+        # recovery, carries it on.
+        return True
+    return None
+
+
+def supervisor_resume_port(
+    get_runtime: Callable[[], Any],
+) -> Callable[..., Awaitable[bool]]:
+    """HITL-facing port: a recorded run-level answer resumes its kernel Run.
+
+    ``get_runtime`` returns the orchestrator runtime, which is bound after the
+    HITL service that holds this port.
+    """
+
+    async def resume_supervisor_hitl_port(
+        run_id,
+        *,
+        call_id,
+        answers,
+    ):
+        """HITL-facing port: recorded answer → suspended kernel Run."""
+        from approval.service import ContinuationLostError
+        from execution.orchestrator.kernel import (
+            KernelConflict,
+            run_level_answer_observation,
+        )
+        from execution.orchestrator.session import SessionConflict
+
+        orchestrator_runtime = get_runtime()
+        if orchestrator_runtime is None:
+            raise ContinuationLostError("orchestrator runtime is unavailable")
+        run = await orchestrator_runtime.run_store.load(run_id)
+        if run is None:
+            raise ContinuationLostError("orchestration run is missing")
+        settled = _run_level_answer_settled_without_delivery(run, call_id)
+        if settled is not None:
+            return settled
+        try:
+            # A call a check rule held takes the owner's decision;
+            # an ask_user call takes the answer text.
+            observation = run_level_answer_observation(
+                run,
+                call_id,
+                answers,
+                datetime.now(UTC),
+            )
+            resume_result = await _deliver_run_level_answer(
+                orchestrator_runtime, run, observation
+            )
+            if getattr(resume_result, "outcome", None) == "cancellation_pending":
+                return False
+        except (SessionConflict, KernelConflict) as exc:
+            # Another held call's approval may have started a pass
+            # between the read above and the delivery.
+            if await rule_answer_applied_after_conflict(
+                orchestrator_runtime.run_store,
+                run_id,
+                call_id,
+                exc,
+                conversation_id=run.conversation_id,
+            ):
+                return True
+            logger.emit(
+                E.SUPERVISOR_ASK_USER_RESUME_FAILED,
+                exc=exc,
+                run_id=run_id,
+                call_id=call_id,
+                conversation_id=run.conversation_id,
+            )
+            raise
+        except Exception as exc:
+            logger.emit(
+                E.SUPERVISOR_ASK_USER_RESUME_FAILED,
+                exc=exc,
+                run_id=run_id,
+                call_id=call_id,
+                conversation_id=run.conversation_id,
+            )
+            raise
+        return True
+
+    return resume_supervisor_hitl_port
+
+
+async def rule_answer_applied_after_conflict(
+    run_store: Any,
+    run_id: str,
+    call_id: str,
+    cause: Exception,
+    *,
+    conversation_id: str,
+) -> bool:
+    """Re-read the Run after a refused delivery of a run-level answer.
+
+    Returns True when the held call's decision is already durable (the same
+    answer was applied concurrently). Raises ``HITLRunBusyError`` when the
+    held call is still asked while another held call's approved pass runs;
+    the reconciler applies the answer later. Returns False otherwise, and
+    the caller logs and raises the original conflict.
+    """
+    from approval.exceptions import HITLRunBusyError
+    from execution.orchestrator.kernel import run_level_answer_disposition
+
+    try:
+        current = await run_store.load(run_id)
+    except Exception as exc:
+        # The reconciler applies the answer again later.
+        logger.emit(
+            E.SUPERVISOR_ASK_USER_RESUME_FAILED,
+            exc=exc,
+            run_id=run_id,
+            call_id=call_id,
+            conversation_id=conversation_id,
+        )
+        return False
+    if current is None:
+        return False
+    disposition = run_level_answer_disposition(current, call_id)
+    if disposition == "busy":
+        raise HITLRunBusyError("the Run is executing") from cause
+    return disposition == "applied"
+
+
+def parked_run_check(
+    get_runtime: Callable[[], Any],
+) -> Callable[[str], Awaitable[None]]:
+    """After an answer is parked as ``run_busy``, apply it if no pass holds
+    the Run any more.
+
+    A Run that is ``running``, or that a driver has claimed, is held by a
+    pass whose end applies the parked answers; that pass writes its status
+    and releases its claim after the park, so it sees the answer.
+    """
+
+    async def check(run_id: str) -> None:
+        runtime = get_runtime()
+        if runtime is None:
+            return
+        run = await runtime.run_store.load(run_id)
+        if run is None:
+            return
+        if run.status == "running" or run.recovery_claim.owner_id is not None:
+            return
+        runtime.pass_end_hooks.notify(run_id, conversation_id=run.conversation_id)
+
+    return check
+
+
+def rule_question_port(hitl_manager: Any) -> Callable[..., Awaitable[None]]:
+    """Kernel-facing port: a check rule asks the owner about one Agent call.
+
+    The Question is run-level, asked by the system, with the two fixed
+    choices the answer route accepts. ``source_step_id`` names the held call.
+    """
+
+    async def ask(*, run: Any, interaction_id: str, call_id: str, question: str):
+        from common.dto.hitl import (
+            HITLApplicationRoute,
+            HITLEvidenceOrigin,
+            HITLPublicSource,
+            HITLRouteSnapshot,
+        )
+        from execution.orchestrator.run_state import (
+            RULE_ASK_APPROVE,
+            RULE_ASK_REJECT,
+        )
+
+        requests = await hitl_manager.request_interaction(
+            conversation_id=run.conversation_id,
+            user_message_id=run.request.user_message_id,
+            interaction_id=interaction_id,
+            application_route=HITLApplicationRoute.SUPERVISOR_RUN,
+            public_source=HITLPublicSource.SYSTEM,
+            evidence_origin=HITLEvidenceOrigin.SYSTEM,
+            route_snapshot=HITLRouteSnapshot(
+                route=HITLApplicationRoute.SUPERVISOR_RUN,
+                orchestration_run_id=run.run_id,
+            ),
+            questions=[
+                {
+                    "prompt": question,
+                    "prompt_type": "approval",
+                    "choices": [RULE_ASK_APPROVE, RULE_ASK_REJECT],
+                    "source_step_id": call_id,
+                }
+            ],
+            orchestration_run_id=run.run_id,
+        )
+        if not requests:
+            raise RuntimeError("rule ask interaction was not materialized")
+
+    return ask
 
 
 # The collections whose documents show the install was used before the switch.

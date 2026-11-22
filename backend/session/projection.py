@@ -27,9 +27,10 @@ def resolve_state(
         if status == "completed":
             return "completed", None
         if status == "canceled":
-            if outcome.rejected:
-                return "rejected", None
             code = settlement.get("cancellation_code")
+            # The owner refused the call at a check rule's question.
+            if outcome.rejected or code == "owner_refused":
+                return "rejected", None
             if code == "policy":
                 return "denied", denied_reason(settlement.get("rule_id"))
             return "failed", f"canceled:{code}" if code else "canceled"

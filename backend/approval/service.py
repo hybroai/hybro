@@ -141,6 +141,21 @@ def _public_hitl_request_from_doc(document: dict[str, Any]) -> HITLRequest:
     return HITLRequest(**data)
 
 
+def _terminal_member_settled(row: dict[str, Any]) -> bool:
+    """Whether a member of a terminal interaction needs nothing more.
+
+    A canceled or expired member is settled once its terminal event went
+    out. A member the owner answered before the interaction ended keeps its
+    answer; it is settled once that answer's received event went out.
+    """
+    if row.get("cancellation_reconciled") is True:
+        return True
+    return (
+        row.get("status") == HITLStatus.RESPONDED.value
+        and row.get("application_projected") is True
+    )
+
+
 class HITLService:
     """Manages the human-in-the-loop interaction lifecycle."""
 
@@ -1220,8 +1235,7 @@ class HITLService:
             for request_id in request_ids
         ]
         if reconciled_rows and all(
-            row is not None and row.get("cancellation_reconciled") is True
-            for row in reconciled_rows
+            row is not None and _terminal_member_settled(row) for row in reconciled_rows
         ):
             latest_interaction = await self._lifecycle.get_interaction_strict(
                 interaction["interaction_id"]

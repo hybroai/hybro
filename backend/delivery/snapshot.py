@@ -768,8 +768,14 @@ class RoomEventFold:
                 if internal.get("message_ids")
                 else None
             )
+            # turn_end names the turn's tools in call order; they start in
+            # pass order (a call asked about later starts after a sibling), so
+            # the inventory must match exactly as a set.
+            listed = payload.get("tool_call_ids")
             if (
-                payload.get("tool_call_ids") != expected_calls
+                not isinstance(listed, list)
+                or len(listed) != len(expected_calls)
+                or set(listed) != set(expected_calls)
                 or open_calls
                 or payload.get("message_id") != expected_message_id
             ):

@@ -18,6 +18,7 @@ from approval.exceptions import (
     HITLNotFoundError,
     HITLRoomMismatchError,
     HITLRoutingFailedError,
+    HITLRunBusyError,
 )
 from approval.validation import (
     HITLAggregateCorruptionError,
@@ -25,7 +26,7 @@ from approval.validation import (
     validate_exact_member_inventory,
     validate_route_classifications,
 )
-from common.dto.hitl import HITLApplicationRoute
+from common.dto.hitl import HITLApplicationRoute, HITLPublicSource
 from common.observability import events as E
 from common.utils.logger import get_logger
 from common.utils.time import ensure_utc, utcnow
@@ -39,6 +40,14 @@ from models.hitl import (
 )
 
 logger = get_logger(__name__)
+
+# An answered interaction no application owns; its Run ended before it.
+_CLOSABLE_ANSWERED_STATUSES = frozenset(
+    {
+        HITLInteractionStatus.ANSWERS_RECORDED.value,
+        HITLInteractionStatus.APPLYING.value,
+    }
+)
 
 
 def _as_utc_datetime(value: Any) -> datetime:
@@ -57,6 +66,20 @@ def _supervisor_command_identity(interaction_id: str, revision: int) -> str:
     return f"hitl-supervisor-{hashlib.sha256(seed.encode('utf-8')).hexdigest()}"
 
 
+# A check rule's question takes exactly these answers (see the container's
+# rule question port); the kernel approves only on "Approve".
+RULE_QUESTION_CHOICES = frozenset({"Approve", "Reject"})
+
+
+def _is_rule_question(interaction: dict[str, Any]) -> bool:
+    """A run-level question the system asked for one of the owner's rules."""
+    return (
+        interaction.get("public_source") == HITLPublicSource.SYSTEM.value
+        and interaction.get("application_route")
+        == HITLApplicationRoute.SUPERVISOR_RUN.value
+    )
+
+
 class HITLApplicationCoordinator:
     """Recoverable answer application across request, aggregate, and effect journal."""
 
@@ -66,9 +89,34 @@ class HITLApplicationCoordinator:
     def __init__(self, *, lifecycle) -> None:
         self._lifecycle = lifecycle
         self._run_answer_projector = None
+        self._parked_run_check = None
 
     def bind_run_answer_projector(self, projector) -> None:
         self._run_answer_projector = projector
+
+    def bind_parked_run_check(self, check) -> None:
+        """``check(run_id)`` runs after an answer is parked as ``run_busy``.
+
+        A pass that ended between the busy read and the park did not see the
+        parked answer, so the check applies it when no pass holds the Run.
+        """
+        self._parked_run_check = check
+
+    async def _check_parked_run(self, interaction: dict[str, Any]) -> None:
+        run_id = interaction.get("orchestration_run_id")
+        if self._parked_run_check is None or not run_id:
+            return
+        try:
+            await self._parked_run_check(run_id)
+        except Exception as exc:
+            # The reconciler applies the answer later.
+            logger.emit(
+                E.HITL_APPLICATION_RESUME_DEFERRED,
+                exc=exc,
+                interaction_id=interaction.get("interaction_id"),
+                conversation_id=interaction.get("room_id"),
+                run_id=run_id,
+            )
 
     async def _renew_leases_once(
         self,
@@ -380,6 +428,17 @@ class HITLApplicationCoordinator:
                 f"Interaction already {interaction.get('status', 'unavailable')}"
             )
 
+        if _is_rule_question(interaction):
+            for request_id in expected_ids:
+                if (
+                    preflight_rows[request_id].get("prompt_type") == "approval"
+                    and submitted[request_id].strip() not in RULE_QUESTION_CHOICES
+                ):
+                    # Nothing is recorded, so the Question stays pending.
+                    raise HITLConflictError(
+                        "A check rule's question takes Approve or Reject"
+                    )
+
         current = interaction
         for request_id in expected_ids:
             user_input = submitted[request_id].strip()
@@ -517,12 +576,38 @@ class HITLApplicationCoordinator:
                 current = recorded
         return current
 
+    async def _close_answer_of_ended_run(
+        self, service, interaction: dict[str, Any]
+    ) -> None:
+        """Fail an answered interaction whose Run ended before it was applied.
+
+        For example an answer that waited for the Run's pass to end, then the
+        Run failed. The claim fences out an application still in progress.
+        """
+        if interaction.get("status") not in _CLOSABLE_ANSWERED_STATUSES:
+            return
+        claim_id = uuid4().hex
+        claimed = await self._lifecycle.claim_interaction_application(
+            interaction["interaction_id"],
+            claim_id=claim_id,
+            lease_seconds=self.LEASE_SECONDS,
+        )
+        if claimed is None:
+            return
+        await self.fail_interaction(
+            service,
+            claimed,
+            reason="The Run ended before the answer was applied",
+            application_claim_id=claim_id,
+        )
+
     async def apply_interaction(  # noqa: C901
         self, service, interaction: dict[str, Any]
     ) -> dict[str, Any]:
         allows_resume = getattr(service, "canonical_run_allows_resume", None)
         if callable(allows_resume) and not await allows_resume(interaction):
             rows = await self._request_rows(service, interaction)
+            await self._close_answer_of_ended_run(service, interaction)
             return self._result(rows[0], status="canceled", interaction=interaction)
         interaction = await self.repair_persisted_answer_refs(service, interaction)
         interaction_id = interaction["interaction_id"]
@@ -646,6 +731,17 @@ class HITLApplicationCoordinator:
             if exc.disposition == HITLDeliveryDisposition.DELIVERY_UNCERTAIN:
                 raise HITLDeliveryUncertainError(str(exc)) from exc
             raise HITLRoutingFailedError(str(exc)) from exc
+        except HITLRunBusyError:
+            # Not a failure: the answer is durable and is applied when the
+            # Run's pass ends; the reconciler applies it if that fails.
+            await self._lifecycle.mark_interaction_application_state(
+                interaction_id,
+                claim_id=claim_id,
+                status=HITLInteractionStatus.APPLYING.value,
+                error="run_busy",
+            )
+            await self._check_parked_run(claimed)
+            return self._result(rows[0], status="accepted", interaction=claimed)
         except TimeoutError as exc:
             await self._lifecycle.mark_interaction_application_state(
                 interaction_id,

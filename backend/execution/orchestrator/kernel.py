@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import asyncio
+import re
+import unicodedata
 from collections.abc import Awaitable, Callable, Iterable
 from contextvars import ContextVar
 from hashlib import sha256
@@ -11,15 +13,18 @@ from typing import Literal, Protocol
 from jsonschema import Draft202012Validator
 
 from common.observability import events as E
-from common.observability import get_logger
+from common.observability import get_logger, log_id
 
 from .budget import BudgetExceeded, BudgetPolicy, apply_suspension_clock
 from .control import ClientCancellationRequested
 from .models import (
     AssistantMessage,
+    HeldCallAnswer,
     OrchestratorRunState,
+    PendingTermination,
     PreparedResourceRef,
     ResolvedTool,
+    RuleHold,
     SessionNotice,
     TextPart,
     ToolAcceptance,
@@ -35,6 +40,7 @@ from .models import (
 from .persistence import SUSPENDED_RUN_STATUSES, TERMINAL_RUN_STATUSES
 from .ports import (
     AgentCallDenied,
+    AgentCallNeedsAnswer,
     CancellationSignal,
     ContextCompactor,
     InvalidParkedInteractionTarget,
@@ -47,17 +53,24 @@ from .ports import (
 )
 from .public_text import (
     PublicTextSanitizer,
+    sanitize_public_text,
 )
 from .run_state import (
     _AGENT_CALL_DENIED_TEXT,
+    _AGENT_CALL_REFUSED_TEXT,
     _JOIN_FAILURE_ERROR_CODES,
     _REQUEST_USER_INPUT_PENDING_AGENT_QUESTIONS_ERROR,
     AGENT_CALL_DENIED,
+    AGENT_CALL_REFUSED,
     JOIN_DISPATCH_RETRY_BACKOFF_SECONDS,
     MAX_CONSECUTIVE_MODEL_JOINS,
     MAX_JOIN_DISPATCH_RETRIES,
     REQUEST_USER_INPUT_TOOL_DEFINITION,
     REQUEST_USER_INPUT_TOOL_NAME,
+    RULE_ASK_ARGUMENT_NAME_LIMIT,
+    RULE_ASK_ARGUMENT_NAMES_SHOWN,
+    RULE_ASK_LABEL_LIMIT,
+    RULE_ASK_TASK_TEXT_LIMIT,
     SURFACE_AGENT_QUESTIONS_TOOL_NAME,
     KernelCancellationPending,
     KernelConflict,
@@ -66,6 +79,7 @@ from .run_state import (
     SupervisorHITLPort,
     SystemClock,
     UUIDFactory,
+    _answered_question_count,
     _assistant_missing_tool_batch,
     _assistant_text,
     _batch_internal_turn_id,
@@ -83,19 +97,25 @@ from .run_state import (
     _has_presentable_interactions,
     _has_presented_interactions,
     _has_visible_input,
+    _has_working_call,
     _interaction_question_summary,
     _merge_artifact_refs,
     _new_tool_batch,
+    _only_model_decision_remains,
     _opaque_public_call_id,
     _outcome_for_status,
+    _owner_question_open,
     _parked_closeout_result,
     _parked_interaction_questions,
     _passthrough_answer_text,
+    _passthrough_call_rejected,
     _passthrough_denied,
+    _passthrough_refused,
     _presentation_id,
     _presented_targets,
     _request_user_input_choices,
     _result_text,
+    _rule_hold_asked,
     _surface_agent_questions_tool_definition,
     _terminal_closure_is_complete,
     _terminal_closure_plan,
@@ -105,7 +125,11 @@ from .run_state import (
     _TurnClosureFacts,
     _user_request_text,
     _wait_status,
+    _waiting_call_runs_next,
     _with_interaction_answers,
+    held_call_answer_observation,
+    run_level_answer_disposition,
+    run_level_answer_observation,
     supervisor_answer_observation,
 )
 from .settlement import (
@@ -123,6 +147,78 @@ _kernel_logger = get_logger(__name__)
 
 class IDFactory(Protocol):
     def new_id(self, prefix: str) -> str: ...
+
+
+# Characters a question shows as "?": controls (other than newline and tab),
+# format characters such as bidi controls and tag characters, line and
+# paragraph separators, private-use, surrogate and unassigned code points,
+# variation selectors, and characters that render as blank (Hangul fillers,
+# the braille blank, the combining grapheme joiner).
+_RULE_ASK_HIDDEN_CATEGORIES = frozenset({"Cc", "Cf", "Co", "Cs", "Cn", "Zl", "Zp"})
+_RULE_ASK_BLANK_CHARACTERS = frozenset("\u034f\u115f\u1160\u2800\u3164\uffa0")
+# Combining marks shown on one base character; the rest of a run is hidden.
+_RULE_ASK_MARKS_SHOWN = 2
+_RULE_ASK_BLANK_LINES = re.compile(r"\n(?:[^\S\n]*\n){2,}")
+
+
+def _rule_ask_hidden(char: str) -> bool:
+    if char in "\n\t":
+        return False
+    point = ord(char)
+    return (
+        unicodedata.category(char) in _RULE_ASK_HIDDEN_CATEGORIES
+        or char in _RULE_ASK_BLANK_CHARACTERS
+        or 0xFE00 <= point <= 0xFE0F
+        or 0xE0100 <= point <= 0xE01EF
+    )
+
+
+def _rule_ask_one_line(text: str) -> str:
+    """Text for one line of a rule question.
+
+    Hidden characters become spaces, and combining marks past the first two
+    on one character are dropped, so the line cannot draw over the others.
+    """
+    kept: list[str] = []
+    marks = 0
+    for char in text:
+        marks = marks + 1 if unicodedata.category(char).startswith("M") else 0
+        if marks > _RULE_ASK_MARKS_SHOWN:
+            continue
+        kept.append(" " if _rule_ask_hidden(char) else char)
+    return " ".join("".join(kept).split())
+
+
+def _rule_ask_visible_text(text: str) -> tuple[str, int]:
+    """Task text as the owner sees it, and how many characters it hid.
+
+    Each hidden character, and each combining mark past the first two on one
+    base character, is shown as "?"; other spaces become a plain space; and
+    runs of blank lines collapse to one. Nothing in the text renders as
+    nothing, draws over the lines above it, or pushes the rest out of view.
+    """
+    shown: list[str] = []
+    hidden = 0
+    marks = 0
+    for char in text.replace("\r\n", "\n"):
+        category = unicodedata.category(char)
+        marks = marks + 1 if category.startswith("M") else 0
+        if _rule_ask_hidden(char) or marks > _RULE_ASK_MARKS_SHOWN:
+            shown.append("?")
+            hidden += 1
+        else:
+            shown.append(" " if category == "Zs" else char)
+    return _RULE_ASK_BLANK_LINES.sub("\n\n", "".join(shown)), hidden
+
+
+def _rule_ask_argument_name(name: str, secrets: Iterable[str]) -> str:
+    """One argument name as a rule question names it: plain and bounded."""
+    safe = sanitize_public_text(name, secret_values=secrets)
+    plain = "".join(
+        char if char.isascii() and (char.isalnum() or char in "_-.") else "_"
+        for char in safe
+    )
+    return plain[:RULE_ASK_ARGUMENT_NAME_LIMIT] or "_"
 
 
 class OrchestratorKernel:
@@ -145,6 +241,9 @@ class OrchestratorKernel:
         artifact_metadata_reader: Callable[..., Awaitable[PreparedResourceRef | None]]
         | None = None,
         supervisor_hitl: SupervisorHITLPort | None = None,
+        rule_question: SupervisorHITLPort | None = None,
+        run_question_closeout: Callable[[OrchestratorRunState], Awaitable[object]]
+        | None = None,
     ) -> None:
         self.run_store = run_store
         self.model_runtime = model_runtime
@@ -162,6 +261,10 @@ class OrchestratorKernel:
         self.canonical_event_reader = canonical_event_reader
         self.artifact_metadata_reader = artifact_metadata_reader
         self.supervisor_hitl = supervisor_hitl
+        # Creates the permission Question when a check rule answers "ask".
+        self.rule_question = rule_question
+        # Closes the owner Questions still open when the Run ends.
+        self.run_question_closeout = run_question_closeout
         self._lifecycle_context: ContextVar[KernelLifecycle | None] = ContextVar(
             f"kernel-lifecycle-{id(self)}", default=None
         )
@@ -204,6 +307,14 @@ class OrchestratorKernel:
                 return KernelRunResult("cancellation_pending", run)
             if run.status in TERMINAL_RUN_STATUSES:
                 return KernelRunResult(_outcome_for_status(run.status), run)
+            if (pending := run.pending_termination) is not None:
+                # The process died while ending the Run; finish ending it.
+                return await self._terminate(
+                    run,
+                    status=pending.status,
+                    reason=pending.reason,
+                    cancellation_cause=pending.cancellation_cause,
+                )
             overflow = next(
                 (
                     message
@@ -255,9 +366,15 @@ class OrchestratorKernel:
 
             if not _has_visible_input(run) and _has_presentable_interactions(run):
                 run = await self._present_interactions(run, lifecycle=lifecycle)
+                # As after a batch pass: a working Agent keeps the Run
+                # waiting, and the loop returns at the waiting status.
                 run = await self._checkpoint(
                     run,
-                    updates={"status": "running"},
+                    updates={
+                        "status": "waiting_external"
+                        if _has_working_call(run.tool_batches)
+                        else "running"
+                    },
                     command_id=f"present-interactions:sync:{run.state_version}",
                 )
                 continue
@@ -373,7 +490,10 @@ class OrchestratorKernel:
         status: Literal["failed", "canceled", "budget_exhausted"],
         reason: str,
         cancellation_cause: (
-            Literal["user_requested", "room_closed", "shutdown", "policy"] | None
+            Literal[
+                "user_requested", "room_closed", "shutdown", "policy", "owner_refused"
+            ]
+            | None
         ) = None,
         lifecycle: KernelLifecycle | None = None,
     ) -> KernelRunResult:
@@ -399,6 +519,16 @@ class OrchestratorKernel:
         run = await self._load(run_id)
         if run.status == "canceling":
             raise KernelConflict("canceling Run cannot accept a tool observation")
+        if (
+            pending := run.pending_termination
+        ) is not None and run.status not in TERMINAL_RUN_STATUSES:
+            # The process died while ending the Run; finish ending it.
+            return await self._terminate(
+                run,
+                status=pending.status,
+                reason=pending.reason,
+                cancellation_cause=pending.cancellation_cause,
+            )
         batch_index, entry_index = _find_invocation(run, observation.invocation_id)
         if batch_index is None or entry_index is None:
             raise KeyError(observation.invocation_id)
@@ -407,13 +537,36 @@ class OrchestratorKernel:
             raise KernelConflict("tool observation target has no invocation")
         if observation.invocation_id != entry.invocation.invocation_id:
             raise ValueError("observation invocation does not correlate")
+        # A call a check rule held accepts only the owner's answer, and only
+        # a held call accepts one. The flag decides, never the outcome's text.
+        held_refusal = False
+        if isinstance(observation.outcome, HeldCallAnswer) or (
+            entry.rule_hold is not None and entry.rule_hold.state == "asked"
+        ):
+            decided = await self._observe_held_call(
+                run,
+                batch_index,
+                entry_index,
+                observation,
+                signal=signal,
+                lifecycle=lifecycle,
+            )
+            if isinstance(decided, KernelRunResult):
+                return decided
+            # The refusal is the call's terminal result; it ends the entry
+            # as any terminal result does.
+            observation = decided
+            held_refusal = True
         if isinstance(observation.outcome, ToolResult):
             if (
                 observation.outcome.call_id != entry.call_id
                 or observation.outcome.tool_name != entry.tool_name
             ):
                 raise ValueError("observation result does not correlate")
-        elif observation.outcome.invocation_id != entry.invocation.invocation_id:
+        elif (
+            isinstance(observation.outcome, HeldCallAnswer)
+            or observation.outcome.invocation_id != entry.invocation.invocation_id
+        ):
             raise ValueError("observation suspension does not correlate")
         if run.status in TERMINAL_RUN_STATUSES:
             if observation.observation_id in entry.processed_observation_ids:
@@ -439,6 +592,11 @@ class OrchestratorKernel:
             state = "terminal"
             result = observation.outcome
             interaction_update: dict[str, object] = {}
+            if held_refusal:
+                assert entry.rule_hold is not None
+                interaction_update["rule_hold"] = entry.rule_hold.model_copy(
+                    update={"state": "refused"}
+                )
         else:
             state = observation.outcome.status
             result = entry.buffered_terminal_result
@@ -569,6 +727,11 @@ class OrchestratorKernel:
         # remote completion can leave only private model decisions behind.
         if _has_visible_input(run.model_copy(update={"tool_batches": batches})):
             updates["status"] = "awaiting_user"
+        elif _waiting_call_runs_next(batches):
+            # A call that waited while an owner Question was open: the next
+            # pass asks about it, whatever other Agents of its batch still
+            # work.
+            updates["status"] = "running"
         elif any(
             item.state in {"executing", "waiting_external"}
             for pending_batch in batches
@@ -615,6 +778,10 @@ class OrchestratorKernel:
                 # Answering one surfaced child can leave a previously presented
                 # sibling awaiting a decision, not a worker or another answer.
                 return await self.run(run_id, signal=signal, lifecycle=lifecycle)
+            if run.status == "running" and _waiting_call_runs_next(run.tool_batches):
+                # A call that waited while this one's Question was open: the
+                # next pass reaches it and asks the owner about it.
+                return await self.run(run_id, signal=signal, lifecycle=lifecycle)
             return KernelRunResult(
                 "awaiting_user"
                 if run.status == "awaiting_user"
@@ -622,7 +789,7 @@ class OrchestratorKernel:
                 run,
             )
         internal_turn_id = run.active_internal_turn_id or entry.assistant_message_id
-        if was_awaiting_user:
+        if was_awaiting_user and not held_refusal:
             resumed_entry = run.tool_batches[batch_index].entries[entry_index]
             update_index = resumed_entry.public_update_index + 1
             await self._emit(
@@ -734,6 +901,241 @@ class OrchestratorKernel:
         )
         return await self.run(run_id, signal=signal, lifecycle=lifecycle)
 
+    async def _observe_held_call(
+        self,
+        run: OrchestratorRunState,
+        batch_index: int,
+        entry_index: int,
+        observation: ToolObservation,
+        *,
+        signal: CancellationSignal,
+        lifecycle: KernelLifecycle | None,
+    ) -> KernelRunResult | ToolObservation:
+        """Apply the owner's answer to a call a check rule held.
+
+        Returns the Run's result for an approval or a replayed answer, and for
+        a refusal the observation of the refused result, which the caller ends
+        the entry with as it ends any call.
+        """
+        entry = run.tool_batches[batch_index].entries[entry_index]
+        held = entry.rule_hold
+        answer = observation.outcome
+        if held is None:
+            raise KernelConflict("held-call answer targets a call that was not held")
+        if not isinstance(answer, HeldCallAnswer):
+            raise KernelConflict("a held call accepts only the owner's answer")
+        assert entry.invocation is not None
+        if answer.invocation_id != entry.invocation.invocation_id:
+            raise ValueError("held-call answer does not correlate")
+        if observation.observation_id in entry.processed_observation_ids:
+            # A replayed answer: the decision is already durable. A running
+            # Run is never driven from here, since its own pass may still be
+            # going; after a crash the recovery watchdog resumes it.
+            if run.status in TERMINAL_RUN_STATUSES:
+                return KernelRunResult(_outcome_for_status(run.status), run)
+            if run.status in SUSPENDED_RUN_STATUSES:
+                return KernelRunResult(
+                    "awaiting_user"
+                    if run.status == "awaiting_user"
+                    else "waiting_external",
+                    run,
+                )
+            raise KernelConflict("a replayed answer does not drive a running Run")
+        if held.state != "asked":
+            raise KernelConflict("held call was already answered")
+        if run.status in TERMINAL_RUN_STATUSES:
+            raise KernelConflict("terminal Run cannot accept a new tool observation")
+        if run.status != "awaiting_user" or entry.state != "input_required":
+            raise KernelConflict("held-call answers require a suspended Run")
+        if not answer.approved:
+            return observation.model_copy(
+                update={
+                    "outcome": ToolResult(
+                        call_id=entry.call_id,
+                        tool_name=entry.tool_name,
+                        status="rejected",
+                        content=[TextPart(text=_AGENT_CALL_REFUSED_TEXT)],
+                        artifact_refs=[],
+                        error_code=AGENT_CALL_REFUSED,
+                        error_message=_AGENT_CALL_REFUSED_TEXT,
+                    )
+                }
+            )
+        # Approved: the entry goes back to pending, marked approved, and the
+        # Run runs again. The update index is stored with the decision, so a
+        # crash before the running update never reuses its event id.
+        update_index = entry.public_update_index + 1
+        batches = list(run.tool_batches)
+        batch = batches[batch_index]
+        entries = list(batch.entries)
+        entries[entry_index] = entry.model_copy(
+            update={
+                "state": "pending",
+                "rule_hold": held.model_copy(update={"state": "approved"}),
+                "processed_observation_ids": [
+                    *entry.processed_observation_ids,
+                    observation.observation_id,
+                ],
+                "public_update_index": update_index,
+            }
+        )
+        batches[batch_index] = batch.model_copy(update={"entries": entries})
+        run = await self._checkpoint(
+            run,
+            updates={"tool_batches": batches, "status": "running"},
+            command_id=f"tool-observation:{observation.observation_id}",
+        )
+        public_call_id = entry.opaque_public_call_id or _opaque_public_call_id(
+            run.run_id, entry.call_id
+        )
+        await self._emit(
+            lifecycle,
+            "tool_execution_updated",
+            run,
+            {
+                "public_event_id": (
+                    f"public:{run.run_id}:{public_call_id}:update:{update_index}"
+                ),
+                "call_id": entry.call_id,
+                "public_call_id": public_call_id,
+                "internal_turn_id": _batch_internal_turn_id(batch),
+                "tool_name": entry.tool_name,
+                "agent_label": self._tool_label(run, entry.tool_name),
+                "update_index": update_index,
+                "status": "running",
+                "partial_result": "",
+            },
+        )
+        return await self.run(run.run_id, signal=signal, lifecycle=lifecycle)
+
+    async def _hold_for_rule_answer(
+        self,
+        run: OrchestratorRunState,
+        batch_index: int,
+        entry_index: int,
+        call: ToolCall,
+        invocation: ToolInvocation,
+        assistant: AssistantMessage,
+        *,
+        rule_id: str | None,
+        lifecycle: KernelLifecycle | None,
+    ) -> OrchestratorRunState:
+        """Hold a new call a check rule asks about until the owner answers.
+
+        The Question is created first, then the entry is written, and only
+        then is the tool row started, so a crash or a failed port never leaves
+        a started row that no checkpointed entry owns.
+        """
+        if self.rule_question is None:
+            raise KernelConflict("rule question port is not bound")
+        interaction_id = self._stable_id(run, "rule-ask", call.call_id)
+        try:
+            await self.rule_question(
+                run=run,
+                interaction_id=interaction_id,
+                call_id=call.call_id,
+                question=self._rule_ask_question(run, call),
+            )
+        except Exception as exc:
+            _kernel_logger.emit(
+                E.RULE_ASK_CREATION_FAILED,
+                exc=exc,
+                run_id=run.run_id,
+                conversation_id=run.conversation_id,
+                client_request_id=log_id(run.client_request_id),
+                call_id=log_id(call.call_id),
+                interaction_id=log_id(interaction_id),
+            )
+            raise
+        run = await self._update_entry(
+            run,
+            batch_index,
+            entry_index,
+            state="input_required",
+            invocation=invocation,
+            opaque_public_call_id=_opaque_public_call_id(run.run_id, call.call_id),
+            rule_hold=RuleHold(rule_id=rule_id, state="asked"),
+            command=f"rule-hold:{call.call_id}",
+        )
+        await self._emit_held_start(run, call, assistant, lifecycle=lifecycle)
+        return run
+
+    async def _emit_held_start(
+        self,
+        run: OrchestratorRunState,
+        call: ToolCall,
+        assistant: AssistantMessage,
+        *,
+        lifecycle: KernelLifecycle | None,
+    ) -> None:
+        """Start a held call's tool row under a restart-stable event id.
+
+        It is emitted at the hold, again on every pass that meets the held
+        entry, and again at dispatch; the store drops each repeat by its id.
+        """
+        public_call_id = _opaque_public_call_id(run.run_id, call.call_id)
+        await self._emit(
+            lifecycle,
+            "tool_execution_started",
+            run,
+            {
+                "public_event_id": f"public:{run.run_id}:{public_call_id}:start",
+                "call_id": call.call_id,
+                "public_call_id": public_call_id,
+                "internal_turn_id": run.active_internal_turn_id or assistant.message_id,
+                "tool_name": call.tool_name,
+                "agent_label": self._tool_label(run, call.tool_name),
+                "arguments": call.arguments,
+            },
+        )
+
+    def _rule_ask_question(self, run: OrchestratorRunState, call: ToolCall) -> str:
+        """Fixed question text, with the call's task text the owner approves.
+
+        The kernel's notes (a cut task text, the other arguments) come right
+        after the question line and before the task text, so nothing in the
+        task text can add to them or move them. The text is cut after it is
+        sanitized, so a cut never splits a secret before it is masked.
+        """
+        secrets = self.public_secret_values
+        label = self._tool_label(run, call.tool_name) or call.tool_name
+        label = _rule_ask_one_line(sanitize_public_text(label, secret_values=secrets))
+        lines = [f"Allow this call to {label[:RULE_ASK_LABEL_LIMIT]}?"]
+        task = call.arguments.get("task")
+        body = ""
+        if isinstance(task, str) and task.strip():
+            shown, hidden = _rule_ask_visible_text(
+                sanitize_public_text(task.strip(), secret_values=secrets)
+            )
+            # Again, for a secret a hidden character had split.
+            shown = sanitize_public_text(shown, secret_values=secrets)
+            body = shown[:RULE_ASK_TASK_TEXT_LIMIT]
+            if len(shown) > RULE_ASK_TASK_TEXT_LIMIT:
+                lines.append(
+                    f"The task text is {len(shown):,} characters long; only "
+                    f"the first {RULE_ASK_TASK_TEXT_LIMIT:,} are shown below."
+                )
+            if hidden:
+                lines.append(
+                    f"The task text has {hidden:,} hidden or control "
+                    'characters, shown as "?".'
+                )
+        else:
+            lines.append("The call has no task text.")
+        others = sorted(
+            _rule_ask_argument_name(name, secrets)
+            for name in call.arguments
+            if not (name == "task" and body)
+        )
+        if others:
+            named = ", ".join(others[:RULE_ASK_ARGUMENT_NAMES_SHOWN])
+            more = len(others) - RULE_ASK_ARGUMENT_NAMES_SHOWN
+            if more > 0:
+                named = f"{named}, and {more} more"
+            lines.append(f"The call also sends these arguments, not shown: {named}.")
+        text = "\n".join(lines)
+        return f"{text}\n\n{body}" if body else text
+
     async def _suspend_for_supervisor_input(
         self,
         run: OrchestratorRunState,
@@ -790,7 +1192,8 @@ class OrchestratorKernel:
                 command=f"invalid-ask-choices:{call.call_id}",
             )
             return None
-        if _has_presented_interactions(run):
+        waited = run.tool_batches[batch_index].entries[entry_index].rule_deferred
+        if not waited and _has_presented_interactions(run):
             # A composed single-question ask is structurally unable to keep an
             # Agent's typed questions separate (the model merges them, e.g.
             # "Please reply with both answers"). While questions are parked for
@@ -824,9 +1227,9 @@ class OrchestratorKernel:
                 exc=exc,
                 run_id=run.run_id,
                 conversation_id=run.conversation_id,
-                client_request_id=run.client_request_id,
-                call_id=call.call_id,
-                interaction_id=interaction_id,
+                client_request_id=log_id(run.client_request_id),
+                call_id=log_id(call.call_id),
+                interaction_id=log_id(interaction_id),
             )
             raise
         invocation = ToolInvocation(
@@ -969,6 +1372,10 @@ class OrchestratorKernel:
                 command=f"surface-target-no-call:{call.call_id}",
             )
             return None
+        if _rule_hold_asked(run.tool_batches[batch_index], other_than=call.call_id):
+            # One owner Question at a time: the forward goes out once the held
+            # call's answer brings the next pass here.
+            return run
 
         # Fence the exact publication identity before any visibility/event write.
         # Pending is intentional: ambiguous acknowledgements re-enter this same
@@ -1445,6 +1852,14 @@ class OrchestratorKernel:
                     continue
                 join_calls[entry.call_id] = (entry.invocation, join_target)
                 continue
+            if (
+                entry.state == "input_required"
+                and entry.rule_hold is not None
+                and entry.rule_hold.state == "asked"
+            ):
+                # Heal a crash between the hold's checkpoint and its start.
+                await self._emit_held_start(run, call, assistant, lifecycle=lifecycle)
+                continue
             if entry.state in {
                 "terminal",
                 "waiting_external",
@@ -1471,12 +1886,32 @@ class OrchestratorKernel:
                     _has_ellipsis_placeholder(choice)
                     for choice in _request_user_input_choices(call.arguments)
                 )
-                has_pending_agent_questions = _has_presented_interactions(run)
-                if (
+                # A call that waited was checked when it first came here; an
+                # Agent question presented since then does not refuse it.
+                has_pending_agent_questions = (
+                    not entry.rule_deferred and _has_presented_interactions(run)
+                )
+                declaration_valid = (
                     not declaration_errors
                     and not has_placeholder_choice
                     and not has_pending_agent_questions
+                )
+                if declaration_valid and _owner_question_open(
+                    run.tool_batches[batch_index], other_than=call.call_id
                 ):
+                    # One owner Question at a time: this one is asked once the
+                    # open Question's answer brings the next pass here.
+                    if not entry.rule_deferred:
+                        run = await self._update_entry(
+                            run,
+                            batch_index,
+                            entry_index,
+                            state="pending",
+                            rule_deferred=True,
+                            command=f"rule-deferred:{call.call_id}",
+                        )
+                    continue
+                if declaration_valid:
                     # The ask_user call never enters the tool-runtime dispatch
                     # loop, so publish its tool_execution_started here to
                     # satisfy the public protocol contract
@@ -1651,10 +2086,20 @@ class OrchestratorKernel:
                 arguments=call.arguments,
                 deadline_at=run.budget.deadline_at,
             )
+            # An approved held call is the new call the owner approved, and a
+            # call that waited for the rule is a new call too; neither turns
+            # into a reply to another parked call of the same Agent.
+            held_approved = (
+                entry.rule_hold is not None and entry.rule_hold.state == "approved"
+            )
             # Model-first join routing: a re-invocation of the same agent+skill
             # while a presented interaction is parked continues the existing
             # task instead of opening a new one.
-            join_target = _find_join_target(run, call.tool_name)
+            join_target = (
+                None
+                if held_approved or entry.rule_deferred
+                else _find_join_target(run, call.tool_name)
+            )
             if join_target is not None:
                 if run.consecutive_model_joins >= MAX_CONSECUTIVE_MODEL_JOINS:
                     run = await self._update_entry(
@@ -1709,7 +2154,11 @@ class OrchestratorKernel:
                 join_calls[call.call_id] = (invocation, join_target)
                 continue
             try:
-                acceptance = await self.tool_runtime.accept(invocation)
+                acceptance = (
+                    await self.tool_runtime.accept(invocation, rule_approved=True)
+                    if held_approved
+                    else await self.tool_runtime.accept(invocation)
+                )
                 if (
                     acceptance.invocation_id != invocation.invocation_id
                     or acceptance.idempotency_key != invocation.idempotency_key
@@ -1736,6 +2185,51 @@ class OrchestratorKernel:
                     run_updates={"denied_rule_id": denied.rule_id},
                 )
                 recoverable_declaration_failed = True
+                continue
+            except AgentCallNeedsAnswer as needs:
+                if held_approved:
+                    # The owner already answered; asking again would loop.
+                    run = await self._update_entry(
+                        run,
+                        batch_index,
+                        entry_index,
+                        state="terminal",
+                        invocation=invocation,
+                        result=_tool_error(
+                            call,
+                            "acceptance_failed",
+                            "an approved call was held again",
+                        ),
+                        command=f"acceptance-failed:{call.call_id}",
+                    )
+                    preacceptance_failed = True
+                    fatal_preacceptance_failed = True
+                    continue
+                if _owner_question_open(
+                    run.tool_batches[batch_index], other_than=call.call_id
+                ):
+                    # One owner Question at a time: the rule asks about this
+                    # call once the open Question is answered.
+                    if not entry.rule_deferred:
+                        run = await self._update_entry(
+                            run,
+                            batch_index,
+                            entry_index,
+                            state="pending",
+                            rule_deferred=True,
+                            command=f"rule-deferred:{call.call_id}",
+                        )
+                    continue
+                run = await self._hold_for_rule_answer(
+                    run,
+                    batch_index,
+                    entry_index,
+                    call,
+                    invocation,
+                    assistant,
+                    rule_id=needs.rule_id,
+                    lifecycle=lifecycle,
+                )
                 continue
             except Exception as exc:
                 run = await self._update_entry(
@@ -1768,6 +2262,13 @@ class OrchestratorKernel:
                 )
             executable.append((call, invocation, acceptance))
 
+        # A held call's row was started at the hold, under its own event id;
+        # its dispatch start repeats that id so the store drops it.
+        held_call_ids = {
+            item.call_id
+            for item in run.tool_batches[batch_index].entries
+            if item.rule_hold is not None
+        }
         sequential = run.profile.tool_execution == "sequential" or any(
             item[1].tool.definition.execution_mode == "sequential"
             for item in executable
@@ -1780,6 +2281,7 @@ class OrchestratorKernel:
                     "tool_execution_started",
                     run,
                     {
+                        **self._held_start_id(run, call, held_call_ids),
                         "call_id": call.call_id,
                         "public_call_id": _opaque_public_call_id(
                             run.run_id, call.call_id
@@ -1807,6 +2309,7 @@ class OrchestratorKernel:
                         "tool_execution_started",
                         run,
                         {
+                            **self._held_start_id(run, call, held_call_ids),
                             "call_id": call.call_id,
                             "public_call_id": _opaque_public_call_id(
                                 run.run_id, call.call_id
@@ -2104,6 +2607,7 @@ class OrchestratorKernel:
                         "status": "error",
                     },
                 )
+                await self._emit_declaration_retry(run, turn_id, lifecycle)
                 run = await self._checkpoint(
                     run,
                     updates={
@@ -2121,6 +2625,12 @@ class OrchestratorKernel:
                 return "retry"
             return None
         status = _wait_status(batch)
+        if _only_model_decision_remains(
+            run.model_copy(update={"tool_batches": batches}), batch
+        ):
+            # The batch's other calls ended beside an Agent question already
+            # presented to the model: the model decides next, nobody else.
+            status = "running"
         run = await self._checkpoint(
             run,
             updates={
@@ -2129,7 +2639,17 @@ class OrchestratorKernel:
                 "artifact_refs": artifact_refs,
                 "transcript": transcript,
             },
-            command_id=f"suspend-tool-batch:{assistant.message_id}",
+            # Each pass that follows an owner's answer writes its own
+            # suspension; a fixed id would replay the first and drop this one.
+            # Batches without an answered Question keep the plain id.
+            command_id=(
+                f"suspend-tool-batch:{assistant.message_id}"
+                + (
+                    f":{answered}"
+                    if (answered := _answered_question_count(batch))
+                    else ""
+                )
+            ),
         )
         run = await self._publish_checkpointed_tool_terminals(
             run,
@@ -2146,6 +2666,8 @@ class OrchestratorKernel:
             lifecycle=lifecycle,
             internal_turn_id=run.active_internal_turn_id or assistant.message_id,
         )
+        if status == "running":
+            return "decide"
         if _has_visible_input(run) or not _has_presentable_interactions(run):
             return KernelRunResult(
                 "awaiting_user" if status == "awaiting_user" else "waiting_external",
@@ -2155,16 +2677,59 @@ class OrchestratorKernel:
         # model as tool_interaction messages instead of suspending the Run into
         # awaiting_user. The same internal turn continues with the decision.
         run = await self._present_interactions(run, lifecycle=lifecycle)
+        # While another Agent still works, the Run waits on it; the model
+        # decides once only private decisions remain (observe_tool re-enters
+        # for presented questions then).
+        working = _has_working_call(run.tool_batches)
         run = await self._checkpoint(
             run,
             updates={
-                "status": "running",
+                "status": "waiting_external" if working else "running",
                 "tool_batches": run.tool_batches,
                 "transcript": run.transcript,
             },
             command_id=f"present-interactions:{assistant.message_id}",
         )
+        if working:
+            return KernelRunResult("waiting_external", run)
         return "decide"
+
+    async def _emit_declaration_retry(
+        self,
+        run: OrchestratorRunState,
+        turn_id: str,
+        lifecycle: KernelLifecycle | None,
+    ) -> None:
+        """Record that the model is called again after a rejected declaration.
+
+        The turn closed as an error and the model reads the refusal on a new
+        turn. The Room records that as a retry of the failed turn, which a
+        completed settlement requires of every earlier error turn. A
+        passthrough Run ends instead, so it gets no retry.
+        """
+        if run.profile.profile_id == "passthrough":
+            return
+        await self._emit(
+            lifecycle,
+            "model_retry_scheduled",
+            run,
+            {
+                "public_event_id": f"public:{run.run_id}:{turn_id}:retry:tool_failure",
+                "internal_turn_id": turn_id,
+                "attempt": 2,
+                "error_class": "tool_failure",
+                "retry_delay_ms": 0,
+            },
+        )
+
+    @staticmethod
+    def _held_start_id(
+        run: OrchestratorRunState, call: ToolCall, held_call_ids: set[str]
+    ) -> dict[str, object]:
+        if call.call_id not in held_call_ids:
+            return {}
+        public_call_id = _opaque_public_call_id(run.run_id, call.call_id)
+        return {"public_event_id": f"public:{run.run_id}:{public_call_id}:start"}
 
     async def _execute_one(
         self,
@@ -2396,6 +2961,8 @@ class OrchestratorKernel:
         turn_started = False
         message_started = False
         turn_ended = False
+        turn_end_status: object = None
+        retried = False
         message_id = run.active_assistant_message_id
         for record in sorted(records, key=lambda item: int(item.get("room_seq") or 0)):
             data = record.get("payload_public")
@@ -2446,6 +3013,9 @@ class OrchestratorKernel:
                 text = terminal_text
             elif kind == "turn_end":
                 turn_ended = True
+                turn_end_status = payload.get("status")
+            elif kind == "retry_scheduled":
+                retried = True
 
         # The active-state CAS intentionally precedes public starts. Recovery
         # must adopt/restore those missing semantic parents before it emits any
@@ -2594,11 +3164,11 @@ class OrchestratorKernel:
                     # every entry is terminal.
                     return run, None
                 # A refused passthrough call closes its one turn as an error,
-                # as it does without a restart; the denied settlement needs it.
+                # as it does without a restart; the settlement needs it.
                 closed = (
                     "error"
                     if run.profile.profile_id == "passthrough"
-                    and _passthrough_denied(run)
+                    and _passthrough_call_rejected(run)
                     else "completed"
                 )
                 await self._emit(
@@ -2615,6 +3185,10 @@ class OrchestratorKernel:
                         "status": closed,
                     },
                 )
+            elif turn_end_status == "error" and not retried:
+                # A rejected declaration's turn ended as an error, and the
+                # process died before its retry row: write it now.
+                await self._emit_declaration_retry(run, internal_turn_id, lifecycle)
             run = await self._checkpoint(
                 run,
                 updates={
@@ -2883,12 +3457,22 @@ class OrchestratorKernel:
             return KernelRunResult("waiting_external", run)
         if not run.tool_batches:
             return await self._passthrough_dispatch(run, signal, lifecycle=lifecycle)
+        if _passthrough_refused(run):
+            # The owner refused the held call: the step ends rejected, decided
+            # from the flag and never from the result's error code.
+            return await self._passthrough_fail(
+                run,
+                reason=AGENT_CALL_REFUSED,
+                lifecycle=lifecycle,
+                status="canceled",
+                cancellation_cause="owner_refused",
+            )
         result = run.tool_batches[0].entries[0].buffered_terminal_result
         if result is None:
             return await self._terminate(
                 run, status="failed", reason="passthrough_result_missing"
             )
-        if _passthrough_denied(run):
+        if _passthrough_call_rejected(run):
             # Restart after the refused batch was flushed.
             return await self._passthrough_rejected(run.run_id)
         if result.status != "completed":
@@ -2922,12 +3506,14 @@ class OrchestratorKernel:
         *,
         reason: str,
         lifecycle: KernelLifecycle | None,
+        status: Literal["failed", "canceled"] = "failed",
+        cancellation_cause: Literal["owner_refused"] | None = None,
     ) -> KernelRunResult:
-        """Fail the Run inside a Turn that closes as an error.
+        """End the Run inside a Turn of its own that closes unfinished.
 
         The dispatch Turn already closed when its call finished, and a failed
-        settlement requires an errored last Turn, as a failing model turn
-        would leave. The Turn identity includes the state version so that a
+        or canceled settlement requires a last Turn that closed as an error or
+        was aborted, as a failing model turn would leave. The Turn identity includes the state version so that a
         restart inside it opens a fresh one after the recovery retry.
         """
         turn_id = self._stable_id(run, "passthrough-turn", "failure", run.state_version)
@@ -2958,7 +3544,12 @@ class OrchestratorKernel:
             run,
             {"internal_turn_id": turn_id, "message_id": message_id},
         )
-        return await self._terminate(run, status="failed", reason=reason)
+        return await self._terminate(
+            run,
+            status=status,
+            reason=reason,
+            cancellation_cause=cancellation_cause,
+        )
 
     async def _passthrough_dispatch(
         self,
@@ -3251,6 +3842,7 @@ class OrchestratorKernel:
         *,
         disposition: Literal["error", "aborted"],
         error_summary: str | None = None,
+        termination: PendingTermination | None = None,
     ) -> tuple[OrchestratorRunState, str | None]:
         """Close every incomplete canonical descendant before root termination.
 
@@ -3288,6 +3880,16 @@ class OrchestratorKernel:
             ] = await self.tool_runtime.abandon_parked_interaction(
                 call_record_id=call_record_id,
                 interaction_id=interaction_id,
+            )
+        if termination is not None and run.pending_termination is None:
+            # Store the decision before the first public close effect: a
+            # restart after the turn's end finishes it instead of calling the
+            # model. The HITL finalizer above is idempotent and publishes
+            # nothing, so a restart before this point repeats it safely.
+            run = await self._checkpoint(
+                run,
+                updates={"pending_termination": termination},
+                command_id=f"terminate-intent:{run.run_id}",
             )
 
         # A canonical Tool end can win immediately before the aggregate flag
@@ -3514,7 +4116,10 @@ class OrchestratorKernel:
         status: Literal["failed", "canceled", "budget_exhausted"],
         reason: str,
         cancellation_cause: (
-            Literal["user_requested", "room_closed", "shutdown", "policy"] | None
+            Literal[
+                "user_requested", "room_closed", "shutdown", "policy", "owner_refused"
+            ]
+            | None
         ) = None,
     ) -> KernelRunResult:
         current = await self._load(run.run_id)
@@ -3526,9 +4131,22 @@ class OrchestratorKernel:
         if current.status in TERMINAL_RUN_STATUSES:
             return KernelRunResult(_outcome_for_status(current.status), current)
         run = current
+        if (stored := run.pending_termination) is not None and run.status != (
+            "canceling"
+        ):
+            # A restart finishes the first decision, not a later one. A Stop
+            # still wins over it: a canceling Run settles with its own cause.
+            status = stored.status
+            reason = stored.reason
+            cancellation_cause = stored.cancellation_cause
         try:
             run, _ = await self._close_active_attempt(
                 run,
+                termination=PendingTermination(
+                    status=status,
+                    reason=reason,
+                    cancellation_cause=cancellation_cause,
+                ),
                 disposition="aborted" if status == "canceled" else "error",
                 error_summary=(
                     "The response exceeded its safe public output limit."
@@ -3580,7 +4198,28 @@ class OrchestratorKernel:
                 return KernelRunResult("cancellation_pending", stored.run)
             raise KernelConflict("terminal status store CAS lost")
         settled = await self.projection_driver.settle(run.run_id)
+        await self._close_run_questions(settled)
         return KernelRunResult(_outcome_for_status(status), settled)
+
+    async def _close_run_questions(self, run: OrchestratorRunState) -> None:
+        """Close the owner Questions of a Run that just ended.
+
+        A Stop closes them before the Run ends; any other end (a failed
+        sibling, the budget, an interrupted driver) leaves them open, and
+        they would keep asking the owner about a Run that is over.
+        """
+        if self.run_question_closeout is None:
+            return
+        try:
+            await self.run_question_closeout(run)
+        except Exception as exc:
+            # An answer to such a Question is closed when it is applied.
+            _kernel_logger.emit(
+                E.RUN_QUESTION_CLOSEOUT_FAILED,
+                exc=exc,
+                run_id=run.run_id,
+                conversation_id=run.conversation_id,
+            )
 
     async def _reserve_tool_budget(
         self,
@@ -3626,6 +4265,8 @@ class OrchestratorKernel:
         public_update_index: int | None = None,
         public_terminal_emitted: bool | None = None,
         denied_by_rule: bool | None = None,
+        rule_hold: RuleHold | None = None,
+        rule_deferred: bool | None = None,
         run_updates: dict[str, object] | None = None,
     ) -> OrchestratorRunState:
         """Write one tool entry, with any Run fields in the same checkpoint."""
@@ -3649,6 +4290,10 @@ class OrchestratorKernel:
             update["public_terminal_emitted"] = public_terminal_emitted
         if denied_by_rule is not None:
             update["denied_by_rule"] = denied_by_rule
+        if rule_hold is not None:
+            update["rule_hold"] = rule_hold
+        if rule_deferred is not None:
+            update["rule_deferred"] = rule_deferred
         desired_entry = original_entry.model_copy(update=update)
         entries[entry_index] = desired_entry
         batches[batch_index] = batch.model_copy(update={"entries": entries})
@@ -3749,6 +4394,9 @@ def _same_cancel(run: OrchestratorRunState, status: str, cause: str | None) -> b
 
 __all__ = [
     "KernelConflict",
+    "held_call_answer_observation",
+    "run_level_answer_disposition",
+    "run_level_answer_observation",
     "KernelLifecycle",
     "KernelRunResult",
     "OrchestratorKernel",

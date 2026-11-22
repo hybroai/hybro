@@ -135,8 +135,14 @@ async def test_create_is_refused_at_the_limit():
     assert len(store.records) == MAX_RULES
 
 
-@pytest.mark.parametrize("answer", ["ask", "ALLOW", "", None])
-def test_only_allow_and_deny_are_answers(answer):
+@pytest.mark.parametrize("answer", ["allow", "deny", "ask"])
+def test_allow_deny_and_ask_are_answers(answer):
+    assert RuleCreate(answer=answer).answer == answer
+    assert RuleReplace(agent_id=None, answer=answer, enabled=True).answer == answer
+
+
+@pytest.mark.parametrize("answer", ["ASK", "ALLOW", "maybe", "", None])
+def test_no_other_text_is_an_answer(answer):
     with pytest.raises(ValidationError) as caught:
         RuleCreate(answer=answer)
     assert caught.value.errors()[0]["loc"] == ("answer",)
@@ -170,7 +176,7 @@ def test_a_replace_takes_null_for_any_agent_and_the_same_checks():
     assert RuleReplace(agent_id=None, answer="allow", enabled=True).agent_id is None
     for body in (
         {"agent_id": "  ", "answer": "deny", "enabled": True},
-        {"agent_id": None, "answer": "ask", "enabled": True},
+        {"agent_id": None, "answer": "maybe", "enabled": True},
         {"agent_id": None, "answer": "deny", "enabled": "yes"},
         {"agent_id": None, "answer": "deny", "enabled": True, "position": 1},
     ):
@@ -190,3 +196,12 @@ async def test_check_agent_call_answers_from_the_rules_in_order():
     decision = await service.check_agent_call("coder")
     assert (decision.answer, decision.rule_id) == ("deny", deny.rule_id)
     assert (await service.check_agent_call("writer")).answer == "allow"
+
+
+async def test_check_agent_call_answers_ask_with_the_rule_that_asks():
+    service, _ = _service()
+    ask = await service.create(RuleCreate(agent_id="coder", answer="ask"))
+
+    decision = await service.check_agent_call("coder")
+
+    assert (decision.answer, decision.rule_id) == ("ask", ask.rule_id)

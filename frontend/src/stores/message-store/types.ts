@@ -76,7 +76,7 @@ export interface MessageEntity {
   hitlRequestId?: string
   /** Wire Agent message/card identity when this is a request-scoped HITL projection. */
   hitlMessageId?: string
-  hitlSource?: 'agent' | 'supervisor'
+  hitlSource?: 'agent' | 'supervisor' | 'system'
   hitlPrompt?: string
   hitlPromptType?: HITLPromptType
   hitlChoices?: string[] | null
@@ -155,7 +155,7 @@ export interface IncomingMessage {
   hitlRequestId?: string
   /** Wire Agent message/card identity retained separately from the store entity ID. */
   hitlMessageId?: string
-  hitlSource?: 'agent' | 'supervisor'
+  hitlSource?: 'agent' | 'supervisor' | 'system'
   hitlPrompt?: string
   hitlPromptType?: HITLPromptType
   hitlChoices?: string[] | null
