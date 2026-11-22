@@ -73,6 +73,10 @@ from execution.orchestrator.a2a_runtime.models import (
     A2ADispatchReceipt,
     NormalizedA2AObservation,
 )
+from execution.orchestrator.a2a_runtime.observations import (
+    RunPassEnded,
+    RunPassEndHooks,
+)
 from execution.orchestrator.a2a_runtime.ports import AgentCallCheckPort
 from execution.orchestrator.a2a_runtime.preparation import (
     RunBackedDispatchRecovery,
@@ -222,6 +226,7 @@ class OrchestratorRuntime:
     recovery_cycle: Any
     public_secret_values: tuple[str, ...]
     push_ingress: A2APushNotificationIngress
+    pass_end_hooks: RunPassEndHooks
 
 
 _PROFILE_IDS = ("fast", "ultimate", "passthrough")
@@ -277,6 +282,7 @@ _RUNTIME_BINDINGS = (
     "recovery_cycle",
     "public_secret_values",
     "push_ingress",
+    "pass_end_hooks",
 )
 
 
@@ -401,6 +407,7 @@ def create_orchestrator_runtime(  # noqa: C901
     rule_question: Any | None = None,
     supervisor_hitl_cancellation: Callable[[str], Any] | None = None,
     agent_call_check: AgentCallCheckPort | None = None,
+    run_pass_ended: RunPassEnded | None = None,
 ) -> OrchestratorRuntime:
     """Compose the full orchestrator runtime over the registered Mongo stores.
 
@@ -580,12 +587,14 @@ def create_orchestrator_runtime(  # noqa: C901
         )
 
     run_factory = DefaultRunFactory()
+    pass_end_hooks = RunPassEndHooks(run_pass_ended)
     session_host = RoomSessionHost(
         kernel_factory=kernel_for_catalog,
         run_store=run_store,
         epoch_store=epoch_store,
         listener=session_listener,
         run_factory=run_factory,
+        pass_end_hooks=pass_end_hooks,
     )
 
     observation_sink = session_host.observation_sink()
@@ -865,6 +874,9 @@ def create_orchestrator_runtime(  # noqa: C901
                             failure_count=decision.failure_count,
                             retry_scheduled=True,
                         )
+            # The recovery claim is released; answers that came in while the
+            # pass ran are applied now.
+            pass_end_hooks.notify(run.run_id, conversation_id=run.conversation_id)
 
     def _due_phase(recover: Callable[..., Any]) -> Callable[[], Any]:
         async def run() -> None:
@@ -941,6 +953,7 @@ def create_orchestrator_runtime(  # noqa: C901
         recovery_cycle=recovery_cycle,
         public_secret_values=public_secret_values,
         push_ingress=push_ingress,
+        pass_end_hooks=pass_end_hooks,
     )
 
 

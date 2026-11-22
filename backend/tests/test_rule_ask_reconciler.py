@@ -14,6 +14,7 @@ store and event delivery are replaced.
 
 from __future__ import annotations
 
+import asyncio
 from contextlib import asynccontextmanager
 from types import SimpleNamespace
 
@@ -24,16 +25,21 @@ from approval.factory import create_hitl_service
 from approval.reconciler import HITLLifecycleReconciler
 from approval.repository import HITLLifecycleStore, HITLRequestStore
 from common.dto import RunEventNotification
+from execution.adapters.session_host import RoomSessionHost
 from execution.orchestrator.a2a_runtime.observations import (
     RunAddressedToolObservationSink,
+    RunPassEndHooks,
 )
 from execution.orchestrator.models import TERMINAL_RUN_STATUSES
+from execution.orchestrator.session import RoomAgentSession
 from tests._in_memory_mongo import collection
 from tests._orchestrator_helpers import (
     NOW,
     NeverCancelled,
+    drain_pass_end_hooks,
     final_events,
     make_kernel,
+    session_config,
     tool_events,
 )
 from tests._rule_ask_helpers import AskingToolRuntime, RoomLog
@@ -117,7 +123,9 @@ class _RoomFiles:
         yield
 
 
-async def _owner_and_two_held_calls():
+async def _owner_and_two_held_calls(*, pass_end=False, live_session=False):
+    """``pass_end`` applies parked answers when a pass ends, as the container
+    wires it; ``live_session`` delivers answers through a live session."""
     room = RoomLog()
     tools = AskingToolRuntime({"fake_agent_echo": "rule_ask_echo"})
     kernel, store, _model, _ = await make_kernel(
@@ -131,16 +139,38 @@ async def _owner_and_two_held_calls():
         tool_runtime=tools,
     )
     run_id = next(iter(store.runs))
+    reconcilers: list[HITLLifecycleReconciler] = []
+
+    async def apply_parked(ended_run_id):
+        await reconcilers[0].apply_parked_run_answers(ended_run_id)
+
+    hooks = RunPassEndHooks(apply_parked if pass_end else None)
+    # No live session owns the Run: answers go through the sink.
+    session_host = SimpleNamespace(get_session=lambda _conversation_id: None)
+    if live_session:
+        session_host = RoomSessionHost(
+            kernel_factory=lambda _catalog: kernel,
+            run_store=store,
+            epoch_store=None,
+            pass_end_hooks=hooks,
+        )
+        session = RoomAgentSession(
+            config=session_config(), kernel=kernel, run_store=store
+        )
+        session._run_id = run_id
+        session._emit_kernel_event = room.lifecycle
+        session_host._sessions[store.runs[run_id].conversation_id] = session
     runtime = SimpleNamespace(
         run_store=store,
-        # No live session owns the Run: answers go through the sink.
-        session_host=SimpleNamespace(get_session=lambda _conversation_id: None),
+        session_host=session_host,
         observation_sink=RunAddressedToolObservationSink(
             run_store=store,
             kernel_factory=lambda _run: kernel,
             signal_factory=NeverCancelled,
             lifecycle_factory=lambda _run: room.lifecycle,
+            pass_end_hooks=hooks,
         ),
+        pass_end_hooks=hooks,
     )
 
     requests_collection = collection("hitl_requests")
@@ -219,6 +249,9 @@ async def _owner_and_two_held_calls():
     reconciler = HITLLifecycleReconciler(
         lifecycle=lifecycle, service=service, application=application
     )
+    reconcilers.append(reconciler)
+    if pass_end:
+        application.bind_parked_run_check(container.parked_run_check(lambda: runtime))
 
     kernel.rule_question = container.rule_question_port(service)
     kernel.canonical_event_reader = room.read
@@ -227,6 +260,8 @@ async def _owner_and_two_held_calls():
     assert held.outcome == "awaiting_user"
 
     return SimpleNamespace(
+        hooks=hooks,
+        session_host=session_host,
         service=service,
         application=application,
         reconciler=reconciler,
@@ -391,3 +426,139 @@ async def test_an_answer_the_run_was_too_busy_for_is_applied_by_the_reconciler()
 
     assert again["errors"] == 0
     assert world.tools.execute_log == ["call-1", "call-2"]
+
+
+async def _second_answer_during_call_1(world, *, park_after_the_pass=False):
+    """Answer call-2's Question while call-1 runs; return the answer status.
+
+    With ``park_after_the_pass`` the second answer reads the Run as busy,
+    but is parked only after call-1's pass ended and its hook found nothing.
+    """
+    first = await _question_for(world, "call-1")
+    during_pass: list[object] = []
+    original_execute = world.tools.execute
+    reading_busy = asyncio.Event()
+    parked = asyncio.Event()
+    mark = world.lifecycle.mark_interaction_application_state
+
+    async def park_late(interaction_id, **kwargs):
+        if kwargs.get("error") == "run_busy" and not parked.is_set():
+            reading_busy.set()
+            await parked.wait()
+        return await mark(interaction_id, **kwargs)
+
+    if park_after_the_pass:
+        world.lifecycle.mark_interaction_application_state = park_late
+
+    async def execute_while_the_owner_answers(invocation, acceptance, *, signal):
+        if invocation.invocation_id == "call-1":
+            # The pass asked about call-2 before it ran call-1.
+            second = await _question_for(world, "call-2")
+            during_pass.append(second)
+            if park_after_the_pass:
+                during_pass.append(
+                    asyncio.create_task(_answer(world, second, "Approve"))
+                )
+                await reading_busy.wait()
+            else:
+                during_pass.append(await _answer(world, second, "Approve"))
+        return await original_execute(invocation, acceptance, signal=signal)
+
+    world.tools.execute = execute_while_the_owner_answers
+
+    applied = await _answer(world, first, "Approve")
+    assert applied["status"] == "applied"
+    second, answered = during_pass
+    if park_after_the_pass:
+        # call-1's pass ended; its hook ran before the answer was parked.
+        await drain_pass_end_hooks(world.hooks)
+        assert (await world.store.load(world.run_id)).status == "awaiting_user"
+        parked.set()
+        answered = await answered
+    await drain_pass_end_hooks(world.hooks)
+    return second, answered["status"]
+
+
+async def _applied_without_the_reconciler(world, second):
+    done = await world.store.load(world.run_id)
+    assert done.status == "completed"
+    assert world.tools.execute_log == ["call-1", "call-2"]
+    finished = await world.lifecycle.get_interaction_strict(second.interaction_id)
+    assert finished["status"] == "applied"
+    counts = await world.reconciler.reconcile_lifecycle()
+    assert counts["applications"] == 0
+
+
+async def test_an_answer_the_run_was_too_busy_for_is_applied_when_the_pass_ends():
+    world = await _owner_and_two_held_calls(pass_end=True)
+
+    second, status = await _second_answer_during_call_1(world)
+
+    assert status == "accepted"
+    await _applied_without_the_reconciler(world, second)
+
+
+async def test_a_live_session_applies_the_parked_answer_when_its_pass_ends():
+    # The live session's lease is released before its pass-end hook runs, so
+    # the hook's delivery through the same session is not refused.
+    world = await _owner_and_two_held_calls(pass_end=True, live_session=True)
+
+    second, status = await _second_answer_during_call_1(world)
+
+    assert status == "accepted"
+    await _applied_without_the_reconciler(world, second)
+
+
+async def test_an_answer_parked_after_the_pass_ended_is_applied_at_once():
+    world = await _owner_and_two_held_calls(pass_end=True)
+
+    second, status = await _second_answer_during_call_1(world, park_after_the_pass=True)
+
+    assert status == "accepted"
+    await _applied_without_the_reconciler(world, second)
+
+
+async def test_a_live_session_answer_parked_after_its_pass_ended_is_applied():
+    # The park lands after the session's pass ended and let the Run go, so
+    # the check after the park applies the answer through the same session.
+    world = await _owner_and_two_held_calls(pass_end=True, live_session=True)
+
+    second, status = await _second_answer_during_call_1(world, park_after_the_pass=True)
+
+    assert status == "accepted"
+    await _applied_without_the_reconciler(world, second)
+
+
+async def test_shutdown_settles_a_pass_a_hook_drives_as_interrupted():
+    world = await _owner_and_two_held_calls(pass_end=True, live_session=True)
+    first = await _question_for(world, "call-1")
+    original_execute = world.tools.execute
+    call_2_running = asyncio.Event()
+    answers: list[object] = []
+    interrupted_by: list[str] = []
+
+    async def execute(invocation, acceptance, *, signal):
+        if invocation.invocation_id == "call-1":
+            second = await _question_for(world, "call-2")
+            answers.append(await _answer(world, second, "Approve"))
+        if invocation.invocation_id == "call-2":
+            # The hook's pass: shutdown starts while it runs.
+            call_2_running.set()
+            try:
+                await asyncio.Event().wait()
+            except asyncio.CancelledError:
+                interrupted_by.append("session shutdown")
+                raise
+        return await original_execute(invocation, acceptance, signal=signal)
+
+    world.tools.execute = execute
+    assert (await _answer(world, first, "Approve"))["status"] == "applied"
+    await call_2_running.wait()
+
+    world.hooks.close()
+    await world.session_host.shutdown()
+
+    assert interrupted_by == ["session shutdown"]
+    ended = await world.store.load(world.run_id)
+    assert ended.status == "failed"
+    assert ended.terminal_reason == "interrupted"

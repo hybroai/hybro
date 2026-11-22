@@ -2,11 +2,14 @@
 
 from __future__ import annotations
 
-from collections.abc import Awaitable, Callable
+import asyncio
+from collections.abc import Awaitable, Callable, Iterator
+from contextlib import contextmanager
 from datetime import UTC, datetime, timedelta
 
 from common.observability import events as E
 from common.observability import get_logger
+from common.observability.tracing import traced_create_task
 
 from ..budget import resumed_deadline_at
 from ..kernel import KernelLifecycle, KernelRunResult, OrchestratorKernel, SystemClock
@@ -18,6 +21,67 @@ from ..session import schedule_run_recovery
 from .errors import RecoverableAdapterError
 
 logger = get_logger(__name__)
+
+# Called with a Run's id after a pass over it ends and its driver let it go.
+RunPassEnded = Callable[[str], Awaitable[object]]
+
+
+class RunPassEndHooks:
+    """Runs ``hook`` in the background each time a pass over a Run ends.
+
+    The hook applies owner answers that came in while the pass ran, so the
+    caller of the pass does not wait for the next one. A failure is logged;
+    the HITL reconciler applies those answers later anyway. A pass that was
+    cancelled reports nothing, and after ``close`` no hook starts.
+    """
+
+    def __init__(self, hook: RunPassEnded | None = None) -> None:
+        self._hook = hook
+        self._tasks: set[asyncio.Task[None]] = set()
+        self._stopped = False
+
+    def notify(self, run_id: str | None, *, conversation_id: str) -> None:
+        hook = self._hook
+        if hook is None or run_id is None or self._stopped:
+            return
+
+        async def run_hook() -> None:
+            try:
+                await hook(run_id)
+            except Exception as exc:
+                logger.emit(
+                    E.RUN_PASS_END_HOOK_FAILED,
+                    exc=exc,
+                    run_id=run_id,
+                    conversation_id=conversation_id,
+                )
+
+        task = traced_create_task(run_hook(), name=f"run-pass-ended:{run_id}")
+        self._tasks.add(task)
+        task.add_done_callback(self._tasks.discard)
+
+    @contextmanager
+    def after_pass(
+        self, run_id: Callable[[], str | None], *, conversation_id: str
+    ) -> Iterator[None]:
+        """Notify when the pass inside ends, unless it was cancelled."""
+        try:
+            yield
+        except asyncio.CancelledError:
+            raise
+        except BaseException:
+            self.notify(run_id(), conversation_id=conversation_id)
+            raise
+        self.notify(run_id(), conversation_id=conversation_id)
+
+    def close(self) -> None:
+        """Start no more hooks (shutdown, before it settles in-flight Runs).
+
+        A hook already running is not waited for: cancelling it would not
+        stop a pass it started, and a pass through a live session is
+        settled as interrupted by the session's shutdown.
+        """
+        self._stopped = True
 
 
 async def await_recoverable(
@@ -62,6 +126,7 @@ class RunAddressedToolObservationSink:
         lifecycle_factory: LifecycleFactory | None = None,
         listener: SessionEventListener | None = None,
         clock: SystemClock | None = None,
+        pass_end_hooks: RunPassEndHooks | None = None,
     ) -> None:
         self.run_store = run_store
         self.kernel_factory = kernel_factory
@@ -69,6 +134,7 @@ class RunAddressedToolObservationSink:
         self.lifecycle_factory = lifecycle_factory
         self.listener = listener
         self.clock = clock or SystemClock()
+        self.pass_end_hooks = pass_end_hooks or RunPassEndHooks()
 
     async def deliver(self, run_id: str, observation: ToolObservation) -> None:
         run = await self.run_store.load(run_id)
@@ -116,17 +182,20 @@ class RunAddressedToolObservationSink:
 
             lifecycle = emit_kernel_event
 
-        await await_recoverable(
-            kernel.observe_tool(
-                run_id,
-                observation,
-                signal=self.signal_factory(),
-                lifecycle=lifecycle,
-            ),
-            schedule_recovery=lambda due: schedule_run_recovery(
-                self.run_store, run_id, next_attempt_at=due
-            ),
-            now=self.clock.now,
-            conversation_id=run.conversation_id,
-            run_id=lambda: run_id,
-        )
+        with self.pass_end_hooks.after_pass(
+            lambda: run_id, conversation_id=run.conversation_id
+        ):
+            await await_recoverable(
+                kernel.observe_tool(
+                    run_id,
+                    observation,
+                    signal=self.signal_factory(),
+                    lifecycle=lifecycle,
+                ),
+                schedule_recovery=lambda due: schedule_run_recovery(
+                    self.run_store, run_id, next_attempt_at=due
+                ),
+                now=self.clock.now,
+                conversation_id=run.conversation_id,
+                run_id=lambda: run_id,
+            )

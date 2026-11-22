@@ -136,6 +136,64 @@ def test_the_runtime_binds_the_question_port_and_the_resume_port():
     assert "supervisor_answer_observation(" not in lifespan
 
 
+def test_the_runtime_applies_parked_answers_when_a_pass_ends():
+    import orchestrator_composition
+
+    lifespan = inspect.getsource(container._runtime_lifespan)
+    compose = inspect.getsource(orchestrator_composition.create_orchestrator_runtime)
+
+    assert (
+        lifespan.count("run_pass_ended=hitl_reconciler.apply_parked_run_answers,") == 1
+    )
+    assert lifespan.count("hitl_application.bind_parked_run_check(") == 1
+    # No hook starts once shutdown settles the in-flight Runs.
+    close = lifespan.index('("run-pass-end-hooks-close", close_pass_end_hooks)')
+    assert close < lifespan.index('("execution", cancel_execution)')
+    # One set of hooks for the live session host (and the sink it builds)
+    # and generic recovery.
+    assert compose.count("RunPassEndHooks(run_pass_ended)") == 1
+    assert compose.count("pass_end_hooks=pass_end_hooks,") == 2
+    assert compose.count("pass_end_hooks.notify(") == 1
+
+
+@pytest.mark.parametrize(
+    ("run_status", "claimed", "notified"),
+    [
+        ("running", False, False),
+        ("awaiting_user", True, False),
+        ("awaiting_user", False, True),
+        ("completed", False, True),
+    ],
+)
+async def test_a_parked_answer_is_applied_only_when_no_pass_holds_the_run(
+    run_status, claimed, notified
+):
+    from types import SimpleNamespace
+
+    notes: list[tuple[str, str]] = []
+    run = SimpleNamespace(
+        status=run_status,
+        conversation_id="room-1",
+        recovery_claim=SimpleNamespace(owner_id="driver-1" if claimed else None),
+    )
+
+    async def load(_run_id):
+        return run
+
+    runtime = SimpleNamespace(
+        run_store=SimpleNamespace(load=load),
+        pass_end_hooks=SimpleNamespace(
+            notify=lambda run_id, *, conversation_id: notes.append(
+                (run_id, conversation_id)
+            )
+        ),
+    )
+
+    await container.parked_run_check(lambda: runtime)("run-1")
+
+    assert notes == ([("run-1", "room-1")] if notified else [])
+
+
 @pytest.mark.parametrize(
     ("status", "hold", "expected"),
     [

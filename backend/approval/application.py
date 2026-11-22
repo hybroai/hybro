@@ -81,9 +81,34 @@ class HITLApplicationCoordinator:
     def __init__(self, *, lifecycle) -> None:
         self._lifecycle = lifecycle
         self._run_answer_projector = None
+        self._parked_run_check = None
 
     def bind_run_answer_projector(self, projector) -> None:
         self._run_answer_projector = projector
+
+    def bind_parked_run_check(self, check) -> None:
+        """``check(run_id)`` runs after an answer is parked as ``run_busy``.
+
+        A pass that ended between the busy read and the park did not see the
+        parked answer, so the check applies it when no pass holds the Run.
+        """
+        self._parked_run_check = check
+
+    async def _check_parked_run(self, interaction: dict[str, Any]) -> None:
+        run_id = interaction.get("orchestration_run_id")
+        if self._parked_run_check is None or not run_id:
+            return
+        try:
+            await self._parked_run_check(run_id)
+        except Exception as exc:
+            # The reconciler applies the answer later.
+            logger.emit(
+                E.HITL_APPLICATION_RESUME_DEFERRED,
+                exc=exc,
+                interaction_id=interaction.get("interaction_id"),
+                conversation_id=interaction.get("room_id"),
+                run_id=run_id,
+            )
 
     async def _renew_leases_once(
         self,
@@ -673,14 +698,15 @@ class HITLApplicationCoordinator:
                 raise HITLDeliveryUncertainError(str(exc)) from exc
             raise HITLRoutingFailedError(str(exc)) from exc
         except HITLRunBusyError:
-            # Not a failure: the answer is durable and waits for the Run's
-            # pass to end. The reconciler applies the interaction again.
+            # Not a failure: the answer is durable and is applied when the
+            # Run's pass ends; the reconciler applies it if that fails.
             await self._lifecycle.mark_interaction_application_state(
                 interaction_id,
                 claim_id=claim_id,
                 status=HITLInteractionStatus.APPLYING.value,
                 error="run_busy",
             )
+            await self._check_parked_run(claimed)
             return self._result(rows[0], status="accepted", interaction=claimed)
         except TimeoutError as exc:
             await self._lifecycle.mark_interaction_application_state(

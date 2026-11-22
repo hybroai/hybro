@@ -1839,6 +1839,14 @@ async def _runtime_lifespan(app: Any, runtime: ApplicationRuntime):  # noqa: C90
                 supervisor_hitl_cancellation=(hitl_manager.cancel_requests_for_message),
                 # The owner's check rules, asked once per new Agent call.
                 agent_call_check=app.state.policy_rules,
+                # Answers that found the Run busy are applied when its pass
+                # ends, not at the next stale-task sweep.
+                run_pass_ended=hitl_reconciler.apply_parked_run_answers,
+            )
+            hitl_application.bind_parked_run_check(
+                parked_run_check(
+                    lambda: getattr(app.state, "orchestrator_runtime", None)
+                )
             )
             missing = validate_orchestrator_runtime(app.state.orchestrator_runtime)
             if missing:
@@ -2200,8 +2208,20 @@ async def _runtime_lifespan(app: Any, runtime: ApplicationRuntime):  # noqa: C90
             shutdown_steps.append(
                 ("leader-locks", lambda: _leader.release_all(ALL_JOB_NAMES))
             )
+
+        async def close_pass_end_hooks() -> None:
+            orchestrator_runtime = getattr(app.state, "orchestrator_runtime", None)
+            if orchestrator_runtime is not None:
+                # Before execution: a new hook could start a pass over a Run
+                # that shutdown is settling.
+                orchestrator_runtime.pass_end_hooks.close()
+
         shutdown_steps.extend(
-            [("execution", cancel_execution), ("delivery-drain", drain_delivery)]
+            [
+                ("run-pass-end-hooks-close", close_pass_end_hooks),
+                ("execution", cancel_execution),
+                ("delivery-drain", drain_delivery),
+            ]
         )
         if _eventing_bus is not None:
             shutdown_steps.append(("eventing", _eventing_bus.stop))
@@ -2773,6 +2793,31 @@ async def rule_answer_applied_after_conflict(
     if disposition == "busy":
         raise HITLRunBusyError("the Run is executing") from cause
     return disposition == "applied"
+
+
+def parked_run_check(
+    get_runtime: Callable[[], Any],
+) -> Callable[[str], Awaitable[None]]:
+    """After an answer is parked as ``run_busy``, apply it if no pass holds
+    the Run any more.
+
+    A Run that is ``running``, or that a driver has claimed, is held by a
+    pass whose end applies the parked answers; that pass writes its status
+    and releases its claim after the park, so it sees the answer.
+    """
+
+    async def check(run_id: str) -> None:
+        runtime = get_runtime()
+        if runtime is None:
+            return
+        run = await runtime.run_store.load(run_id)
+        if run is None:
+            return
+        if run.status == "running" or run.recovery_claim.owner_id is not None:
+            return
+        runtime.pass_end_hooks.notify(run_id, conversation_id=run.conversation_id)
+
+    return check
 
 
 def rule_question_port(hitl_manager: Any) -> Callable[..., Awaitable[None]]:

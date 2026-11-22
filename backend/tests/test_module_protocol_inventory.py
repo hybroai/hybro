@@ -90,6 +90,7 @@ EXPECTED_METHODS = {
             "iter_due_interactions",
             "iter_due_resume_commands",
             "iter_materializing_interactions",
+            "iter_run_busy_applications",
             "iter_stale_applications",
             "iter_unreconciled_terminal_interactions",
             "iter_unreconciled_terminal_requests",
