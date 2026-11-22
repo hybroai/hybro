@@ -431,3 +431,32 @@ describe('the answer grant', () => {
     await waitFor(() => expect(state.lists).toBeGreaterThanOrEqual(2))
   })
 })
+
+describe('the answer grant while a change is in flight', () => {
+  it('ignores another change to the same client until its request ends', async () => {
+    let release: () => void = () => undefined
+    const held = new Promise<void>(resolve => { release = resolve })
+    state.clients = [{ ...CI, answer_grant: true }, { ...CLAUDE, answer_grant: true }, OLD]
+    server.use(http.put(getApiUrl('clients/client_ci/answer-grant'), async ({ request }) => {
+      state.grants.push({ client_id: 'client_ci', ...(await request.json() as object) })
+      await held
+      state.clients = state.clients.map(client => client.client_id === 'client_ci' ? { ...client, answer_grant: false } : client)
+      return HttpResponse.json(state.clients[0])
+    }))
+    const user = userEvent.setup()
+    render(<ConnectPage kind="clients" />)
+    await user.click(await grantSwitch('CI bot'))
+    await waitFor(() => expect(state.grants).toHaveLength(1))
+    // Another client's change does not free the first one.
+    await user.click(await grantSwitch('Claude Code'))
+    await waitFor(() => expect(state.grants).toHaveLength(2))
+    await user.click(await grantSwitch('CI bot'))
+    expect(screen.queryByRole('alertdialog')).toBeNull()
+    expect(state.grants).toHaveLength(2)
+    expect(await grantSwitch('CI bot')).toHaveAttribute('aria-busy', 'true')
+
+    release()
+    await waitFor(async () => expect(await grantSwitch('CI bot')).not.toBeChecked())
+    expect(await grantSwitch('CI bot')).not.toHaveAttribute('aria-busy')
+  })
+})

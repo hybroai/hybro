@@ -1312,7 +1312,8 @@ The text above the table says so, and each switch (labelled "{name} can answer
 permission questions") is described by it. A revoked client and a built-in one
 (`BUILT_IN_CLIENT_IDS`, "No token") show a dash instead. Turning a switch on
 asks for confirmation first, and closing it hands focus back to the switch,
-which stays focusable while its change is in flight; turning it off applies
+which stays focusable while its change is in flight (a further change to the
+same client is ignored until its request ends, tracked per client); turning it off applies
 at once. Both send
 `PUT /clients/{id}/answer-grant` (`setAnswerGrant`) and put the returned
 client into the `['clients']` list. A 404 or 409 shows fixed text and reloads

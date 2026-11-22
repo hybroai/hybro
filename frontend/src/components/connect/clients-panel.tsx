@@ -264,9 +264,18 @@ function canHoldGrant(client: ClientView): boolean {
 /** Turning the grant on asks first; turning it off applies at once. */
 function useAnswerGrant(onError: (message: string | null) => void) {
   const queryClient = useQueryClient()
-  return useMutation({
+  // Per client: one shared mutation only knows its latest call.
+  const [inFlight, setInFlight] = useState<ReadonlySet<string>>(() => new Set())
+  const mark = (clientId: string, busy: boolean) => setInFlight(current => {
+    const next = new Set(current)
+    if (busy) next.add(clientId)
+    else next.delete(clientId)
+    return next
+  })
+  const mutation = useMutation({
     mutationFn: ({ client, granted }: { client: ClientView; granted: boolean }) => setAnswerGrant(client.client_id, granted),
-    onMutate: () => onError(null),
+    onMutate: ({ client }) => { onError(null); mark(client.client_id, true) },
+    onSettled: (_data, _error, { client }) => mark(client.client_id, false),
     onSuccess: view => {
       queryClient.setQueryData<ClientList>(clientsQueryKey, list => list && { clients: list.clients.map(item => item.client_id === view.client_id ? view : item) })
     },
@@ -275,6 +284,7 @@ function useAnswerGrant(onError: (message: string | null) => void) {
       void queryClient.invalidateQueries({ queryKey: clientsQueryKey })
     },
   })
+  return { mutate: mutation.mutate, inFlight }
 }
 
 function GrantSwitch({ client, pending, onChange }: { client: ClientView; pending: boolean; onChange: (granted: boolean, opener: HTMLElement) => void }) {
@@ -375,7 +385,6 @@ function ClientsTable({ onAction }: { onAction: (pending: Pending) => void }) {
     if (granted) setConfirming({ client, opener })
     else grant.mutate({ client, granted: false })
   }
-  const pendingId = grant.isPending ? grant.variables?.client.client_id : undefined
   return (
     <>
     {grantError ? <Alert variant="destructive"><AlertDescription>{grantError}</AlertDescription></Alert> : null}
@@ -417,7 +426,7 @@ function ClientsTable({ onAction }: { onAction: (pending: Pending) => void }) {
                 key={client.client_id}
                 client={client}
                 onAction={onAction}
-                grant={{ pending: pendingId === client.client_id, onChange: change(client) }}
+                grant={{ pending: grant.inFlight.has(client.client_id), onChange: change(client) }}
               />
             ))
           )}
