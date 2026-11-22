@@ -2617,11 +2617,12 @@ agent_network_routes
 
 The repository-root `MCP/server.py` is a standalone API client, not another
 execution owner. It serves Streamable HTTP on `127.0.0.1:8001`, which Caddy
-publishes as `/mcp` on the app's port, and exposes seven tools: `list_subnets` (`agents/groups`), `find_agents`
+publishes as `/mcp` on the app's port, and exposes eight tools: `list_subnets` (`agents/groups`), `find_agents`
 (`agents/search`), `get_agent` (`agents/{agent_id}/profile`), `discover_agents`
 (`agents/discovery`), `send_message` (`sessions/messages`), `check_session`
-(`sessions/{id}`), and `close_session` (`sessions/{id}/close`), all Client API
-routes. Tool arguments
+(`sessions/{id}`), `close_session` (`sessions/{id}/close`), and
+`answer_question` (`sessions/{id}/questions/{question_id}/answer`), all Client
+API routes. Tool arguments
 call saved groups subnets (`subnet_id`) and translate to `group_id`;
 `list_subnets` strips the app's `[hybro-use-case:<id>]` preset tag. It runs
 from the backend environment with the `mcp` extra of `backend/pyproject.toml`
@@ -2693,8 +2694,14 @@ name). It returns
 the backend receipt with a `next_action`; a `failed` receipt is a tool error and
 `include_raw` adds the backend response. A retry must reuse the
 `client_request_id`; the adapter never retries. `check_session` returns the
-client view with a `next_action` per state, and `close_session` returns
-`session_id` and `status`. Every tool publishes an output schema; HTTP and
+client view with a `next_action` per state; when the view carries a permission
+`question` (a client with the owner's grant), the `next_action` says to decide
+with the user and call `answer_question`. `answer_question` takes
+`session_id`, `question_id` and `answer` (`approve` or `refuse`, nothing else)
+and returns the backend's answer with a `next_action`; its refusals
+(`answer_not_granted`, `question_owner_only`, `question_not_pending`,
+`answer_unconfirmed`, `answer_failed`) each get a hint keyed on the code.
+`close_session` returns `session_id` and `status`. Every tool publishes an output schema; HTTP and
 transport failures become tool errors that keep the backend body, with a
 `409`/`404` hint keyed on the backend error code; a `401` hint asks for a
 current client token.

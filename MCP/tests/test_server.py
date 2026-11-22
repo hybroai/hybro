@@ -529,6 +529,7 @@ async def test_tools_publish_output_schemas():
         "send_message",
         "check_session",
         "close_session",
+        "answer_question",
     }
     for tool in tools.values():
         assert tool.output_schema is not None
@@ -536,6 +537,8 @@ async def test_tools_publish_output_schemas():
     assert tools["find_agents"].annotations.read_only_hint is True
     assert tools["check_session"].annotations.read_only_hint is True
     assert tools["close_session"].annotations.destructive_hint is True
+    assert tools["answer_question"].annotations.destructive_hint is True
+    assert tools["answer_question"].annotations.idempotent_hint is False
 
 
 async def test_http_validation_error_is_an_actionable_tool_error():
@@ -1235,6 +1238,16 @@ TOOL_CALLS = [
         {"session_id": "sess-1"},
         {"session_id": "sess-1", "status": "closed"},
     ),
+    (
+        "answer_question",
+        {"session_id": "sess-1", "question_id": "int-1", "answer": "approve"},
+        {
+            "session_id": "sess-1",
+            "question_id": "int-1",
+            "answer": "approve",
+            "status": "accepted",
+        },
+    ),
 ]
 
 
@@ -1459,3 +1472,125 @@ async def test_check_session_denied_names_the_rule_reason():
     )
     assert result.structured_content["state"] == "denied"
     assert reason in result.structured_content["next_action"]
+
+
+QUESTION = {
+    "question_id": "int/1",
+    "kind": "permission",
+    "text": "Allow this call to Travel Planner?",
+    "agent_id": "travel",
+    "agent_name": "Travel Planner",
+    "answers": ["approve", "refuse"],
+}
+
+
+def waiting_status(**extra):
+    return {
+        "session_id": "sess-1",
+        "state": "waiting_on_owner",
+        "agents": [{"agent_id": "travel", "name": "Travel Planner"}],
+        "created_at": "2026-10-14T00:00:00Z",
+        "updated_at": "2026-10-14T00:00:00Z",
+        "history": [],
+        **extra,
+    }
+
+
+async def test_check_session_shows_a_question_the_client_may_answer():
+    result = await call_with_transport(
+        lambda _: httpx.Response(200, json=waiting_status(question=QUESTION)),
+        "check_session",
+        {"session_id": "sess-1"},
+    )
+
+    assert not result.is_error
+    summary = result.structured_content
+    assert summary["question"] == QUESTION
+    assert "answer_question" in summary["next_action"]
+    assert "the user" in summary["next_action"]
+
+
+async def test_check_session_without_a_question_waits_for_the_owner():
+    result = await call_with_transport(
+        lambda _: httpx.Response(200, json=waiting_status()),
+        "check_session",
+        {"session_id": "sess-1"},
+    )
+
+    summary = result.structured_content
+    assert summary.get("question") is None
+    assert "owner's decision" in summary["next_action"]
+    assert "answer_question" not in summary["next_action"]
+
+
+@pytest.mark.parametrize("answer", ["approve", "refuse"])
+async def test_answer_question_posts_the_answer(answer):
+    calls = []
+    reply = {
+        "session_id": "s/1",
+        "question_id": "int/1",
+        "answer": answer,
+        "status": "accepted",
+    }
+
+    def backend(request):
+        calls.append(request)
+        return httpx.Response(200, json=reply)
+
+    result = await call_with_transport(
+        backend,
+        "answer_question",
+        {"session_id": "s/1", "question_id": "int/1", "answer": answer},
+    )
+
+    assert not result.is_error
+    assert calls[0].method == "POST"
+    assert calls[0].url.raw_path == b"/api/v1/sessions/s%2F1/questions/int%2F1/answer"
+    assert json.loads(calls[0].content) == {"answer": answer}
+    assert result.structured_content["status"] == "accepted"
+    assert "check_session" in result.structured_content["next_action"]
+
+
+@pytest.mark.parametrize("answer", ["Approve", "yes", "reject", ""])
+async def test_answer_question_takes_only_approve_or_refuse(answer):
+    calls = []
+
+    result = await call_with_transport(
+        lambda request: calls.append(request) or httpx.Response(500),
+        "answer_question",
+        {"session_id": "s1", "question_id": "int-1", "answer": answer},
+    )
+
+    assert result.is_error
+    assert calls == []
+
+
+@pytest.mark.parametrize(
+    ("status", "code", "hint"),
+    [
+        (403, "answer_not_granted", "Connect page"),
+        (403, "question_owner_only", "owner answers"),
+        (409, "question_not_pending", "check_session"),
+        (503, "answer_unconfirmed", "check_session"),
+        (502, "answer_failed", "check_session"),
+        (404, "session_not_found", "new session"),
+    ],
+)
+async def test_answer_refusals_name_the_next_step(status, code, hint):
+    error = {"detail": {"code": code, "message": "Fixed text."}}
+
+    result = await call_with_transport(
+        lambda _: httpx.Response(status, json=error),
+        "answer_question",
+        {"session_id": "s1", "question_id": "int-1", "answer": "approve"},
+    )
+
+    assert result.is_error
+    assert result.structured_content["detail"] == error["detail"]
+    assert hint in result.structured_content["next_action"]
+
+
+async def test_instructions_describe_answering_permission_questions():
+    async with httpx.AsyncClient(base_url=server.BACKEND_API_URL) as http:
+        mcp_server = create_server(http)
+    assert "answer_question" in mcp_server.instructions

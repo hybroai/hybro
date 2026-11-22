@@ -241,7 +241,10 @@ under **Access**, **Clients** (`/connect/clients`) and put it in place of
 tile shows whether MCP is reachable. Add the server manually to your client;
 Hybro does not automatically discover or register MCP clients. Sessions that
 clients open this way appear under **Inbox**, where you answer any question or
-approval an agent raises.
+approval an agent raises. To let a client answer permission questions itself (a
+check rule's ask and an agent's own approval question, in its own sessions),
+turn on **Can answer** for it under **Access**, **Clients**: `check_session`
+then shows the question, and the client answers with `answer_question`.
 
 <p align="center">
   <img src="assets/screenshots/connect.png" alt="The Access page with the MCP address and client setup commands" width="800">
@@ -327,7 +330,11 @@ curl --header "Authorization: Bearer $HYBRO_TOKEN" \
 
 `state` goes from `working` to `completed`, and `history` holds the agent's
 `reply`. The session also appears under **Inbox** in the app. When an agent
-needs your approval, `state` is `waiting_on_owner` and you answer it there.
+needs your approval, `state` is `waiting_on_owner` and you answer it there. A
+client you allowed to answer permission questions (**Can answer** under
+**Access**, **Clients**) also gets the question in `question`, and answers it
+with `POST /api/v1/sessions/<session_id>/questions/<question_id>/answer` and
+`{"answer": "approve"}` or `{"answer": "refuse"}`.
 
 To continue a session, send again with its `session_id` and a new
 `client_request_id`. A session takes one message at a time: a send while an
