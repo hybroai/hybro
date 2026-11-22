@@ -526,11 +526,8 @@ class HITLApplicationCoordinator:
         current = await self._lifecycle.get_interaction_strict(interaction_id)
         if current is None:
             raise HITLRoutingFailedError("HITL interaction disappeared")
-        if current.get("status") == HITLInteractionStatus.APPLIED.value:
-            result = await self.apply_interaction(service, current)
-            result["client_request_id"] = authoritative_client_id
-            return result
         if current.get("status") not in {
+            HITLInteractionStatus.APPLIED.value,
             HITLInteractionStatus.ANSWERS_RECORDED.value,
             HITLInteractionStatus.APPLYING.value,
         }:
@@ -538,6 +535,12 @@ class HITLApplicationCoordinator:
                 "Questionnaire answers are durable but application is not ready"
             )
         result = await self.apply_interaction(service, current)
+        if answered_by_client_id is not None and result.get("status") == "canceled":
+            # The Run ended, but another worker may have applied the answer
+            # first; then it counted, and the client is told so.
+            latest = await self._lifecycle.get_interaction_strict(interaction_id)
+            if (latest or {}).get("status") == HITLInteractionStatus.APPLIED.value:
+                result["status"] = "accepted"
         result["client_request_id"] = authoritative_client_id
         return result
 

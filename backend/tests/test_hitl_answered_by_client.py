@@ -14,7 +14,7 @@ from unittest.mock import AsyncMock
 import pytest
 
 from approval.exceptions import HITLConflictError
-from models.hitl import HITLRequest
+from models.hitl import HITLInteractionStatus, HITLRequest
 from tests.test_rule_ask_answer import _coordinator, _interaction_for, _rule_question
 
 
@@ -110,3 +110,43 @@ def _digest(value: str) -> str:
     import hashlib
 
     return hashlib.sha256(value.encode("utf-8")).hexdigest()
+
+
+async def _apply_reads(latest_status, *, client_id):
+    """Record the last answer; the application reads ``canceled``."""
+    row = _rule_question()
+    interaction = _interaction_for(row)
+    coordinator, service, lifecycle = _coordinator(row, interaction)
+    recorded = {
+        **interaction,
+        "answer_request_ids": ["request-1"],
+        "status": HITLInteractionStatus.ANSWERS_RECORDED.value,
+    }
+    latest = {**recorded, "status": latest_status}
+    lifecycle.record_interaction_answer = AsyncMock(return_value=recorded)
+    lifecycle.get_interaction_strict = AsyncMock(
+        side_effect=[interaction, recorded, latest]
+    )
+    coordinator.apply_interaction = AsyncMock(
+        return_value={"request_id": "request-1", "status": "canceled"}
+    )
+    return await _answer(coordinator, service, "Approve", client_id=client_id)
+
+
+async def test_a_client_answer_applied_meanwhile_reads_accepted():
+    """Another worker applied it before the Run ended: it counted."""
+    result = await _apply_reads(HITLInteractionStatus.APPLIED.value, client_id="c")
+
+    assert result["status"] == "accepted"
+
+
+async def test_a_client_answer_closed_with_its_run_reads_canceled():
+    result = await _apply_reads(HITLInteractionStatus.FAILED.value, client_id="c")
+
+    assert result["status"] == "canceled"
+
+
+async def test_the_panels_canceled_answer_reads_as_before():
+    result = await _apply_reads(HITLInteractionStatus.APPLIED.value, client_id=None)
+
+    assert result["status"] == "canceled"

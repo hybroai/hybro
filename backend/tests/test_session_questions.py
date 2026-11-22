@@ -675,3 +675,35 @@ async def test_a_pending_question_beside_another_interaction_can_be_answered():
     assert s.answers.resolved[0]["answers"] == [
         {"request_id": "req-2", "user_input": "Approve"}
     ]
+
+
+@pytest.mark.parametrize("broken", ["pending", "paused_agent"])
+async def test_a_failed_question_read_shows_the_plain_status(broken, caplog):
+    s, client, session_id = await setup_with(rule_ask())
+
+    async def down(*_args, **_kwargs):
+        raise RuntimeError("down")
+
+    if broken == "pending":
+        s.h.approvals.get_pending_hitl = down
+    else:
+        s.h.facade._paused_agent_id = down
+
+    with caplog.at_level(logging.WARNING):
+        status = await s.check(session_id, client)
+
+    assert status.state == "waiting_on_owner"
+    assert "question" not in status.model_dump(mode="json")
+    assert "session_questions_read_failed" in caplog.text
+
+
+async def test_a_failed_application_does_not_say_to_try_again():
+    s, client, session_id = await setup_with(rule_ask())
+    s.answers.error = HITLRoutingFailedError("Remote agent was not reached")
+
+    error = await expect_error(
+        s.answer(session_id, "int-1", "approve", client), "answer_failed"
+    )
+
+    assert "check the session" in error.message.lower()
+    assert "try again" not in error.message.lower()

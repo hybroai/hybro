@@ -160,6 +160,9 @@ class A2AContinuationCoordinator:
         if call is None:
             raise KeyError(call_record_id)
         if await self._run_blocks_continuation(call):
+            if answered_by_client_id is not None:
+                # Nothing is recorded; the router refuses the client's answer.
+                raise PermissionError("Run ended before the answer was recorded")
             return "canceled"
         answer_digest = _digest_json(
             [answer.model_dump(mode="json") for answer in answers]

@@ -3900,8 +3900,9 @@ supervisor's question stay with the owner.
   waits on exactly one interaction, every member of it is listed, pending and
   a permission question, and nothing of it is answered. Without the grant the
   field is absent and nothing more is read, so the body is what it was
-  before; a failed grant read shows no `question` and logs
-  `session_answer_grant_read_failed`.
+  before. A failed read (the grant, the pending questions, or the paused
+  agent) shows no `question` and logs `session_answer_grant_read_failed` or
+  `session_questions_read_failed`.
 - The answer route reads the grant first (403 `answer_not_granted`; a failed
   read is 503 `clients_unavailable`), then the session (404
   `session_not_found` for another client's session or an unknown one, 409
@@ -3926,7 +3927,8 @@ supervisor's question stay with the owner.
   record's insert-if-absent), so when the owner and a client answer at once,
   the loser is refused and reads 409 `question_not_pending`, also with the same
   text. A client's answer to a Run that ended before the answer was recorded
-  is refused the same way in both stores; the Panel's reads as before. An
+  is refused the same way in both stores (also when the Run ends between the
+  router's read and the continuation's); the Panel's reads as before. An
   answer that was delivered stays accepted, whatever the call's own state
   after it. An unconfirmed delivery is 503
   `answer_unconfirmed`, any other failure 502 `answer_failed`, both with fixed

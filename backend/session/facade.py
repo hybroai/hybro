@@ -35,6 +35,7 @@ from common.idempotency import (
     normalize_client_request_id,
 )
 from common.observability import events as E
+from common.observability import log_id
 from common.protocols import (
     AgentNetworkTargetResolver,
     ExecutionEngine,
@@ -256,10 +257,21 @@ class SessionFacade:
         # stays as it was, outages included.
         if not await self._questions.shown_to(client):
             return status
-        question = await self._questions.visible(record)
-        if question is None:
+        try:
+            question = await self._questions.visible(record)
+            if question is None:
+                return status
+            agent_id = await self._paused_agent_id(record)
+        except AppError:
+            # visible() logged the failed read.
             return status
-        agent_id = await self._paused_agent_id(record)
+        except Exception as exc:
+            logger.emit(
+                E.SESSION_QUESTIONS_READ_FAILED,
+                exc=exc,
+                session_id=log_id(record.session_id),
+            )
+            return status
         names = {agent.agent_id: agent.name for agent in status.agents}
         question = question.model_copy(
             update={

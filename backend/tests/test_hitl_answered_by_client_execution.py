@@ -298,3 +298,19 @@ async def test_a_client_answer_to_an_ended_run_in_the_approval_store_is_refused(
         "user-1",
     )
     assert panel.status == "canceled"
+
+
+async def test_a_client_answer_the_run_ends_before_recording_is_refused():
+    """The Run ends between the router's read and the continuation's."""
+    coordinator, _ledger, hitl, _refs, dispatch, call, route = await setup_waiting()
+    coordinator.run_store = SimpleNamespace(
+        load=AsyncMock(return_value=SimpleNamespace(status="canceling"))
+    )
+
+    with pytest.raises(PermissionError, match="ended before the answer"):
+        await _resume(coordinator, call, route, client_id="client_ci")
+
+    assert await hitl.read_answer_record("interaction-1", 1) is None
+    assert dispatch.commands == []
+    # The Panel's answer reads as before.
+    assert await _resume(coordinator, call, route, client_id=None) == "canceled"

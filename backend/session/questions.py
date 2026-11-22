@@ -71,7 +71,10 @@ UNCONFIRMED = (
     "The answer was recorded, but its delivery to the agent is not confirmed "
     "yet. Check the session for its state.",
 )
-FAILED = ("answer_failed", "The answer could not be applied; try again.")
+FAILED = (
+    "answer_failed",
+    "The answer may not have been applied. Check the session before you answer again.",
+)
 
 # A refusal from the answer path that means someone else answered first, the
 # Question ended, or its Run did.
