@@ -440,7 +440,10 @@ export function RulesPage() {
 
   // A move is computed from the list on screen, so it waits until every
   // write has settled; edits wait only for a move.
-  const editBlocked = reorder.isPending
+  // A list that failed to reload, or is reloading after a refused write, may be
+  // stale: nothing in it can be edited or moved until it is read again.
+  const stale = rules.isError || (actionError !== null && writing)
+  const editBlocked = reorder.isPending || stale
 
   const move = (rule: RuleView, direction: Direction) => {
     if (!list || writing) return
@@ -480,7 +483,7 @@ export function RulesPage() {
               <h2 id="rules-heading" ref={heading} tabIndex={-1} className="text-[15px] font-semibold outline-none">Check rules</h2>
               <p className="text-sm text-muted-foreground">Each rule matches one agent or any agent, and answers Allow, Deny or Ask.</p>
             </div>
-            <Button ref={addButton} onClick={() => setAdding(true)} disabled={!rules.isSuccess}>
+            <Button ref={addButton} onClick={() => setAdding(true)} disabled={!list}>
               <Plus data-icon="inline-start" aria-hidden="true" />Add rule
             </Button>
           </div>
@@ -488,7 +491,17 @@ export function RulesPage() {
           {agents.failed && list?.length ? (
             <p className="text-xs text-muted-foreground">Agents couldn&apos;t load, so rules show agent ids.</p>
           ) : null}
-          {rules.isError ? (
+          {rules.isError && list ? (
+            <Alert variant="destructive">
+              <AlertDescription className="flex flex-wrap items-center gap-3">
+                <span>Rules couldn&apos;t reload, so the list may be out of date. Reload it before changing a rule.</span>
+                <Button variant="secondary" size="sm" onClick={() => { void rules.refetch() }}>
+                  <RefreshCw data-icon="inline-start" aria-hidden="true" />Reload
+                </Button>
+              </AlertDescription>
+            </Alert>
+          ) : null}
+          {rules.isError && !list ? (
             <div className="flex flex-wrap items-center gap-3 rounded-lg border p-4 text-sm">
               <span>Rules couldn&apos;t load.</span>
               <Button variant="secondary" size="sm" onClick={() => { void rules.refetch() }}>
@@ -518,7 +531,7 @@ export function RulesPage() {
                   count={list.length}
                   agents={agents}
                   editBlocked={editBlocked}
-                  moveBlocked={writing}
+                  moveBlocked={writing || rules.isError}
                   onChange={edit}
                   onMove={move}
                   onDelete={(target, position) => { setActionError(null); setDeleting({ rule: target, position }) }}

@@ -461,4 +461,49 @@ describe('Rules page', () => {
     await waitFor(async () => expect(await items()).toHaveLength(2))
     await waitFor(() => expect(screen.getByRole('heading', { name: 'Check rules' })).toHaveFocus())
   })
+
+  it('keeps a list that failed to reload, locked until a reload succeeds', async () => {
+    render(<RulesPage />)
+    const rows = await items()
+    server.use(http.get(getApiUrl('rules'), () => HttpResponse.json({ detail: 'x' }, { status: 503 }), { once: true }))
+    await userEvent.selectOptions(within(rows[0]).getByRole('combobox', { name: 'Answer for rule 1' }), 'ask')
+    expect(await screen.findByText(/Rules couldn.t reload, so the list may be out of date/)).toBeInTheDocument()
+    expect(await items()).toHaveLength(3)
+    expect(screen.getByRole('button', { name: 'Add rule' })).toBeEnabled()
+    const row = (await items())[1]
+    expect(within(row).getByRole('button', { name: 'Move rule 2 up' })).toHaveAttribute('aria-disabled', 'true')
+    expect(within(row).getByRole('button', { name: 'Delete rule 2' })).toHaveAttribute('aria-disabled', 'true')
+    await userEvent.click(within(row).getByRole('switch', { name: 'Rule 2 on' }))
+    expect(state.writes).toHaveLength(1)
+    await userEvent.click(screen.getByRole('button', { name: 'Reload' }))
+    await waitFor(() => expect(screen.queryByText(/couldn.t reload/)).not.toBeInTheDocument())
+    await userEvent.click(within((await items())[1]).getByRole('switch', { name: 'Rule 2 on' }))
+    await waitFor(() => expect(state.writes).toHaveLength(2))
+  })
+
+  it('ignores edits while the list reloads after a refused write', async () => {
+    let release = () => {}
+    const held = new Promise<void>(resolve => { release = resolve })
+    render(<RulesPage />)
+    const rows = await items()
+    state.rules = state.rules.filter(item => item.rule_id !== 'rule_1')
+    server.use(
+      http.put(getApiUrl('rules/:id'), ({ params }) => {
+        state.writes.push(`PUT ${String(params.id)}`)
+        return HttpResponse.json({ detail: { code: 'rule_not_found', message: 'x' } }, { status: 404 })
+      }, { once: true }),
+      http.get(getApiUrl('rules'), async () => {
+        await held
+        state.gets += 1
+        return HttpResponse.json({ rules: state.rules })
+      }, { once: true }),
+    )
+    await userEvent.selectOptions(within(rows[0]).getByRole('combobox', { name: 'Answer for rule 1' }), 'allow')
+    await screen.findByText('This rule no longer exists. The list has been reloaded.')
+    await userEvent.click(within(rows[1]).getByRole('switch', { name: 'Rule 2 on' }))
+    expect(within(rows[1]).getByRole('switch', { name: 'Rule 2 on' })).not.toBeChecked()
+    release()
+    await waitFor(async () => expect(await items()).toHaveLength(2))
+    expect(state.writes).toEqual(['PUT rule_1'])
+  })
 })

@@ -13,5 +13,7 @@ export function useRules({ paused = false }: { paused?: boolean } = {}) {
     queryFn: ({ signal }) => listRules(signal),
     refetchOnWindowFocus: !paused,
     refetchOnReconnect: !paused,
+    // Each rule write waits for its reload; a failed read shows Retry at once.
+    retry: false,
   })
 }

@@ -1360,8 +1360,9 @@ approves or rejects it, and if the work stops first the call is not sent.
 The list comes from `useRules` (`GET {api_prefix}/rules`, key `['rules']`)
 through `src/lib/api/rules.ts`. Each row shows its position, an agent select
 (**Any agent** sends `agent_id: null`; the other choices are `useNetworks`'s
-`directory`: every agent that is not deleted, a bundled agent that is not
-running labelled "(inactive)", and no network placeholders), an answer select
+`directory`: every agent that is not deleted, including bundled agents that
+are not running, with an inactive agent labelled "(inactive)", and no network
+placeholders), an answer select
 (Allow, Deny, Ask), an on/off switch, move up and move down buttons, and a
 delete button. **Add rule** opens a dialog that sends `POST /rules` (the rule
 goes to the bottom, on). A change to the agent, answer or switch shows at once
@@ -1392,7 +1393,11 @@ Errors show fixed text from `ruleErrorMessage`, never the backend's message:
 `rule_limit_reached` (the rule limit), 422 with the field names the backend
 lists (only its known names), and 503. Because the list reloads once the
 writes settle, the owner never edits or orders a stale list after a 404 or
-409.
+409: after a refused write, edits and moves wait until that reload settles.
+`useRules` does not retry. If a reload fails while a list is shown, the list
+stays with a **Reload** button and a note that it may be out of date, and its
+rows cannot be edited or moved until a reload succeeds; with no list, the
+page shows "Rules couldn't load." and **Retry**.
 
 ### Model provider setup
 
