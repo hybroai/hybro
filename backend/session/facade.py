@@ -5,7 +5,9 @@ A session sends each client message to one named agent through the
 passthrough execution mode (no orchestrator model turns), records every turn
 in a conversation container owned by the Session product, and lets the owner
 decide agent interactions in the Hybro app. The client sees only the session
-state; it never sees the container id or the approval question.
+state; it never sees the container id. A client with the owner's grant also
+sees and answers the session's permission question (``session.questions``);
+every other question stays with the owner.
 
 A session belongs to the client that opened it: only a request from that
 client reaches it, and every other client gets "not found". The owner reaches
@@ -52,6 +54,8 @@ from models.session import (
     SessionMessageRequest,
     SessionMessageResponse,
     SessionOwnerRecord,
+    SessionQuestionAnswer,
+    SessionQuestionAnswered,
     SessionReceiptStatus,
     SessionState,
     SessionStatus,
@@ -64,6 +68,7 @@ from session.projection import (
     resolve_state,
 )
 from session.protocols import (
+    AnswerGrants,
     ClientDirectory,
     RoomManagement,
     RoomMessageStore,
@@ -71,6 +76,7 @@ from session.protocols import (
     SessionOwner,
     SessionStore,
 )
+from session.questions import NOT_GRANTED, PermissionQuestions
 from session.waiter import CorrelatedOutcome, SessionWaiter
 
 logger = get_logger(__name__)
@@ -115,6 +121,7 @@ class SessionFacade:
         approvals: HITLManager,
         waiter: SessionWaiter,
         clients: ClientDirectory,
+        grants: AnswerGrants,
         now: Callable[[], datetime] = utcnow,
         id_factory: Callable[[], str] = new_session_id,
     ) -> None:
@@ -127,6 +134,9 @@ class SessionFacade:
         self._approvals = approvals
         self._waiter = waiter
         self._clients = clients
+        self._questions = PermissionQuestions(
+            approvals=approvals, grants=grants, waiter=waiter
+        )
         self._now = now
         self._id_factory = id_factory
 
@@ -239,7 +249,43 @@ class SessionFacade:
         self, session_id: str, *, owner: SessionOwner, client: ClientIdentity
     ) -> SessionStatus:
         record = await self._reachable(session_id, owner, client)
-        return await self._client_status(record)
+        status = await self._client_status(record)
+        if status.state != "waiting_on_owner":
+            return status
+        agent_id = await self._paused_agent_id(record)
+        names = {agent.agent_id: agent.name for agent in status.agents}
+        question = await self._questions.visible(
+            record,
+            client,
+            agent_id=agent_id,
+            agent_name=names.get(agent_id) if agent_id else None,
+        )
+        return status.model_copy(update={"question": question})
+
+    async def answer(
+        self,
+        session_id: str,
+        question_id: str,
+        request: SessionQuestionAnswer,
+        *,
+        owner: SessionOwner,
+        client: ClientIdentity,
+    ) -> SessionQuestionAnswered:
+        """Answer the session's permission question as the owner.
+
+        The grant is read first, so a client without it learns nothing about
+        the session; then the session must be this client's own.
+        """
+        if not await self._questions.granted(client):
+            raise _error(*NOT_GRANTED)
+        record = await self._reachable(session_id, owner, client)
+        if record.status == "closed":
+            raise _error("session_closed", "The session is closed")
+        if not record.conversation_id:
+            raise _error("session_not_found", "Session not found")
+        return await self._questions.answer(
+            record, question_id, request.answer, owner=owner, client=client
+        )
 
     async def close(
         self, session_id: str, *, owner: SessionOwner, client: ClientIdentity

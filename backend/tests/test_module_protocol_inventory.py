@@ -197,8 +197,9 @@ EXPECTED_METHODS = {
         },
         "OwnerSessionAccess": {"close", "get_record", "list_sessions"},
         "RoomRegistry": {"get_room", "get_room_agents", "get_room_owner"},
-        "SessionAccess": {"check", "close", "send"},
+        "SessionAccess": {"answer", "check", "close", "send"},
         "SessionService": {
+            "answer",
             "check",
             "close",
             "close_for_owner",
@@ -217,6 +218,7 @@ EXPECTED_METHODS = {
             "set_conversation_if_unset",
         },
         "ClientDirectory": {"identities"},
+        "AnswerGrants": {"may_answer_permission_questions"},
     },
     "policy.protocols": {
         "RuleRegistry": {"create", "delete", "list_rules", "reorder", "update"},

@@ -26,6 +26,8 @@ from models.session import (
     SessionMessageRequest,
     SessionMessageResponse,
     SessionOwnerRecord,
+    SessionQuestionAnswer,
+    SessionQuestionAnswered,
     SessionStatus,
     SessionSummary,
 )
@@ -41,6 +43,7 @@ SEND = "/api/v1/sessions/messages"
 class AccessStub:
     def __init__(self) -> None:
         self.sent: list[SessionMessageRequest] = []
+        self.answered: list[tuple[str, str, str]] = []
         self.error: AppError | None = None
         self.started: asyncio.Queue[str] = asyncio.Queue()
         self.release = asyncio.Event()
@@ -102,6 +105,15 @@ class AccessStub:
     async def close(self, session_id: str) -> SessionClosed:
         self._raise()
         return SessionClosed(session_id=session_id, status="closed")
+
+    async def answer(
+        self, session_id: str, question_id: str, request: SessionQuestionAnswer
+    ) -> SessionQuestionAnswered:
+        self._raise()
+        self.answered.append((session_id, question_id, request.answer))
+        return SessionQuestionAnswered(
+            session_id=session_id, question_id=question_id, answer=request.answer
+        )
 
     async def list_sessions(self) -> SessionListResponse:
         return SessionListResponse(

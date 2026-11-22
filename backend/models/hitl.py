@@ -186,6 +186,8 @@ class HITLRequest(BaseModel):
     answered_at: datetime | None = None
     responded_at: datetime | None = None
     responded_by_user_id: str | None = None
+    # The client that answered as the owner; None when the owner answered.
+    answered_by_client_id: str | None = None
     claim_id: str | None = None
     routing_completed_at: datetime | None = None
     application_projected: bool = False

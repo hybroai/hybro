@@ -15,6 +15,8 @@ from models.session import (
     SessionMessageRequest,
     SessionMessageResponse,
     SessionOwnerRecord,
+    SessionQuestionAnswer,
+    SessionQuestionAnswered,
     SessionStatus,
 )
 from session.protocols import SessionOwner, SessionService
@@ -49,6 +51,13 @@ class BoundSessionAccess:
     async def close(self, session_id: str) -> SessionClosed:
         return await self._service.close(
             session_id, owner=self._owner, client=self._client
+        )
+
+    async def answer(
+        self, session_id: str, question_id: str, request: SessionQuestionAnswer
+    ) -> SessionQuestionAnswered:
+        return await self._service.answer(
+            session_id, question_id, request, owner=self._owner, client=self._client
         )
 
 

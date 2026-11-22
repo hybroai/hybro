@@ -124,7 +124,14 @@ class A2AContinuationCoordinator:
         route_fingerprint: str,
         answers: list[HITLQuestionAnswer],
         authenticated_answerer_id: str,
+        answered_by_client_id: str | None = None,
     ) -> str:
+        """Apply the answers as ``authenticated_answerer_id``, the owner.
+
+        ``answered_by_client_id`` names a client with the owner's grant that
+        gave them. It is part of the answer's identity, so the same answer
+        from another answerer is refused rather than replayed.
+        """
         try:
             return await self._resume(
                 call_record_id=call_record_id,
@@ -133,6 +140,7 @@ class A2AContinuationCoordinator:
                 route_fingerprint=route_fingerprint,
                 answers=answers,
                 authenticated_answerer_id=authenticated_answerer_id,
+                answered_by_client_id=answered_by_client_id,
             )
         except RecoverableAdapterError:
             return "delivery_uncertain"
@@ -146,6 +154,7 @@ class A2AContinuationCoordinator:
         route_fingerprint: str,
         answers: list[HITLQuestionAnswer],
         authenticated_answerer_id: str,
+        answered_by_client_id: str | None,
     ) -> str:
         call = await self.ledger.load_by_record_id(call_record_id)
         if call is None:
@@ -168,6 +177,7 @@ class A2AContinuationCoordinator:
                 answer_digest=answer_digest,
                 answers=answers,
                 authenticated_answerer_id=authenticated_answerer_id,
+                answered_by_client_id=answered_by_client_id,
             )
             if call.answer_applied is not None:
                 self._validate_applied_outcome(call, existing_answer)
@@ -219,6 +229,7 @@ class A2AContinuationCoordinator:
             authenticated_answerer_id=authenticated_answerer_id,
             verified_auth_reference_digests=verified_auth_digests,
             verified_auth_references=verified_auth_bindings,
+            answered_by_client_id=answered_by_client_id,
         )
         answer_record = await self.hitl.read_answer_record(
             interaction_id, interaction_revision
@@ -325,12 +336,14 @@ class A2AContinuationCoordinator:
         answer_digest: str,
         answers: list[HITLQuestionAnswer],
         authenticated_answerer_id: str,
+        answered_by_client_id: str | None,
     ) -> None:
         if (
             answer_record.interaction_id != interaction_id
             or answer_record.interaction_revision != interaction_revision
             or answer_record.route_fingerprint != route_fingerprint
             or answer_record.authenticated_answerer_id != authenticated_answerer_id
+            or answer_record.answered_by_client_id != answered_by_client_id
             or answer_record.answer_digest != answer_digest
             or answer_record.answers != answers
             or _digest(authenticated_answerer_id) != call.requesting_subject_digest

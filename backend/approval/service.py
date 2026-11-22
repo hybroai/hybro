@@ -849,6 +849,7 @@ class HITLService:
         answers: list[dict[str, str]],
         user_id: str,
         client_request_id: str | None = None,
+        answered_by_client_id: str | None = None,
     ) -> dict:
         """Record a complete questionnaire and resume its interaction once."""
         if self._application is None:
@@ -862,6 +863,7 @@ class HITLService:
             answers=answers,
             user_id=user_id,
             client_request_id=client_request_id,
+            answered_by_client_id=answered_by_client_id,
         )
 
     async def _project_completed_hitl_display(

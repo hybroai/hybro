@@ -189,7 +189,10 @@ continuation coordinator stays in Execution.
 - Writes: `hitl_requests` (`approval.repository.HITLRequestStore`) and
   `hitl_interactions` and `hitl_resume_commands`
   (`approval.repository.HITLLifecycleStore`). Agent-message HITL projection
-  goes through `ConversationMessageWriter`.
+  goes through `ConversationMessageWriter`. An answer row keeps
+  `responded_by_user_id` (the owner it was applied as) and
+  `answered_by_client_id` (the client with the owner's grant that gave it;
+  absent when the owner answered in the Panel).
 - Exposes: implements Execution's `HITLServicePort` and `room_files`'s
   `RoomStateOwner`. Its own dependency ports are in `approval.protocols`;
   `HITLPersistencePort` is bound in `container.py`.
@@ -970,17 +973,18 @@ the `room_files` deletion lifecycle through a narrow port.
 
 A Session is a conversation that a client of the instance owner opens with the
 owner's agents (see [Sessions](#sessions)). `SessionFacade`, `BoundSessionAccess`,
-`SessionWaiter`, the projection helpers, and `MongoSessionRepository` live here.
+`SessionWaiter`, the projection helpers, `PermissionQuestions`
+(`session/questions.py`) and `MongoSessionRepository` live here.
 
 - Writes: `sessions`; containers are created through Conversation.
-- Exposes: `SessionAccess` (the client's send, check and close),
+- Exposes: `SessionAccess` (the client's send, check, close and answer),
   `OwnerSessionAccess` (the owner's list, record and close) and
   `SessionService` to `api_gateway`; declares `RoomRegistry`,
   `RoomManagement`, `RoomMessageStore` (implemented by `ConversationFacade`),
-  `ConversationEventsPort` (implemented by `MongoRoomEventStore`) and
-  `ClientDirectory` (implemented by `ClientService`).
+  `ConversationEventsPort` (implemented by `MongoRoomEventStore`),
+  `ClientDirectory` and `AnswerGrants` (both implemented by `ClientService`).
 - Consumes: `ExecutionEngine`, `HITLManager`, `AgentNetworkTargetResolver`,
-  `RoomHistoryReader`, `ClientDirectory`, and `MongoDAL`.
+  `RoomHistoryReader`, `ClientDirectory`, `AnswerGrants`, and `MongoDAL`.
 
 ### `client`
 
@@ -997,8 +1001,8 @@ the service to `app.state.client_registry`.
   questions; absent reads as false). Indexes: `client_id_unique`, and `client_token_hash_unique`,
   partial on a string hash. `client_settings`, one document
   (`_id` `token_requirement`): `required`, `started_off`, `updated_at`.
-- Exposes: `ClientRegistry` to `api_gateway` and, as `ClientDirectory`, to
-  `session`; declares `ClientStore`.
+- Exposes: `ClientRegistry` to `api_gateway` and, as `ClientDirectory` and
+  `AnswerGrants`, to `session`; declares `ClientStore`.
 - Consumes: `MongoDAL`.
 
 A token is `hybro_client_` and 43 URL-safe characters (`secrets.token_urlsafe(32)`).
@@ -1016,8 +1020,8 @@ counts as `api`); the mark decides nothing. A failed write of it is logged
 (id `no_token`) is a constant, never a document; `BUILT_IN_CLIENT_IDS` lists
 every built-in client.
 
-The grant (`answer_grant`) lets a client answer permission questions; nothing
-reads it yet. It is a flag per client, so any number of clients may hold it.
+The grant (`answer_grant`) lets a client answer permission questions in its
+own sessions (see [Sessions](#sessions)). It is a flag per client, so any number of clients may hold it.
 `set_answer_grant` refuses a built-in client (`ClientBuiltIn`) and writes only
 while the client is not revoked (`live_only`), so a set that races a revoke
 never leaves a revoked client holding it; it refuses to set it on a revoked
@@ -1027,8 +1031,9 @@ change logs `client_answer_grant_changed` (`client_id` through `log_id`,
 `granted`). The owner's views show it as false once the client is revoked.
 `may_answer_permission_questions(identity)` reads the stored record and is
 false for a built-in client, an identity without a token, an unknown client
-and a revoked one, whatever a record carries. The Client API never shows the
-grant.
+and a revoked one, whatever a record carries; the session reads it on every
+check of a waiting session and every answer, never from a cache. The Client
+API never shows the grant itself.
 
 Whether a token is required is the stored switch, product state that the
 owner changes without a restart. `container.seed_token_requirement` creates it
@@ -1669,6 +1674,7 @@ port, or facade port, update the exact method inventory in
 | `SessionService` | `session.protocols` | `session.facade.SessionFacade` | crosses to `api_gateway` |
 | `SessionStore` | `session.protocols` | `session.repository.mongo.MongoSessionRepository` | internal to `session` |
 | `ClientDirectory` | `session.protocols` | `client.service.ClientService` | crosses to composition root; `client` |
+| `AnswerGrants` | `session.protocols` | `client.service.ClientService` | crosses to composition root; `client` |
 | `ClientRegistry` | `client.protocols` | `client.service.ClientService` | crosses to `api_gateway`; `session` |
 | `ClientStore` | `client.protocols` | `client.repository.mongo.MongoClientRepository` | internal to `client` |
 | `RuleRegistry` | `policy.protocols` | `policy.service.PolicyService` | crosses to `api_gateway` |
@@ -3847,9 +3853,10 @@ A session belongs to the client that opened it, and the owner reads it in the
 Panel with the owner's sign-in. The client addresses one agent
 per message; nothing inside Hybro chooses who speaks next; every turn is recorded
 in a conversation container; when an agent needs the owner's permission, the
-owner approves or rejects in the Hybro app.
+owner approves or rejects in the Hybro app, or a client with the owner's grant
+does it in its own session.
 
-Routes (`api_gateway/routes/session_routes.py`, tag `session`). The first three
+Routes (`api_gateway/routes/session_routes.py`, tag `session`). The first four
 are Client API routes: their contract is `session.protocols.SessionAccess`,
 bound per request by `get_session_access` to the request's client, the acting
 owner and an owner-bound `AgentNetworkService` resolver. The last three are the
@@ -3860,8 +3867,9 @@ sees the sessions that clients opened; another signed-in user is 403.
 | Method | Path | Returns |
 |---|---|---|
 | POST | `/sessions/messages` | receipt: `session_id`, `client_request_id`, `agent_id`, `status` (`created`, `accepted`, `busy`), `state`, `message`, `created_at`, `updated_at` |
-| GET | `/sessions/{session_id}` | client view: `state`, `reason`, `agents`, `created_at`, `updated_at`, `history` of client messages and agents' final replies; never `conversation_id`, internal message ids, or owner decisions |
+| GET | `/sessions/{session_id}` | client view: `state`, `reason`, `agents`, `created_at`, `updated_at`, `history` of client messages and agents' final replies, and `question` for a client with the owner's grant (below); never `conversation_id`, internal message ids, or owner decisions |
 | POST | `/sessions/{session_id}/close` | `session_id`, `status` |
+| POST | `/sessions/{session_id}/questions/{question_id}/answer` | body `{"answer": "approve" \| "refuse"}`; returns `session_id`, `question_id`, `answer`, `status` (`accepted`) |
 | GET | `/sessions` | owner list with `client_label`, `client` (`client_id`, `name`, `has_token`), `title`, `agents`, `state`, `conversation_id`, times: the 100 most recently active sessions plus every open session whose latest run awaits the owner |
 | GET | `/sessions/{session_id}/record` | owner record: `state`, `reason`, `paused_agent_id`, `agents`, `client_label`, `client`, `title`, `status`, `conversation_id`, `opened_at`, `last_activity_at`, `closed_at` |
 | POST | `/sessions/{session_id}/record/close` | the owner's close of any of their sessions: `session_id`, `status` |
@@ -3872,6 +3880,53 @@ requests; it returns the receipt without waiting for the run. Errors use
 `session_not_found`/`agent_not_found`/`subnet_not_found`/`not_found` 404,
 `forbidden` 403, `session_closed`/`request_conflict`/`agent_unavailable` 409,
 `request_rejected` 400.
+
+Permission questions (`session/questions.py`). A permission question is a
+check rule's ask (stored source `system`, prompt type `approval`) or an Agent's
+own typed question of the stored kind `policy_decision` (source `agent`,
+prompt type `approval`; Execution's pending rows carry the stored
+`interaction_kind`). It is read from the stored rows of
+`HITLManager.get_pending_hitl`, never from the request or any text. A
+`questionnaire`, an `auth_challenge`, an untyped Agent question and a
+supervisor's question stay with the owner.
+
+- `GET /sessions/{session_id}` adds `question` while the state is
+  `waiting_on_owner` and the client holds the grant
+  (`AnswerGrants.may_answer_permission_questions`, read on each call): its
+  `question_id` (the interaction id), `kind` (`permission`), `text` (the
+  questions of the interaction, separated by a blank line), `agent_id` and
+  `agent_name` (the paused agent), and `answers` (`approve`, `refuse`). It is
+  shown only when the session's latest request (its `last_user_message_id`)
+  waits on exactly one interaction, every member of it is listed, pending and
+  a permission question, and nothing of it is answered. Without the grant the
+  field is absent, and the body is what it was before.
+- The answer route reads the grant first (403 `answer_not_granted`; a failed
+  read is 503 `clients_unavailable`), then the session (404
+  `session_not_found` for another client's session or an unknown one, 409
+  `session_closed`). The question must be that one interaction: an id this
+  conversation never showed (no `hitl_request` record in its event log) is the
+  same 404 `session_not_found`; an id it showed earlier, or one no longer
+  pending, is 409 `question_not_pending`; one with a member that is not a
+  permission question is 403 `question_owner_only`. A failed pending read is
+  503 `questions_unavailable`. The body is strict; any other shape is 422
+  `invalid_request` with `fields: ["answer"]`, never echoing the input.
+- `approve` and `refuse` map to what the Panel's Approve and Reject send,
+  `Approve` and `Reject`, for every member, and go through
+  `HITLManager.resolve_hitl_batch` as the owner (`responder_id` is the acting
+  owner) with `answered_by_client_id` and the stored `client_request_id`. A
+  refused check rule's ask ends the step `rejected`; a refused
+  `policy_decision` is the Agent's deny decision, and the state follows the
+  Agent's result, as with the Panel's Reject.
+- The answer is recorded once. The client id is part of the answer's identity
+  in both stores (the `approval` row's pending claim and the Agent answer
+  record's insert-if-absent), so when the owner and a client answer at once,
+  the loser is refused and reads 409 `question_not_pending`, also with the same
+  text. A client's answer to a Run that ended is refused the same way; the
+  Panel's still reads `accepted`. An unconfirmed delivery is 503
+  `answer_unconfirmed`, any other failure 502 `answer_failed`, both with fixed
+  text; the cause goes to `session_question_answer_failed`. A recorded answer
+  logs `session_question_answered` (`session_id`, `question_id`, `client_id`
+  through `log_id`, `answer`). Errors carry `session_id` and `question_id`.
 
 `SessionFacade` invariants:
 

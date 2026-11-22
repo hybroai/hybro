@@ -1474,6 +1474,7 @@ async def _runtime_lifespan(app: Any, runtime: ApplicationRuntime):  # noqa: C90
                 start_grace_seconds=runtime.settings.session_run_start_grace_seconds,
             ),
             clients=app.state.client_registry,
+            grants=app.state.client_registry,
         )
 
         bind_api_gateway_deps(

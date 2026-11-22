@@ -131,6 +131,10 @@ class HITLRequest(FrozenDTO):
     allow_other: bool = False
     choice_options: list[HITLChoiceOption] | None = None
     interaction_id: str | None = None
+    # The stored kind of an Agent's typed question; None for other questions.
+    interaction_kind: (
+        Literal["questionnaire", "auth_challenge", "policy_decision"] | None
+    ) = None
     interaction_status: str | None = None
     interaction_version: int | None = None
     application_status: str | None = None

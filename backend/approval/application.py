@@ -357,12 +357,18 @@ class HITLApplicationCoordinator:
         answers: list[dict[str, str]],
         user_id: str,
         client_request_id: str | None = None,
+        answered_by_client_id: str | None = None,
     ) -> dict[str, Any]:
         """Durably record a complete questionnaire, then apply it exactly once.
 
         Request rows may be written over multiple CAS operations, but execution is
         never resumed until the aggregate proves that every required answer is
         present. A retry repairs any partially-recorded batch idempotently.
+
+        ``answered_by_client_id`` names a client that answers as the owner
+        ``user_id``. It is part of the answer's identity: the same text from
+        another answerer is a different answer, so the one that loses the
+        pending claim is refused instead of replaying the winner.
         """
         interaction = await self._lifecycle.get_interaction_strict(interaction_id)
         if interaction is None:
@@ -457,6 +463,7 @@ class HITLApplicationCoordinator:
                     answered_at=utcnow(),
                     responded_at=None,
                     responded_by_user_id=user_id,
+                    answered_by_client_id=answered_by_client_id,
                 )
                 if not claimed:
                     row = await service.persistence.get_hitl_request(request_id)
@@ -468,6 +475,7 @@ class HITLApplicationCoordinator:
                             "user_input": user_input,
                             "answer_digest": answer_digest,
                             "responded_by_user_id": user_id,
+                            "answered_by_client_id": answered_by_client_id,
                         }
                     )
                     status = HITLStatus.ANSWER_RECORDED.value
@@ -479,6 +487,7 @@ class HITLApplicationCoordinator:
                 if (
                     row.get("user_input") != user_input
                     or row.get("answer_digest") != answer_digest
+                    or row.get("answered_by_client_id") != answered_by_client_id
                 ):
                     raise HITLConflictError(
                         f"Request {request_id} already has a different answer"

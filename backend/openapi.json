@@ -1317,7 +1317,7 @@
           "session"
         ],
         "summary": "Check Session",
-        "description": "Return the session state and its history: each client message and the\nagents' final replies. The owner's decisions are never included.",
+        "description": "Return the session state and its history: each client message and the\nagents' final replies. The owner's decisions are never included.\n\nFor a client the owner allowed to answer permission questions, a waiting\nsession also carries `question`: its id, text, the agent it concerns, and\nthe answers `approve` and `refuse`.",
         "operationId": "check_session_api_v1_sessions__session_id__get",
         "parameters": [
           {
@@ -5004,6 +5004,128 @@
           }
         }
       }
+    },
+    "/api/v1/sessions/{session_id}/questions/{question_id}/answer": {
+      "post": {
+        "tags": [
+          "session"
+        ],
+        "summary": "Answer Session Question",
+        "description": "Answer the session's permission question: `approve` or `refuse`.\n\nOnly a client the owner allowed to answer permission questions may call\nit, in its own session; every other client is refused. The question is\nthe `question` that `GET /sessions/{session_id}` shows, a check rule's\nask or an agent's own approval question. Other questions stay with the\nowner. The answer applies as the owner's Approve or Reject in the Panel,\nand the session records which client gave it. A question that is no\nlonger waiting, also because the owner answered it first, is refused\nwith `question_not_pending`.",
+        "operationId": "answer_session_question_api_v1_sessions__session_id__questions__question_id__answer_post",
+        "parameters": [
+          {
+            "name": "session_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 256,
+              "title": "Session Id"
+            }
+          },
+          {
+            "name": "question_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 256,
+              "title": "Question Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SessionQuestionAnswer"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SessionQuestionAnswered"
+                }
+              }
+            }
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SessionErrorResponse"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "403": {
+            "description": "Not allowed to answer permission questions, a question only the owner answers, or a token-less request from another website",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SessionErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SessionErrorResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "description": "The session is closed, or the question is no longer pending",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SessionErrorResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The body is not {\"answer\": \"approve\" or \"refuse\"}"
+          },
+          "401": {
+            "description": "Unknown, revoked or missing client token"
+          },
+          "503": {
+            "description": "Clients, the questions or the owner are unavailable, or the delivery is not confirmed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SessionErrorResponse"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "Not applied",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SessionErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
     }
   },
   "components": {
@@ -7391,6 +7513,17 @@
               }
             ],
             "title": "Client Request Id"
+          },
+          "question_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Question Id"
           }
         },
         "type": "object",
@@ -7740,6 +7873,17 @@
             },
             "type": "array",
             "title": "History"
+          },
+          "question": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SessionQuestion"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The permission question waiting for an answer. Present only for a client the owner allowed to answer permission questions; absent otherwise."
           }
         },
         "type": "object",
@@ -11163,6 +11307,120 @@
           "granted"
         ],
         "title": "ClientAnswerGrantChange"
+      },
+      "SessionQuestion": {
+        "properties": {
+          "question_id": {
+            "type": "string",
+            "title": "Question Id",
+            "description": "Answer it with this id."
+          },
+          "kind": {
+            "type": "string",
+            "const": "permission",
+            "title": "Kind",
+            "default": "permission"
+          },
+          "text": {
+            "type": "string",
+            "title": "Text",
+            "description": "The question; several questions of one ask are separated by a blank line, and one answer applies to all of them."
+          },
+          "agent_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Agent Id",
+            "description": "The agent it concerns."
+          },
+          "agent_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Agent Name"
+          },
+          "answers": {
+            "items": {
+              "type": "string",
+              "enum": [
+                "approve",
+                "refuse"
+              ]
+            },
+            "type": "array",
+            "title": "Answers"
+          }
+        },
+        "type": "object",
+        "required": [
+          "question_id",
+          "text"
+        ],
+        "title": "SessionQuestion",
+        "description": "A permission question the client may answer, shown only with the grant.\n\nA permission question is a check rule's ask or an Agent's own approval\nquestion. Every other question stays with the owner and is never shown."
+      },
+      "SessionQuestionAnswer": {
+        "properties": {
+          "answer": {
+            "type": "string",
+            "enum": [
+              "approve",
+              "refuse"
+            ],
+            "title": "Answer"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "answer"
+        ],
+        "title": "SessionQuestionAnswer",
+        "description": "A client's answer to a permission question of its session."
+      },
+      "SessionQuestionAnswered": {
+        "properties": {
+          "session_id": {
+            "type": "string",
+            "title": "Session Id"
+          },
+          "question_id": {
+            "type": "string",
+            "title": "Question Id"
+          },
+          "answer": {
+            "type": "string",
+            "enum": [
+              "approve",
+              "refuse"
+            ],
+            "title": "Answer"
+          },
+          "status": {
+            "type": "string",
+            "const": "accepted",
+            "title": "Status",
+            "default": "accepted"
+          }
+        },
+        "type": "object",
+        "required": [
+          "session_id",
+          "question_id",
+          "answer"
+        ],
+        "title": "SessionQuestionAnswered",
+        "description": "The answer was accepted; the session's state shows what follows."
       }
     },
     "securitySchemes": {

@@ -891,6 +891,8 @@ async def test_router_pending_hitl_uses_public_activity_message_id():
     assert pending[0].message_id == "orchestrator:run-1:inv_travel_0001"
     assert pending[0].display_message_id == "orchestrator:run-1:inv_travel_0001"
     assert pending[0].agent_name == "Travel Planner Agent"
+    # The stored kind travels, so a session decides from it and not from text.
+    assert pending[0].interaction_kind == "questionnaire"
     assert pending[0].agent_id is None
     assert pending[0].source_step_id is None
     assert pending[0].a2a_task_id is None

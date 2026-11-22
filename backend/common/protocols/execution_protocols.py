@@ -47,6 +47,7 @@ class HITLManager(Protocol):
         answers: list[dict[str, str]],
         responder_id: str,
         client_request_id: str | None = None,
+        answered_by_client_id: str | None = None,
     ) -> HITLResponse: ...
 
     async def get_pending_hitl(self, conversation_id: str) -> list[HITLRequest]: ...

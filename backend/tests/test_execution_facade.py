@@ -1405,5 +1405,6 @@ async def test_supervisor_hitl_answer_falls_back_to_unified_manager():
         answers=[{"request_id": "request-1", "user_input": "Shanghai"}],
         user_id="user-1",
         client_request_id=None,
+        answered_by_client_id=None,
     )
     assert response.status == "applied"

@@ -1454,6 +1454,24 @@
     "include_in_schema": true
   },
   {
+    "path": "/api/v1/sessions/{session_id}/questions/{question_id}/answer",
+    "methods": [
+      "POST"
+    ],
+    "name": "answer_session_question",
+    "endpoint_module": "api_gateway.routes.session_routes",
+    "declared_owner": "api_gateway.routes.session_routes",
+    "tags": [
+      "session"
+    ],
+    "status_code": null,
+    "dependencies": [
+      "get_session_access"
+    ],
+    "auth_dependencies": [],
+    "include_in_schema": true
+  },
+  {
     "path": "/api/v1/sessions/{session_id}/record",
     "methods": [
       "GET"

@@ -321,6 +321,7 @@ class HITLApplicationPort(Protocol):
         authenticated_answerer_id: str,
         verified_auth_reference_digests: list[str],
         verified_auth_references: list[VerifiedAuthReferenceBinding],
+        answered_by_client_id: str | None = None,
     ) -> str: ...
 
 
