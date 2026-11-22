@@ -283,12 +283,14 @@ describe('Rules page', () => {
     const events: string[] = []
     let release = () => {}
     const held = new Promise<void>(resolve => { release = resolve })
+    let releaseFirst = () => {}
+    const first = new Promise<void>(resolve => { releaseFirst = resolve })
     let calls = 0
     server.use(http.put(getApiUrl('rules/:id'), async ({ request, params }) => {
       const call = ++calls
       const body = await request.json() as Pick<RuleView, 'agent_id' | 'answer' | 'enabled'>
       events.push(`start ${call} ${JSON.stringify(body)}`)
-      if (call === 1) await delay(30)
+      if (call === 1) await first
       else await held
       state.rules = state.rules.map(item => item.rule_id === params.id ? { ...item, ...body } : item)
       events.push(`end ${call}`)
@@ -298,6 +300,10 @@ describe('Rules page', () => {
     const row = (await items())[0]
     await userEvent.selectOptions(within(row).getByRole('combobox', { name: 'Answer for rule 1' }), 'ask')
     await userEvent.click(within(row).getByRole('switch', { name: 'Rule 1 on' }))
+    // While the first write is held, the second does not start.
+    await delay(30)
+    expect(events).toEqual(['start 1 {"agent_id":"writer","answer":"ask","enabled":true}'])
+    releaseFirst()
     await waitFor(() => expect(events).toHaveLength(3))
     // The second write starts only after the first has answered.
     expect(events).toEqual([
@@ -394,7 +400,7 @@ describe('Rules page', () => {
     await userEvent.click(within(await screen.findByRole('alertdialog')).getByRole('button', { name: 'Delete' }))
     await waitFor(() => expect(state.writes).toEqual(['DELETE rule_2']))
     await waitFor(() => expect(screen.getByRole('heading', { name: 'Check rules' })).toHaveFocus())
-    expect(screen.getByRole('status')).toHaveTextContent('Rule 2 deleted.')
+    expect(screen.getByRole('status')).toHaveTextContent('Rule 2 deleted: Ask for any agent.')
   })
 
   it('shows the id, without calling it missing, while the agents load', async () => {
@@ -585,5 +591,65 @@ describe('Rules page', () => {
     expect(await screen.findByText('Rules are unavailable right now. Try again.')).toBeInTheDocument()
     await waitFor(async () => expect(within((await items())[0]).getByRole('combobox', { name: 'Answer for rule 1' })).toHaveValue('deny'))
     expect(screen.getByText('Rules are unavailable right now. Try again.')).toBeInTheDocument()
+  })
+
+  it('announces the same result twice in a row', async () => {
+    state.rules = [DENY_WRITER, rule('rule_9', 'writer', 'deny')]
+    render(<RulesPage />)
+    for (let round = 0; round < 2; round += 1) {
+      await userEvent.click(within((await items())[0]).getByRole('button', { name: 'Delete rule 1' }))
+      await userEvent.click(within(await screen.findByRole('alertdialog')).getByRole('button', { name: 'Delete' }))
+      await waitFor(() => expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument())
+    }
+    await screen.findByText('No rules yet, so every agent call is allowed.')
+    // The text changed, so a screen reader reads the second delete too.
+    const status = screen.getByRole('status')
+    expect(status).toHaveTextContent('Rule 1 deleted: Deny for Writer.')
+    expect(status.textContent).not.toBe('Rule 1 deleted: Deny for Writer.')
+  })
+
+  it('ignores edits while the list reloads after a refused create', async () => {
+    let release = () => {}
+    const held = new Promise<void>(resolve => { release = resolve })
+    render(<RulesPage />)
+    const rows = await items()
+    server.use(
+      http.post(getApiUrl('rules'), () => HttpResponse.json({ detail: { code: 'rule_limit_reached', message: 'x' } }, { status: 409 }), { once: true }),
+      http.get(getApiUrl('rules'), async () => {
+        await held
+        return HttpResponse.json({ rules: state.rules })
+      }, { once: true }),
+    )
+    await userEvent.click(screen.getByRole('button', { name: 'Add rule' }))
+    const dialog = await screen.findByRole('dialog', { name: 'Add a rule' })
+    await userEvent.click(within(dialog).getByRole('button', { name: 'Add' }))
+    // The rows behind the dialog lock once the create is refused, until the
+    // reload lands; then the dialog shows why.
+    await waitFor(() => expect(within(rows[0]).getByRole('button', { name: 'Delete rule 1', hidden: true })).toHaveAttribute('aria-disabled', 'true'))
+    release()
+    expect(await within(dialog).findByText('The list holds the most rules it can. Delete a rule to add another.')).toBeInTheDocument()
+    await waitFor(() => expect(within(rows[0]).getByRole('button', { name: 'Delete rule 1', hidden: true })).toHaveAttribute('aria-disabled', 'false'))
+  })
+
+  it('ignores edits while the list reloads after a refused move', async () => {
+    let release = () => {}
+    const held = new Promise<void>(resolve => { release = resolve })
+    render(<RulesPage />)
+    const rows = await items()
+    server.use(
+      http.put(getApiUrl('rules/order'), () => HttpResponse.json({ detail: { code: 'rule_order_mismatch', message: 'x' } }, { status: 409 }), { once: true }),
+      http.get(getApiUrl('rules'), async () => {
+        await held
+        return HttpResponse.json({ rules: state.rules })
+      }, { once: true }),
+    )
+    await userEvent.click(within(rows[1]).getByRole('button', { name: 'Move rule 2 up' }))
+    await screen.findByText(/The rules changed since this page loaded/)
+    await userEvent.click(within(rows[2]).getByRole('switch', { name: 'Rule 3 on' }))
+    expect(within(rows[2]).getByRole('switch', { name: 'Rule 3 on' })).toBeChecked()
+    expect(within(rows[2]).getByRole('button', { name: 'Delete rule 3' })).toHaveAttribute('aria-disabled', 'true')
+    release()
+    await waitFor(() => expect(within(rows[2]).getByRole('button', { name: 'Delete rule 3' })).toHaveAttribute('aria-disabled', 'false'))
+    expect(state.writes).toEqual([])
   })
 })

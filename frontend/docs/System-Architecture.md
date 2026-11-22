@@ -1374,7 +1374,8 @@ and the Add dialog returns it to **Add rule**. A move sends every id once in the
 order with `PUT /rules/order`; the move buttons stay focusable (they use
 `aria-disabled`, never `disabled`), the moved rule's button keeps the keyboard
 focus, and a polite status line announces the new position and names the
-rule. The same line announces an added rule and a deleted one.
+rule. The same line announces an added rule and a deleted one; a repeat of
+the same text gets a trailing non-breaking space so it is read again.
 
 Every rule write shares the mutation key `['rules']` and the scope `rules`, so
 the writes run one at a time in the order sent. The list is reloaded when the

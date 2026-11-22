@@ -227,7 +227,7 @@ function DeleteRuleDialog({ rule, position, agents, onClose, returnFocus, onRefu
   const removed = useRef(false)
   const done = () => {
     removed.current = true
-    announce(`Rule ${position} deleted.`)
+    announce(`Rule ${position} deleted: ${ANSWER_LABEL[rule.answer]} for ${agentName(rule.agent_id, agents)}.`)
     // Drop the row at once, so it cannot be edited before the reload lands.
     queryClient.setQueryData<RuleList>(rulesQueryKey, current => current && {
       rules: current.rules.filter(item => item.rule_id !== rule.rule_id),
@@ -404,6 +404,9 @@ export function RulesPage() {
   // The rule whose edit the error text is about.
   const failedRule = useRef<string | null>(null)
   const [announcement, setAnnouncement] = useState('')
+  // A live region speaks only when its text changes: a repeat of the same text
+  // gets a trailing space, so it is read again.
+  const announce = (text: string) => setAnnouncement(current => (current === text ? `${text}\u00a0` : text))
   // The move button to focus once the moved list renders.
   const focusAfterMove = useRef<string | null>(null)
   const buttons = useRef(new Map<string, HTMLButtonElement>())
@@ -466,7 +469,7 @@ export function RulesPage() {
         focusAfterMove.current = `${ruleId}:${atEnd ? (direction === 'up' ? 'down' : 'up') : direction}`
         const movedRule = saved.rules[index]
         // Naming the rule makes two moves to the same position both heard.
-        setAnnouncement(`Rule moved to position ${index + 1} of ${saved.rules.length}: ${ANSWER_LABEL[movedRule.answer]} for ${agentName(movedRule.agent_id, agents)}.`)
+        announce(`Rule moved to position ${index + 1} of ${saved.rules.length}: ${ANSWER_LABEL[movedRule.answer]} for ${agentName(movedRule.agent_id, agents)}.`)
       }
       queryClient.setQueryData(rulesQueryKey, saved)
     },
@@ -580,7 +583,7 @@ export function RulesPage() {
           <p role="status" className="sr-only">{announcement}</p>
         </section>
       </div>
-      <AddRuleDialog open={adding} onOpenChange={setAdding} agents={agents} returnFocus={() => addButton.current?.focus()} onRefused={() => setRefused(true)} announce={setAnnouncement} />
+      <AddRuleDialog open={adding} onOpenChange={setAdding} agents={agents} returnFocus={() => addButton.current?.focus()} onRefused={() => setRefused(true)} announce={announce} />
       {deleting ? (
         <DeleteRuleDialog
           key={deleting.rule.rule_id}
@@ -589,7 +592,7 @@ export function RulesPage() {
           agents={agents}
           onClose={() => setDeleting(null)}
           onRefused={() => setRefused(true)}
-          announce={setAnnouncement}
+          announce={announce}
           // Back to the row's Delete button, or to the list heading once the row is gone.
           returnFocus={deleted => {
             const button = deleted ? undefined : buttons.current.get(`${deleting.rule.rule_id}:delete`)
