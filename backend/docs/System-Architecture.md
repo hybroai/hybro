@@ -1209,7 +1209,14 @@ is recorded in the ledger for a held call.
   Run's `run_busy` interactions (`iter_run_busy_applications`). A cancelled
   pass calls no hook, and shutdown closes the hooks (none starts) before it
   settles in-flight Runs; a hook's pass through a live session is settled
-  as interrupted there like any other. A pass can end between the port's busy
+  as interrupted there like any other. Once `RoomSessionHost.shutdown`
+  begins, no pass starts: the host refuses new sessions and deliveries, the
+  run-addressed sink refuses deliveries, and a session refuses a pass whose
+  lease it was still taking (it releases the lease). A prompt whose Run was
+  written as shutdown began ends that Run as `failed`/`interrupted` under
+  its execution claim, which it keeps if that fails, so recovery ends it. A
+  refused answer stays durable and the HITL reconciler applies it after the
+  restart, once its application lease expires. A pass can end between the port's busy
   read and the park, so after parking `approval` calls the container's
   `parked_run_check`: when the Run is neither `running` nor claimed by a
   driver, it calls the hook itself. Otherwise a driver writes the Run's

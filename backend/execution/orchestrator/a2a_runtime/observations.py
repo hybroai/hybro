@@ -17,7 +17,7 @@ from ..lifecycle import LifecycleEmitter, SessionEvent, SessionEventListener
 from ..models import OrchestratorRunState, ToolObservation
 from ..persistence import SUSPENDED_RUN_STATUSES
 from ..ports import CancellationSignal, OrchestratorRunStore
-from ..session import schedule_run_recovery
+from ..session import SessionConflict, schedule_run_recovery
 from .errors import RecoverableAdapterError
 
 logger = get_logger(__name__)
@@ -127,7 +127,10 @@ class RunAddressedToolObservationSink:
         listener: SessionEventListener | None = None,
         clock: SystemClock | None = None,
         pass_end_hooks: RunPassEndHooks | None = None,
+        closed: Callable[[], bool] | None = None,
     ) -> None:
+        # True once shutdown began: no pass starts after it.
+        self.closed = closed or (lambda: False)
         self.run_store = run_store
         self.kernel_factory = kernel_factory
         self.signal_factory = signal_factory
@@ -137,9 +140,13 @@ class RunAddressedToolObservationSink:
         self.pass_end_hooks = pass_end_hooks or RunPassEndHooks()
 
     async def deliver(self, run_id: str, observation: ToolObservation) -> None:
+        if self.closed():
+            raise SessionConflict("the runtime is shutting down")
         run = await self.run_store.load(run_id)
         if run is None:
             raise KeyError(run_id)
+        if self.closed():
+            raise SessionConflict("the runtime is shutting down")
         if run.status in SUSPENDED_RUN_STATUSES:
             # No driver owns this re-entry. Re-arm the dormant watchdog at the
             # deadline the resume extends to, so a crash after re-entry is
@@ -182,6 +189,9 @@ class RunAddressedToolObservationSink:
 
             lifecycle = emit_kernel_event
 
+        if self.closed():
+            # Shutdown began while the Run and its kernel were read.
+            raise SessionConflict("the runtime is shutting down")
         with self.pass_end_hooks.after_pass(
             lambda: run_id, conversation_id=run.conversation_id
         ):
