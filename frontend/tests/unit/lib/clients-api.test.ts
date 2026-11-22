@@ -10,6 +10,7 @@ import {
   revokeClient,
   rotateClient,
   setTokenRequirement,
+  setAnswerGrant,
   clientErrorMessage,
 } from '@/lib/api/clients'
 import { ApiError } from '@/lib/api-client'
@@ -67,6 +68,16 @@ describe('client API client', () => {
     await rotateClient('client/1')
     await revokeClient('client/1')
     expect(seen).toEqual(['PATCH {"name":"Nightly"}', 'rotate', 'revoke'])
+  })
+
+  it('sets the answer grant by an encoded id, with only the flag in the body', async () => {
+    let body: unknown
+    server.use(http.put(getApiUrl('clients/client%2F1/answer-grant'), async ({ request }) => {
+      body = await request.json()
+      return HttpResponse.json({ ...VIEW, answer_grant: true })
+    }))
+    await expect(setAnswerGrant('client/1', true)).resolves.toMatchObject({ answer_grant: true })
+    expect(body).toEqual({ granted: true })
   })
 
   it('reads and sets the token requirement', async () => {

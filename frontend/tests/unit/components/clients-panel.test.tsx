@@ -33,17 +33,33 @@ const OLD: ClientView = { ...CI, client_id: 'client_old', name: 'Old laptop', ha
 const CLAUDE: ClientView = { ...CI, client_id: 'client_claude', name: 'Claude Code', token_last4: 'cl4d', last_used_via: 'mcp' }
 
 type Requirement = { required: boolean; started_off: boolean; updated_at: string }
-const state = { clients: [CI, OLD] as ClientView[], requirement: { required: true, started_off: false, updated_at: '2026-11-20T00:00:00Z' } as Requirement, puts: [] as unknown[] }
+const state = { clients: [CI, OLD] as ClientView[], requirement: { required: true, started_off: false, updated_at: '2026-11-20T00:00:00Z' } as Requirement, puts: [] as unknown[], grants: [] as unknown[], grantRefusal: null as null | { status: number; code: string }, lists: 0 }
 
 beforeEach(() => {
   state.clients = [CI, OLD]
   state.requirement = { required: true, started_off: false, updated_at: '2026-11-20T00:00:00Z' }
   state.puts = []
+  state.grants = []
+  state.grantRefusal = null
+  state.lists = 0
   window.localStorage.clear()
   stubFetchWithoutSignal()
   Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText: vi.fn().mockResolvedValue(undefined) } })
   server.use(
-    http.get(getApiUrl('clients'), () => HttpResponse.json({ clients: state.clients })),
+    http.get(getApiUrl('clients'), () => {
+      state.lists += 1
+      return HttpResponse.json({ clients: state.clients })
+    }),
+    http.put(getApiUrl('clients/:clientId/answer-grant'), async ({ request, params }) => {
+      const body = await request.json() as { granted: boolean }
+      state.grants.push({ client_id: params.clientId, ...body })
+      if (state.grantRefusal) {
+        const { status, code } = state.grantRefusal
+        return HttpResponse.json({ detail: { code, message: 'Backend text that is not shown.' } }, { status })
+      }
+      state.clients = state.clients.map(client => client.client_id === params.clientId ? { ...client, answer_grant: body.granted } : client)
+      return HttpResponse.json(state.clients.find(client => client.client_id === params.clientId))
+    }),
     http.get(getApiUrl('clients/token-requirement'), () => HttpResponse.json(state.requirement)),
     http.put(getApiUrl('clients/token-requirement'), async ({ request }) => {
       const body = await request.json() as { required: boolean }
@@ -317,5 +333,80 @@ describe('the token requirement', () => {
     await screen.findByRole('tab', { name: 'MCP' })
     await new Promise(resolve => setTimeout(resolve, 20))
     expect(screen.queryByTestId('token-requirement-banner')).toBeNull()
+  })
+})
+
+const HELP = 'This client can approve or reject permission questions (a check rule\'s ask and an agent\'s own approval question) in its own sessions. Other questions stay with you.'
+const grantSwitch = (name: string) => screen.findByRole('switch', { name: `${name} can answer permission questions` })
+
+describe('the answer grant', () => {
+  it('has a switch for each active client, described in plain words, and none for a revoked or built-in one', async () => {
+    state.clients = [CI, OLD, { ...CI, client_id: 'no_token', name: 'No token', has_token: false, token_last4: null }]
+    render(<ConnectPage kind="clients" />)
+    const toggle = await grantSwitch('CI bot')
+    expect(toggle).not.toBeChecked()
+    expect(toggle).toHaveAccessibleDescription(HELP)
+    const list = await table()
+    expect(within(list).getAllByRole('switch')).toHaveLength(1)
+    expect(within(within(list).getByText('Old laptop').closest('tr')!).queryByRole('switch')).toBeNull()
+    expect(within(within(list).getByText('No token').closest('tr')!).queryByRole('switch')).toBeNull()
+  })
+
+  it('asks before turning it on, and applies it on confirmation', async () => {
+    const user = userEvent.setup()
+    render(<ConnectPage kind="clients" />)
+    const toggle = await grantSwitch('CI bot')
+    await user.click(toggle)
+    const confirm = await screen.findByRole('alertdialog', { name: 'Let CI bot answer permission questions?' })
+    expect(confirm).toHaveTextContent('Other questions stay with you.')
+    await user.click(within(confirm).getByRole('button', { name: 'Cancel' }))
+    expect(state.grants).toEqual([])
+    expect(toggle).not.toBeChecked()
+
+    await user.click(toggle)
+    await user.click(within(await screen.findByRole('alertdialog')).getByRole('button', { name: 'Allow' }))
+    await waitFor(() => expect(state.grants).toEqual([{ client_id: 'client_ci', granted: true }]))
+    await waitFor(async () => expect(await grantSwitch('CI bot')).toBeChecked())
+  })
+
+  it('turns it off at once, without asking', async () => {
+    state.clients = [{ ...CI, answer_grant: true }, OLD]
+    const user = userEvent.setup()
+    render(<ConnectPage kind="clients" />)
+    const toggle = await grantSwitch('CI bot')
+    expect(toggle).toBeChecked()
+    await user.click(toggle)
+    expect(screen.queryByRole('alertdialog')).toBeNull()
+    await waitFor(() => expect(state.grants).toEqual([{ client_id: 'client_ci', granted: false }]))
+    await waitFor(async () => expect(await grantSwitch('CI bot')).not.toBeChecked())
+  })
+
+  it('works from the keyboard', async () => {
+    const user = userEvent.setup()
+    render(<ConnectPage kind="clients" />)
+    const toggle = await grantSwitch('CI bot')
+    toggle.focus()
+    await user.keyboard(' ')
+    const confirm = await screen.findByRole('alertdialog')
+    await waitFor(() => expect(within(confirm).getByRole('button', { name: 'Cancel' })).toHaveFocus())
+    await user.tab()
+    expect(within(confirm).getByRole('button', { name: 'Allow' })).toHaveFocus()
+    await user.keyboard('{Enter}')
+    await waitFor(() => expect(state.grants).toEqual([{ client_id: 'client_ci', granted: true }]))
+  })
+
+  it.each([
+    [404, 'client_not_found', 'This client no longer exists. The list is up to date again.'],
+    [409, 'client_revoked', 'This client is revoked or built in, so it cannot answer questions. The list is up to date again.'],
+    [409, 'client_built_in', 'This client is revoked or built in, so it cannot answer questions. The list is up to date again.'],
+  ])('a %i (%s) shows fixed text and reloads the list', async (status, code, text) => {
+    state.grantRefusal = { status, code }
+    state.clients = [{ ...CI, answer_grant: true }, OLD]
+    const user = userEvent.setup()
+    render(<ConnectPage kind="clients" />)
+    await user.click(await grantSwitch('CI bot'))
+    expect(await screen.findByRole('alert')).toHaveTextContent(text)
+    expect(screen.queryByText('Backend text that is not shown.')).toBeNull()
+    await waitFor(() => expect(state.lists).toBeGreaterThanOrEqual(2))
   })
 })

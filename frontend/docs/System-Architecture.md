@@ -1304,6 +1304,18 @@ last four characters or "Revoked", last use ("Never"), how it last connected
 only in the dialog's component state: closing the dialog drops it, and it is
 never written to browser storage, a URL or a log.
 
+The **Can answer** column holds a switch per client for the owner's answer
+grant (`answer_grant`): with it, the client can approve or reject permission
+questions (a check rule's ask and an agent's own approval question) in its own
+sessions through the Client API or MCP; other questions stay with the owner.
+The text above the table says so, and each switch (labelled "{name} can answer
+permission questions") is described by it. A revoked client and a built-in one
+(`BUILT_IN_CLIENT_IDS`, "No token") show a dash instead. Turning a switch on
+asks for confirmation first; turning it off applies at once. Both send
+`PUT /clients/{id}/answer-grant` (`setAnswerGrant`) and put the returned
+client into the `['clients']` list. A 404 or 409 shows fixed text and reloads
+the list; any other refusal shows the backend's coded message.
+
 The same tab holds the token requirement switch (`RequirementSwitch`,
 `token-requirement.tsx`): `useTokenRequirement` reads
 `GET {api_prefix}/clients/token-requirement` (key
