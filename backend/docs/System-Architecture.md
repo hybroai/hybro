@@ -1223,6 +1223,10 @@ is recorded in the ledger for a held call.
   starts after the port read the Run is treated the same way. A
   replayed answer to a call already decided on a `running` Run returns as
   applied without reaching the kernel.
+- A tool batch whose other calls ended beside an Agent question already
+  presented to the model, with no owner Question open and no Agent at work,
+  hands the decision to the model (status `running`) instead of waiting
+  for the owner.
 - `observe_tool` takes a `HeldCallAnswer` only for an entry whose
   `rule_hold` is `asked`, and such an entry takes nothing else. A replayed
   answer is recognised by the recorded observation id before the suspended

@@ -2148,3 +2148,57 @@ async def test_an_observation_after_an_unfinished_termination_finishes_it():
     assert result.outcome == "failed"
     assert result.run.terminal_reason == "tool_failure"
     assert (await settled_turn(room, result.run))["state"] == "failed"
+
+
+@pytest.mark.parametrize("decision", ["Approve", "Reject"])
+async def test_a_held_call_beside_a_parked_agent_lets_the_model_decide(decision):
+    # call-1 parks with a question while "held" is asked. Once the owner
+    # decided and "held" ended, only the model's decision about call-1's
+    # question remains, so the model is called, not the owner.
+    kernel, store, tools, port, room, run_id = await agent_question_kernel(
+        [tool_events(HELD, PARK), final_events()], {"held"}
+    )
+    held = await start(kernel, room, run_id)
+    assert asked_calls(port) == ["held"]
+    assert entry_of(held.run, "call-1").state == "input_required"
+
+    done = await observe(kernel, room, run_id, answer_of(run_id, "held", decision))
+
+    assert done.outcome == "final_answer"
+
+
+async def test_a_held_call_beside_a_parked_and_a_working_agent_waits_on_the_agent():
+    kernel, store, tools, port, room, run_id = await agent_question_kernel(
+        [
+            tool_events(HELD, PARK, ("slow", PAUSE, '{"status":"waiting_external"}')),
+            final_events(),
+        ],
+        {"held"},
+    )
+    await start(kernel, room, run_id)
+
+    approved = await observe(kernel, room, run_id, answer_of(run_id, "held", "Approve"))
+
+    # The model decides once the working Agent ended, and no owner is asked.
+    assert approved.outcome == "waiting_external"
+    assert (await store.load(run_id)).status == "waiting_external"
+    slow = entry_of(approved.run, "slow")
+    done = await observe(
+        kernel,
+        room,
+        run_id,
+        ToolObservation(
+            observation_id="slow-done",
+            invocation_id=slow.invocation.invocation_id,
+            outcome=ToolResult(
+                call_id="slow",
+                tool_name=PAUSE,
+                status="completed",
+                content=[TextPart(text="slow result")],
+                artifact_refs=[],
+            ),
+            observed_at=NOW,
+        ),
+    )
+    assert done.outcome == "final_answer"
+

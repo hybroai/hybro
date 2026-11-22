@@ -1257,6 +1257,24 @@ def _flush_batch(
     )
 
 
+def _only_model_decision_remains(
+    run: OrchestratorRunState, batch: ToolCallBatch
+) -> bool:
+    """Whether ``batch`` of ``run`` waits only on the model's decision.
+
+    Every entry ended or is an Agent question already presented to the
+    model; no question is shown to the owner, none waits to be presented,
+    and no Agent still works.
+    """
+    return (
+        _batch_is_parked(batch)
+        and _has_presented_interactions(run)
+        and not _has_visible_input(run)
+        and not _has_presentable_interactions(run)
+        and not _has_working_call(run.tool_batches)
+    )
+
+
 def _wait_status(batch: ToolCallBatch) -> str:
     states = {entry.state for entry in batch.entries}
     if states & {"input_required", "auth_required"}:

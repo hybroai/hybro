@@ -101,6 +101,7 @@ from .run_state import (
     _interaction_question_summary,
     _merge_artifact_refs,
     _new_tool_batch,
+    _only_model_decision_remains,
     _opaque_public_call_id,
     _outcome_for_status,
     _owner_question_open,
@@ -2620,6 +2621,12 @@ class OrchestratorKernel:
                 return "retry"
             return None
         status = _wait_status(batch)
+        if _only_model_decision_remains(
+            run.model_copy(update={"tool_batches": batches}), batch
+        ):
+            # The batch's other calls ended beside an Agent question already
+            # presented to the model: the model decides next, nobody else.
+            status = "running"
         run = await self._checkpoint(
             run,
             updates={
@@ -2655,6 +2662,8 @@ class OrchestratorKernel:
             lifecycle=lifecycle,
             internal_turn_id=run.active_internal_turn_id or assistant.message_id,
         )
+        if status == "running":
+            return "decide"
         if _has_visible_input(run) or not _has_presentable_interactions(run):
             return KernelRunResult(
                 "awaiting_user" if status == "awaiting_user" else "waiting_external",
