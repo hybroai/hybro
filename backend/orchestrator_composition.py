@@ -15,7 +15,7 @@ from __future__ import annotations
 
 import asyncio
 import uuid
-from collections.abc import Callable, Iterator, Mapping
+from collections.abc import Awaitable, Callable, Iterator, Mapping
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from typing import Any, Literal
@@ -72,6 +72,10 @@ from execution.orchestrator.a2a_runtime.ledger import TERMINAL_AGENT_CALL_STATES
 from execution.orchestrator.a2a_runtime.models import (
     A2ADispatchReceipt,
     NormalizedA2AObservation,
+)
+from execution.orchestrator.a2a_runtime.observations import (
+    RunPassEnded,
+    RunPassEndHooks,
 )
 from execution.orchestrator.a2a_runtime.ports import AgentCallCheckPort
 from execution.orchestrator.a2a_runtime.preparation import (
@@ -222,6 +226,7 @@ class OrchestratorRuntime:
     recovery_cycle: Any
     public_secret_values: tuple[str, ...]
     push_ingress: A2APushNotificationIngress
+    pass_end_hooks: RunPassEndHooks
 
 
 _PROFILE_IDS = ("fast", "ultimate", "passthrough")
@@ -277,6 +282,7 @@ _RUNTIME_BINDINGS = (
     "recovery_cycle",
     "public_secret_values",
     "push_ingress",
+    "pass_end_hooks",
 )
 
 
@@ -375,6 +381,32 @@ async def _run_with_recovery_lease(
         raise
 
 
+def run_question_closeout(
+    cancel_requests_for_message: Callable[..., Any],
+) -> Callable[[Any], Awaitable[None]]:
+    """The kernel's closeout of an ended Run's open owner Questions.
+
+    The Run is already terminal, so closing its Questions ends nothing else.
+    A canceled Run's Questions are canceled as a Stop cancels them.
+    """
+
+    async def close(run: Any) -> None:
+        result = cancel_requests_for_message(
+            run.request.user_message_id,
+            **(
+                {}
+                if run.status == "canceled"
+                else {
+                    "failure_reason": "The Run ended before the question was answered"
+                }
+            ),
+        )
+        if hasattr(result, "__await__"):
+            await result
+
+    return close
+
+
 def create_orchestrator_runtime(  # noqa: C901
     *,
     mongo: Any,
@@ -401,6 +433,7 @@ def create_orchestrator_runtime(  # noqa: C901
     rule_question: Any | None = None,
     supervisor_hitl_cancellation: Callable[[str], Any] | None = None,
     agent_call_check: AgentCallCheckPort | None = None,
+    run_pass_ended: RunPassEnded | None = None,
 ) -> OrchestratorRuntime:
     """Compose the full orchestrator runtime over the registered Mongo stores.
 
@@ -577,15 +610,22 @@ def create_orchestrator_runtime(  # noqa: C901
             artifact_metadata_reader=resources.describe_artifact,
             supervisor_hitl=supervisor_hitl,
             rule_question=rule_question,
+            run_question_closeout=(
+                None
+                if supervisor_hitl_cancellation is None
+                else run_question_closeout(supervisor_hitl_cancellation)
+            ),
         )
 
     run_factory = DefaultRunFactory()
+    pass_end_hooks = RunPassEndHooks(run_pass_ended)
     session_host = RoomSessionHost(
         kernel_factory=kernel_for_catalog,
         run_store=run_store,
         epoch_store=epoch_store,
         listener=session_listener,
         run_factory=run_factory,
+        pass_end_hooks=pass_end_hooks,
     )
 
     observation_sink = session_host.observation_sink()
@@ -865,6 +905,9 @@ def create_orchestrator_runtime(  # noqa: C901
                             failure_count=decision.failure_count,
                             retry_scheduled=True,
                         )
+            # The recovery claim is released; answers that came in while the
+            # pass ran are applied now.
+            pass_end_hooks.notify(run.run_id, conversation_id=run.conversation_id)
 
     def _due_phase(recover: Callable[..., Any]) -> Callable[[], Any]:
         async def run() -> None:
@@ -941,6 +984,7 @@ def create_orchestrator_runtime(  # noqa: C901
         recovery_cycle=recovery_cycle,
         public_secret_values=public_secret_values,
         push_ingress=push_ingress,
+        pass_end_hooks=pass_end_hooks,
     )
 
 

@@ -865,6 +865,14 @@ HITL_CONTINUATION_CLAIM_REJECTED = define(
 RUN_RECOVERY_SCHEDULE_FAILED = define(
     "run_recovery_schedule_failed", ERROR, required={"run_id", "conversation_id"}
 )
+RUN_QUESTION_CLOSEOUT_FAILED = define(
+    "run_question_closeout_failed",
+    WARNING,
+    required={"run_id", "conversation_id"},
+)
+RUN_PASS_END_HOOK_FAILED = define(
+    "run_pass_end_hook_failed", WARNING, required={"run_id", "conversation_id"}
+)
 A2A_PUSH_PROCESSING_DEFERRED = define(
     "a2a_push_processing_deferred", WARNING, required={"observation_id"}
 )

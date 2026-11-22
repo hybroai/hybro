@@ -272,6 +272,9 @@ class HITLLifecyclePersistencePort(Protocol):
     def iter_stale_applications(
         self, now: Any, *, limit: int = 100
     ) -> AsyncIterator[dict[str, Any]]: ...
+    def iter_run_busy_applications(
+        self, run_id: str, *, limit: int = 100
+    ) -> AsyncIterator[dict[str, Any]]: ...
     def iter_due_resume_commands(
         self, now: Any, *, limit: int = 100
     ) -> AsyncIterator[dict[str, Any]]: ...

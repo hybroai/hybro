@@ -101,6 +101,7 @@ from .run_state import (
     _interaction_question_summary,
     _merge_artifact_refs,
     _new_tool_batch,
+    _only_model_decision_remains,
     _opaque_public_call_id,
     _outcome_for_status,
     _owner_question_open,
@@ -241,6 +242,8 @@ class OrchestratorKernel:
         | None = None,
         supervisor_hitl: SupervisorHITLPort | None = None,
         rule_question: SupervisorHITLPort | None = None,
+        run_question_closeout: Callable[[OrchestratorRunState], Awaitable[object]]
+        | None = None,
     ) -> None:
         self.run_store = run_store
         self.model_runtime = model_runtime
@@ -260,6 +263,8 @@ class OrchestratorKernel:
         self.supervisor_hitl = supervisor_hitl
         # Creates the permission Question when a check rule answers "ask".
         self.rule_question = rule_question
+        # Closes the owner Questions still open when the Run ends.
+        self.run_question_closeout = run_question_closeout
         self._lifecycle_context: ContextVar[KernelLifecycle | None] = ContextVar(
             f"kernel-lifecycle-{id(self)}", default=None
         )
@@ -1037,7 +1042,7 @@ class OrchestratorKernel:
                 exc=exc,
                 run_id=run.run_id,
                 conversation_id=run.conversation_id,
-                client_request_id=run.client_request_id,
+                client_request_id=log_id(run.client_request_id),
                 call_id=log_id(call.call_id),
                 interaction_id=log_id(interaction_id),
             )
@@ -1222,9 +1227,9 @@ class OrchestratorKernel:
                 exc=exc,
                 run_id=run.run_id,
                 conversation_id=run.conversation_id,
-                client_request_id=run.client_request_id,
-                call_id=call.call_id,
-                interaction_id=interaction_id,
+                client_request_id=log_id(run.client_request_id),
+                call_id=log_id(call.call_id),
+                interaction_id=log_id(interaction_id),
             )
             raise
         invocation = ToolInvocation(
@@ -2620,6 +2625,12 @@ class OrchestratorKernel:
                 return "retry"
             return None
         status = _wait_status(batch)
+        if _only_model_decision_remains(
+            run.model_copy(update={"tool_batches": batches}), batch
+        ):
+            # The batch's other calls ended beside an Agent question already
+            # presented to the model: the model decides next, nobody else.
+            status = "running"
         run = await self._checkpoint(
             run,
             updates={
@@ -2655,6 +2666,8 @@ class OrchestratorKernel:
             lifecycle=lifecycle,
             internal_turn_id=run.active_internal_turn_id or assistant.message_id,
         )
+        if status == "running":
+            return "decide"
         if _has_visible_input(run) or not _has_presentable_interactions(run):
             return KernelRunResult(
                 "awaiting_user" if status == "awaiting_user" else "waiting_external",
@@ -4185,7 +4198,28 @@ class OrchestratorKernel:
                 return KernelRunResult("cancellation_pending", stored.run)
             raise KernelConflict("terminal status store CAS lost")
         settled = await self.projection_driver.settle(run.run_id)
+        await self._close_run_questions(settled)
         return KernelRunResult(_outcome_for_status(status), settled)
+
+    async def _close_run_questions(self, run: OrchestratorRunState) -> None:
+        """Close the owner Questions of a Run that just ended.
+
+        A Stop closes them before the Run ends; any other end (a failed
+        sibling, the budget, an interrupted driver) leaves them open, and
+        they would keep asking the owner about a Run that is over.
+        """
+        if self.run_question_closeout is None:
+            return
+        try:
+            await self.run_question_closeout(run)
+        except Exception as exc:
+            # An answer to such a Question is closed when it is applied.
+            _kernel_logger.emit(
+                E.RUN_QUESTION_CLOSEOUT_FAILED,
+                exc=exc,
+                run_id=run.run_id,
+                conversation_id=run.conversation_id,
+            )
 
     async def _reserve_tool_budget(
         self,

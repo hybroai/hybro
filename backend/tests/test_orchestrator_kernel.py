@@ -1644,6 +1644,10 @@ async def test_failed_supervisor_ask_user_creation_is_logged(caplog):
         supervisor_hitl=failing_hitl,
     )
     run = next(iter(store.runs.values()))
+    # The request id is the caller's text; only an id-shaped value is logged.
+    store.runs[run.run_id] = run.model_copy(
+        update={"client_request_id": "note: free text"}
+    )
 
     with caplog.at_level(logging.ERROR, logger="execution.orchestrator.kernel"):
         with pytest.raises(RuntimeError, match="secret-detail"):
@@ -1656,8 +1660,8 @@ async def test_failed_supervisor_ask_user_creation_is_logged(caplog):
     ]
     assert record.run_id == run.run_id
     assert record.conversation_id == run.conversation_id
-    assert record.client_request_id == run.client_request_id
-    assert record.client_request_id is not None
+    assert record.client_request_id == "invalid"
     assert record.call_id == "ask-1"
+    assert "free text" not in caplog.text
     assert record.error_type == "RuntimeError"
     assert "secret-detail" not in caplog.text

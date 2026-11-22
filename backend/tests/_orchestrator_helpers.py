@@ -233,3 +233,13 @@ __all__ = [
     "tool_events",
     "user_message",
 ]
+
+
+async def drain_pass_end_hooks(hooks) -> None:
+    """Wait until every hook ``hooks`` started, and any it started, ran."""
+    for _ in range(100):
+        pending = list(hooks._tasks)
+        if not pending:
+            return
+        await asyncio.gather(*pending, return_exceptions=True)
+    raise AssertionError("pass-end hooks kept scheduling more hooks")

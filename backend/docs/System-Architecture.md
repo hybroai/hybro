@@ -1196,15 +1196,52 @@ is recorded in the ledger for a held call.
   observation id is a pure function of the Run, the call and the decision.
   Before that, the port reads `run_level_answer_disposition`: while the Run
   is `running` (the approved pass of the previous held call, which asks
-  about the next call before it runs the approved one), an answer to a call
-  still `asked` raises `HITLRunBusyError`, which `approval` treats as not yet
-  applied: the interaction stays `applying` (error `run_busy`), the route
-  answers `accepted`, and each HITL reconciler pass (`StaleTaskChecker`,
-  every 5 minutes by default) tries it again, so it applies at the first
-  pass after the Run suspends. An answer that loses the race to a pass that
+  about the next call before it runs the approved one, or a pass that runs
+  other calls after asking), an answer to a call still `asked` raises
+  `HITLRunBusyError`, which `approval` treats as not yet applied: the
+  interaction stays `applying` (error `run_busy`, lease expired) and the
+  route answers `accepted`. When a pass over the Run ends and its driver has
+  let it go (the live session through `RoomSessionHost`, the run-addressed
+  `RunAddressedToolObservationSink`, or generic recovery after it releases
+  its claim), the driver calls the `run_pass_ended` hook in the background
+  through the runtime's one `RunPassEndHooks`; the container binds it to
+  `HITLLifecycleReconciler.apply_parked_run_answers`, which applies that
+  Run's `run_busy` interactions (`iter_run_busy_applications`). A cancelled
+  pass calls no hook, and shutdown closes the hooks (none starts) before it
+  settles in-flight Runs; a hook's pass through a live session is settled
+  as interrupted there like any other. A pass can end between the port's busy
+  read and the park, so after parking `approval` calls the container's
+  `parked_run_check`: when the Run is neither `running` nor claimed by a
+  driver, it calls the hook itself. Otherwise a driver writes the Run's
+  status and releases its claim after the park, and the end of its pass
+  applies the answer; a `running` Run with no live pass (recovery scheduled,
+  or a driver that died) waits for its next generic-recovery pass. An answer
+  that finds the Run busy again is parked again for the end of that pass. A
+  failed hook logs `run_pass_end_hook_failed`; each HITL reconciler pass
+  (`StaleTaskChecker`, every 5 minutes by default) still applies a parked
+  answer, for example one parked on another process. An answer that loses the race to a pass that
   starts after the port read the Run is treated the same way. A
   replayed answer to a call already decided on a `running` Run returns as
-  applied without reaching the kernel.
+  applied without reaching the kernel. An answered interaction whose Run
+  ended before the answer was applied (for example a `run_busy` answer,
+  then the Run failed) is claimed and failed by `apply_interaction`
+  instead of staying `applying`. A terminal interaction is marked
+  reconciled once each member is either canceled with its event sent or
+  `responded` with its received event sent (`application_projected`).
+- When a Run ends by any path through the kernel's terminal commit (a
+  failed sibling, the budget, an interrupted driver, as well as a Stop),
+  the kernel calls its `run_question_closeout` port after the terminal
+  status is stored. The composition binds it to the Stop cleanup
+  (`cancel_requests_for_message` for the Run's user message, with a
+  failure reason unless the Run was canceled), which closes the owner
+  Questions of the ended Run, a check rule's or an `ask_user` one. It is
+  best effort: a failed closeout logs `run_question_closeout_failed`, a
+  crash after the terminal commit skips it, and an answer to a Question it
+  missed is failed when applied (above).
+- A tool batch whose other calls ended beside an Agent question already
+  presented to the model, with no owner Question open and no Agent at work,
+  hands the decision to the model (status `running`) instead of waiting
+  for the owner.
 - `observe_tool` takes a `HeldCallAnswer` only for an entry whose
   `rule_hold` is `asked`, and such an entry takes nothing else. A replayed
   answer is recognised by the recorded observation id before the suspended

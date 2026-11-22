@@ -7,6 +7,7 @@ acknowledged remote call keeps being polled until its own wait ceiling.
 
 from __future__ import annotations
 
+import asyncio
 from datetime import datetime, timedelta
 from unittest.mock import MagicMock
 
@@ -47,6 +48,7 @@ from ._orchestrator_helpers import (
     FixedIDs,
     NeverCancelled,
     ScriptedModelRuntime,
+    drain_pass_end_hooks,
     final_events,
     make_run,
     tool_events,
@@ -294,7 +296,7 @@ class CrashingModelRuntime(ScriptedModelRuntime):
             yield event
 
 
-async def _composed(monkeypatch, model):
+async def _composed(monkeypatch, model, **composition_kwargs):
     import orchestrator_composition as composition
     from execution.adapters.session_host import RoomSessionHost
     from tests.test_orchestrator_composition import _deps
@@ -359,6 +361,7 @@ async def _composed(monkeypatch, model):
         message_writer=MagicMock(),
         session_listener=listener,
         canonical_event_reader=history.read,
+        **composition_kwargs,
     )
     seed = make_run()
     tool = StaticFakeToolCatalog().resolve(seed, "fake_agent_pause")
@@ -433,6 +436,131 @@ async def test_generic_recovery_leaves_a_suspended_run_dormant(monkeypatch):
     assert completed.budget.deadline_at == parked.budget.deadline_at + (
         answered_at - NOW
     )
+
+
+async def test_every_pass_end_reports_its_run(monkeypatch):
+    # An owner's answer parked while the Run was busy is applied when a pass
+    # ends: the live session, recovery and the run-addressed sink each report
+    # the end of their pass.
+    model = ScriptedModelRuntime([_pause("input_required"), final_events("done")])
+    ended: list[str] = []
+
+    async def pass_ended(run_id: str) -> None:
+        ended.append(run_id)
+
+    runtime, store, clock, _constructed, _events = await _composed(
+        monkeypatch, model, run_pass_ended=pass_ended
+    )
+
+    paused = await runtime.session_host.prompt(
+        "room-1", user_message(), client_request_id="request-1"
+    )
+    run_id = paused.run.run_id
+    await drain_pass_end_hooks(runtime.pass_end_hooks)
+    assert ended == [run_id]
+
+    runtime.session_host.drop_session("room-1")
+    await schedule_run_recovery(store, run_id, next_attempt_at=clock.value)
+    await _generic_recovery(runtime)
+    await drain_pass_end_hooks(runtime.pass_end_hooks)
+    assert ended == [run_id, run_id]
+
+    entry = (await store.load(run_id)).tool_batches[0].entries[0]
+    await runtime.observation_sink.deliver(
+        run_id, _completion(entry, observation_id="answer-1", at=clock.value)
+    )
+    await drain_pass_end_hooks(runtime.pass_end_hooks)
+    assert (await store.load(run_id)).status == "completed"
+    assert ended == [run_id, run_id, run_id]
+
+
+async def test_a_failed_recovery_pass_still_reports_its_run(monkeypatch):
+    model = ScriptedModelRuntime([_pause("input_required")])
+    ended: list[str] = []
+
+    async def pass_ended(run_id: str) -> None:
+        ended.append(run_id)
+
+    runtime, store, clock, _constructed, _events = await _composed(
+        monkeypatch, model, run_pass_ended=pass_ended
+    )
+    paused = await runtime.session_host.prompt(
+        "room-1", user_message(), client_request_id="request-1"
+    )
+    run_id = paused.run.run_id
+    runtime.session_host.drop_session("room-1")
+    await drain_pass_end_hooks(runtime.pass_end_hooks)
+    ended.clear()
+
+    async def fails(self, *_args, **_kwargs):
+        raise RuntimeError("recovered pass failed")
+
+    monkeypatch.setattr(OrchestratorKernel, "run", fails)
+    await schedule_run_recovery(store, run_id, next_attempt_at=clock.value)
+    await _generic_recovery(runtime)
+    await drain_pass_end_hooks(runtime.pass_end_hooks)
+
+    assert ended == [run_id]
+    assert (await store.load(run_id)).recovery_claim.owner_id is None
+
+
+async def test_a_failing_pass_end_hook_is_logged_not_raised(caplog):
+    import logging
+
+    from execution.orchestrator.a2a_runtime.observations import RunPassEndHooks
+
+    async def pass_ended(_run_id: str) -> None:
+        raise RuntimeError("hook secret-detail")
+
+    hooks = RunPassEndHooks(pass_ended)
+    with caplog.at_level(logging.WARNING):
+        hooks.notify("run-1", conversation_id="room-1")
+        await drain_pass_end_hooks(hooks)
+
+    [record] = [
+        r for r in caplog.records if r.getMessage() == "run_pass_end_hook_failed"
+    ]
+    assert record.run_id == "run-1"
+    assert "secret-detail" not in caplog.text
+
+
+async def test_a_cancelled_pass_reports_nothing():
+    from execution.orchestrator.a2a_runtime.observations import RunPassEndHooks
+
+    ended: list[str] = []
+
+    async def pass_ended(run_id: str) -> None:
+        ended.append(run_id)
+
+    hooks = RunPassEndHooks(pass_ended)
+    with pytest.raises(asyncio.CancelledError):
+        with hooks.after_pass(lambda: "run-1", conversation_id="room-1"):
+            raise asyncio.CancelledError
+    with pytest.raises(RuntimeError):
+        with hooks.after_pass(lambda: "run-2", conversation_id="room-1"):
+            raise RuntimeError("the pass failed")
+    with hooks.after_pass(lambda: "run-3", conversation_id="room-1"):
+        pass
+    await drain_pass_end_hooks(hooks)
+
+    assert ended == ["run-2", "run-3"]
+
+
+async def test_closed_hooks_start_no_more():
+    from execution.orchestrator.a2a_runtime.observations import RunPassEndHooks
+
+    ended: list[str] = []
+
+    async def pass_ended(run_id: str) -> None:
+        ended.append(run_id)
+
+    hooks = RunPassEndHooks(pass_ended)
+    hooks.notify("run-1", conversation_id="room-1")
+    hooks.close()
+    hooks.notify("run-2", conversation_id="room-1")
+    await drain_pass_end_hooks(hooks)
+
+    assert ended == ["run-1"]
 
 
 async def test_waiting_external_run_completes_from_a_late_result(monkeypatch):
