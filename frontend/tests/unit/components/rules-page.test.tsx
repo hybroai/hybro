@@ -224,7 +224,7 @@ describe('Rules page', () => {
     const rows = await items()
     const before = state.gets
     await userEvent.selectOptions(within(rows[0]).getByRole('combobox', { name: 'Answer for rule 1' }), 'allow')
-    expect(await screen.findByText('This rule no longer exists. The list has been reloaded.')).toBeInTheDocument()
+    expect(await screen.findByText('This rule no longer exists. The list is being reloaded.')).toBeInTheDocument()
     await waitFor(() => expect(state.gets).toBeGreaterThan(before))
     // The select shows the stored answer again, not the refused one.
     await waitFor(async () => expect(within((await items())[0]).getByRole('combobox', { name: 'Answer for rule 1' })).toHaveValue('deny'))
@@ -236,7 +236,7 @@ describe('Rules page', () => {
     const rows = await items()
     const before = state.gets
     await userEvent.click(within(rows[1]).getByRole('button', { name: 'Move rule 2 up' }))
-    expect(await screen.findByText('The rules changed since this page loaded. The list has been reloaded; try again.')).toBeInTheDocument()
+    expect(await screen.findByText('The rules changed since this page loaded. The list is being reloaded; try again once it is.')).toBeInTheDocument()
     await waitFor(() => expect(state.gets).toBeGreaterThan(before))
   })
 
@@ -499,11 +499,36 @@ describe('Rules page', () => {
       }, { once: true }),
     )
     await userEvent.selectOptions(within(rows[0]).getByRole('combobox', { name: 'Answer for rule 1' }), 'allow')
-    await screen.findByText('This rule no longer exists. The list has been reloaded.')
+    await screen.findByText('This rule no longer exists. The list is being reloaded.')
     await userEvent.click(within(rows[1]).getByRole('switch', { name: 'Rule 2 on' }))
     expect(within(rows[1]).getByRole('switch', { name: 'Rule 2 on' })).not.toBeChecked()
     release()
     await waitFor(async () => expect(await items()).toHaveLength(2))
     expect(state.writes).toEqual(['PUT rule_1'])
+  })
+
+  it('ignores edits while the list reloads after a delete of a rule already gone', async () => {
+    let release = () => {}
+    const held = new Promise<void>(resolve => { release = resolve })
+    render(<RulesPage />)
+    const rows = await items()
+    // Another tab deleted rule 1 first.
+    state.rules = state.rules.filter(item => item.rule_id !== 'rule_1')
+    server.use(
+      http.delete(getApiUrl('rules/:id'), () => HttpResponse.json({ detail: { code: 'rule_not_found', message: 'x' } }, { status: 404 }), { once: true }),
+      http.get(getApiUrl('rules'), async () => {
+        await held
+        return HttpResponse.json({ rules: state.rules })
+      }, { once: true }),
+    )
+    await userEvent.click(within(rows[0]).getByRole('button', { name: 'Delete rule 1' }))
+    await userEvent.click(within(await screen.findByRole('alertdialog')).getByRole('button', { name: 'Delete' }))
+    await waitFor(() => expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument())
+    const row = (await items())[0]
+    await userEvent.click(within(row).getByRole('switch', { name: 'Rule 1 on' }))
+    expect(within(row).getByRole('switch', { name: 'Rule 1 on' })).not.toBeChecked()
+    release()
+    await waitFor(async () => expect(await items()).toHaveLength(2))
+    expect(state.writes).toEqual([])
   })
 })

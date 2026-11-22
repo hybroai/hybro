@@ -71,8 +71,8 @@ describe('rule API client', () => {
   })
 
   it('shows fixed text for each refusal, never the backend message', () => {
-    expect(ruleErrorMessage(refusal(404, 'rule_not_found'))).toBe('This rule no longer exists. The list has been reloaded.')
-    expect(ruleErrorMessage(refusal(409, 'rule_order_mismatch'))).toBe('The rules changed since this page loaded. The list has been reloaded; try again.')
+    expect(ruleErrorMessage(refusal(404, 'rule_not_found'))).toBe('This rule no longer exists. The list is being reloaded.')
+    expect(ruleErrorMessage(refusal(409, 'rule_order_mismatch'))).toBe('The rules changed since this page loaded. The list is being reloaded; try again once it is.')
     expect(ruleErrorMessage(refusal(409, 'rule_limit_reached'))).toBe('The list holds the most rules it can. Delete a rule to add another.')
     expect(ruleErrorMessage(refusal(422, 'invalid_request', { fields: ['agent_id', 'answer'] }))).toBe('The rule was not saved. Check: agent_id, answer.')
     expect(ruleErrorMessage(refusal(422, 'invalid_request'))).toBe('The rule was not saved. Check the rule and try again.')

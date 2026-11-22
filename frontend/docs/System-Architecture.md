@@ -1393,7 +1393,8 @@ Errors show fixed text from `ruleErrorMessage`, never the backend's message:
 `rule_limit_reached` (the rule limit), 422 with the field names the backend
 lists (only its known names), and 503. Because the list reloads once the
 writes settle, the owner never edits or orders a stale list after a 404 or
-409: after a refused write, edits and moves wait until that reload settles.
+409: after any refused write (a 404 on delete included), edits and moves are
+ignored until that reload settles.
 `useRules` does not retry. If a reload fails while a list is shown, the list
 stays with a **Reload** button and a note that it may be out of date, and its
 rows cannot be edited or moved until a reload succeeds; with no list, the
