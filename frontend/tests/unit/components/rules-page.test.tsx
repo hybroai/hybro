@@ -225,7 +225,7 @@ describe('Rules page', () => {
     const rows = await items()
     const before = state.gets
     await userEvent.selectOptions(within(rows[0]).getByRole('combobox', { name: 'Answer for rule 1' }), 'allow')
-    expect(await screen.findByText('This rule no longer exists. The list is being reloaded.')).toBeInTheDocument()
+    expect(await screen.findByText('This rule no longer exists.')).toBeInTheDocument()
     await waitFor(() => expect(state.gets).toBeGreaterThan(before))
     // The select shows the stored answer again, not the refused one.
     await waitFor(async () => expect(within((await items())[0]).getByRole('combobox', { name: 'Answer for rule 1' })).toHaveValue('deny'))
@@ -237,7 +237,7 @@ describe('Rules page', () => {
     const rows = await items()
     const before = state.gets
     await userEvent.click(within(rows[1]).getByRole('button', { name: 'Move rule 2 up' }))
-    expect(await screen.findByText('The rules changed since this page loaded. The list is being reloaded; try again once it is.')).toBeInTheDocument()
+    expect(await screen.findByText('The rules changed since this page loaded. Try again.')).toBeInTheDocument()
     await waitFor(() => expect(state.gets).toBeGreaterThan(before))
   })
 
@@ -482,6 +482,9 @@ describe('Rules page', () => {
     const row = (await items())[1]
     expect(within(row).getByRole('button', { name: 'Move rule 2 up' })).toHaveAttribute('aria-disabled', 'true')
     expect(within(row).getByRole('button', { name: 'Delete rule 2' })).toHaveAttribute('aria-disabled', 'true')
+    expect(within(row).getByRole('switch', { name: 'Rule 2 on' })).toHaveAttribute('aria-disabled', 'true')
+    expect(within(row).getByRole('combobox', { name: 'Agent for rule 2' })).toHaveAttribute('aria-disabled', 'true')
+    expect(within(row).getByRole('combobox', { name: 'Answer for rule 2' })).toHaveAttribute('aria-disabled', 'true')
     await userEvent.click(within(row).getByRole('switch', { name: 'Rule 2 on' }))
     // An edit that went through would show at once.
     expect(within(row).getByRole('switch', { name: 'Rule 2 on' })).not.toBeChecked()
@@ -510,7 +513,7 @@ describe('Rules page', () => {
       }, { once: true }),
     )
     await userEvent.selectOptions(within(rows[0]).getByRole('combobox', { name: 'Answer for rule 1' }), 'allow')
-    await screen.findByText('This rule no longer exists. The list is being reloaded.')
+    await screen.findByText('This rule no longer exists.')
     await userEvent.click(within(rows[1]).getByRole('switch', { name: 'Rule 2 on' }))
     expect(within(rows[1]).getByRole('switch', { name: 'Rule 2 on' })).not.toBeChecked()
     release()
@@ -631,7 +634,7 @@ describe('Rules page', () => {
     await waitFor(() => expect(within(rows[0]).getByRole('button', { name: 'Delete rule 1', hidden: true })).toHaveAttribute('aria-disabled', 'false'))
   })
 
-  it('ignores edits while the list reloads after a refused move', async () => {
+  it('ignores edits until a refused move and its reload settle', async () => {
     let release = () => {}
     const held = new Promise<void>(resolve => { release = resolve })
     render(<RulesPage />)
@@ -651,5 +654,29 @@ describe('Rules page', () => {
     release()
     await waitFor(() => expect(within(rows[2]).getByRole('button', { name: 'Delete rule 3' })).toHaveAttribute('aria-disabled', 'false'))
     expect(state.writes).toEqual([])
+  })
+
+  it('does not lock the list for a later write once a refusal has been reloaded', async () => {
+    render(<RulesPage />)
+    const rows = await items()
+    server.use(http.post(getApiUrl('rules'), () => HttpResponse.json({ detail: { code: 'rule_limit_reached', message: 'x' } }, { status: 409 }), { once: true }))
+    await userEvent.click(screen.getByRole('button', { name: 'Add rule' }))
+    const dialog = await screen.findByRole('dialog', { name: 'Add a rule' })
+    await userEvent.click(within(dialog).getByRole('button', { name: 'Add' }))
+    await within(dialog).findByText('The list holds the most rules it can. Delete a rule to add another.')
+    await waitFor(() => expect(within(rows[0]).getByRole('button', { name: 'Delete rule 1', hidden: true })).toHaveAttribute('aria-disabled', 'false'))
+    // A rule was deleted elsewhere; this add now succeeds, and its reload is held.
+    let release = () => {}
+    const held = new Promise<void>(resolve => { release = resolve })
+    server.use(http.get(getApiUrl('rules'), async () => {
+      await held
+      return HttpResponse.json({ rules: state.rules })
+    }, { once: true }))
+    await userEvent.click(within(dialog).getByRole('button', { name: 'Add' }))
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
+    expect(within(rows[0]).getByRole('button', { name: 'Delete rule 1' })).toHaveAttribute('aria-disabled', 'false')
+    expect(within(rows[0]).getByRole('switch', { name: 'Rule 1 on' })).not.toHaveAttribute('aria-disabled')
+    release()
+    await waitFor(async () => expect(await items()).toHaveLength(4))
   })
 })

@@ -67,9 +67,9 @@ function refusal(error: unknown): { status: number; code?: string; fields: strin
 /** Fixed text for a refused rule request; the backend's text is not shown. */
 export function ruleErrorMessage(error: unknown): string {
   const refused = refusal(error)
-  if (refused?.status === 404) return 'This rule no longer exists. The list is being reloaded.'
+  if (refused?.status === 404) return 'This rule no longer exists.'
   if (refused?.status === 409 && refused.code === 'rule_limit_reached') return 'The list holds the most rules it can. Delete a rule to add another.'
-  if (refused?.status === 409) return 'The rules changed since this page loaded. The list is being reloaded; try again once it is.'
+  if (refused?.status === 409) return 'The rules changed since this page loaded. Try again.'
   if (refused?.status === 422) {
     return refused.fields.length
       ? `The rule was not saved. Check: ${refused.fields.join(', ')}.`

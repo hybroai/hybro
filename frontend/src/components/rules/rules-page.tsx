@@ -61,9 +61,10 @@ const RULE_WRITE = { mutationKey: rulesQueryKey, scope: { id: 'rules' } } as con
  * two queued writes would show the list without the later, unsaved change.
  * The settling write still counts as pending here.
  */
-function reloadAfterLastWrite(queryClient: QueryClient) {
-  if (queryClient.isMutating({ mutationKey: rulesQueryKey }) > 1) return
-  return queryClient.invalidateQueries({ queryKey: rulesQueryKey })
+async function reloadAfterLastWrite(queryClient: QueryClient): Promise<boolean> {
+  if (queryClient.isMutating({ mutationKey: rulesQueryKey }) > 1) return false
+  await queryClient.invalidateQueries({ queryKey: rulesQueryKey })
+  return true
 }
 
 interface AgentChoice {
@@ -136,10 +137,11 @@ interface AddProps {
   onRefused: () => void
   /** Says the result aloud; the focus alone would not. */
   announce: (text: string) => void
+  /** Run when a rule write settles; reloads the list after the last one. */
+  settle: () => Promise<void>
 }
 
-function AddRuleDialog({ open, onOpenChange, agents, returnFocus, onRefused, announce }: AddProps) {
-  const queryClient = useQueryClient()
+function AddRuleDialog({ open, onOpenChange, agents, returnFocus, onRefused, announce, settle }: AddProps) {
   const [agentId, setAgentId] = useState(ANY)
   const [answer, setAnswer] = useState<RuleAnswer>('deny')
   const create = useMutation({
@@ -151,7 +153,7 @@ function AddRuleDialog({ open, onOpenChange, agents, returnFocus, onRefused, ann
       finish()
     },
     onError: onRefused,
-    onSettled: () => reloadAfterLastWrite(queryClient),
+    onSettled: settle,
   })
   function finish() {
     onOpenChange(false)
@@ -220,9 +222,11 @@ interface DeleteProps {
   onRefused: () => void
   /** Says the result aloud; the focus alone would not. */
   announce: (text: string) => void
+  /** Run when a rule write settles; reloads the list after the last one. */
+  settle: () => Promise<void>
 }
 
-function DeleteRuleDialog({ rule, position, agents, onClose, returnFocus, onRefused, announce }: DeleteProps) {
+function DeleteRuleDialog({ rule, position, agents, onClose, returnFocus, onRefused, announce, settle }: DeleteProps) {
   const queryClient = useQueryClient()
   const removed = useRef(false)
   const done = () => {
@@ -243,7 +247,7 @@ function DeleteRuleDialog({ rule, position, agents, onClose, returnFocus, onRefu
       onRefused()
       if (error instanceof ApiError && error.status === 404) done()
     },
-    onSettled: () => reloadAfterLastWrite(queryClient),
+    onSettled: settle,
   })
   return (
     <AlertDialog open onOpenChange={open => { if (!open && !remove.isPending) onClose() }}>
@@ -330,6 +334,7 @@ function RuleRow({ rule, position, count, agents, editBlocked, moveBlocked, onCh
             value={rule.agent_id ?? ANY}
             aria-describedby={missing ? `${id}-missing` : undefined}
             aria-invalid={missing || undefined}
+            aria-disabled={editBlocked || undefined}
             onChange={event => change({ agent_id: event.target.value === ANY ? null : event.target.value })}
           >
             <AgentOptions current={rule.agent_id} agents={agents} />
@@ -341,6 +346,7 @@ function RuleRow({ rule, position, count, agents, editBlocked, moveBlocked, onCh
             id={`${id}-answer`}
             className={SELECT_CLASS}
             value={rule.answer}
+            aria-disabled={editBlocked || undefined}
             onChange={event => change({ answer: event.target.value as RuleAnswer })}
           >
             <AnswerOptions />
@@ -351,6 +357,7 @@ function RuleRow({ rule, position, count, agents, editBlocked, moveBlocked, onCh
             id={`${id}-on`}
             checked={rule.enabled}
             aria-label={`Rule ${position} on`}
+            aria-disabled={editBlocked || undefined}
             onCheckedChange={enabled => change({ enabled })}
           />
           <span className="hidden w-7 text-sm text-muted-foreground sm:inline" aria-hidden="true">{rule.enabled ? 'On' : 'Off'}</span>
@@ -399,7 +406,7 @@ export function RulesPage() {
   // The position is kept from when the dialog opened, so a reload cannot change its title.
   const [deleting, setDeleting] = useState<{ rule: RuleView; position: number } | null>(null)
   const [actionError, setActionError] = useState<string | null>(null)
-  // Set by any refused write; with a write still settling, the list is reloading.
+  // Set by any refused write; cleared once the reload after the last write lands.
   const [refused, setRefused] = useState(false)
   // The rule whose edit the error text is about.
   const failedRule = useRef<string | null>(null)
@@ -413,7 +420,9 @@ export function RulesPage() {
   const addButton = useRef<HTMLButtonElement>(null)
   const heading = useRef<HTMLHeadingElement>(null)
 
-  const reload = () => reloadAfterLastWrite(queryClient)
+  const settle = async () => {
+    if (await reloadAfterLastWrite(queryClient)) setRefused(false)
+  }
 
   const failed = (error: unknown) => {
     failedRule.current = null
@@ -426,7 +435,6 @@ export function RulesPage() {
   const edit = (rule: RuleView, fields: RuleFields) => {
     setActionError(null)
     failedRule.current = null
-    setRefused(false)
     void queryClient.cancelQueries({ queryKey: rulesQueryKey })
     queryClient.setQueryData<RuleList>(rulesQueryKey, current => current && {
       rules: current.rules.map(item => item.rule_id === rule.rule_id ? { ...item, ...fields } : item),
@@ -449,7 +457,7 @@ export function RulesPage() {
       failedRule.current = null
       setActionError(null)
     },
-    onSettled: reload,
+    onSettled: settle,
   })
 
   const reorder = useMutation({
@@ -474,7 +482,7 @@ export function RulesPage() {
       queryClient.setQueryData(rulesQueryKey, saved)
     },
     onError: failed,
-    onSettled: reload,
+    onSettled: settle,
   })
 
   // A move is computed from the list on screen, so it waits until every
@@ -486,7 +494,6 @@ export function RulesPage() {
 
   const move = (rule: RuleView, direction: Direction) => {
     if (!list || writing) return
-    setRefused(false)
     const ids = moved(list.map(item => item.rule_id), rule.rule_id, direction)
     reorder.mutate({ ids, ruleId: rule.rule_id, direction })
   }
@@ -574,7 +581,7 @@ export function RulesPage() {
                   moveBlocked={writing || rules.isError}
                   onChange={edit}
                   onMove={move}
-                  onDelete={(target, position) => { setActionError(null); setRefused(false); setDeleting({ rule: target, position }) }}
+                  onDelete={(target, position) => { setActionError(null); setDeleting({ rule: target, position }) }}
                   buttonRef={buttonRef}
                 />
               ))}
@@ -583,7 +590,7 @@ export function RulesPage() {
           <p role="status" className="sr-only">{announcement}</p>
         </section>
       </div>
-      <AddRuleDialog open={adding} onOpenChange={setAdding} agents={agents} returnFocus={() => addButton.current?.focus()} onRefused={() => setRefused(true)} announce={announce} />
+      <AddRuleDialog open={adding} onOpenChange={setAdding} agents={agents} returnFocus={() => addButton.current?.focus()} onRefused={() => setRefused(true)} announce={announce} settle={settle} />
       {deleting ? (
         <DeleteRuleDialog
           key={deleting.rule.rule_id}
@@ -593,6 +600,7 @@ export function RulesPage() {
           onClose={() => setDeleting(null)}
           onRefused={() => setRefused(true)}
           announce={announce}
+          settle={settle}
           // Back to the row's Delete button, or to the list heading once the row is gone.
           returnFocus={deleted => {
             const button = deleted ? undefined : buttons.current.get(`${deleting.rule.rule_id}:delete`)

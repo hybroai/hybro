@@ -1396,7 +1396,10 @@ Errors show fixed text from `ruleErrorMessage`, never the backend's message:
 lists (only its known names), and 503. Because the list reloads once the
 writes settle, the owner never edits or orders a stale list after a 404 or
 409: after any refused write (a 404 on delete included), edits and moves are
-ignored until that reload settles. A refused edit's text clears once a later
+ignored until the reload after the last queued write settles; then the lock
+lifts, so a later write is not blocked by an old refusal. Locked selects,
+switches and buttons carry `aria-disabled` and keep the keyboard focus. A
+refused edit's text clears once a later
 edit of the same rule, which carries the refused change too, is saved.
 `useRules` does not retry. If a reload fails while a list is shown, the list
 stays with a **Reload** button and a note that it may be out of date, and its
