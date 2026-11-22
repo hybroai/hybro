@@ -11,7 +11,7 @@ export function mergeAgents(discovered: Agent[], registered: Agent[]): Agent[] {
 }
 
 /**
- * Every agent the owner has that is not deleted, including bundled (local)
+ * Every agent the owner has that is not deleted, including local and bundled
  * agents that are not running. Rules name these, so they are not "missing".
  */
 export function mergeAgentDirectory(discovered: Agent[], registered: Agent[]): Agent[] {
