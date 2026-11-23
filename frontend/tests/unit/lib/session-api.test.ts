@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it } from 'vitest'
 import { http, HttpResponse } from 'msw'
 import { server } from '../../setup/msw-server'
 import { getApiUrl } from '@/lib/utils'
-import { closeSession, fetchSessionEvents, getSessionRecord, listSessions } from '@/lib/api/session'
+import { closeSession, getSessionRecord, getSessionSteps, listSessions } from '@/lib/api/session'
 import { sessionClientLabel, sessionClientName } from '@/lib/session-format'
 
 const base = getApiUrl('sessions')
@@ -40,24 +40,16 @@ describe('session api', () => {
     expect(sessionClientLabel({ client_label: ' CI bot ', client })).toBeNull()
   })
 
-  it('reads the whole event log past one page', async () => {
-    // 2500 events: the route returns at most 1000 per request.
-    const total = 2500
-    const afters: number[] = []
-    server.use(http.get(getApiUrl('sse/room/:conversationId/events'), ({ request }) => {
-      const url = new URL(request.url)
-      const after = Number(url.searchParams.get('after'))
-      const limit = Number(url.searchParams.get('limit'))
-      afters.push(after)
-      const events = Array.from({ length: Math.max(0, Math.min(limit, total - after)) }, (_, index) => ({ room_seq: after + index + 1 }))
-      return HttpResponse.json({ room_seq: total, events })
+  it('reads the session steps from the owner route', async () => {
+    const seen: string[] = []
+    server.use(http.get(`${base}/:id/steps`, ({ params, request }) => {
+      seen.push(new URL(request.url).pathname)
+      return HttpResponse.json({ session_id: params.id, steps: [] })
     }))
 
-    const result = await fetchSessionEvents('conv-1')
+    const result = await getSessionSteps('a/b')
 
-    expect(result.events).toHaveLength(total)
-    expect(result.events.at(-1)).toMatchObject({ room_seq: total })
-    expect(result.room_seq).toBe(total)
-    expect(afters).toEqual([0, 1000, 2000])
+    expect(result).toEqual({ session_id: 'a/b', steps: [] })
+    expect(seen[0]).toContain('/sessions/a%2Fb/steps')
   })
 })

@@ -195,7 +195,7 @@ EXPECTED_METHODS = {
             "save_user_message",
             "update_agent_message_status",
         },
-        "OwnerSessionAccess": {"close", "get_record", "list_sessions"},
+        "OwnerSessionAccess": {"close", "get_record", "get_steps", "list_sessions"},
         "RoomRegistry": {"get_room", "get_room_agents", "get_room_owner"},
         "SessionAccess": {"answer", "check", "close", "send"},
         "SessionService": {
@@ -206,6 +206,7 @@ EXPECTED_METHODS = {
             "list_for_owner",
             "record_for_owner",
             "send",
+            "steps_for_owner",
         },
         "SessionStore": {
             "get",

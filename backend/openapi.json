@@ -1584,6 +1584,97 @@
         }
       }
     },
+    "/api/v1/sessions/{session_id}/steps": {
+      "get": {
+        "tags": [
+          "session"
+        ],
+        "summary": "Get Session Steps",
+        "description": "Return the session's Steps, oldest first: each client message with its\nagent, state, result, timing and the Questions it asked the owner.",
+        "operationId": "get_session_steps_api_v1_sessions__session_id__steps_get",
+        "parameters": [
+          {
+            "name": "session_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 256,
+              "title": "Session Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SessionSteps"
+                }
+              }
+            }
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SessionErrorResponse"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SessionErrorResponse"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SessionErrorResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SessionErrorResponse"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SessionErrorResponse"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "401": {
+            "description": "Authentication required"
+          },
+          "503": {
+            "description": "The owner is not known yet"
+          }
+        }
+      }
+    },
     "/api/v1/rooms": {
       "get": {
         "tags": [
@@ -7902,6 +7993,294 @@
         ],
         "title": "SessionStatus",
         "description": "The client's view of a session. It never carries the container id."
+      },
+      "SessionStep": {
+        "properties": {
+          "step_id": {
+            "type": "string",
+            "title": "Step Id"
+          },
+          "client_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Client Id"
+          },
+          "prompt": {
+            "type": "string",
+            "title": "Prompt"
+          },
+          "agent_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Agent Id"
+          },
+          "agent_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Agent Name"
+          },
+          "skill": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Skill"
+          },
+          "chosen_by": {
+            "type": "string",
+            "const": "named",
+            "title": "Chosen By",
+            "default": "named"
+          },
+          "state": {
+            "type": "string",
+            "enum": [
+              "completed",
+              "working",
+              "waiting_on_owner",
+              "rejected",
+              "denied",
+              "failed",
+              "closed"
+            ],
+            "title": "State"
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason"
+          },
+          "result": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Result"
+          },
+          "sent_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Sent At"
+          },
+          "started_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Started At"
+          },
+          "finished_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Finished At"
+          },
+          "duration_ms": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Duration Ms"
+          },
+          "questions": {
+            "items": {
+              "$ref": "#/components/schemas/SessionStepQuestion"
+            },
+            "type": "array",
+            "title": "Questions"
+          }
+        },
+        "type": "object",
+        "required": [
+          "step_id",
+          "prompt",
+          "state",
+          "sent_at"
+        ],
+        "title": "SessionStep",
+        "description": "One prompt from a client for one agent, with its result.\n\n``step_id`` is the request's ``client_request_id``. ``chosen_by`` is\n``named``: the client named the agent."
+      },
+      "SessionStepItem": {
+        "properties": {
+          "label": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Label",
+            "description": "The question's short header, when it has one."
+          },
+          "text": {
+            "type": "string",
+            "title": "Text"
+          }
+        },
+        "type": "object",
+        "required": [
+          "text"
+        ],
+        "title": "SessionStepItem",
+        "description": "One question of a Question, or the answer to it."
+      },
+      "SessionStepQuestion": {
+        "properties": {
+          "question_id": {
+            "type": "string",
+            "title": "Question Id"
+          },
+          "asked_by": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Asked By",
+            "description": "``agent`` for an agent's question, ``system`` for a check rule's question."
+          },
+          "prompt_type": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Prompt Type"
+          },
+          "asked_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Asked At"
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/SessionStepItem"
+            },
+            "type": "array",
+            "title": "Items"
+          },
+          "outcome": {
+            "type": "string",
+            "enum": [
+              "pending",
+              "answered",
+              "canceled",
+              "expired",
+              "error",
+              "unanswered"
+            ],
+            "title": "Outcome"
+          },
+          "resolved_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Resolved At"
+          },
+          "answers": {
+            "items": {
+              "$ref": "#/components/schemas/SessionStepItem"
+            },
+            "type": "array",
+            "title": "Answers"
+          }
+        },
+        "type": "object",
+        "required": [
+          "question_id",
+          "outcome"
+        ],
+        "title": "SessionStepQuestion",
+        "description": "A Question a Step asked the owner, and how it ended.\n\n``outcome`` is what the event log recorded: ``answered`` (also an answer\nof \"no\" to an approval question), ``canceled``, ``expired`` or ``error``.\n``pending`` waits for an answer. ``unanswered`` is not recorded: the Step\nended before anyone answered, and the Step's ``state`` and ``reason`` say\nwhy."
+      },
+      "SessionSteps": {
+        "properties": {
+          "session_id": {
+            "type": "string",
+            "title": "Session Id"
+          },
+          "steps": {
+            "items": {
+              "$ref": "#/components/schemas/SessionStep"
+            },
+            "type": "array",
+            "title": "Steps"
+          }
+        },
+        "type": "object",
+        "required": [
+          "session_id"
+        ],
+        "title": "SessionSteps",
+        "description": "The owner's view of a session's Steps, oldest first."
       },
       "SessionSummary": {
         "properties": {

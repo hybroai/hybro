@@ -1737,6 +1737,33 @@
   {
     "auth_dependencies": [],
     "dependencies": [
+      "get_owner_session_access"
+    ],
+    "methods": [
+      "GET"
+    ],
+    "module": "api_gateway.routes.session_routes",
+    "name": "get_session_steps",
+    "openapi_response_codes": [
+      "200",
+      "400",
+      "401",
+      "403",
+      "404",
+      "409",
+      "422",
+      "503"
+    ],
+    "owning_protocol": "session.protocols.OwnerSessionAccess",
+    "path": "/api/v1/sessions/{session_id}/steps",
+    "response_class": null,
+    "response_model": "SessionSteps",
+    "status_code": null,
+    "streaming_response": null
+  },
+  {
+    "auth_dependencies": [],
+    "dependencies": [
       "get_instance_settings"
     ],
     "methods": [

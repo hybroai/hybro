@@ -973,12 +973,13 @@ the `room_files` deletion lifecycle through a narrow port.
 
 A Session is a conversation that a client of the instance owner opens with the
 owner's agents (see [Sessions](#sessions)). `SessionFacade`, `BoundSessionAccess`,
-`SessionWaiter`, the projection helpers, `PermissionQuestions`
-(`session/questions.py`) and `MongoSessionRepository` live here.
+`SessionWaiter`, the projection helpers, the Step view (`session/steps.py`),
+`PermissionQuestions` (`session/questions.py`) and `MongoSessionRepository`
+live here.
 
 - Writes: `sessions`; containers are created through Conversation.
 - Exposes: `SessionAccess` (the client's send, check, close and answer),
-  `OwnerSessionAccess` (the owner's list, record and close) and
+  `OwnerSessionAccess` (the owner's list, record, Steps and close) and
   `SessionService` to `api_gateway`; declares `RoomRegistry`,
   `RoomManagement`, `RoomMessageStore` (implemented by `ConversationFacade`),
   `ConversationEventsPort` (implemented by `MongoRoomEventStore`),
@@ -3884,7 +3885,7 @@ does it in its own session.
 Routes (`api_gateway/routes/session_routes.py`, tag `session`). The first four
 are Client API routes: their contract is `session.protocols.SessionAccess`,
 bound per request by `get_session_access` to the request's client, the acting
-owner and an owner-bound `AgentNetworkService` resolver. The last three are the
+owner and an owner-bound `AgentNetworkService` resolver. The last four are the
 owner's: `OwnerSessionAccess`, bound by `get_owner_session_access` to the
 signed-in owner (`get_signed_in_owner`, see [`client`](#client)), so the owner
 sees the sessions that clients opened; another signed-in user is 403.
@@ -3897,6 +3898,7 @@ sees the sessions that clients opened; another signed-in user is 403.
 | POST | `/sessions/{session_id}/questions/{question_id}/answer` | body `{"answer": "approve" \| "refuse"}`; returns `session_id`, `question_id`, `answer`, `status` (`accepted`) |
 | GET | `/sessions` | owner list with `client_label`, `client` (`client_id`, `name`, `has_token`), `title`, `agents`, `state`, `conversation_id`, times: the 100 most recently active sessions plus every open session whose latest run awaits the owner |
 | GET | `/sessions/{session_id}/record` | owner record: `state`, `reason`, `paused_agent_id`, `agents`, `client_label`, `client`, `title`, `status`, `conversation_id`, `opened_at`, `last_activity_at`, `closed_at` |
+| GET | `/sessions/{session_id}/steps` | the session's Steps, oldest first (below): `session_id`, `steps` |
 | POST | `/sessions/{session_id}/record/close` | the owner's close of any of their sessions: `session_id`, `status` |
 
 `POST /sessions/messages` is limited to 64 KiB bodies and four concurrent
@@ -4047,6 +4049,29 @@ into it. `updated_at` and the owner's `last_activity_at` are the latest of the
 last send and the request's newest event or reply. The owner record's
 `paused_agent_id` comes from the awaiting run's trigger message
 `extend_info.candidate_agent_ids`, falling back to `last_accepted_agent_id`.
+
+Steps (`session/steps.py`, `SessionFacade.steps_for_owner`). A Step is one
+recorded request: `step_id` (its `client_request_id`), `client_id`, `prompt`
+(the client message text), `agent_id` and `agent_name` (as in `history`),
+`skill` (the part after ` - ` in the called agent's tool label), `chosen_by`
+(`named`), `state` and `reason` (the same resolution as `history`, so the
+latest request of a closed session is `closed`), `result` (the final reply),
+`sent_at`, `started_at` (`run_started`), `finished_at` and `duration_ms` (the
+`run_settled` payload's `settled_at` and `duration_ms`), and `questions`. It is
+built from the same single pass over the room event log as `history`; it
+never reads Execution's records. A Question is one interaction of the
+request: `hitl_request` and `hitl_response` records whose `client_request_id`
+is the Step's, grouped by `interaction_id`. It carries `question_id` (the
+interaction id), `asked_by` (the frame's `source`: `agent`, or `system` for a
+check rule's question), `prompt_type`, `asked_at`, `items` (each member's
+`header` and `prompt`, in `question_index` order), `outcome`, `resolved_at`,
+and `answers` (each `responded` member's public `answer_text`, with its
+header). `outcome` is the first response's status (`responded` is `answered`,
+also for a Reject; `canceled`, `expired`, `error`); with no response it is
+`pending` while the Step is `working` or `waiting_on_owner`, and `unanswered`
+once the Step ended: an Agent call that ends by itself while its question is
+open writes no `hitl_response`. Who answered is not on the event and is not
+shown.
 
 Chat guard: chat writes refuse session containers with 409 (`require_chat_room`
 in `api_gateway/errors.py`): message sends, room rename/pin, pinned order, room

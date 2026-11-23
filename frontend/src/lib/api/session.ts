@@ -1,7 +1,6 @@
-// Owner-side session API: list, read the record, close.
+// Owner-side session API: list, read the record and its Steps, close.
 import { getApiUrl } from '../utils'
 import { apiGet, apiPost } from '../api-client'
-import type { RoomEventRecord } from '../session-record'
 
 export type SessionState =
   | 'completed'
@@ -60,6 +59,51 @@ export interface SessionRecord {
   closed_at: string | null
 }
 
+/** How a Question ended. `unanswered`: the Step ended before anyone answered. */
+export type QuestionOutcome = 'pending' | 'answered' | 'canceled' | 'expired' | 'error' | 'unanswered'
+
+export interface SessionStepItem {
+  /** The question's short header, when it has one. */
+  label: string | null
+  text: string
+}
+
+export interface SessionStepQuestion {
+  question_id: string
+  /** `agent`, or `system` for a check rule's question. */
+  asked_by: string | null
+  prompt_type: string | null
+  asked_at: string | null
+  items: SessionStepItem[]
+  outcome: QuestionOutcome
+  resolved_at: string | null
+  answers: SessionStepItem[]
+}
+
+/** One prompt from a client for one agent, with its result. */
+export interface SessionStep {
+  step_id: string
+  client_id: string | null
+  prompt: string
+  agent_id: string | null
+  agent_name: string | null
+  skill: string | null
+  chosen_by: 'named'
+  state: SessionState
+  reason: string | null
+  result: string | null
+  sent_at: string
+  started_at: string | null
+  finished_at: string | null
+  duration_ms: number | null
+  questions: SessionStepQuestion[]
+}
+
+export interface SessionSteps {
+  session_id: string
+  steps: SessionStep[]
+}
+
 export interface SessionClosed {
   session_id: string
   status: 'open' | 'closed'
@@ -83,41 +127,18 @@ export function getSessionRecord(
   return apiGet<SessionRecord>(sessionUrl(sessionId, '/record'), getToken, signal)
 }
 
+export function getSessionSteps(
+  sessionId: string,
+  getToken?: () => Promise<string | null>,
+  signal?: AbortSignal,
+): Promise<SessionSteps> {
+  return apiGet<SessionSteps>(sessionUrl(sessionId, '/steps'), getToken, signal)
+}
+
 /** Close the session as its owner; the client's own close route needs its token. */
 export function closeSession(
   sessionId: string,
   getToken?: () => Promise<string | null>,
 ): Promise<SessionClosed> {
   return apiPost<SessionClosed>(sessionUrl(sessionId, '/record/close'), undefined, getToken)
-}
-
-export interface SessionEventsResponse {
-  room_seq: number
-  events: RoomEventRecord[]
-}
-
-// The route returns at most this many events per request.
-const EVENTS_PAGE = 1000
-
-// The owner reads the session's conversation container through the room event
-// replay, the same durable record the client's state is resolved from. Pages
-// until the log's latest sequence so long sessions keep their later replies.
-export async function fetchSessionEvents(
-  conversationId: string,
-  getToken?: () => Promise<string | null>,
-  signal?: AbortSignal,
-): Promise<SessionEventsResponse> {
-  const events: RoomEventRecord[] = []
-  let after = 0
-  let roomSeq = 0
-  for (;;) {
-    const url = getApiUrl(`sse/room/${encodeURIComponent(conversationId)}/events?after=${after}&limit=${EVENTS_PAGE}`)
-    const page = await apiGet<SessionEventsResponse>(url, getToken, signal)
-    events.push(...page.events)
-    roomSeq = page.room_seq
-    const last = page.events.at(-1)?.room_seq ?? after
-    if (page.events.length < EVENTS_PAGE || last <= after || last >= roomSeq) break
-    after = last
-  }
-  return { room_seq: roomSeq, events }
 }

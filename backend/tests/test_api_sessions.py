@@ -29,6 +29,10 @@ from models.session import (
     SessionQuestionAnswer,
     SessionQuestionAnswered,
     SessionStatus,
+    SessionStep,
+    SessionStepItem,
+    SessionStepQuestion,
+    SessionSteps,
     SessionSummary,
 )
 from session.access import BoundOwnerSessionAccess, BoundSessionAccess
@@ -38,6 +42,32 @@ from tests.fakes.account import sign_out
 NOW = datetime(2026, 10, 14, tzinfo=UTC)
 NO_TOKEN_CLIENT = SessionClient(client_id="no_token", name="No token", has_token=False)
 SEND = "/api/v1/sessions/messages"
+STEP = SessionStep(
+    step_id="cr-1",
+    client_id="no_token",
+    prompt="Plan a trip",
+    agent_id="agent-1",
+    agent_name="Travel",
+    skill="Trips",
+    state="completed",
+    result="Day 1: Lyon",
+    sent_at=NOW,
+    started_at=NOW,
+    finished_at=NOW,
+    duration_ms=1200,
+    questions=[
+        SessionStepQuestion(
+            question_id="int-1",
+            asked_by="system",
+            prompt_type="approval",
+            asked_at=NOW,
+            items=[SessionStepItem(text="Allow Travel to book?")],
+            outcome="answered",
+            resolved_at=NOW,
+            answers=[SessionStepItem(text="Approve")],
+        )
+    ],
+)
 
 
 class AccessStub:
@@ -129,6 +159,10 @@ class AccessStub:
                 )
             ]
         )
+
+    async def get_steps(self, session_id: str) -> SessionSteps:
+        self._raise()
+        return SessionSteps(session_id=session_id, steps=[STEP])
 
     async def get_record(self, session_id: str) -> SessionOwnerRecord:
         self._raise()
@@ -327,6 +361,35 @@ async def test_unknown_session_is_404_on_read_routes():
     assert check.json()["detail"]["session_id"] == "missing"
 
 
+async def test_owner_reads_the_session_steps():
+    app, _access = make_app()
+    async with client_for(app) as client:
+        response = await client.get("/api/v1/sessions/sess-1/steps")
+
+    assert response.status_code == 200
+    [step] = response.json()["steps"]
+    assert response.json()["session_id"] == "sess-1"
+    assert step["step_id"] == "cr-1"
+    assert step["chosen_by"] == "named"
+    assert step["duration_ms"] == 1200
+    assert step["questions"][0]["outcome"] == "answered"
+    assert step["questions"][0]["answers"] == [{"label": None, "text": "Approve"}]
+
+
+async def test_steps_of_an_unknown_session_are_not_found():
+    app, access = make_app()
+    access.error = AppError("Session not found", code="session_not_found")
+    async with client_for(app) as client:
+        response = await client.get("/api/v1/sessions/missing/steps")
+
+    assert response.status_code == 404
+    assert response.json()["detail"] == {
+        "code": "session_not_found",
+        "message": "Session not found",
+        "session_id": "missing",
+    }
+
+
 async def test_anonymous_owner_requests_fail_with_401(monkeypatch):
     app, access = make_app()
     app.dependency_overrides.pop(get_owner_session_access)
@@ -335,10 +398,11 @@ async def test_anonymous_owner_requests_fail_with_401(monkeypatch):
         responses = [
             await client.get("/api/v1/sessions"),
             await client.get("/api/v1/sessions/sess-1/record"),
+            await client.get("/api/v1/sessions/sess-1/steps"),
             await client.post("/api/v1/sessions/sess-1/record/close"),
         ]
 
-    assert [response.status_code for response in responses] == [401] * 3
+    assert [response.status_code for response in responses] == [401] * 4
     assert access.sent == []
 
 

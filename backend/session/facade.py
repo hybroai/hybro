@@ -27,6 +27,7 @@ from common.dto import (
     ExecutionRequest,
     MembershipSeed,
     MembershipUpdateRequest,
+    RoomMessageInfo,
     RunInfo,
 )
 from common.errors import AppError
@@ -60,6 +61,8 @@ from models.session import (
     SessionReceiptStatus,
     SessionState,
     SessionStatus,
+    SessionStep,
+    SessionSteps,
     SessionSummary,
 )
 from session.models import SessionRecord, SessionRequest, new_session_id
@@ -78,6 +81,13 @@ from session.protocols import (
     SessionStore,
 )
 from session.questions import NOT_GRANTED, PermissionQuestions
+from session.steps import (
+    duration_ms,
+    finished_at,
+    split_agent_label,
+    step_ended,
+    step_questions,
+)
 from session.waiter import CorrelatedOutcome, SessionWaiter
 
 logger = get_logger(__name__)
@@ -363,7 +373,82 @@ class SessionFacade:
         record = await self._owned(session_id, owner)
         return await self._owner_record(record, await self._client_names([record]))
 
+    async def steps_for_owner(
+        self, session_id: str, *, owner: SessionOwner
+    ) -> SessionSteps:
+        """Every Step of the session, oldest first, from one read of its log."""
+        record = await self._owned(session_id, owner)
+        if not record.conversation_id:
+            return SessionSteps(session_id=record.session_id)
+        outcomes = await self._waiter.history(record.conversation_id)
+        agents = await self._agents(record)
+        names = {agent.agent_id: agent.name for agent in agents}
+        messages = await self._request_messages(record, outcomes)
+        closed = record.status == "closed"
+        steps: list[SessionStep] = []
+        for request in record.requests:
+            outcome = outcomes.get(request.client_request_id)
+            user = messages.get(request.user_message_id)
+            reply = messages.get(final_message_id(outcome) or "")
+            latest = request.client_request_id == record.last_client_request_id
+            state, reason = self._resolve(
+                outcome or CorrelatedOutcome(),
+                sent_at=request.sent_at,
+                message_id=request.user_message_id,
+                closed=closed and latest,
+            )
+            label_name, skill = split_agent_label(
+                outcome.agent_label if outcome is not None else None
+            )
+            agent_id = _target_agent(user)
+            steps.append(
+                SessionStep(
+                    step_id=request.client_request_id,
+                    client_id=request.client_id,
+                    prompt=_message_text(user),
+                    agent_id=agent_id,
+                    agent_name=(names.get(agent_id) if agent_id else None)
+                    or label_name,
+                    skill=skill,
+                    state=state,
+                    reason=reason,
+                    result=_message_text(reply) or None,
+                    sent_at=(
+                        user.created_at
+                        if user is not None and user.created_at
+                        else request.sent_at
+                    ),
+                    started_at=outcome.started_at if outcome is not None else None,
+                    finished_at=finished_at(outcome),
+                    duration_ms=duration_ms(outcome),
+                    questions=step_questions(outcome, ended=step_ended(state)),
+                )
+            )
+        return SessionSteps(session_id=record.session_id, steps=steps)
+
     # -- Internals -------------------------------------------------------------
+
+    async def _request_messages(
+        self, record: SessionRecord, outcomes: dict[str, CorrelatedOutcome]
+    ) -> dict[str, RoomMessageInfo]:
+        """The session's client messages and final replies, by message id."""
+        reply_ids = [
+            reply_id
+            for request in record.requests
+            if (reply_id := final_message_id(outcomes.get(request.client_request_id)))
+            is not None
+        ]
+        return {
+            message.message_id: message
+            for message in await self._history.get_messages_by_ids(
+                list(
+                    dict.fromkeys(
+                        [request.user_message_id for request in record.requests]
+                        + reply_ids
+                    )
+                )
+            )
+        }
 
     async def _with_waiting(
         self, records: list[SessionRecord], owner: SessionOwner
@@ -770,23 +855,7 @@ class SessionFacade:
             return []
         outcomes = await self._waiter.history(record.conversation_id)
         names = {agent.agent_id: agent.name for agent in agents}
-        reply_ids = [
-            reply_id
-            for request in record.requests
-            if (reply_id := final_message_id(outcomes.get(request.client_request_id)))
-            is not None
-        ]
-        messages = {
-            message.message_id: message
-            for message in await self._history.get_messages_by_ids(
-                list(
-                    dict.fromkeys(
-                        [request.user_message_id for request in record.requests]
-                        + reply_ids
-                    )
-                )
-            )
-        }
+        messages = await self._request_messages(record, outcomes)
         closed = record.status == "closed"
         entries: list[SessionHistoryEntry] = []
         for request in record.requests:
