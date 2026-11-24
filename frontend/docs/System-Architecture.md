@@ -723,8 +723,9 @@ Canonical `hitl_request` and `hitl_response` require exact `run_id`,
 `client_request_id`, related User-message roots, the opaque public Tool message
 ID, and durable interaction/request/question identities. They also accept
 the public presentation fields the translator always sends (`header`,
-`required`, `allow_other`, `choice_options`) and the sanitized `answer_text` on
-a response; any other key is a protocol violation. The ordered
+`required`, `allow_other`, `choice_options`) and, on a response, the sanitized
+`answer_text` and `answered_by_client_id`; any other key is a protocol
+violation. The ordered
 `run_waiting_input` and `run_resumed` controls make the interaction and Turn
 state change explicit; they reconstruct Turn-owned HITL history without recency
 or REST inference. The producer persists responses and `run_resumed` before it
@@ -1068,10 +1069,10 @@ segment.
   external client or a Step without an agent; "You" for the owner): the client asked an agent (the prompt, and the
   skill when the Step has one), the agent, or your check rules for a rule's
   Question, asked you (each
-  question under its header), you answered (your answer text) or rejected
-  (an answer from a client with the grant reads the same way, because the
-  `hitl_response` frame does not carry the client; only the approval and
-  Agent answer records keep `answered_by_client_id`),
+  question under its header), you answered (your answer text) or rejected,
+  or the client answered for you when the Question's `answered_by_client_id`
+  is set (named as the session's client when it matches the Step's
+  `client_id`, otherwise "A client"),
   a Question that ended without an answer says so (`canceled`, `expired`,
   `error`, or `unanswered` when the Step ended first),
   the agent replied after its duration (long replies fold behind Show full

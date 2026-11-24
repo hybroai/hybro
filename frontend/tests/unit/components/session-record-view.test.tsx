@@ -56,6 +56,7 @@ function question(overrides: Record<string, unknown> = {}) {
     outcome: 'pending',
     resolved_at: null,
     answers: [],
+    answered_by_client_id: null,
     ...overrides,
   }
 }
@@ -256,6 +257,29 @@ describe('SessionRecordView', () => {
     expect(within(record).getByText('Reject')).toBeInTheDocument()
     expect(within(record).getByText('rejected the request')).toBeInTheDocument()
     expect(within(record).getAllByText('Your check rules')).toHaveLength(1)
+  })
+
+  it.each([
+    ['no_token', 'No token'],
+    ['other-client', 'A client'],
+  ])('names the client %s that answered a question for the owner', async (clientId, name) => {
+    api.pending = []
+    api.steps = [settledAt({
+      state: 'completed',
+      result: 'Booked',
+      questions: [question({
+        outcome: 'answered',
+        resolved_at: '2026-10-14T09:01:00Z',
+        answers: [{ label: 'Destination', text: 'Kyoto' }],
+        answered_by_client_id: clientId,
+      })],
+    })]
+    render(<SessionRecordView sessionId="sess-1" />)
+
+    const record = await screen.findByRole('list', { name: 'Session record' })
+    const answered = within(record).getByText('answered for you').closest('li') as HTMLElement
+    expect(within(answered).getByText(name)).toBeInTheDocument()
+    expect(within(answered).getByText('Kyoto')).toBeInTheDocument()
   })
 
   it('shows the owner\'s reject of a question once', async () => {

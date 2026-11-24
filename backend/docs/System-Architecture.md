@@ -3863,7 +3863,10 @@ so persisted interaction fingerprints stay valid.
 `hitl_response` frame carries `answer_text`: the owner's answer as the owner
 reads it (choice labels, Yes or No, Approved or Rejected, Signed in for
 authorization results, never the reference), bounded to 1,000 characters.
-Skipped questions and cancellations carry none. The bundled Travel Planner asks
+Skipped questions and cancellations carry none. A `responded` frame also
+carries `answered_by_client_id` when a client with the owner's grant answered;
+it is absent when the owner answered and on every other status. The bundled
+Travel Planner asks
 one question per missing detail with a header, two to four described choices,
 and `allow_other`.
 
@@ -4065,13 +4068,13 @@ is the Step's, grouped by `interaction_id`. It carries `question_id` (the
 interaction id), `asked_by` (the frame's `source`: `agent`, or `system` for a
 check rule's question), `prompt_type`, `asked_at`, `items` (each member's
 `header` and `prompt`, in `question_index` order), `outcome`, `resolved_at`,
-and `answers` (each `responded` member's public `answer_text`, with its
-header). `outcome` is the first response's status (`responded` is `answered`,
+`answers` (each `responded` member's public `answer_text`, with its header),
+and `answered_by_client_id` (the first response's, on an answered question;
+null when the owner answered). `outcome` is the first response's status (`responded` is `answered`,
 also for a Reject; `canceled`, `expired`, `error`); with no response it is
 `pending` while the Step is `working` or `waiting_on_owner`, and `unanswered`
 once the Step ended: an Agent call that ends by itself while its question is
-open writes no `hitl_response`. Who answered is not on the event and is not
-shown.
+open writes no `hitl_response`.
 
 Chat guard: chat writes refuse session containers with 409 (`require_chat_room`
 in `api_gateway/errors.py`): message sends, room rename/pin, pinned order, room

@@ -65,6 +65,7 @@ def _question(question: AskedQuestion, *, ended: bool) -> SessionStepQuestion:
         ],
         outcome=question_outcome(question, ended=ended),
         resolved_at=question.resolved_at,
+        answered_by_client_id=question.answered_by_client_id,
         answers=[
             SessionStepItem(label=labels.get(request_id), text=answer)
             for request_id, answer in sorted(

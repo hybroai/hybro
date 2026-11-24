@@ -8251,6 +8251,18 @@
             },
             "type": "array",
             "title": "Answers"
+          },
+          "answered_by_client_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Answered By Client Id",
+            "description": "The client that answered as the owner, on an answered question; null when the owner answered."
           }
         },
         "type": "object",

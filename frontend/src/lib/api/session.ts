@@ -78,6 +78,8 @@ export interface SessionStepQuestion {
   outcome: QuestionOutcome
   resolved_at: string | null
   answers: SessionStepItem[]
+  // The client that answered as the owner; null when the owner answered.
+  answered_by_client_id: string | null
 }
 
 /** One prompt from a client for one agent, with its result. */

@@ -430,6 +430,7 @@ async def emit_hitl_resolved_events(
     canonical_control: CanonicalHITLControlPublisher | None = None,
     answer_ref: str | None = None,
     answers: list[HITLQuestionAnswer] | None = None,
+    answered_by_client_id: str | None = None,
     public_secret_values: tuple[str, ...] = (),
 ) -> None:
     run = await _load_hitl_run(record, run_store)
@@ -468,6 +469,9 @@ async def emit_hitl_resolved_events(
                 or None
                 if given is not None and status == "responded"
                 else None
+            ),
+            answered_by_client_id=(
+                answered_by_client_id if status == "responded" else None
             ),
             related_message_id=(None if canonical else related_user_message_id),
             related_user_message_id=(related_user_message_id if canonical else None),

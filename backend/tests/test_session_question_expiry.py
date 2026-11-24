@@ -1,4 +1,4 @@
-"""An expired check rule Question reaches the room log, and the Step shows it.
+"""A check rule Question's end reaches the room log, and the Step shows it.
 
 The approval reconciler expires a rule's Question and closes each member with
 ``INPUT_EXPIRED`` (``reconcile_terminal_interaction``, covered in
@@ -19,7 +19,7 @@ from tests.fakes.room_events import InMemoryRoomEventStore
 from tests.test_delivery_event_publisher import make_publisher
 
 
-def _rule_question() -> HITLRequest:
+def _rule_question(**changes: object) -> HITLRequest:
     return HITLRequest(
         schema_version=3,
         request_id="request-1",
@@ -36,7 +36,7 @@ def _rule_question() -> HITLRequest:
         prompt_type="approval",
         client_request_id="cr-1",
         status="expired",
-    )
+    ).model_copy(update=changes)
 
 
 @pytest.mark.asyncio
@@ -58,6 +58,25 @@ async def test_an_expired_rule_question_is_an_expired_response_in_the_room_log()
     assert payload["run_id"] == "run-1"
     assert payload["client_request_id"] == "cr-1"
     assert payload["interaction_id"] == "interaction-1"
+    assert "answered_by_client_id" not in payload
+
+
+@pytest.mark.asyncio
+async def test_a_client_answer_to_a_rule_question_names_the_client():
+    store = InMemoryRoomEventStore()
+    service = HITLService(canonical_run_state_reader=lambda _run_id: "awaiting_user")
+    service._delivery = make_publisher(room_events=store)
+
+    await service._emit_hitl_event(
+        conversation_id="room-1",
+        event_type=HITLEventType.INPUT_RECEIVED,
+        request=_rule_question(status="responded", answered_by_client_id="client-1"),
+    )
+
+    [record] = await store.read_range("room-1", after=0, limit=10)
+    payload = record["payload_public"]
+    assert payload["status"] == "responded"
+    assert payload["answered_by_client_id"] == "client-1"
 
 
 @pytest.mark.asyncio

@@ -208,11 +208,12 @@ const QUESTION_END: Partial<Record<SessionStepQuestion['outcome'], string>> = {
   unanswered: 'The request ended before anyone answered.',
 }
 
-function QuestionEntries({ question, step, agent, agentId, open }: {
+function QuestionEntries({ question, step, agent, agentId, client, open }: {
   question: SessionStepQuestion
   step: SessionStep
   agent: string
   agentId?: string
+  client: string
   open: boolean
 }) {
   const askedBy = question.asked_by === 'system' ? 'Your check rules' : agent
@@ -229,8 +230,16 @@ function QuestionEntries({ question, step, agent, agentId, open }: {
     </Entry>,
   ]
   if (question.outcome === 'answered') {
+    const byClient = question.answered_by_client_id != null
+    const answerer = question.answered_by_client_id === step.client_id ? client : 'A client'
     entries.push(
-      <Entry key="answered" actor="owner" name="You" action="answered" at={question.resolved_at}>
+      <Entry
+        key="answered"
+        actor={byClient ? 'client' : 'owner'}
+        name={byClient ? answerer : 'You'}
+        action={byClient ? 'answered for you' : 'answered'}
+        at={question.resolved_at}
+      >
         {question.answers.length ? <Items items={question.answers} /> : null}
       </Entry>,
     )
@@ -269,6 +278,7 @@ function StepEntries({ step, client, waitingBelow }: {
           step={step}
           agent={agent}
           agentId={agentId}
+          client={client}
           open={waitingBelow && question.outcome === 'pending'}
         />
       ))}

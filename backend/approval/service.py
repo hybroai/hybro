@@ -1614,6 +1614,7 @@ class HITLService:
             HITLEventType.INPUT_CANCELED: HITLStatus.CANCELED.value,
             HITLEventType.ERROR: "error",
         }
+        status = status_map.get(event_type, request_status)
         await self._emit_delivery_event(
             HITLResolvedEvent(
                 conversation_id=conversation_id,
@@ -1621,7 +1622,12 @@ class HITLService:
                 request_id=request.request_id,
                 message_id=data["message_id"],
                 source=source,
-                status=status_map.get(event_type, request_status),
+                status=status,
+                answered_by_client_id=(
+                    request.answered_by_client_id
+                    if status == HITLStatus.RESPONDED.value
+                    else None
+                ),
                 interaction_id=request.interaction_id,
                 interaction_status=(
                     None

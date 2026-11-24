@@ -2214,6 +2214,7 @@ async def resolve(
     interaction_id: str = "int-1",
     client_request_id: str = "cr-1",
     answers: tuple[tuple[str, str], ...] = (("req-1", ""),),
+    answered_by_client_id: str | None = None,
 ) -> None:
     for request_id, answer in answers:
         payload: dict[str, Any] = {
@@ -2225,6 +2226,8 @@ async def resolve(
         }
         if answer:
             payload["answer_text"] = answer
+        if answered_by_client_id is not None:
+            payload["answered_by_client_id"] = answered_by_client_id
         await h.events.append(
             conversation_id="conv-1",
             kind="hitl_response",
@@ -2329,6 +2332,45 @@ async def test_a_refused_rule_question_is_answered_and_the_step_rejected():
     # A "no" is still an answer.
     assert (question.asked_by, question.outcome) == ("system", "answered")
     assert [a.text for a in question.answers] == ["Reject"]
+    # The owner answered in the Panel.
+    assert question.answered_by_client_id is None
+
+
+@pytest.mark.asyncio
+async def test_a_question_a_client_answered_names_the_client():
+    h = make_harness(on_schedule=[started("msg-1"), WAITING])
+    h.messages.add(user_message("msg-1", "Book it"))
+    await h.send(text="Book it")
+    await ask(h, source="system")
+    await resolve(
+        h,
+        "responded",
+        answers=(("req-1", "Approve"),),
+        answered_by_client_id="client-1",
+    )
+
+    [step] = await steps(h)
+
+    [question] = step.questions
+    assert (question.outcome, question.answered_by_client_id) == (
+        "answered",
+        "client-1",
+    )
+
+
+@pytest.mark.asyncio
+async def test_only_an_answer_names_who_gave_it():
+    h = make_harness(on_schedule=[started("msg-1"), WAITING])
+    h.messages.add(user_message("msg-1", "Book it"))
+    await h.send(text="Book it")
+    await ask(h)
+    await resolve(h, "canceled", answered_by_client_id="client-1")
+
+    [step] = await steps(h)
+
+    assert [(q.outcome, q.answered_by_client_id) for q in step.questions] == [
+        ("canceled", None)
+    ]
 
 
 @pytest.mark.asyncio

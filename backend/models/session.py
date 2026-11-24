@@ -290,6 +290,11 @@ class SessionStepQuestion(BaseModel):
     outcome: QuestionOutcome
     resolved_at: datetime | None = None
     answers: list[SessionStepItem] = Field(default_factory=list)
+    answered_by_client_id: str | None = Field(
+        default=None,
+        description="The client that answered as the owner, on an answered "
+        "question; null when the owner answered.",
+    )
 
     _utc_times = field_validator("asked_at", "resolved_at")(_utc)
 

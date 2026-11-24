@@ -495,6 +495,43 @@ async def test_resolved_frames_carry_a_readable_answer_per_question():
     assert frames["interests"]["answer_text"] == "Food, Hiking"
     # A skipped optional question has no answer.
     assert "answer_text" not in frames["budget"]
+    # The owner answered; no client is named.
+    assert all("answered_by_client_id" not in frame for frame in frames.values())
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("status", "named"), [("responded", "client-1"), ("canceled", None)]
+)
+async def test_resolved_frames_name_the_client_that_answered(status, named):
+    from execution.orchestrator.a2a_runtime.interaction_outcome import (
+        emit_hitl_resolved_events,
+    )
+
+    emitted: list = []
+    delivery = SimpleNamespace(
+        emit=AsyncMock(side_effect=lambda event: emitted.append(event) or True)
+    )
+    run = canonical_run()
+    run.status = "awaiting_user"
+
+    await emit_hitl_resolved_events(
+        record=ledger_record(run_id="run-1", call_id="call-1"),
+        interaction=structured_spec(),
+        interaction_id="trip-1",
+        status=status,
+        hitl_delivery=delivery,
+        run_store=SimpleNamespace(load=AsyncMock(return_value=run)),
+        canonical_control=AsyncMock(),
+        answered_by_client_id="client-1",
+    )
+
+    frames = [
+        to_sse_frame(event, timestamp=datetime(2026, 10, 15, tzinfo=UTC))["data"]
+        for event in emitted
+    ]
+    assert frames
+    assert {frame.get("answered_by_client_id") for frame in frames} == {named}
 
 
 @pytest.mark.parametrize(
