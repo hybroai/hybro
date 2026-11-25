@@ -496,14 +496,16 @@ async def test_resolved_frames_carry_a_readable_answer_per_question():
     # A skipped optional question has no answer.
     assert "answer_text" not in frames["budget"]
     # The owner answered; no client is named.
+    assert {frame["answered_by"] for frame in frames.values()} == {"owner"}
     assert all("answered_by_client_id" not in frame for frame in frames.values())
 
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
-    ("status", "named"), [("responded", "client-1"), ("canceled", None)]
+    ("status", "by", "named"),
+    [("responded", "client", "client-1"), ("canceled", None, None)],
 )
-async def test_resolved_frames_name_the_client_that_answered(status, named):
+async def test_resolved_frames_name_the_client_that_answered(status, by, named):
     from execution.orchestrator.a2a_runtime.interaction_outcome import (
         emit_hitl_resolved_events,
     )
@@ -531,6 +533,7 @@ async def test_resolved_frames_name_the_client_that_answered(status, named):
         for event in emitted
     ]
     assert frames
+    assert {frame.get("answered_by") for frame in frames} == {by}
     assert {frame.get("answered_by_client_id") for frame in frames} == {named}
 
 

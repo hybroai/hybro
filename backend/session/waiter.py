@@ -50,7 +50,9 @@ class AskedQuestion:
     status: str | None = None
     resolved_at: datetime | None = None
     answers: dict[str, str] = field(default_factory=dict)
-    # The client that answered as the owner; None when the owner answered.
+    # ``owner`` or ``client`` from the first answer; None when nothing
+    # answered or the event predates the field.
+    answered_by: str | None = None
     answered_by_client_id: str | None = None
 
     def note_request(self, payload: dict[str, Any], at: datetime | None) -> None:
@@ -73,8 +75,13 @@ class AskedQuestion:
         if self.status is None and status:
             self.status = status
             self.resolved_at = at
-            if status == "responded":
-                self.answered_by_client_id = _text(payload.get("answered_by_client_id"))
+            answered_by = payload.get("answered_by")
+            if status == "responded" and answered_by in {"owner", "client"}:
+                self.answered_by = answered_by
+                if answered_by == "client":
+                    self.answered_by_client_id = _text(
+                        payload.get("answered_by_client_id")
+                    )
         request_id = _text(payload.get("request_id"))
         answer = _text(payload.get("answer_text"))
         if request_id and answer and status == "responded":

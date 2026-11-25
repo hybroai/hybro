@@ -491,5 +491,6 @@ export interface CanonicalHITLResponseData {
   status: 'responded' | 'expired' | 'canceled' | 'error'
   answer_ref?: string | null
   answer_text?: string | null
+  answered_by?: 'owner' | 'client' | null
   answered_by_client_id?: string | null
 }

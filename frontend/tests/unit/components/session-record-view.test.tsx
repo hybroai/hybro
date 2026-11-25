@@ -56,6 +56,7 @@ function question(overrides: Record<string, unknown> = {}) {
     outcome: 'pending',
     resolved_at: null,
     answers: [],
+    answered_by: null,
     answered_by_client_id: null,
     ...overrides,
   }
@@ -198,7 +199,7 @@ describe('SessionRecordView', () => {
       state: 'completed',
       result: 'Day 1: Fushimi Inari',
       duration_ms: 61000,
-      questions: [question({ outcome: 'answered', resolved_at: '2026-10-14T09:01:00Z', answers: [{ label: 'Destination', text: 'Kyoto' }] })],
+      questions: [question({ outcome: 'answered', resolved_at: '2026-10-14T09:01:00Z', answers: [{ label: 'Destination', text: 'Kyoto' }], answered_by: 'owner' })],
     })]
     render(<SessionRecordView sessionId="sess-1" />)
 
@@ -248,6 +249,7 @@ describe('SessionRecordView', () => {
         outcome: 'answered',
         resolved_at: '2026-10-14T09:01:00Z',
         answers: [{ label: null, text: 'Reject' }],
+        answered_by: 'owner',
       })],
     })]
     render(<SessionRecordView sessionId="sess-1" />)
@@ -260,14 +262,17 @@ describe('SessionRecordView', () => {
   })
 
   it.each([
-    ['no_token', 'No token'],
-    ['other-client', 'A client'],
-  ])('names the client %s that answered a question for the owner', async (clientId, name) => {
+    ['no_token', 'no_token', 'No token'],
+    ['other-client', 'no_token', 'A client'],
+    ['no_token', null, 'A client'],
+  ])('names the client %s (Step client %s) that answered for the owner', async (clientId, stepClient, name) => {
     api.pending = []
     api.steps = [settledAt({
       state: 'completed',
       result: 'Booked',
+      client_id: stepClient,
       questions: [question({
+        answered_by: 'client',
         outcome: 'answered',
         resolved_at: '2026-10-14T09:01:00Z',
         answers: [{ label: 'Destination', text: 'Kyoto' }],
@@ -280,6 +285,106 @@ describe('SessionRecordView', () => {
     const answered = within(record).getByText('answered for you').closest('li') as HTMLElement
     expect(within(answered).getByText(name)).toBeInTheDocument()
     expect(within(answered).getByText('Kyoto')).toBeInTheDocument()
+  })
+
+  it('says when the record does not say who answered', async () => {
+    api.pending = []
+    api.steps = [settledAt({
+      state: 'completed',
+      result: 'Booked',
+      questions: [question({ outcome: 'answered', resolved_at: '2026-10-14T09:01:00Z', answers: [{ label: null, text: 'Kyoto' }] })],
+    })]
+    render(<SessionRecordView sessionId="sess-1" />)
+
+    const record = await screen.findByRole('list', { name: 'Session record' })
+    const answered = within(record).getByText('answered').closest('li') as HTMLElement
+    expect(within(answered).getByText('Someone')).toBeInTheDocument()
+    expect(within(answered).getByText('Who answered was not recorded.')).toBeInTheDocument()
+  })
+
+  it('credits a client\'s refusal of a check rule question to the client', async () => {
+    api.pending = []
+    api.steps = [settledAt({
+      state: 'rejected',
+      questions: [question({
+        asked_by: 'system',
+        prompt_type: 'approval',
+        items: [{ label: null, text: 'Allow Travel Planner Agent to book?' }],
+        outcome: 'answered',
+        resolved_at: '2026-10-14T09:01:00Z',
+        answers: [{ label: null, text: 'Reject' }],
+        answered_by: 'client',
+        answered_by_client_id: 'no_token',
+      })],
+    })]
+    render(<SessionRecordView sessionId="sess-1" />)
+
+    const record = await screen.findByRole('list', { name: 'Session record' })
+    const rejected = within(record).getByText('rejected the request').closest('li') as HTMLElement
+    expect(within(rejected).getByText('No token')).toBeInTheDocument()
+    expect(within(rejected).queryByText('You')).toBeNull()
+    expect(within(record).getAllByText('rejected the request')).toHaveLength(1)
+  })
+
+  it.each([
+    ['Booked the hotel', 'Booked the hotel'],
+    [null, null],
+  ])('shows a Step the closed session stopped, with its reply %s', async (result, shown) => {
+    api.pending = []
+    api.record = { ...api.record, status: 'closed', state: 'closed' }
+    api.steps = [step({ state: 'closed', result, questions: [] })]
+    render(<SessionRecordView sessionId="sess-1" />)
+
+    const record = await screen.findByRole('list', { name: 'Session record' })
+    expect(within(record).getByText('stopped; the session was closed')).toBeInTheDocument()
+    if (shown) expect(within(record).getByText(shown)).toBeInTheDocument()
+    expect(within(record).queryByText(/is working on it/)).toBeNull()
+    api.record = { ...api.record, status: 'open', state: 'waiting_on_owner' }
+  })
+
+  it.each([
+    ['provider_error', 'The model provider returned an error.'],
+    ['agent_timeout', 'The request failed.'],
+    ['The agent stopped responding.', 'The agent stopped responding.'],
+  ])('shows the failure %s as %s', async (reason, text) => {
+    api.pending = []
+    api.steps = [settledAt({ state: 'failed', reason, questions: [] })]
+    render(<SessionRecordView sessionId="sess-1" />)
+
+    const record = await screen.findByRole('list', { name: 'Session record' })
+    expect(within(record).getByText(text)).toBeInTheDocument()
+    if (reason !== text) expect(within(record).queryByText(reason)).toBeNull()
+  })
+
+  it.each(['canceled', 'canceled:room_closed'])('shows a Step that failed as %s as canceled', async (reason) => {
+    api.pending = []
+    api.steps = [settledAt({ state: 'failed', reason, duration_ms: 2000, questions: [] })]
+    render(<SessionRecordView sessionId="sess-1" />)
+
+    const record = await screen.findByRole('list', { name: 'Session record' })
+    expect(within(record).getByText('stopped after 2s; the request was canceled')).toBeInTheDocument()
+  })
+
+  it('shows the spinner for a Step still working after an answered question', async () => {
+    api.pending = []
+    api.steps = [step({
+      state: 'working',
+      questions: [question({ outcome: 'answered', resolved_at: '2026-10-14T09:01:00Z', answers: [{ label: null, text: 'Kyoto' }], answered_by: 'owner' })],
+    })]
+    render(<SessionRecordView sessionId="sess-1" />)
+
+    const record = await screen.findByRole('list', { name: 'Session record' })
+    expect(within(record).getByText('Kyoto')).toBeInTheDocument()
+    expect(within(record).getByText('is working on it')).toBeInTheDocument()
+  })
+
+  it('shows a pending check rule question as asked by your check rules', async () => {
+    api.steps = [step({ questions: [question({ asked_by: 'system', prompt_type: 'approval' })] })]
+    render(<SessionRecordView sessionId="sess-1" />)
+
+    const record = await screen.findByRole('list', { name: 'Session record' })
+    const asked = within(record).getByText('needs your answer below').closest('li') as HTMLElement
+    expect(within(asked).getByText('Your check rules')).toBeInTheDocument()
   })
 
   it('shows the owner\'s reject of a question once', async () => {
@@ -297,6 +402,8 @@ describe('SessionRecordView', () => {
   it.each([
     ['expired', 'The question expired before anyone answered.'],
     ['unanswered', 'The request ended before anyone answered.'],
+    ['canceled', 'The question was canceled.'],
+    ['error', 'The question could not be completed.'],
   ])('shows a %s question and why the request failed', async (outcome, text) => {
     api.pending = []
     api.steps = [settledAt({

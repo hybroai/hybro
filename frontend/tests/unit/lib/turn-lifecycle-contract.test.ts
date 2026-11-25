@@ -92,5 +92,8 @@ describe('canonical HITL frames as the backend translator sends them', () => {
     expect(isCanonicalHITLResponseData({ ...response, answered_by_client_id: 'client-7' })).toBe(true)
     expect(isCanonicalHITLResponseData({ ...response, answered_by_client_id: null })).toBe(true)
     expect(isCanonicalHITLResponseData({ ...response, answered_by_client_id: 42 })).toBe(false)
+    expect(isCanonicalHITLResponseData({ ...response, answered_by: 'client', answered_by_client_id: 'client-7' })).toBe(true)
+    expect(isCanonicalHITLResponseData({ ...response, answered_by: 'owner' })).toBe(true)
+    expect(isCanonicalHITLResponseData({ ...response, answered_by: 'someone' })).toBe(false)
   })
 })

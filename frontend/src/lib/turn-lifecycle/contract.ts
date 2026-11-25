@@ -299,6 +299,7 @@ const RESPONSE_OPTIONAL = [
   ...META_KEYS,
   'answer_ref',
   'answer_text',
+  'answered_by',
   'answered_by_client_id',
 ] as const
 
@@ -364,6 +365,7 @@ export function isCanonicalHITLResponseData(value: unknown): value is CanonicalH
     && oneOf(value.status, ['responded', 'expired', 'canceled', 'error'])
     && (value.answer_ref === undefined || value.answer_ref === null || id(value.answer_ref))
     && (value.answer_text === undefined || value.answer_text === null || text(value.answer_text, 1_000))
+    && (value.answered_by === undefined || value.answered_by === null || oneOf(value.answered_by, ['owner', 'client']))
     && (value.answered_by_client_id === undefined || value.answered_by_client_id === null || id(value.answered_by_client_id))
     && (value.room_event_id === undefined || id(value.room_event_id))
     && (value.parent_event_id === undefined || id(value.parent_event_id))

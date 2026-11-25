@@ -314,8 +314,9 @@ class HITLResolvedEvent(DeliveryEventBase):
     answer_ref: str | None = None
     # The owner's answer as they would read it; only on responded questions.
     answer_text: str | None = Field(default=None, max_length=1_000)
-    # The client that answered as the owner; only on responded questions, and
-    # None when the owner answered.
+    # Who answered, on responded questions only: the owner, or a client with
+    # the owner's grant, named by ``answered_by_client_id``.
+    answered_by: Literal["owner", "client"] | None = None
     answered_by_client_id: str | None = None
     related_message_id: str | None = None
     related_user_message_id: str | None = None

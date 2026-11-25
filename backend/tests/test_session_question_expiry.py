@@ -39,6 +39,33 @@ def _rule_question(**changes: object) -> HITLRequest:
     ).model_copy(update=changes)
 
 
+async def _asked(store: InMemoryRoomEventStore) -> None:
+    """The run started and asked the rule's Question."""
+    await store.append(
+        conversation_id="room-1",
+        kind="run_event",
+        payload_public={
+            "run_id": "run-1",
+            "type": "run_started",
+            "payload": {"user_message_id": "message-1"},
+            "correlation_id": "cr-1",
+        },
+    )
+    await store.append(
+        conversation_id="room-1",
+        kind="hitl_request",
+        payload_public={
+            "request_id": "request-1",
+            "interaction_id": "interaction-1",
+            "prompt": _rule_question().prompt,
+            "prompt_type": "approval",
+            "source": "system",
+            "question_index": 0,
+            "client_request_id": "cr-1",
+        },
+    )
+
+
 @pytest.mark.asyncio
 async def test_an_expired_rule_question_is_an_expired_response_in_the_room_log():
     store = InMemoryRoomEventStore()
@@ -59,24 +86,64 @@ async def test_an_expired_rule_question_is_an_expired_response_in_the_room_log()
     assert payload["client_request_id"] == "cr-1"
     assert payload["interaction_id"] == "interaction-1"
     assert "answered_by_client_id" not in payload
+    assert "answered_by" not in payload
+    assert "answer_text" not in payload
 
 
 @pytest.mark.asyncio
-async def test_a_client_answer_to_a_rule_question_names_the_client():
+@pytest.mark.parametrize(
+    ("client_id", "answered_by", "answer"),
+    [("client-1", "client", "Reject"), (None, "owner", "Approve")],
+)
+async def test_an_answered_rule_question_carries_the_answer_and_who_gave_it(
+    client_id, answered_by, answer
+):
     store = InMemoryRoomEventStore()
-    service = HITLService(canonical_run_state_reader=lambda _run_id: "awaiting_user")
+    service = HITLService(
+        canonical_run_state_reader=lambda _run_id: "awaiting_user",
+        public_text_sanitizer=lambda text, secret_values: text,
+    )
     service._delivery = make_publisher(room_events=store)
 
     await service._emit_hitl_event(
         conversation_id="room-1",
         event_type=HITLEventType.INPUT_RECEIVED,
-        request=_rule_question(status="responded", answered_by_client_id="client-1"),
+        request=_rule_question(
+            status="responded", user_input=answer, answered_by_client_id=client_id
+        ),
     )
 
     [record] = await store.read_range("room-1", after=0, limit=10)
     payload = record["payload_public"]
     assert payload["status"] == "responded"
-    assert payload["answered_by_client_id"] == "client-1"
+    assert payload["answer_text"] == answer
+    assert payload["answered_by"] == answered_by
+    assert payload.get("answered_by_client_id") == client_id
+
+
+@pytest.mark.asyncio
+async def test_the_step_shows_a_rule_answer_and_who_gave_it():
+    store = InMemoryRoomEventStore()
+    service = HITLService(
+        canonical_run_state_reader=lambda _run_id: "awaiting_user",
+        public_text_sanitizer=lambda text, secret_values: text,
+    )
+    service._delivery = make_publisher(room_events=store)
+    await _asked(store)
+
+    await service._emit_hitl_event(
+        conversation_id="room-1",
+        event_type=HITLEventType.INPUT_RECEIVED,
+        request=_rule_question(
+            status="responded", user_input="Reject", answered_by_client_id="client-1"
+        ),
+    )
+    outcomes = await SessionWaiter(store, start_grace_seconds=0).history("room-1")
+
+    [shown] = step_questions(outcomes["cr-1"], ended=True)
+    assert shown.outcome == "answered"
+    assert [answer.text for answer in shown.answers] == ["Reject"]
+    assert (shown.answered_by, shown.answered_by_client_id) == ("client", "client-1")
 
 
 @pytest.mark.asyncio
@@ -86,29 +153,7 @@ async def test_the_step_shows_the_expired_rule_question():
     service._delivery = make_publisher(room_events=store)
     question = _rule_question()
     # The run asked the question before it expired.
-    await store.append(
-        conversation_id="room-1",
-        kind="run_event",
-        payload_public={
-            "run_id": "run-1",
-            "type": "run_started",
-            "payload": {"user_message_id": "message-1"},
-            "correlation_id": "cr-1",
-        },
-    )
-    await store.append(
-        conversation_id="room-1",
-        kind="hitl_request",
-        payload_public={
-            "request_id": "request-1",
-            "interaction_id": "interaction-1",
-            "prompt": question.prompt,
-            "prompt_type": "approval",
-            "source": "system",
-            "question_index": 0,
-            "client_request_id": "cr-1",
-        },
-    )
+    await _asked(store)
 
     await service._emit_hitl_event(
         conversation_id="room-1",

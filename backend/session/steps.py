@@ -12,6 +12,9 @@ from __future__ import annotations
 
 from datetime import datetime
 
+from common.observability import events as E
+from common.observability import log_id
+from common.utils.logger import get_logger
 from common.utils.time import ensure_utc
 from models.session import (
     QuestionOutcome,
@@ -30,6 +33,8 @@ _RECORDED: dict[str, QuestionOutcome] = {
 }
 _ACTIVE_STATES = frozenset({"working", "waiting_on_owner"})
 
+logger = get_logger(__name__)
+
 
 def step_ended(state: SessionState) -> bool:
     return state not in _ACTIVE_STATES
@@ -38,8 +43,16 @@ def step_ended(state: SessionState) -> bool:
 def question_outcome(question: AskedQuestion, *, ended: bool) -> QuestionOutcome:
     """The recorded outcome; ``unanswered`` when the Step ended without one."""
     if question.status is not None:
-        # A status the log may gain later is shown as the error it is to us.
-        return _RECORDED.get(question.status, "error")
+        recorded = _RECORDED.get(question.status)
+        if recorded is None:
+            # A status the log may gain later is shown as an error, and noted.
+            logger.emit(
+                E.SESSION_QUESTION_STATUS_UNKNOWN,
+                question_id=log_id(question.question_id),
+                status=log_id(question.status),
+            )
+            return "error"
+        return recorded
     return "unanswered" if ended else "pending"
 
 
@@ -65,6 +78,13 @@ def _question(question: AskedQuestion, *, ended: bool) -> SessionStepQuestion:
         ],
         outcome=question_outcome(question, ended=ended),
         resolved_at=question.resolved_at,
+        answered_by=(
+            "client"
+            if question.answered_by == "client"
+            else "owner"
+            if question.answered_by == "owner"
+            else None
+        ),
         answered_by_client_id=question.answered_by_client_id,
         answers=[
             SessionStepItem(label=labels.get(request_id), text=answer)
@@ -95,19 +115,23 @@ def duration_ms(outcome: CorrelatedOutcome | None) -> int | None:
     return value
 
 
-def split_agent_label(label: str | None) -> tuple[str | None, str | None]:
-    """The agent's name and skill from its tool label, ``Agent - skill``."""
-    if not label:
-        return None, None
-    name, _sep, skill = label.partition(" - ")
-    return name or None, skill or None
+def label_skill(label: str | None, agent_name: str | None) -> str | None:
+    """The skill from the agent's tool label, ``Agent - skill``.
+
+    The agent's name may itself contain `` - ``, so the known name is
+    stripped as a prefix; a label that does not start with it has no skill.
+    """
+    prefix = f"{agent_name} - " if agent_name else None
+    if not label or prefix is None or not label.startswith(prefix):
+        return None
+    return label[len(prefix) :] or None
 
 
 __all__ = [
     "duration_ms",
     "finished_at",
     "question_outcome",
-    "split_agent_label",
+    "label_skill",
     "step_ended",
     "step_questions",
 ]

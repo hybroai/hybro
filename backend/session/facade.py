@@ -84,7 +84,7 @@ from session.questions import NOT_GRANTED, PermissionQuestions
 from session.steps import (
     duration_ms,
     finished_at,
-    split_agent_label,
+    label_skill,
     step_ended,
     step_questions,
 )
@@ -390,26 +390,27 @@ class SessionFacade:
             outcome = outcomes.get(request.client_request_id)
             user = messages.get(request.user_message_id)
             reply = messages.get(final_message_id(outcome) or "")
-            latest = request.client_request_id == record.last_client_request_id
+            # Closing the session ends only a Step that had not settled; one
+            # that settled keeps its result.
+            unsettled = outcome is None or outcome.settlement is None
             state, reason = self._resolve(
                 outcome or CorrelatedOutcome(),
                 sent_at=request.sent_at,
                 message_id=request.user_message_id,
-                closed=closed and latest,
-            )
-            label_name, skill = split_agent_label(
-                outcome.agent_label if outcome is not None else None
+                closed=closed and unsettled,
             )
             agent_id = _target_agent(user)
+            agent_name = names.get(agent_id) if agent_id else None
+            label = outcome.agent_label if outcome is not None else None
             steps.append(
                 SessionStep(
                     step_id=request.client_request_id,
                     client_id=request.client_id,
                     prompt=_message_text(user),
                     agent_id=agent_id,
-                    agent_name=(names.get(agent_id) if agent_id else None)
-                    or label_name,
-                    skill=skill,
+                    # An agent no longer in the room is named by its whole label.
+                    agent_name=agent_name or label,
+                    skill=label_skill(label, agent_name),
                     state=state,
                     reason=reason,
                     result=_message_text(reply) or None,

@@ -1615,6 +1615,19 @@ class HITLService:
             HITLEventType.ERROR: "error",
         }
         status = status_map.get(event_type, request_status)
+        responded = status == HITLStatus.RESPONDED.value
+        answered_by_client = request.answered_by_client_id if responded else None
+        answer_text = None
+        if responded and request.user_input:
+            # A check rule's answer is Approve or Reject; sanitized and bounded
+            # like the agent path's answer text.
+            answer_text = (
+                self._require_public_text_sanitizer()(
+                    request.user_input, secret_values=self._public_secret_values
+                )
+                if canonical_run_id
+                else request.user_input
+            )[:1_000] or None
         await self._emit_delivery_event(
             HITLResolvedEvent(
                 conversation_id=conversation_id,
@@ -1623,11 +1636,11 @@ class HITLService:
                 message_id=data["message_id"],
                 source=source,
                 status=status,
-                answered_by_client_id=(
-                    request.answered_by_client_id
-                    if status == HITLStatus.RESPONDED.value
-                    else None
+                answer_text=answer_text,
+                answered_by=(
+                    ("client" if answered_by_client else "owner") if responded else None
                 ),
+                answered_by_client_id=answered_by_client,
                 interaction_id=request.interaction_id,
                 interaction_status=(
                     None

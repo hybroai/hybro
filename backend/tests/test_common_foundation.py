@@ -440,6 +440,7 @@ def test_delivery_event_schemas_match_design_doc():
             "error_message",
             "answer_ref",
             "answer_text",
+            "answered_by",
             "answered_by_client_id",
             "related_message_id",
             "related_user_message_id",

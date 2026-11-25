@@ -1069,19 +1069,24 @@ segment.
   external client or a Step without an agent; "You" for the owner): the client asked an agent (the prompt, and the
   skill when the Step has one), the agent, or your check rules for a rule's
   Question, asked you (each
-  question under its header), you answered (your answer text) or rejected,
-  or the client answered for you when the Question's `answered_by_client_id`
-  is set (named as the session's client when it matches the Step's
-  `client_id`, otherwise "A client"),
+  question under its header), and who answered, from the Question's
+  `answered_by`: you answered (your answer text), the client answered for
+  you (named as the session's client when `answered_by_client_id` matches
+  the Step's `client_id`, otherwise "A client"), or "Someone" with "Who
+  answered was not recorded." for an answer recorded before the field;
   a Question that ended without an answer says so (`canceled`, `expired`,
   `error`, or `unanswered` when the Step ended first),
   the agent replied after its duration (long replies fold behind Show full
-  reply), or couldn't finish (the Step's `reason`), or never started; a
-  `denied` Step reads as the
+  reply), or couldn't finish (a known failure code as a sentence, the run's
+  own summary as it is, and "The request failed." for an unknown code), or
+  never started; a `denied` Step reads as the
   owner's check rules denying the agent call, with the backend's sentence
   naming the rule, and a `rejected` Step (the owner, or a client with the
   grant, rejected a check rule's question, or the owner rejected an agent's
-  question) reads as rejected. A pending question appears at the end of the
+  question) reads as rejected by whoever gave the last answer. In a closed
+  session, a Step that had not settled reads as the agent stopped because the
+  session was closed (with its reply, if it has one); a Step that settled
+  keeps its reply or outcome. A pending question appears at the end of the
   record in the same `HitlResponseBar` card the chat composer uses (pending
   rows from `GET /rooms/{id}/hitl/pending` mapped with the shared
   `hitlLifecycleState`; Send calls `respondToHitlBatch`, Reject cancels through

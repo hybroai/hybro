@@ -78,7 +78,10 @@ export interface SessionStepQuestion {
   outcome: QuestionOutcome
   resolved_at: string | null
   answers: SessionStepItem[]
-  // The client that answered as the owner; null when the owner answered.
+  // Who answered an answered Question; null when it was not answered or the
+  // record does not say.
+  answered_by: 'owner' | 'client' | null
+  // The client that answered, when answered_by is 'client'.
   answered_by_client_id: string | null
 }
 

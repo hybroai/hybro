@@ -9,6 +9,7 @@ production.
 from __future__ import annotations
 
 import asyncio
+import logging
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from typing import Any
@@ -31,6 +32,7 @@ from common.errors import AppError, ConflictError, NotFoundError
 from models.session import SessionMessageRequest
 from session.facade import SessionFacade, SessionOwner
 from session.models import SessionRecord, SessionRequest
+from session.steps import label_skill
 from session.waiter import SessionWaiter
 from tests.fakes.room_events import InMemoryRoomEventStore
 
@@ -2214,6 +2216,7 @@ async def resolve(
     interaction_id: str = "int-1",
     client_request_id: str = "cr-1",
     answers: tuple[tuple[str, str], ...] = (("req-1", ""),),
+    answered_by: str | None = None,
     answered_by_client_id: str | None = None,
 ) -> None:
     for request_id, answer in answers:
@@ -2226,6 +2229,8 @@ async def resolve(
         }
         if answer:
             payload["answer_text"] = answer
+        if answered_by is not None:
+            payload["answered_by"] = answered_by
         if answered_by_client_id is not None:
             payload["answered_by_client_id"] = answered_by_client_id
         await h.events.append(
@@ -2245,7 +2250,7 @@ async def test_a_step_shows_its_prompt_agent_result_timing_and_answers():
     h = make_harness(
         on_schedule=[
             started("msg-1"),
-            ("tool_execution_start", {"tool_name": "Travel Planner Agent - Trips"}),
+            ("tool_execution_start", {"tool_name": "Travel Planner - Trips"}),
         ]
     )
     h.messages.add(user_message("msg-1", "Plan a weekend in Lyon"))
@@ -2332,8 +2337,8 @@ async def test_a_refused_rule_question_is_answered_and_the_step_rejected():
     # A "no" is still an answer.
     assert (question.asked_by, question.outcome) == ("system", "answered")
     assert [a.text for a in question.answers] == ["Reject"]
-    # The owner answered in the Panel.
-    assert question.answered_by_client_id is None
+    # The event does not say who answered.
+    assert (question.answered_by, question.answered_by_client_id) == (None, None)
 
 
 @pytest.mark.asyncio
@@ -2346,16 +2351,39 @@ async def test_a_question_a_client_answered_names_the_client():
         h,
         "responded",
         answers=(("req-1", "Approve"),),
+        answered_by="client",
         answered_by_client_id="client-1",
     )
 
     [step] = await steps(h)
 
     [question] = step.questions
-    assert (question.outcome, question.answered_by_client_id) == (
-        "answered",
-        "client-1",
+    assert (
+        question.outcome,
+        question.answered_by,
+        question.answered_by_client_id,
+    ) == ("answered", "client", "client-1")
+
+
+@pytest.mark.asyncio
+async def test_a_question_the_owner_answered_names_the_owner():
+    h = make_harness(on_schedule=[started("msg-1"), WAITING])
+    h.messages.add(user_message("msg-1", "Book it"))
+    await h.send(text="Book it")
+    await ask(h, source="system")
+    # A stray client id on an owner's answer is not shown.
+    await resolve(
+        h,
+        "responded",
+        answers=(("req-1", "Approve"),),
+        answered_by="owner",
+        answered_by_client_id="client-1",
     )
+
+    [step] = await steps(h)
+
+    [question] = step.questions
+    assert (question.answered_by, question.answered_by_client_id) == ("owner", None)
 
 
 @pytest.mark.asyncio
@@ -2364,13 +2392,45 @@ async def test_only_an_answer_names_who_gave_it():
     h.messages.add(user_message("msg-1", "Book it"))
     await h.send(text="Book it")
     await ask(h)
-    await resolve(h, "canceled", answered_by_client_id="client-1")
+    await resolve(h, "canceled", answered_by="client", answered_by_client_id="client-1")
 
     [step] = await steps(h)
 
-    assert [(q.outcome, q.answered_by_client_id) for q in step.questions] == [
-        ("canceled", None)
+    assert [
+        (q.outcome, q.answered_by, q.answered_by_client_id) for q in step.questions
+    ] == [("canceled", None, None)]
+
+
+@pytest.mark.asyncio
+async def test_an_unknown_response_status_is_an_error_and_logged(caplog):
+    h = make_harness(on_schedule=[started("msg-1"), WAITING])
+    h.messages.add(user_message("msg-1", "Book it"))
+    await h.send(text="Book it")
+    await ask(h)
+    await resolve(h, "superseded")
+
+    with caplog.at_level(logging.WARNING):
+        [step] = await steps(h)
+
+    assert [q.outcome for q in step.questions] == ["error"]
+    [record] = [
+        r for r in caplog.records if "session_question_status_unknown" in r.getMessage()
     ]
+    assert "superseded" in str(record.__dict__)
+
+
+@pytest.mark.parametrize(
+    ("label", "name", "skill"),
+    [
+        ("Acme - EU Travel - Trips", "Acme - EU Travel", "Trips"),
+        ("Foo - Bar", "Foo - Bar", None),
+        ("Card Name - Trips", "Registry Name", None),
+        ("Travel - Trips", None, None),
+        (None, "Travel", None),
+    ],
+)
+def test_the_skill_is_the_label_after_the_agent_name(label, name, skill):
+    assert label_skill(label, name) == skill
 
 
 @pytest.mark.asyncio
@@ -2509,6 +2569,72 @@ async def test_closing_the_session_ends_its_open_question_unanswered():
 
     assert step.state == "closed"
     assert [q.outcome for q in step.questions] == ["unanswered"]
+
+
+@pytest.mark.asyncio
+async def test_closing_the_session_keeps_a_settled_step_and_ends_an_earlier_open_one():
+    h = make_harness(on_schedule=[started("msg-1"), WAITING])
+    h.messages.add(user_message("msg-1", "Book it"))
+    first = await h.send(text="Book it")
+    await ask(h)
+    h.engine.on_schedule = [
+        started("msg-2"),
+        settled("completed", final_message_id="f2"),
+    ]
+    h.messages.add(user_message("msg-2", "And the train"))
+    h.messages.add(final_message("f2", "conv-1", "Train booked"))
+    await h.send(
+        session_id=first.session_id,
+        client_request_id="cr-2",
+        client_label=None,
+        text="And the train",
+    )
+    await h.facade.close_for_owner("sess-1", owner=OWNER)
+
+    earlier, latest = await steps(h)
+
+    assert (earlier.state, [q.outcome for q in earlier.questions]) == (
+        "closed",
+        ["unanswered"],
+    )
+    assert (latest.state, latest.result) == ("completed", "Train booked")
+
+
+@pytest.mark.asyncio
+async def test_a_question_split_across_pages_of_the_log_is_one_question():
+    h = make_harness(on_schedule=[started("msg-1"), WAITING])
+    h.facade._waiter = SessionWaiter(h.events, start_grace_seconds=10.0, page_size=3)
+    h.messages.add(user_message("msg-1", "Plan it"))
+    await h.send(text="Plan it")
+    await ask(
+        h,
+        items=(
+            ("req-1", "Budget", "Which budget?"),
+            ("req-2", "Dates", "When?"),
+            ("req-3", "City", "Where?"),
+        ),
+    )
+    await resolve(
+        h,
+        "responded",
+        answers=(("req-1", "Mid"), ("req-2", "May"), ("req-3", "Lyon")),
+        answered_by="owner",
+    )
+
+    [step] = await steps(h)
+
+    [question] = step.questions
+    assert [item.text for item in question.items] == [
+        "Which budget?",
+        "When?",
+        "Where?",
+    ]
+    assert [(a.label, a.text) for a in question.answers] == [
+        ("Budget", "Mid"),
+        ("Dates", "May"),
+        ("City", "Lyon"),
+    ]
+    assert (question.outcome, question.answered_by) == ("answered", "owner")
 
 
 @pytest.mark.asyncio

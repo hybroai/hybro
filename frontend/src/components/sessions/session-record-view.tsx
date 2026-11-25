@@ -208,6 +208,37 @@ const QUESTION_END: Partial<Record<SessionStepQuestion['outcome'], string>> = {
   unanswered: 'The request ended before anyone answered.',
 }
 
+// A run's failure code, as the owner reads it. A reason that is not a code is
+// the run's own summary and is shown as it is; an unknown code is not shown.
+const FAILURE_TEXT: Record<string, string> = {
+  budget_exhausted: 'The run used up its execution budget.',
+  provider_error: 'The model provider returned an error.',
+  assembly_error: 'The request could not be prepared.',
+  tool_failure: 'An agent call failed.',
+  hitl_error: 'A question could not be completed.',
+  rejected: 'The request was rejected.',
+  internal_error: 'The run could not be completed.',
+}
+
+function failureText(reason: string | null): string | null {
+  if (!reason) return null
+  if (FAILURE_TEXT[reason]) return FAILURE_TEXT[reason]
+  return /^[a-z0-9_:]+$/.test(reason) ? null : reason
+}
+
+type Answerer = { actor: Actor, name: string, recorded: boolean }
+
+// Who answered a Question: you, the session's client, another client, or
+// not recorded (an answer written before the record said who answered).
+function answerer(question: SessionStepQuestion, step: SessionStep, client: string): Answerer {
+  if (question.answered_by === 'owner') return { actor: 'owner', name: 'You', recorded: true }
+  if (question.answered_by === 'client') {
+    const named = step.client_id != null && question.answered_by_client_id === step.client_id
+    return { actor: 'client', name: named ? client : 'A client', recorded: true }
+  }
+  return { actor: 'owner', name: 'Someone', recorded: false }
+}
+
 function QuestionEntries({ question, step, agent, agentId, client, open }: {
   question: SessionStepQuestion
   step: SessionStep
@@ -230,16 +261,16 @@ function QuestionEntries({ question, step, agent, agentId, client, open }: {
     </Entry>,
   ]
   if (question.outcome === 'answered') {
-    const byClient = question.answered_by_client_id != null
-    const answerer = question.answered_by_client_id === step.client_id ? client : 'A client'
+    const by = answerer(question, step, client)
     entries.push(
       <Entry
         key="answered"
-        actor={byClient ? 'client' : 'owner'}
-        name={byClient ? answerer : 'You'}
-        action={byClient ? 'answered for you' : 'answered'}
+        actor={by.actor}
+        name={by.name}
+        action={by.actor === 'client' ? 'answered for you' : 'answered'}
         at={question.resolved_at}
       >
+        {by.recorded ? null : <p className="text-xs text-muted-foreground">Who answered was not recorded.</p>}
         {question.answers.length ? <Items items={question.answers} /> : null}
       </Entry>,
     )
@@ -263,6 +294,9 @@ function StepEntries({ step, client, waitingBelow }: {
   const agent = step.agent_name ?? 'The agent'
   const agentId = step.agent_id ?? undefined
   const rejectedByQuestion = step.questions.some(question => question.outcome === 'canceled')
+  // A refusal at a Question is the last answer's; credit whoever gave it.
+  const lastAnswer = step.questions.filter(question => question.outcome === 'answered').at(-1)
+  const rejecter = lastAnswer ? answerer(lastAnswer, step, client) : { actor: 'owner' as const, name: 'You', recorded: true }
   const after = step.duration_ms != null ? ` after ${formatSessionDuration(step.duration_ms)}` : ''
   const canceled = step.state === 'failed' && (step.reason === 'canceled' || step.reason?.startsWith('canceled:'))
   return (
@@ -291,7 +325,7 @@ function StepEntries({ step, client, waitingBelow }: {
           {step.reason ? <p className="text-muted-foreground">{step.reason}</p> : null}
         </Entry>
       ) : step.state === 'rejected' && !rejectedByQuestion ? (
-        <Entry actor="owner" name="You" action="rejected the request" at={step.finished_at} />
+        <Entry actor={rejecter.actor} name={rejecter.name} action="rejected the request" at={step.finished_at} />
       ) : canceled ? (
         <Entry actor="agent" agentId={agentId} name={agent} action={`stopped${after}; the request was canceled`} at={step.finished_at} />
       ) : step.state === 'failed' && step.reason === 'run_not_started' ? (
@@ -300,7 +334,11 @@ function StepEntries({ step, client, waitingBelow }: {
         </Entry>
       ) : step.state === 'failed' ? (
         <Entry actor="agent" agentId={agentId} name={agent} action={`couldn't finish${after}`} at={step.finished_at}>
-          <p className="text-destructive">{step.reason ?? 'The request failed.'}</p>
+          <p className="text-destructive">{failureText(step.reason) ?? 'The request failed.'}</p>
+        </Entry>
+      ) : step.state === 'closed' ? (
+        <Entry actor="agent" agentId={agentId} name={agent} action="stopped; the session was closed" at={step.finished_at}>
+          {step.result ? <Reply text={step.result} /> : null}
         </Entry>
       ) : step.state === 'working' ? (
         <Entry actor="agent" agentId={agentId} name={agent} action={<span className="inline-flex items-center gap-1.5">is working on it<Loader2 className="size-3.5 animate-spin motion-reduce:animate-none" aria-hidden="true" /></span>} at={null} />

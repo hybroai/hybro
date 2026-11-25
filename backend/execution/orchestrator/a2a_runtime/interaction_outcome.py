@@ -470,6 +470,11 @@ async def emit_hitl_resolved_events(
                 if given is not None and status == "responded"
                 else None
             ),
+            answered_by=(
+                ("client" if answered_by_client_id else "owner")
+                if status == "responded"
+                else None
+            ),
             answered_by_client_id=(
                 answered_by_client_id if status == "responded" else None
             ),

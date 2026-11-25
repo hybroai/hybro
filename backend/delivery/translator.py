@@ -285,6 +285,7 @@ def to_sse_frame(
         _add_optional(data, "error_message", event.error_message)
         _add_optional(data, "answer_ref", event.answer_ref)
         _add_optional(data, "answer_text", event.answer_text)
+        _add_optional(data, "answered_by", event.answered_by)
         _add_optional(data, "answered_by_client_id", event.answered_by_client_id)
         _add_optional(data, "related_message_id", event.related_message_id)
         _add_optional(data, "related_user_message_id", event.related_user_message_id)

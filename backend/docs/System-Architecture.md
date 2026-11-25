@@ -3862,12 +3862,13 @@ so persisted interaction fingerprints stay valid.
 `allow_other`, and `choice_options`, sanitized and bounded like the prompt. Each
 `hitl_response` frame carries `answer_text`: the owner's answer as the owner
 reads it (choice labels, Yes or No, Approved or Rejected, Signed in for
-authorization results, never the reference), bounded to 1,000 characters.
-Skipped questions and cancellations carry none. A `responded` frame also
-carries `answered_by_client_id` when a client with the owner's grant answered;
-it is absent when the owner answered and on every other status. The bundled
-Travel Planner asks
-one question per missing detail with a header, two to four described choices,
+authorization results, never the reference), bounded to 1,000 characters. A
+check rule's answer is the stored `user_input` (Approve or Reject), sanitized
+and bounded the same way. Skipped questions and cancellations carry none. A
+`responded` frame also carries `answered_by` (`owner`, or `client` for a client
+with the owner's grant) and, for a client, `answered_by_client_id`; both are
+absent on every other status. The bundled Travel Planner asks one question per
+missing detail with a header, two to four described choices,
 and `allow_other`.
 
 The frontend treats `hitl_request` and `hitl_response` as durable lifecycle
@@ -4056,9 +4057,11 @@ last send and the request's newest event or reply. The owner record's
 Steps (`session/steps.py`, `SessionFacade.steps_for_owner`). A Step is one
 recorded request: `step_id` (its `client_request_id`), `client_id`, `prompt`
 (the client message text), `agent_id` and `agent_name` (as in `history`),
-`skill` (the part after ` - ` in the called agent's tool label), `chosen_by`
-(`named`), `state` and `reason` (the same resolution as `history`, so the
-latest request of a closed session is `closed`), `result` (the final reply),
+`skill` (the called agent's tool label, `Agent - skill`, after the agent's
+room name and ` - `; none when the label does not start with that name),
+`chosen_by` (`named`), `state` and `reason` (the same resolution as
+`history`, except that in a closed session every Step that has not settled is
+`closed` and a settled Step keeps its state), `result` (the final reply),
 `sent_at`, `started_at` (`run_started`), `finished_at` and `duration_ms` (the
 `run_settled` payload's `settled_at` and `duration_ms`), and `questions`. It is
 built from the same single pass over the room event log as `history`; it
@@ -4069,9 +4072,11 @@ interaction id), `asked_by` (the frame's `source`: `agent`, or `system` for a
 check rule's question), `prompt_type`, `asked_at`, `items` (each member's
 `header` and `prompt`, in `question_index` order), `outcome`, `resolved_at`,
 `answers` (each `responded` member's public `answer_text`, with its header),
-and `answered_by_client_id` (the first response's, on an answered question;
-null when the owner answered). `outcome` is the first response's status (`responded` is `answered`,
-also for a Reject; `canceled`, `expired`, `error`); with no response it is
+`answered_by` and `answered_by_client_id` (the first response's, on an
+answered question; `answered_by` is null when the event predates the field).
+`outcome` is the first response's status (`responded` is `answered`, also for
+a Reject; `canceled`, `expired`, `error`; any other status is `error` and logs
+`session_question_status_unknown`); with no response it is
 `pending` while the Step is `working` or `waiting_on_owner`, and `unanswered`
 once the Step ended: an Agent call that ends by itself while its question is
 open writes no `hitl_response`.
