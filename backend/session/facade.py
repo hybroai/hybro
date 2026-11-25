@@ -109,9 +109,9 @@ _ROOM_NAME_WORDS = 8
 _ROOM_NAME_MAX = 80
 _TITLE_MAX = 120
 _LIST_LIMIT = 100
-# Cancels a close never makes: a check rule denied the call, or someone
-# refused it at a rule's question.
-_NOT_CLOSE_CANCELS = frozenset({"policy", "owner_refused"})
+# The cancellation cause closing a session gives its question or run, so a
+# Step it ended is told apart from one the owner stopped or rejected earlier.
+_CLOSE_CAUSE = "room_closed"
 
 
 def _error(code: str, message: str) -> AppError:
@@ -393,12 +393,11 @@ class SessionFacade:
             outcome = outcomes.get(request.client_request_id)
             user = messages.get(request.user_message_id)
             reply = messages.get(final_message_id(outcome) or "")
-            latest = request.client_request_id == record.last_client_request_id
             state, reason = self._resolve(
                 outcome or CorrelatedOutcome(),
                 sent_at=request.sent_at,
                 message_id=request.user_message_id,
-                closed=closed and _ended_by_close(outcome, latest=latest),
+                closed=closed and _ended_by_close(outcome),
             )
             agent_id = _target_agent(user)
             agent_name = names.get(agent_id) if agent_id else None
@@ -951,7 +950,7 @@ class SessionFacade:
             for interaction_id, version in interactions.items():
                 try:
                     await self._approvals.cancel_hitl_interaction(
-                        conversation_id, interaction_id, version
+                        conversation_id, interaction_id, version, cause=_CLOSE_CAUSE
                     )
                     canceled_any = True
                 except Exception as exc:
@@ -971,6 +970,7 @@ class SessionFacade:
                     conversation_id,
                     run.trigger_message_id,
                     requested_by_user_id=owner.user_id,
+                    cause=_CLOSE_CAUSE,
                 )
             except Exception as exc:
                 # Pending local agent-call cancellation and reconciliation are
@@ -1047,20 +1047,19 @@ def _message_text(message: object | None) -> str:
     return text if isinstance(text, str) else ""
 
 
-def _ended_by_close(outcome: CorrelatedOutcome | None, *, latest: bool) -> bool:
+def _ended_by_close(outcome: CorrelatedOutcome | None) -> bool:
     """Whether closing the session ended this Step.
 
-    A Step that had not settled is ended by the close. Closing also cancels
-    the latest Step's open question or run, so a cancel there is the close's,
-    except a check rule's denial or a refusal at a rule's question.
+    A Step that had not settled is ended by the close, and so is one the close
+    canceled. A Step the owner stopped or rejected before the close keeps its
+    state.
     """
     if outcome is None or outcome.settlement is None:
         return True
     settlement = outcome.settlement
     return (
-        latest
-        and settlement.get("status") == "canceled"
-        and settlement.get("cancellation_code") not in _NOT_CLOSE_CANCELS
+        settlement.get("status") == "canceled"
+        and settlement.get("cancellation_code") == _CLOSE_CAUSE
     )
 
 

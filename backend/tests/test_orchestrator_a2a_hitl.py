@@ -638,7 +638,9 @@ async def test_emit_hitl_resolved_events_precede_canonical_run_resume():
 
 
 @pytest.mark.asyncio
-async def test_router_full_cancellation_claims_run_before_descendant_cleanup():
+# The owner's cancel by default, or the session close's own cause.
+@pytest.mark.parametrize("cause", [None, "room_closed"])
+async def test_router_full_cancellation_claims_run_before_descendant_cleanup(cause):
     record = ledger_record(run_id="run-1", call_id="call-1").model_copy(
         update={"state": "input_required", "pending_interaction_id": "interaction-1"}
     )
@@ -670,12 +672,15 @@ async def test_router_full_cancellation_claims_run_before_descendant_cleanup():
             **run.__dict__,
             "status": "canceling",
             "state_version": 2,
-            "cancellation_command_id": "cancel:run-1:user_requested",
+            "cancellation_command_id": f"cancel:run-1:{cause or 'user_requested'}",
         }
     )
     order: list[str] = []
 
-    async def request_cancellation(*_args, **_kwargs):
+    claimed: list[tuple[str, str]] = []
+
+    async def request_cancellation(*_args, **kwargs):
+        claimed.append((kwargs["cause"], kwargs["command_id"]))
         order.append("cas")
         return SimpleNamespace(outcome="accepted", run=canceling_run)
 
@@ -717,7 +722,9 @@ async def test_router_full_cancellation_claims_run_before_descendant_cleanup():
         ),
     )
 
-    await router.route_cancellation_by_user_message("user-1", reason="user:user-1")
+    await router.route_cancellation_by_user_message(
+        "user-1", reason="user:user-1", **({"cause": cause} if cause else {})
+    )
 
     assert order == [
         "cas",
@@ -726,10 +733,14 @@ async def test_router_full_cancellation_claims_run_before_descendant_cleanup():
         "reconcile",
         "signal",
     ]
+    expected = cause or "user_requested"
+    assert claimed == [(expected, f"cancel:run-1:{expected}")]
 
 
 @pytest.mark.asyncio
-async def test_router_direct_hitl_cancellation_aborts_the_owning_run():
+# The owner's cancel by default, or the session close's own cause.
+@pytest.mark.parametrize("cause", [None, "room_closed"])
+async def test_router_direct_hitl_cancellation_aborts_the_owning_run(cause):
     record = ledger_record(run_id="run-1", call_id="call-1").model_copy(
         update={"state": "input_required", "pending_interaction_id": "interaction-1"}
     )
@@ -762,12 +773,15 @@ async def test_router_direct_hitl_cancellation_aborts_the_owning_run():
             **run.__dict__,
             "status": "canceling",
             "state_version": 2,
-            "cancellation_command_id": "cancel:run-1:user_requested",
+            "cancellation_command_id": f"cancel:run-1:{cause or 'user_requested'}",
         }
     )
     order: list[str] = []
 
-    async def request_cancellation(*_args, **_kwargs):
+    claimed: list[tuple[str, str]] = []
+
+    async def request_cancellation(*_args, **kwargs):
+        claimed.append((kwargs["cause"], kwargs["command_id"]))
         order.append("cas")
         return SimpleNamespace(outcome="accepted", run=canceling_run)
 
@@ -812,6 +826,7 @@ async def test_router_direct_hitl_cancellation_aborts_the_owning_run():
         conversation_id="room-1",
         interaction_id="interaction-1",
         expected_version=1,
+        **({"cause": cause} if cause else {}),
     )
 
     assert version == 1
@@ -822,6 +837,8 @@ async def test_router_direct_hitl_cancellation_aborts_the_owning_run():
         "reconcile",
         "signal",
     ]
+    expected = cause or "user_requested"
+    assert claimed == [(expected, f"cancel:run-1:{expected}")]
 
 
 @pytest.mark.asyncio

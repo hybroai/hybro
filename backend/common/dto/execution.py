@@ -78,6 +78,11 @@ class ExecutionAck(FrozenDTO):
     should_start_orchestration: bool = True
 
 
+# Why the owner's side canceled a Run: the owner asked (Stop, or a rejected
+# question), or the owner closed the session.
+OwnerCancelCause = Literal["user_requested", "room_closed"]
+
+
 class CancellationAck(FrozenDTO):
     status: str
     cancellation_applied: bool
@@ -181,6 +186,7 @@ class HITLResponse(FrozenDTO):
 
 __all__ = [
     "AgentScopeInput",
+    "OwnerCancelCause",
     "AllAgentsScope",
     "ExecutionAck",
     "ExecutionRequest",

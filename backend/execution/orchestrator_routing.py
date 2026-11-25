@@ -30,7 +30,12 @@ from approval import (
     HITLDeliveryUncertainError,
     HITLRoomMismatchError,
 )
-from common.dto.execution import CancellationAck, ExecutionRequest, HITLRequest
+from common.dto.execution import (
+    CancellationAck,
+    ExecutionRequest,
+    HITLRequest,
+    OwnerCancelCause,
+)
 from common.dto.hitl import (
     A2AInteractionSpec,
     HITLAnswerKind,
@@ -701,6 +706,7 @@ class DualRuntimeRouter:
         user_message_id: str,
         *,
         reason: str,
+        cause: OwnerCancelCause = "user_requested",
         deletion_id: str | None = None,
         post_claim_cleanup: Callable[[], Awaitable[object]] | None = None,
     ) -> CancellationAck:
@@ -710,8 +716,8 @@ class DualRuntimeRouter:
         run = await self._runtime.run_store.load_by_user_message_id(user_message_id)
         if run is None:
             raise KeyError(user_message_id)
-        run = await self._request_run_cancellation(run)
-        command_id = f"cancel:{run.run_id}:user_requested"
+        run = await self._request_run_cancellation(run, cause=cause)
+        command_id = f"cancel:{run.run_id}:{cause}"
         if run.status == "canceled" and run.cancellation_command_id == command_id:
             return CancellationAck(
                 status="canceled", cancellation_applied=True, reconciled=True
@@ -768,8 +774,10 @@ class DualRuntimeRouter:
         run = await self._runtime.run_store.load_by_user_message_id(user_message_id)
         return run is not None
 
-    async def _request_run_cancellation(self, run: Any) -> Any:
-        return await request_run_cancellation(self._runtime.run_store, run)
+    async def _request_run_cancellation(
+        self, run: Any, *, cause: OwnerCancelCause = "user_requested"
+    ) -> Any:
+        return await request_run_cancellation(self._runtime.run_store, run, cause=cause)
 
     @staticmethod
     def _pending_cancellation_ack() -> CancellationAck:
@@ -869,6 +877,7 @@ class DualRuntimeRouter:
         conversation_id: str,
         interaction_id: str,
         expected_version: int,
+        cause: OwnerCancelCause = "user_requested",
     ) -> int:
         if self._runtime is None:
             raise OrchestratorRoutingError("orchestrator HITL ingress is not bound")
@@ -883,8 +892,8 @@ class DualRuntimeRouter:
         run = await self._runtime.run_store.load(route.orchestration_run_id)
         if run is None:
             raise KeyError(route.orchestration_run_id)
-        run = await self._request_run_cancellation(run)
-        command_id = f"cancel:{run.run_id}:user_requested"
+        run = await self._request_run_cancellation(run, cause=cause)
+        command_id = f"cancel:{run.run_id}:{cause}"
         if run.status == "canceled" and run.cancellation_command_id == command_id:
             return expected_version
         if run.status != "canceling" or run.cancellation_command_id != command_id:

@@ -762,7 +762,7 @@ def test_protocol_methods_match_design_doc():
     )
     _assert_params(
         protocols.ExecutionEngine.cancel,
-        ["self", "conversation_id", "message_id", "requested_by_user_id"],
+        ["self", "conversation_id", "message_id", "requested_by_user_id", "cause"],
     )
     _assert_params(protocols.SSEConnectionLike.get_message, ["self", "timeout"])
     _assert_params(

@@ -8,6 +8,7 @@ from common.dto import (
     HITLResponse,
     RunInfo,
 )
+from common.dto.execution import OwnerCancelCause
 
 
 @runtime_checkable
@@ -30,6 +31,7 @@ class ExecutionEngine(Protocol):
         message_id: str,
         *,
         requested_by_user_id: str,
+        cause: OwnerCancelCause = "user_requested",
     ) -> bool | CancellationAck: ...
     async def get_runs_for_room(self, conversation_id: str) -> list[RunInfo]: ...
     async def get_latest_runs_for_rooms(
@@ -56,6 +58,8 @@ class HITLManager(Protocol):
         conversation_id: str,
         interaction_id: str,
         expected_version: int,
+        *,
+        cause: OwnerCancelCause = "user_requested",
     ) -> int: ...
 
 

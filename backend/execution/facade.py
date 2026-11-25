@@ -19,6 +19,7 @@ from common.dto import (
     HITLResponse,
     RunInfo,
 )
+from common.dto.execution import OwnerCancelCause
 from common.errors import NotFoundError
 from common.observability import bind_log_context, traced_create_task
 from common.observability import events as E
@@ -713,6 +714,7 @@ class ExecutionFacade:
         message_id: str,
         *,
         requested_by_user_id: str,
+        cause: OwnerCancelCause = "user_requested",
     ) -> bool | CancellationAck:
         router = self._orchestrator_router
         if router is None:
@@ -722,6 +724,7 @@ class ExecutionFacade:
             return await router.route_cancellation_by_user_message(
                 message_id,
                 reason=f"user:{requested_by_user_id}",
+                cause=cause,
                 post_claim_cleanup=lambda: (
                     self._hitl_message_cancellation.cancel_requests_for_message(
                         message_id
@@ -896,6 +899,8 @@ class ExecutionFacade:
         conversation_id: str,
         interaction_id: str,
         expected_version: int,
+        *,
+        cause: OwnerCancelCause = "user_requested",
     ) -> int:
         router = self._orchestrator_router
         if router is not None:
@@ -904,6 +909,7 @@ class ExecutionFacade:
                     conversation_id=conversation_id,
                     interaction_id=interaction_id,
                     expected_version=expected_version,
+                    cause=cause,
                 )
             except KeyError as exc:
                 if exc.args != (interaction_id,):

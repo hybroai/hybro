@@ -250,6 +250,7 @@ class FakeEngine:
     executed: list[ExecutionRequest] = field(default_factory=list)
     scheduled: list[tuple[ExecutionRequest, ExecutionAck]] = field(default_factory=list)
     canceled: list[tuple[str, str, str]] = field(default_factory=list)
+    causes: list[str] = field(default_factory=list)
     cancel_error: Exception | None = None
     # Events to append when the run is scheduled, as (type, payload) pairs.
     on_schedule: list[tuple[str, dict[str, Any]]] = field(default_factory=list)
@@ -301,8 +302,16 @@ class FakeEngine:
             )
         self.pending_events = []
 
-    async def cancel(self, conversation_id, message_id, *, requested_by_user_id):
+    async def cancel(
+        self,
+        conversation_id,
+        message_id,
+        *,
+        requested_by_user_id,
+        cause="user_requested",
+    ):
         self.canceled.append((conversation_id, message_id, requested_by_user_id))
+        self.causes.append(cause)
         if self.cancel_error is not None:
             raise self.cancel_error
         return True
@@ -325,15 +334,17 @@ class FakeEngine:
 class FakeApprovals:
     pending: list[HITLRequest] = field(default_factory=list)
     canceled: list[tuple[str, str, int]] = field(default_factory=list)
+    causes: list[str] = field(default_factory=list)
     cancel_error: Exception | None = None
 
     async def get_pending_hitl(self, conversation_id: str) -> list[HITLRequest]:
         return [p for p in self.pending if p.conversation_id == conversation_id]
 
     async def cancel_hitl_interaction(
-        self, conversation_id, interaction_id, expected_version
+        self, conversation_id, interaction_id, expected_version, *, cause
     ):
         self.canceled.append((conversation_id, interaction_id, expected_version))
+        self.causes.append(cause)
         if self.cancel_error is not None:
             raise self.cancel_error
         return expected_version + 1
@@ -1331,6 +1342,7 @@ async def test_close_with_pending_approval_cancels_the_interaction():
 
     assert closed.status == "closed"
     assert h.approvals.canceled == [("conv-1", "int-1", 3)]
+    assert h.approvals.causes == ["room_closed"]
     assert h.engine.canceled == []
     assert h.store.records["sess-1"].status == "closed"
 
@@ -1344,6 +1356,7 @@ async def test_close_without_approval_cancels_the_active_run():
     await h.facade.close(first.session_id, owner=OWNER, client=CLIENT)
 
     assert h.engine.canceled == [("conv-1", "msg-1", OWNER.user_id)]
+    assert h.engine.causes == ["room_closed"]
 
 
 @pytest.mark.asyncio
@@ -2585,7 +2598,7 @@ async def test_the_cancel_a_close_makes_reads_closed_not_rejected(with_question)
     await append_event(
         h.events,
         "conv-1",
-        *settled("canceled", cancellation_code="user_requested"),
+        *settled("canceled", cancellation_code="room_closed"),
         "cr-1",
         "run-1",
     )
@@ -2601,12 +2614,25 @@ async def test_the_cancel_a_close_makes_reads_closed_not_rejected(with_question)
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
-    ("code", "state"), [("owner_refused", "rejected"), ("policy", "denied")]
+    ("rejected_question", "code", "state", "reason"),
+    [
+        # The owner rejected the agent's question, then closed the session.
+        (True, "user_requested", "rejected", None),
+        # The owner stopped the request, then closed the session.
+        (False, "user_requested", "failed", "canceled:user_requested"),
+        (False, "owner_refused", "rejected", None),
+        (False, "policy", "denied", "The owner's check rules denied this agent call."),
+    ],
 )
-async def test_closing_keeps_a_refusal_or_denial_of_the_latest_step(code, state):
+async def test_closing_keeps_how_the_latest_step_ended_before_it(
+    rejected_question, code, state, reason
+):
     h = make_harness(on_schedule=[started("msg-1"), WAITING])
     h.messages.add(user_message("msg-1", "Book it"))
     await h.send(text="Book it")
+    if rejected_question:
+        await ask(h)
+        await resolve(h, "canceled")
     await append_event(
         h.events,
         "conv-1",
@@ -2618,7 +2644,7 @@ async def test_closing_keeps_a_refusal_or_denial_of_the_latest_step(code, state)
 
     [step] = await steps(h)
 
-    assert step.state == state
+    assert (step.state, step.reason) == (state, reason)
 
 
 @pytest.mark.asyncio

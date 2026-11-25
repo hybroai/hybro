@@ -3426,7 +3426,9 @@ Cancellation flow for `POST /api/v1/sse/message/{message_id}/cancel`:
    orchestration status is already terminal returns `already_terminal`.
 2. `ExecutionFacade.cancel` calls the router's
    `route_cancellation_by_user_message`, which claims cancellation on the Run
-   with command ID `cancel:{run_id}:user_requested`. A terminal Run, or one
+   with command ID `cancel:{run_id}:{cause}`. The cause is `user_requested`,
+   or `room_closed` when a session close cancels the run (the same holds for
+   `cancel_hitl_interaction`). A terminal Run, or one
    already `canceling` under another command (for example room deletion),
    returns its status with `cancellation_applied=False`.
 3. `A2ACancellationCoordinator.cancel_run` cancels the Run's calls locally. The
@@ -4025,7 +4027,10 @@ supervisor's question stay with the owner.
   receive the session history.
 - `close` cancels a pending approval through `cancel_hitl_interaction`, or else
   the active run through `ExecutionEngine.cancel`; when no pending approval could
-  be canceled it cancels the run instead. Failures are logged and tolerated, and
+  be canceled it cancels the run instead. Both cancels carry the cause
+  `room_closed`, so the Run settles canceled with that code and the Steps view
+  can tell the close's cancel from an earlier Stop or rejection by the owner
+  (`user_requested`). Failures are logged and tolerated, and
   the session is marked closed. Closed sessions refuse sends with
   `session_closed` and keep their record.
 
@@ -4063,10 +4068,10 @@ recorded request: `step_id` (its `client_request_id`), `client_id`, `prompt`
 room name and ` - `; none when the label does not start with that name),
 `chosen_by` (`named`), `state` and `reason` (the same resolution as
 `history`, except that in a closed session a Step the close ended is
-`closed`: every Step that has not settled, and the latest Step when it settled
-canceled, since closing cancels its open question or run. A check rule's
-denial (`policy`) and a refusal at a rule's question (`owner_refused`) keep
-their state, as does every other settled Step), `result` (the final reply),
+`closed`: every Step that has not settled, and a Step that settled canceled
+with the code `room_closed`. A Step the owner stopped or rejected before the
+close, and every other settled Step, keeps its state), `result` (the final
+reply),
 `sent_at`, `started_at` (`run_started`), `finished_at` and `duration_ms` (the
 `run_settled` payload's `settled_at` and `duration_ms`), and `questions`. It is
 built from the same single pass over the room event log as `history`; it
