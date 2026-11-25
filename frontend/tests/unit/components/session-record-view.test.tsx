@@ -46,6 +46,10 @@ vi.mock('next/link', () => ({
 import { SessionRecordView } from '@/components/sessions/session-record-view'
 import { SESSION_LIST_QUERY_STORAGE_KEY } from '@/lib/session-list-state'
 
+// A test that changes the record gets the default back before the next one,
+// even when its assertions fail.
+const DEFAULT_RECORD = { ...api.record }
+
 function question(overrides: Record<string, unknown> = {}) {
   return {
     question_id: 'int-1',
@@ -88,6 +92,7 @@ function settledAt(overrides: Record<string, unknown>) {
 }
 
 beforeEach(() => {
+  api.record = { ...DEFAULT_RECORD }
   api.steps = [step()]
   api.pending = [{
     request_id: 'q1', message_id: 'm', source: 'agent', agent_name: 'Travel Planner Agent',
@@ -326,20 +331,15 @@ describe('SessionRecordView', () => {
     expect(within(record).getAllByText('rejected the request')).toHaveLength(1)
   })
 
-  it.each([
-    ['Booked the hotel', 'Booked the hotel'],
-    [null, null],
-  ])('shows a Step the closed session stopped, with its reply %s', async (result, shown) => {
+  it('shows a Step the closed session stopped', async () => {
     api.pending = []
     api.record = { ...api.record, status: 'closed', state: 'closed' }
-    api.steps = [step({ state: 'closed', result, questions: [] })]
+    api.steps = [step({ state: 'closed', questions: [] })]
     render(<SessionRecordView sessionId="sess-1" />)
 
     const record = await screen.findByRole('list', { name: 'Session record' })
     expect(within(record).getByText('stopped; the session was closed')).toBeInTheDocument()
-    if (shown) expect(within(record).getByText(shown)).toBeInTheDocument()
     expect(within(record).queryByText(/is working on it/)).toBeNull()
-    api.record = { ...api.record, status: 'open', state: 'waiting_on_owner' }
   })
 
   it.each([

@@ -20,6 +20,7 @@ from functools import wraps
 from typing import TYPE_CHECKING, Any
 from uuid import uuid4
 
+from approval.application import RULE_QUESTION_CHOICES
 from approval.exceptions import (
     ContinuationLostError,
     HITLConflictError,
@@ -1617,17 +1618,18 @@ class HITLService:
         status = status_map.get(event_type, request_status)
         responded = status == HITLStatus.RESPONDED.value
         answered_by_client = request.answered_by_client_id if responded else None
-        answer_text = None
-        if responded and request.user_input:
-            # A check rule's answer is Approve or Reject; sanitized and bounded
-            # like the agent path's answer text.
-            answer_text = (
-                self._require_public_text_sanitizer()(
-                    request.user_input, secret_values=self._public_secret_values
-                )
-                if canonical_run_id
-                else request.user_input
-            )[:1_000] or None
+        # Only a check rule's answer is public: one of its fixed choices. Other
+        # answers through this service, such as an orchestrator ask_user
+        # reply, stay out of the room log.
+        answer = (request.user_input or "").strip()
+        answer_text = (
+            answer
+            if responded
+            and request.public_source == HITLPublicSource.SYSTEM
+            and request.prompt_type == HITLPromptType.APPROVAL
+            and answer in RULE_QUESTION_CHOICES
+            else None
+        )
         await self._emit_delivery_event(
             HITLResolvedEvent(
                 conversation_id=conversation_id,

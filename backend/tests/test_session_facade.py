@@ -2572,6 +2572,86 @@ async def test_closing_the_session_ends_its_open_question_unanswered():
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("with_question", [True, False])
+async def test_the_cancel_a_close_makes_reads_closed_not_rejected(with_question):
+    h = make_harness(on_schedule=[started("msg-1"), WAITING])
+    h.messages.add(user_message("msg-1", "Book it"))
+    await h.send(text="Book it")
+    if with_question:
+        # Closing cancels the open question, which settles the run canceled.
+        await ask(h)
+        await resolve(h, "canceled")
+    # Without one, closing cancels the run itself.
+    await append_event(
+        h.events,
+        "conv-1",
+        *settled("canceled", cancellation_code="user_requested"),
+        "cr-1",
+        "run-1",
+    )
+    await h.facade.close_for_owner("sess-1", owner=OWNER)
+
+    [step] = await steps(h)
+
+    assert (step.state, step.reason) == ("closed", None)
+    assert [q.outcome for q in step.questions] == (
+        ["canceled"] if with_question else []
+    )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("code", "state"), [("owner_refused", "rejected"), ("policy", "denied")]
+)
+async def test_closing_keeps_a_refusal_or_denial_of_the_latest_step(code, state):
+    h = make_harness(on_schedule=[started("msg-1"), WAITING])
+    h.messages.add(user_message("msg-1", "Book it"))
+    await h.send(text="Book it")
+    await append_event(
+        h.events,
+        "conv-1",
+        *settled("canceled", cancellation_code=code),
+        "cr-1",
+        "run-1",
+    )
+    await h.facade.close_for_owner("sess-1", owner=OWNER)
+
+    [step] = await steps(h)
+
+    assert step.state == state
+
+
+@pytest.mark.asyncio
+async def test_closing_keeps_an_earlier_steps_cancel():
+    h = make_harness(
+        on_schedule=[
+            started("msg-1"),
+            settled("canceled", cancellation_code="user_requested"),
+        ]
+    )
+    h.messages.add(user_message("msg-1", "Book it"))
+    first = await h.send(text="Book it")
+    h.engine.on_schedule = [
+        started("msg-2"),
+        settled("completed", final_message_id="f2"),
+    ]
+    h.messages.add(user_message("msg-2", "And the train"))
+    h.messages.add(final_message("f2", "conv-1", "Train booked"))
+    await h.send(
+        session_id=first.session_id,
+        client_request_id="cr-2",
+        client_label=None,
+        text="And the train",
+    )
+    await h.facade.close_for_owner("sess-1", owner=OWNER)
+
+    earlier, latest = await steps(h)
+
+    assert (earlier.state, earlier.reason) == ("failed", "canceled:user_requested")
+    assert latest.state == "completed"
+
+
+@pytest.mark.asyncio
 async def test_closing_the_session_keeps_a_settled_step_and_ends_an_earlier_open_one():
     h = make_harness(on_schedule=[started("msg-1"), WAITING])
     h.messages.add(user_message("msg-1", "Book it"))

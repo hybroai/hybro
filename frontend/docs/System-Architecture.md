@@ -724,7 +724,8 @@ Canonical `hitl_request` and `hitl_response` require exact `run_id`,
 ID, and durable interaction/request/question identities. They also accept
 the public presentation fields the translator always sends (`header`,
 `required`, `allow_other`, `choice_options`) and, on a response, the sanitized
-`answer_text` and `answered_by_client_id`; any other key is a protocol
+`answer_text`, `answered_by` (`owner` or `client`), and
+`answered_by_client_id`; any other key is a protocol
 violation. The ordered
 `run_waiting_input` and `run_resumed` controls make the interaction and Turn
 state change explicit; they reconstruct Turn-owned HITL history without recency
@@ -1084,8 +1085,8 @@ segment.
   naming the rule, and a `rejected` Step (the owner, or a client with the
   grant, rejected a check rule's question, or the owner rejected an agent's
   question) reads as rejected by whoever gave the last answer. In a closed
-  session, a Step that had not settled reads as the agent stopped because the
-  session was closed (with its reply, if it has one); a Step that settled
+  session, a Step the close ended reads as the agent stopped because the
+  session was closed; it has no reply. A Step that settled before the close
   keeps its reply or outcome. A pending question appears at the end of the
   record in the same `HitlResponseBar` card the chat composer uses (pending
   rows from `GET /rooms/{id}/hitl/pending` mapped with the shared

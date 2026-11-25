@@ -337,9 +337,7 @@ function StepEntries({ step, client, waitingBelow }: {
           <p className="text-destructive">{failureText(step.reason) ?? 'The request failed.'}</p>
         </Entry>
       ) : step.state === 'closed' ? (
-        <Entry actor="agent" agentId={agentId} name={agent} action="stopped; the session was closed" at={step.finished_at}>
-          {step.result ? <Reply text={step.result} /> : null}
-        </Entry>
+        <Entry actor="agent" agentId={agentId} name={agent} action="stopped; the session was closed" at={step.finished_at} />
       ) : step.state === 'working' ? (
         <Entry actor="agent" agentId={agentId} name={agent} action={<span className="inline-flex items-center gap-1.5">is working on it<Loader2 className="size-3.5 animate-spin motion-reduce:animate-none" aria-hidden="true" /></span>} at={null} />
       ) : null}

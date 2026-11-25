@@ -3863,8 +3863,10 @@ so persisted interaction fingerprints stay valid.
 `hitl_response` frame carries `answer_text`: the owner's answer as the owner
 reads it (choice labels, Yes or No, Approved or Rejected, Signed in for
 authorization results, never the reference), bounded to 1,000 characters. A
-check rule's answer is the stored `user_input` (Approve or Reject), sanitized
-and bounded the same way. Skipped questions and cancellations carry none. A
+check rule's answer is the stored `user_input` when it is Approve or Reject;
+any other answer through the approval service, such as a reply to the
+orchestrator's `ask_user`, carries none. Skipped questions and cancellations
+carry none. A
 `responded` frame also carries `answered_by` (`owner`, or `client` for a client
 with the owner's grant) and, for a client, `answered_by_client_id`; both are
 absent on every other status. The bundled Travel Planner asks one question per
@@ -4060,8 +4062,11 @@ recorded request: `step_id` (its `client_request_id`), `client_id`, `prompt`
 `skill` (the called agent's tool label, `Agent - skill`, after the agent's
 room name and ` - `; none when the label does not start with that name),
 `chosen_by` (`named`), `state` and `reason` (the same resolution as
-`history`, except that in a closed session every Step that has not settled is
-`closed` and a settled Step keeps its state), `result` (the final reply),
+`history`, except that in a closed session a Step the close ended is
+`closed`: every Step that has not settled, and the latest Step when it settled
+canceled, since closing cancels its open question or run. A check rule's
+denial (`policy`) and a refusal at a rule's question (`owner_refused`) keep
+their state, as does every other settled Step), `result` (the final reply),
 `sent_at`, `started_at` (`run_started`), `finished_at` and `duration_ms` (the
 `run_settled` payload's `settled_at` and `duration_ms`), and `questions`. It is
 built from the same single pass over the room event log as `history`; it

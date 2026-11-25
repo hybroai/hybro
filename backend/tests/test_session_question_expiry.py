@@ -99,10 +99,7 @@ async def test_an_answered_rule_question_carries_the_answer_and_who_gave_it(
     client_id, answered_by, answer
 ):
     store = InMemoryRoomEventStore()
-    service = HITLService(
-        canonical_run_state_reader=lambda _run_id: "awaiting_user",
-        public_text_sanitizer=lambda text, secret_values: text,
-    )
+    service = HITLService(canonical_run_state_reader=lambda _run_id: "awaiting_user")
     service._delivery = make_publisher(room_events=store)
 
     await service._emit_hitl_event(
@@ -122,12 +119,40 @@ async def test_an_answered_rule_question_carries_the_answer_and_who_gave_it(
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("prompt_type", "answer"),
+    [
+        # An orchestrator ask_user reply goes through the same service.
+        ("text", "Book the cheaper hotel"),
+        ("single_choice", "Approve"),
+        # A rule's question answered outside its two choices.
+        ("approval", "Maybe"),
+    ],
+)
+async def test_only_a_rule_choice_is_public_answer_text(prompt_type, answer):
+    store = InMemoryRoomEventStore()
+    service = HITLService(canonical_run_state_reader=lambda _run_id: "awaiting_user")
+    service._delivery = make_publisher(room_events=store)
+
+    await service._emit_hitl_event(
+        conversation_id="room-1",
+        event_type=HITLEventType.INPUT_RECEIVED,
+        request=_rule_question(
+            status="responded", prompt_type=prompt_type, user_input=answer
+        ),
+    )
+
+    [record] = await store.read_range("room-1", after=0, limit=10)
+    payload = record["payload_public"]
+    assert payload["status"] == "responded"
+    assert payload["answered_by"] == "owner"
+    assert "answer_text" not in payload
+
+
+@pytest.mark.asyncio
 async def test_the_step_shows_a_rule_answer_and_who_gave_it():
     store = InMemoryRoomEventStore()
-    service = HITLService(
-        canonical_run_state_reader=lambda _run_id: "awaiting_user",
-        public_text_sanitizer=lambda text, secret_values: text,
-    )
+    service = HITLService(canonical_run_state_reader=lambda _run_id: "awaiting_user")
     service._delivery = make_publisher(room_events=store)
     await _asked(store)
 
