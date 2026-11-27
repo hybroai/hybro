@@ -440,6 +440,8 @@ def test_delivery_event_schemas_match_design_doc():
             "error_message",
             "answer_ref",
             "answer_text",
+            "answered_by",
+            "answered_by_client_id",
             "related_message_id",
             "related_user_message_id",
             "client_request_id",
@@ -760,7 +762,11 @@ def test_protocol_methods_match_design_doc():
     )
     _assert_params(
         protocols.ExecutionEngine.cancel,
-        ["self", "conversation_id", "message_id", "requested_by_user_id"],
+        ["self", "conversation_id", "message_id", "requested_by_user_id", "cause"],
+    )
+    _assert_params(
+        protocols.HITLManager.cancel_hitl_interaction,
+        ["self", "conversation_id", "interaction_id", "expected_version", "cause"],
     )
     _assert_params(protocols.SSEConnectionLike.get_message, ["self", "timeout"])
     _assert_params(

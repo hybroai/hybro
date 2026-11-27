@@ -18,6 +18,7 @@ from models.session import (
     SessionQuestionAnswer,
     SessionQuestionAnswered,
     SessionStatus,
+    SessionSteps,
 )
 from session.protocols import SessionOwner, SessionService
 
@@ -73,6 +74,9 @@ class BoundOwnerSessionAccess:
 
     async def get_record(self, session_id: str) -> SessionOwnerRecord:
         return await self._service.record_for_owner(session_id, owner=self._owner)
+
+    async def get_steps(self, session_id: str) -> SessionSteps:
+        return await self._service.steps_for_owner(session_id, owner=self._owner)
 
     async def close(self, session_id: str) -> SessionClosed:
         return await self._service.close_for_owner(session_id, owner=self._owner)

@@ -973,12 +973,13 @@ the `room_files` deletion lifecycle through a narrow port.
 
 A Session is a conversation that a client of the instance owner opens with the
 owner's agents (see [Sessions](#sessions)). `SessionFacade`, `BoundSessionAccess`,
-`SessionWaiter`, the projection helpers, `PermissionQuestions`
-(`session/questions.py`) and `MongoSessionRepository` live here.
+`SessionWaiter`, the projection helpers, the Step view (`session/steps.py`),
+`PermissionQuestions` (`session/questions.py`) and `MongoSessionRepository`
+live here.
 
 - Writes: `sessions`; containers are created through Conversation.
 - Exposes: `SessionAccess` (the client's send, check, close and answer),
-  `OwnerSessionAccess` (the owner's list, record and close) and
+  `OwnerSessionAccess` (the owner's list, record, Steps and close) and
   `SessionService` to `api_gateway`; declares `RoomRegistry`,
   `RoomManagement`, `RoomMessageStore` (implemented by `ConversationFacade`),
   `ConversationEventsPort` (implemented by `MongoRoomEventStore`),
@@ -3425,7 +3426,9 @@ Cancellation flow for `POST /api/v1/sse/message/{message_id}/cancel`:
    orchestration status is already terminal returns `already_terminal`.
 2. `ExecutionFacade.cancel` calls the router's
    `route_cancellation_by_user_message`, which claims cancellation on the Run
-   with command ID `cancel:{run_id}:user_requested`. A terminal Run, or one
+   with command ID `cancel:{run_id}:{cause}`. The cause is `user_requested`,
+   or `room_closed` when a session close cancels the run (the same holds for
+   `cancel_hitl_interaction`). A terminal Run, or one
    already `canceling` under another command (for example room deletion),
    returns its status with `cancellation_applied=False`.
 3. `A2ACancellationCoordinator.cancel_run` cancels the Run's calls locally. The
@@ -3861,9 +3864,15 @@ so persisted interaction fingerprints stay valid.
 `allow_other`, and `choice_options`, sanitized and bounded like the prompt. Each
 `hitl_response` frame carries `answer_text`: the owner's answer as the owner
 reads it (choice labels, Yes or No, Approved or Rejected, Signed in for
-authorization results, never the reference), bounded to 1,000 characters.
-Skipped questions and cancellations carry none. The bundled Travel Planner asks
-one question per missing detail with a header, two to four described choices,
+authorization results, never the reference), bounded to 1,000 characters. A
+check rule's answer is the stored `user_input` when it is Approve or Reject;
+any other answer through the approval service, such as a reply to the
+orchestrator's `ask_user`, carries none. Skipped questions and cancellations
+carry none. A
+`responded` frame also carries `answered_by` (`owner`, or `client` for a client
+with the owner's grant) and, for a client, `answered_by_client_id`; both are
+absent on every other status. The bundled Travel Planner asks one question per
+missing detail with a header, two to four described choices,
 and `allow_other`.
 
 The frontend treats `hitl_request` and `hitl_response` as durable lifecycle
@@ -3884,7 +3893,7 @@ does it in its own session.
 Routes (`api_gateway/routes/session_routes.py`, tag `session`). The first four
 are Client API routes: their contract is `session.protocols.SessionAccess`,
 bound per request by `get_session_access` to the request's client, the acting
-owner and an owner-bound `AgentNetworkService` resolver. The last three are the
+owner and an owner-bound `AgentNetworkService` resolver. The last four are the
 owner's: `OwnerSessionAccess`, bound by `get_owner_session_access` to the
 signed-in owner (`get_signed_in_owner`, see [`client`](#client)), so the owner
 sees the sessions that clients opened; another signed-in user is 403.
@@ -3897,6 +3906,7 @@ sees the sessions that clients opened; another signed-in user is 403.
 | POST | `/sessions/{session_id}/questions/{question_id}/answer` | body `{"answer": "approve" \| "refuse"}`; returns `session_id`, `question_id`, `answer`, `status` (`accepted`) |
 | GET | `/sessions` | owner list with `client_label`, `client` (`client_id`, `name`, `has_token`), `title`, `agents`, `state`, `conversation_id`, times: the 100 most recently active sessions plus every open session whose latest run awaits the owner |
 | GET | `/sessions/{session_id}/record` | owner record: `state`, `reason`, `paused_agent_id`, `agents`, `client_label`, `client`, `title`, `status`, `conversation_id`, `opened_at`, `last_activity_at`, `closed_at` |
+| GET | `/sessions/{session_id}/steps` | the session's Steps, oldest first (below): `session_id`, `steps` |
 | POST | `/sessions/{session_id}/record/close` | the owner's close of any of their sessions: `session_id`, `status` |
 
 `POST /sessions/messages` is limited to 64 KiB bodies and four concurrent
@@ -4017,7 +4027,14 @@ supervisor's question stay with the owner.
   receive the session history.
 - `close` cancels a pending approval through `cancel_hitl_interaction`, or else
   the active run through `ExecutionEngine.cancel`; when no pending approval could
-  be canceled it cancels the run instead. Failures are logged and tolerated, and
+  be canceled it cancels the run instead. Both cancels carry the cause
+  `room_closed`, also on the approval-service path a check rule's question
+  takes (`HITLService.cancel_interaction_by_user` and the container's
+  `request_canonical_hitl_cancellation`, which claims
+  `cancel:{run_id}:{cause}`), so the Run settles canceled with that code and
+  the Steps view
+  can tell the close's cancel from an earlier Stop or rejection by the owner
+  (`user_requested`). Failures are logged and tolerated, and
   the session is marked closed. Closed sessions refuse sends with
   `session_closed` and keep their record.
 
@@ -4047,6 +4064,36 @@ into it. `updated_at` and the owner's `last_activity_at` are the latest of the
 last send and the request's newest event or reply. The owner record's
 `paused_agent_id` comes from the awaiting run's trigger message
 `extend_info.candidate_agent_ids`, falling back to `last_accepted_agent_id`.
+
+Steps (`session/steps.py`, `SessionFacade.steps_for_owner`). A Step is one
+recorded request: `step_id` (its `client_request_id`), `client_id`, `prompt`
+(the client message text), `agent_id` and `agent_name` (as in `history`),
+`skill` (the called agent's tool label, `Agent - skill`, after the agent's
+room name and ` - `; none when the label does not start with that name),
+`chosen_by` (`named`), `state` and `reason` (the same resolution as
+`history`, except that in a closed session a Step the close ended is
+`closed`: every Step that has not settled, and a Step that settled canceled
+with the code `room_closed`. A Step the owner stopped or rejected before the
+close, and every other settled Step, keeps its state), `result` (the final
+reply),
+`sent_at`, `started_at` (`run_started`), `finished_at` and `duration_ms` (the
+`run_settled` payload's `settled_at` and `duration_ms`), and `questions`. It is
+built from the same single pass over the room event log as `history`; it
+never reads Execution's records. A Question is one interaction of the
+request: `hitl_request` and `hitl_response` records whose `client_request_id`
+is the Step's, grouped by `interaction_id`. It carries `question_id` (the
+interaction id), `asked_by` (the frame's `source`: `agent`, or `system` for a
+check rule's question), `prompt_type`, `asked_at`, `items` (each member's
+`header` and `prompt`, in `question_index` order), `outcome`, `resolved_at`,
+`answers` (each `responded` member's public `answer_text`, with its header),
+`answered_by` and `answered_by_client_id` (the first response's, on an
+answered question; `answered_by` is null when the event predates the field).
+`outcome` is the first response's status (`responded` is `answered`, also for
+a Reject; `canceled`, `expired`, `error`; any other status is `error` and logs
+`session_question_status_unknown`); with no response it is
+`pending` while the Step is `working` or `waiting_on_owner`, and `unanswered`
+once the Step ended: an Agent call that ends by itself while its question is
+open writes no `hitl_response`.
 
 Chat guard: chat writes refuse session containers with 409 (`require_chat_room`
 in `api_gateway/errors.py`): message sends, room rename/pin, pinned order, room

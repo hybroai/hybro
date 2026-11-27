@@ -723,8 +723,10 @@ Canonical `hitl_request` and `hitl_response` require exact `run_id`,
 `client_request_id`, related User-message roots, the opaque public Tool message
 ID, and durable interaction/request/question identities. They also accept
 the public presentation fields the translator always sends (`header`,
-`required`, `allow_other`, `choice_options`) and the sanitized `answer_text` on
-a response; any other key is a protocol violation. The ordered
+`required`, `allow_other`, `choice_options`) and, on a response, the sanitized
+`answer_text`, `answered_by` (`owner` or `client`), and
+`answered_by_client_id`; any other key is a protocol
+violation. The ordered
 `run_waiting_input` and `run_resumed` controls make the interaction and Turn
 state change explicit; they reconstruct Turn-owned HITL history without recency
 or REST inference. The producer persists responses and `run_resumed` before it
@@ -918,7 +920,7 @@ src/lib/api/
 |-- agent-call-detail.ts       # canonical Agent call detail request and parsing
 |-- canonical-agent-call-detail-query.ts # shared TanStack Query identity for call detail
 |-- room.ts
-|-- session.ts                 # owner session list, record, owner close (`POST /sessions/{id}/record/close`), event replay
+|-- session.ts                 # owner session list, record, Steps (`GET /sessions/{id}/steps`), owner close (`POST /sessions/{id}/record/close`)
 |-- sse.ts
 |-- inspection.ts
 |-- files.ts
@@ -1060,26 +1062,36 @@ segment.
   `sessionClientLabel`), in the list and as a "Client label" detail row. Sort
   and the client filter use the client (`client` in the URL, by
   `client_id`); search also matches the client label. The record is
-  built by `foldSessionEvents` (`src/lib/session-record.ts`) from the room
-  event replay (`GET /sse/room/{id}/events`, paged 1000 events at a time up to
-  the log's latest sequence) and reads as plain sentences with
+  the session's Steps from the backend (`getSessionSteps`,
+  `GET /sessions/{id}/steps`; the browser does not read the room event log)
+  and reads as plain sentences with
   an avatar per actor (a registered agent's own `getAgentAvatarUri` avatar,
-  matched by name to the session's agents; a generic agent avatar for the
-  external client or an unmatched agent; "You" for the owner): the client asked an agent, the agent asked you (each
-  question under its header), you answered (your answer text) or rejected
-  (an answer from a client with the grant reads the same way, because the
-  `hitl_response` frame does not carry the client; only the approval and
-  Agent answer records keep `answered_by_client_id`),
+  by the Step's `agent_id`; a generic agent avatar for the
+  external client or a Step without an agent; "You" for the owner): the client asked an agent (the prompt, and the
+  skill when the Step has one), the agent, or your check rules for a rule's
+  Question, asked you (each
+  question under its header), and who answered, from the Question's
+  `answered_by`: you answered (your answer text), the client answered for
+  you (named as the session's client when `answered_by_client_id` matches
+  the Step's `client_id`, otherwise "A client"), or "Someone" with "Who
+  answered was not recorded." for an answer recorded before the field;
+  a Question that ended without an answer says so (`canceled`, `expired`,
+  `error`, or `unanswered` when the Step ended first),
   the agent replied after its duration (long replies fold behind Show full
-  reply), or couldn't finish; a Run canceled for `policy` reads as the
-  owner's check rules denying the agent call, with the rule's id, and a Run
-  canceled for `owner_refused` (the owner, or a client with the grant,
-  rejected a check rule's question)
-  reads as rejected. A pending question appears at the end of the
+  reply), or couldn't finish (a known failure code as a sentence, the run's
+  own summary as it is, and "The request failed." for an unknown code), or
+  never started; a `denied` Step reads as the
+  owner's check rules denying the agent call, with the backend's sentence
+  naming the rule, and a `rejected` Step (the owner, or a client with the
+  grant, rejected a check rule's question, or the owner rejected an agent's
+  question) reads as rejected by whoever gave the last answer. In a closed
+  session, a Step the close ended reads as the agent stopped because the
+  session was closed; it has no reply. A Step that settled before the close
+  keeps its reply or outcome. A pending question appears at the end of the
   record in the same `HitlResponseBar` card the chat composer uses (pending
   rows from `GET /rooms/{id}/hitl/pending` mapped with the shared
   `hitlLifecycleState`; Send calls `respondToHitlBatch`, Reject cancels through
-  `cancelHitl`), and the page opens scrolled to it. The record, events, and
+  `cancelHitl`), and the page opens scrolled to it. The record, Steps, and
   pending questions poll every 4 s while the session is working or waiting
   and every 20 s otherwise. Times are formatted in English
   (`src/lib/session-format.ts`)

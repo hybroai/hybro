@@ -32,6 +32,7 @@ from models.session import (
     SessionQuestionAnswer,
     SessionQuestionAnswered,
     SessionStatus,
+    SessionSteps,
 )
 
 router = APIRouter()
@@ -280,6 +281,21 @@ async def get_session_record(
     """Return the owner's view of a session, including its conversation id."""
     try:
         return await sessions.get_record(session_id)
+    except AppError as exc:
+        raise _http_error(exc, session_id=session_id) from exc
+
+
+@router.get(
+    "/sessions/{session_id}/steps",
+    responses={**_ERRORS, **_OWNER_AUTH},
+)
+async def get_session_steps(
+    session_id: SessionIdentifier, sessions: OwnerSessionAccessDependency
+) -> SessionSteps:
+    """Return the session's Steps, oldest first: each client message with its
+    agent, state, result, timing and the Questions it asked the owner."""
+    try:
+        return await sessions.get_steps(session_id)
     except AppError as exc:
         raise _http_error(exc, session_id=session_id) from exc
 

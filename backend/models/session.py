@@ -249,6 +249,94 @@ class SessionOwnerRecord(BaseModel):
     closed_at: datetime | None = None
 
 
+QuestionOutcome = Literal[
+    "pending",
+    "answered",
+    "canceled",
+    "expired",
+    "error",
+    "unanswered",
+]
+
+
+class SessionStepItem(BaseModel):
+    """One question of a Question, or the answer to it."""
+
+    label: str | None = Field(
+        default=None, description="The question's short header, when it has one."
+    )
+    text: str
+
+
+class SessionStepQuestion(BaseModel):
+    """A Question a Step asked the owner, and how it ended.
+
+    ``outcome`` is what the event log recorded: ``answered`` (also an answer
+    of "no" to an approval question), ``canceled``, ``expired`` or ``error``.
+    ``pending`` waits for an answer. ``unanswered`` is not recorded: the Step
+    ended before anyone answered, and the Step's ``state`` and ``reason`` say
+    why.
+    """
+
+    question_id: str
+    asked_by: str | None = Field(
+        default=None,
+        description="``agent`` for an agent's question, ``system`` for a check "
+        "rule's question.",
+    )
+    prompt_type: str | None = None
+    asked_at: datetime | None = None
+    items: list[SessionStepItem] = Field(default_factory=list)
+    outcome: QuestionOutcome
+    resolved_at: datetime | None = None
+    answers: list[SessionStepItem] = Field(default_factory=list)
+    answered_by: Literal["owner", "client"] | None = Field(
+        default=None,
+        description="Who answered an answered question: ``owner``, or "
+        "``client`` for a client with the owner's grant. Null when the "
+        "question was not answered or the record does not say who answered.",
+    )
+    answered_by_client_id: str | None = Field(
+        default=None,
+        description="The client that answered, when ``answered_by`` is ``client``.",
+    )
+
+    _utc_times = field_validator("asked_at", "resolved_at")(_utc)
+
+
+class SessionStep(BaseModel):
+    """One prompt from a client for one agent, with its result.
+
+    ``step_id`` is the request's ``client_request_id``. ``chosen_by`` is
+    ``named``: the client named the agent.
+    """
+
+    step_id: str
+    client_id: str | None = None
+    prompt: str
+    agent_id: str | None = None
+    agent_name: str | None = None
+    skill: str | None = None
+    chosen_by: Literal["named"] = "named"
+    state: SessionState
+    reason: str | None = None
+    result: str | None = None
+    sent_at: datetime
+    started_at: datetime | None = None
+    finished_at: datetime | None = None
+    duration_ms: int | None = None
+    questions: list[SessionStepQuestion] = Field(default_factory=list)
+
+    _utc_times = field_validator("sent_at", "started_at", "finished_at")(_utc)
+
+
+class SessionSteps(BaseModel):
+    """The owner's view of a session's Steps, oldest first."""
+
+    session_id: str
+    steps: list[SessionStep] = Field(default_factory=list)
+
+
 class SessionErrorDetail(BaseModel):
     code: str
     message: str
@@ -291,6 +379,11 @@ __all__ = [
     "SessionQuestionAnswer",
     "SessionQuestionAnswered",
     "SessionReceiptStatus",
+    "QuestionOutcome",
+    "SessionStep",
+    "SessionStepItem",
+    "SessionStepQuestion",
+    "SessionSteps",
     "SessionClient",
     "SessionState",
     "SessionStatus",

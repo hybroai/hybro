@@ -584,6 +584,7 @@ class A2AContinuationCoordinator:
             interaction_id=answer_record.interaction_id,
             status="responded",
             answers=answer_record.answers,
+            answered_by_client_id=answer_record.answered_by_client_id,
             public_secret_values=self.public_secret_values,
             hitl_delivery=self.hitl_delivery,
             run_store=self.run_store,

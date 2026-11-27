@@ -27,7 +27,15 @@ import {
   respondToHitlBatch,
   type HitlPendingRequest,
 } from '@/lib/api/hitl'
-import { closeSession, fetchSessionEvents, getSessionRecord, type SessionRecord } from '@/lib/api/session'
+import {
+  closeSession,
+  getSessionRecord,
+  getSessionSteps,
+  type SessionRecord,
+  type SessionStep,
+  type SessionStepItem,
+  type SessionStepQuestion,
+} from '@/lib/api/session'
 import { useAuth } from '@/lib/auth'
 import { getAgentAvatarUri } from '@/lib/agent-avatar'
 import { parseHitlPresentation } from '@/lib/hitl/presentation'
@@ -36,7 +44,6 @@ import { hitlLifecycleState } from '@/lib/selectors/select-hitl'
 import { formatSessionDuration, formatSessionTime, sessionAgentNames, sessionClientLabel, sessionClientName } from '@/lib/session-format'
 import { ClientLabel } from './client-label'
 import { SESSION_LIST_QUERY_STORAGE_KEY, sessionName } from '@/lib/session-list-state'
-import { foldSessionEvents, type ExchangeItem, type SessionExchange } from '@/lib/session-record'
 import { sessionStateView } from '@/lib/status'
 import { cn } from '@/lib/utils'
 
@@ -46,7 +53,7 @@ const LONG_REPLY_CHARS = 600
 const LONG_REPLY_LINES = 8
 
 const recordKey = (sessionId: string) => ['session-record', sessionId] as const
-const eventsKey = (conversationId: string) => ['session-events', conversationId] as const
+const stepsKey = (sessionId: string) => ['session-steps', sessionId] as const
 const pendingKey = (conversationId: string) => ['session-pending', conversationId] as const
 
 function newRequestId(): string {
@@ -160,7 +167,7 @@ function Entry({ actor, agentId, name, action, at, children }: {
   )
 }
 
-function Items({ items }: { items: ExchangeItem[] }) {
+function Items({ items }: { items: SessionStepItem[] }) {
   if (items.length === 1 && !items[0].label) {
     return <p className="whitespace-pre-wrap">{items[0].text}</p>
   }
@@ -193,64 +200,149 @@ function Reply({ text }: { text: string }) {
   )
 }
 
-function ExchangeEntries({ exchange, client, agents, waitingBelow }: {
-  exchange: SessionExchange
+// What the record says when a Question ended without an answer.
+const QUESTION_END: Partial<Record<SessionStepQuestion['outcome'], string>> = {
+  canceled: 'The question was canceled.',
+  expired: 'The question expired before anyone answered.',
+  error: 'The question could not be completed.',
+  unanswered: 'The request ended before anyone answered.',
+}
+
+// A run's failure code, as the owner reads it. A reason that is not a code is
+// the run's own summary and is shown as it is; an unknown code is not shown.
+const FAILURE_TEXT: Record<string, string> = {
+  budget_exhausted: 'The run used up its execution budget.',
+  provider_error: 'The model provider returned an error.',
+  assembly_error: 'The request could not be prepared.',
+  tool_failure: 'An agent call failed.',
+  hitl_error: 'A question could not be completed.',
+  rejected: 'The request was rejected.',
+  internal_error: 'The run could not be completed.',
+}
+
+function failureText(reason: string | null): string | null {
+  if (!reason) return null
+  if (FAILURE_TEXT[reason]) return FAILURE_TEXT[reason]
+  return /^[a-z0-9_:]+$/.test(reason) ? null : reason
+}
+
+type Answerer = { actor: Actor, name: string, recorded: boolean }
+
+// Who answered a Question: you, the session's client, another client, or
+// not recorded (an answer written before the record said who answered).
+function answerer(question: SessionStepQuestion, step: SessionStep, client: string): Answerer {
+  if (question.answered_by === 'owner') return { actor: 'owner', name: 'You', recorded: true }
+  if (question.answered_by === 'client') {
+    const named = step.client_id != null && question.answered_by_client_id === step.client_id
+    return { actor: 'client', name: named ? client : 'A client', recorded: true }
+  }
+  return { actor: 'owner', name: 'Someone', recorded: false }
+}
+
+function QuestionEntries({ question, step, agent, agentId, client, open }: {
+  question: SessionStepQuestion
+  step: SessionStep
+  agent: string
+  agentId?: string
   client: string
-  agents: SessionRecord['agents']
-  waitingBelow: boolean
+  open: boolean
 }) {
-  const agent = exchange.agentName ?? 'The agent'
-  const agentId = agents.find(item => item.name === exchange.agentName)?.agent_id
+  const askedBy = question.asked_by === 'system' ? 'Your check rules' : agent
   const entries: ReactNode[] = [
-    <Entry key="sent" actor="client" name={client} action={exchange.agentName ? `asked ${exchange.agentName}` : 'sent a request'} at={exchange.startedAt}>
-      <p className="whitespace-pre-wrap">{exchange.task ?? 'Request text unavailable'}</p>
+    <Entry
+      key="asked"
+      actor={question.asked_by === 'system' ? 'owner' : 'agent'}
+      agentId={agentId}
+      name={askedBy}
+      action={open ? 'needs your answer below' : 'asked you'}
+      at={question.asked_at}
+    >
+      {!open && question.items.length ? <Items items={question.items} /> : null}
     </Entry>,
   ]
-  exchange.steps.forEach((step, index) => {
-    if (step.kind === 'asked') {
-      const open = waitingBelow && !exchange.steps.slice(index + 1).some(next => next.kind === 'answered' || next.kind === 'rejected')
-      entries.push(
-        <Entry key={index} actor="agent" agentId={agentId} name={agent} action={open ? 'needs your answer below' : 'asked you'} at={step.at}>
-          {!open && step.items?.length ? <Items items={step.items} /> : null}
-        </Entry>,
-      )
-    } else if (step.kind === 'answered') {
-      entries.push(
-        <Entry key={index} actor="owner" name="You" action="answered" at={step.at}>
-          {step.items?.length ? <Items items={step.items} /> : null}
-        </Entry>,
-      )
-    } else if (step.kind === 'rejected') {
-      entries.push(<Entry key={index} actor="owner" name="You" action="rejected the request" at={step.at} />)
-    } else if (step.kind === 'replied') {
-      const after = exchange.durationMs != null ? ` after ${formatSessionDuration(exchange.durationMs)}` : ''
-      entries.push(
-        <Entry key={index} actor="agent" agentId={agentId} name={agent} action={`replied${after}`} at={step.at}>
-          {exchange.reply ? <Reply text={exchange.reply} /> : <p className="text-muted-foreground">The reply is not available.</p>}
-        </Entry>,
-      )
-    } else if (step.kind === 'failed') {
-      entries.push(
-        <Entry key={index} actor="agent" agentId={agentId} name={agent} action="couldn't finish" at={step.at}>
-          <p className="text-destructive">{exchange.failure ?? 'The request failed.'}</p>
-        </Entry>,
-      )
-    } else if (step.kind === 'denied') {
-      entries.push(
-        <Entry key={index} actor="owner" name="Your check rules" action="denied this agent call" at={step.at}>
-          {step.ruleId ? <p className="text-muted-foreground">Rule {step.ruleId}</p> : null}
-        </Entry>,
-      )
-    } else if (step.kind === 'canceled') {
-      entries.push(<Entry key={index} actor="agent" agentId={agentId} name={agent} action="stopped; the request was canceled" at={step.at} />)
-    }
-  })
-  if (exchange.status === 'working') {
+  if (question.outcome === 'answered') {
+    const by = answerer(question, step, client)
     entries.push(
-      <Entry key="working" actor="agent" agentId={agentId} name={agent} action={<span className="inline-flex items-center gap-1.5">is working on it<Loader2 className="size-3.5 animate-spin motion-reduce:animate-none" aria-hidden="true" /></span>} at={null} />,
+      <Entry
+        key="answered"
+        actor={by.actor}
+        name={by.name}
+        action={by.actor === 'client' ? 'answered for you' : 'answered'}
+        at={question.resolved_at}
+      >
+        {by.recorded ? null : <p className="text-xs text-muted-foreground">Who answered was not recorded.</p>}
+        {question.answers.length ? <Items items={question.answers} /> : null}
+      </Entry>,
+    )
+  } else if (question.outcome === 'canceled' && step.state === 'rejected') {
+    entries.push(<Entry key="rejected" actor="owner" name="You" action="rejected the request" at={question.resolved_at} />)
+  } else if (QUESTION_END[question.outcome]) {
+    entries.push(
+      <Entry key="ended" actor="agent" agentId={agentId} name={agent} action="got no answer" at={question.resolved_at}>
+        <p className="text-muted-foreground">{QUESTION_END[question.outcome]}</p>
+      </Entry>,
     )
   }
   return <>{entries}</>
+}
+
+function StepEntries({ step, client, waitingBelow }: {
+  step: SessionStep
+  client: string
+  waitingBelow: boolean
+}) {
+  const agent = step.agent_name ?? 'The agent'
+  const agentId = step.agent_id ?? undefined
+  const rejectedByQuestion = step.questions.some(question => question.outcome === 'canceled')
+  // A refusal at a Question is the last answer's; credit whoever gave it.
+  const lastAnswer = step.questions.filter(question => question.outcome === 'answered').at(-1)
+  const rejecter = lastAnswer ? answerer(lastAnswer, step, client) : { actor: 'owner' as const, name: 'You', recorded: true }
+  const after = step.duration_ms != null ? ` after ${formatSessionDuration(step.duration_ms)}` : ''
+  const canceled = step.state === 'failed' && (step.reason === 'canceled' || step.reason?.startsWith('canceled:'))
+  return (
+    <>
+      <Entry actor="client" name={client} action={step.agent_name ? `asked ${step.agent_name}` : 'sent a request'} at={step.sent_at}>
+        <p className="whitespace-pre-wrap">{step.prompt || 'Request text unavailable'}</p>
+        {step.skill ? <p className="text-xs text-muted-foreground">Skill: {step.skill}</p> : null}
+      </Entry>
+      {step.questions.map(question => (
+        <QuestionEntries
+          key={question.question_id}
+          question={question}
+          step={step}
+          agent={agent}
+          agentId={agentId}
+          client={client}
+          open={waitingBelow && question.outcome === 'pending'}
+        />
+      ))}
+      {step.state === 'completed' ? (
+        <Entry actor="agent" agentId={agentId} name={agent} action={`replied${after}`} at={step.finished_at}>
+          {step.result ? <Reply text={step.result} /> : <p className="text-muted-foreground">The reply is not available.</p>}
+        </Entry>
+      ) : step.state === 'denied' ? (
+        <Entry actor="owner" name="Your check rules" action="denied this agent call" at={step.finished_at}>
+          {step.reason ? <p className="text-muted-foreground">{step.reason}</p> : null}
+        </Entry>
+      ) : step.state === 'rejected' && !rejectedByQuestion ? (
+        <Entry actor={rejecter.actor} name={rejecter.name} action="rejected the request" at={step.finished_at} />
+      ) : canceled ? (
+        <Entry actor="agent" agentId={agentId} name={agent} action={`stopped${after}; the request was canceled`} at={step.finished_at} />
+      ) : step.state === 'failed' && step.reason === 'run_not_started' ? (
+        <Entry actor="agent" agentId={agentId} name={agent} action="never started" at={null}>
+          <p className="text-destructive">The request never started.</p>
+        </Entry>
+      ) : step.state === 'failed' ? (
+        <Entry actor="agent" agentId={agentId} name={agent} action={`couldn't finish${after}`} at={step.finished_at}>
+          <p className="text-destructive">{failureText(step.reason) ?? 'The request failed.'}</p>
+        </Entry>
+      ) : step.state === 'closed' ? (
+        <Entry actor="agent" agentId={agentId} name={agent} action="stopped; the session was closed" at={step.finished_at} />
+      ) : step.state === 'working' ? (
+        <Entry actor="agent" agentId={agentId} name={agent} action={<span className="inline-flex items-center gap-1.5">is working on it<Loader2 className="size-3.5 animate-spin motion-reduce:animate-none" aria-hidden="true" /></span>} at={null} />
+      ) : null}
+    </>
+  )
 }
 
 // ── Details panel ───────────────────────────────────────────────────────
@@ -359,9 +451,9 @@ export function SessionRecordView({ sessionId }: { sessionId: string }) {
   const active = record.data?.state === 'working' || record.data?.state === 'waiting_on_owner'
   const pollMs = active ? ACTIVE_POLL_MS : IDLE_POLL_MS
 
-  const events = useQuery({
-    queryKey: eventsKey(conversationId ?? ''),
-    queryFn: ({ signal }) => fetchSessionEvents(conversationId as string, getToken, signal),
+  const steps = useQuery({
+    queryKey: stepsKey(sessionId),
+    queryFn: ({ signal }) => getSessionSteps(sessionId, getToken, signal),
     enabled: Boolean(conversationId),
     refetchInterval: pollMs,
   })
@@ -372,7 +464,7 @@ export function SessionRecordView({ sessionId }: { sessionId: string }) {
     refetchInterval: pollMs,
   })
 
-  const exchanges = useMemo(() => foldSessionEvents(events.data?.events ?? []), [events.data])
+  const sessionSteps = steps.data?.steps ?? []
   const prompts = useMemo(() => {
     const views = (pending.data?.requests ?? []).map(toPromptView).filter(view => view !== null)
     const first = views[0]?.interactionId
@@ -390,7 +482,7 @@ export function SessionRecordView({ sessionId }: { sessionId: string }) {
   const refresh = async () => {
     await Promise.all([
       queryClient.invalidateQueries({ queryKey: recordKey(sessionId) }),
-      conversationId ? queryClient.invalidateQueries({ queryKey: eventsKey(conversationId) }) : null,
+      queryClient.invalidateQueries({ queryKey: stepsKey(sessionId) }),
       conversationId ? queryClient.invalidateQueries({ queryKey: pendingKey(conversationId) }) : null,
       queryClient.invalidateQueries({ queryKey: ['sessions'] }),
     ])
@@ -455,39 +547,35 @@ export function SessionRecordView({ sessionId }: { sessionId: string }) {
       <div className="grid items-start gap-6 lg:grid-cols-[minmax(0,1fr)_18rem]">
         <section aria-labelledby="session-title" className="flex min-w-0 max-w-3xl flex-col gap-6">
           <h1 id="session-title" className="text-2xl font-semibold tracking-tight">{sessionName(data)}</h1>
-          {events.isLoading ? (
+          {steps.isLoading ? (
             <Skeleton className="h-24 w-full" />
-          ) : events.isError ? (
+          ) : steps.isError ? (
             <p className="text-sm text-destructive">The record couldn&apos;t load. It refreshes automatically.</p>
-          ) : exchanges.length === 0 ? (
+          ) : sessionSteps.length === 0 ? (
             <p className="text-sm text-muted-foreground">No requests yet.</p>
           ) : (
             <ol aria-label="Session record" className="flex flex-col gap-6">
-              {exchanges.map((exchange, index) => (
-                <li key={exchange.runId} className="flex flex-col gap-6">
+              {sessionSteps.map((step, index) => (
+                <li key={step.step_id} className="flex flex-col gap-6">
                   {index > 0 ? <hr className="border-border" /> : null}
                   <ol className="flex flex-col gap-6">
-                    <ExchangeEntries
-                      exchange={exchange}
+                    <StepEntries
+                      step={step}
                       client={sessionClientName(data)}
-                      agents={data.agents}
-                      waitingBelow={deciding && exchange.status === 'waiting'}
+                      waitingBelow={deciding && step.state === 'waiting_on_owner'}
                     />
                   </ol>
                 </li>
               ))}
             </ol>
           )}
-          {data.state === 'failed' && data.reason === 'run_not_started' ? (
-            <p className="text-sm text-destructive">The last request never started.</p>
-          ) : null}
           {deciding && conversationId ? (
             <div ref={cardRef}>
               <HitlResponseBar hitls={prompts} onSubmit={answer} onCancel={reject} onRefresh={refresh} />
             </div>
           ) : null}
         </section>
-        <DetailsPanel record={data} requests={exchanges.length} closing={close.isPending} onClose={() => close.mutate()} />
+        <DetailsPanel record={data} requests={sessionSteps.length} closing={close.isPending} onClose={() => close.mutate()} />
       </div>
     </div>
   )

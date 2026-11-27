@@ -965,6 +965,11 @@ SESSION_QUESTION_ANSWER_FAILED = define(
     WARNING,
     required={"session_id", "question_id", "client_id"},
 )
+SESSION_QUESTION_STATUS_UNKNOWN = define(
+    "session_question_status_unknown",
+    WARNING,
+    required={"question_id", "status"},
+)
 SESSION_QUESTIONS_READ_FAILED = define(
     "session_questions_read_failed", WARNING, required={"session_id"}
 )

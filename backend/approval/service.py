@@ -20,6 +20,7 @@ from functools import wraps
 from typing import TYPE_CHECKING, Any
 from uuid import uuid4
 
+from approval.application import RULE_QUESTION_CHOICES
 from approval.exceptions import (
     ContinuationLostError,
     HITLConflictError,
@@ -42,6 +43,7 @@ from common.dto import (
     HITLResolvedEvent,
     HITLRouteSnapshot,
 )
+from common.dto.execution import OwnerCancelCause
 from common.observability import events as E
 from common.public_prompt import (
     GENERIC_AGENT_INPUT_PROMPT,
@@ -1294,6 +1296,7 @@ class HITLService:
         conversation_id: str,
         *,
         expected_version: int,
+        cause: OwnerCancelCause = "user_requested",
     ) -> int:
         if self._lifecycle is None:
             raise HITLRoutingFailedError("HITL lifecycle persistence is required")
@@ -1316,7 +1319,9 @@ class HITLService:
                 raise HITLRoutingFailedError(
                     "canonical cancellation requester is required"
                 )
-            result = self._canonical_cancellation_requester(orchestration_run_id)
+            result = self._canonical_cancellation_requester(
+                orchestration_run_id, cause=cause
+            )
             if inspect.isawaitable(result):
                 result = await result
             if result not in {"canceling", "canceled"}:
@@ -1614,6 +1619,21 @@ class HITLService:
             HITLEventType.INPUT_CANCELED: HITLStatus.CANCELED.value,
             HITLEventType.ERROR: "error",
         }
+        status = status_map.get(event_type, request_status)
+        responded = status == HITLStatus.RESPONDED.value
+        answered_by_client = request.answered_by_client_id if responded else None
+        # Only a check rule's answer is public: one of its fixed choices. Other
+        # answers through this service, such as an orchestrator ask_user
+        # reply, stay out of the room log.
+        answer = (request.user_input or "").strip()
+        answer_text = (
+            answer
+            if responded
+            and request.public_source == HITLPublicSource.SYSTEM
+            and request.prompt_type == HITLPromptType.APPROVAL
+            and answer in RULE_QUESTION_CHOICES
+            else None
+        )
         await self._emit_delivery_event(
             HITLResolvedEvent(
                 conversation_id=conversation_id,
@@ -1621,7 +1641,12 @@ class HITLService:
                 request_id=request.request_id,
                 message_id=data["message_id"],
                 source=source,
-                status=status_map.get(event_type, request_status),
+                status=status,
+                answer_text=answer_text,
+                answered_by=(
+                    ("client" if answered_by_client else "owner") if responded else None
+                ),
+                answered_by_client_id=answered_by_client,
                 interaction_id=request.interaction_id,
                 interaction_status=(
                     None

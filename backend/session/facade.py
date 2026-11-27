@@ -27,6 +27,7 @@ from common.dto import (
     ExecutionRequest,
     MembershipSeed,
     MembershipUpdateRequest,
+    RoomMessageInfo,
     RunInfo,
 )
 from common.errors import AppError
@@ -60,6 +61,8 @@ from models.session import (
     SessionReceiptStatus,
     SessionState,
     SessionStatus,
+    SessionStep,
+    SessionSteps,
     SessionSummary,
 )
 from session.models import SessionRecord, SessionRequest, new_session_id
@@ -78,6 +81,13 @@ from session.protocols import (
     SessionStore,
 )
 from session.questions import NOT_GRANTED, PermissionQuestions
+from session.steps import (
+    duration_ms,
+    finished_at,
+    label_skill,
+    step_ended,
+    step_questions,
+)
 from session.waiter import CorrelatedOutcome, SessionWaiter
 
 logger = get_logger(__name__)
@@ -99,6 +109,9 @@ _ROOM_NAME_WORDS = 8
 _ROOM_NAME_MAX = 80
 _TITLE_MAX = 120
 _LIST_LIMIT = 100
+# The cancellation cause closing a session gives its question or run, so a
+# Step it ended is told apart from one the owner stopped or rejected earlier.
+_CLOSE_CAUSE = "room_closed"
 
 
 def _error(code: str, message: str) -> AppError:
@@ -363,7 +376,80 @@ class SessionFacade:
         record = await self._owned(session_id, owner)
         return await self._owner_record(record, await self._client_names([record]))
 
+    async def steps_for_owner(
+        self, session_id: str, *, owner: SessionOwner
+    ) -> SessionSteps:
+        """Every Step of the session, oldest first, from one read of its log."""
+        record = await self._owned(session_id, owner)
+        if not record.conversation_id:
+            return SessionSteps(session_id=record.session_id)
+        outcomes = await self._waiter.history(record.conversation_id)
+        agents = await self._agents(record)
+        names = {agent.agent_id: agent.name for agent in agents}
+        messages = await self._request_messages(record, outcomes)
+        closed = record.status == "closed"
+        steps: list[SessionStep] = []
+        for request in record.requests:
+            outcome = outcomes.get(request.client_request_id)
+            user = messages.get(request.user_message_id)
+            reply = messages.get(final_message_id(outcome) or "")
+            state, reason = self._resolve(
+                outcome or CorrelatedOutcome(),
+                sent_at=request.sent_at,
+                message_id=request.user_message_id,
+                closed=closed and _ended_by_close(outcome),
+            )
+            agent_id = _target_agent(user)
+            agent_name = names.get(agent_id) if agent_id else None
+            label = outcome.agent_label if outcome is not None else None
+            steps.append(
+                SessionStep(
+                    step_id=request.client_request_id,
+                    client_id=request.client_id,
+                    prompt=_message_text(user),
+                    agent_id=agent_id,
+                    # An agent no longer in the room is named by its whole label.
+                    agent_name=agent_name or label,
+                    skill=label_skill(label, agent_name),
+                    state=state,
+                    reason=reason,
+                    result=_message_text(reply) or None,
+                    sent_at=(
+                        user.created_at
+                        if user is not None and user.created_at
+                        else request.sent_at
+                    ),
+                    started_at=outcome.started_at if outcome is not None else None,
+                    finished_at=finished_at(outcome),
+                    duration_ms=duration_ms(outcome),
+                    questions=step_questions(outcome, ended=step_ended(state)),
+                )
+            )
+        return SessionSteps(session_id=record.session_id, steps=steps)
+
     # -- Internals -------------------------------------------------------------
+
+    async def _request_messages(
+        self, record: SessionRecord, outcomes: dict[str, CorrelatedOutcome]
+    ) -> dict[str, RoomMessageInfo]:
+        """The session's client messages and final replies, by message id."""
+        reply_ids = [
+            reply_id
+            for request in record.requests
+            if (reply_id := final_message_id(outcomes.get(request.client_request_id)))
+            is not None
+        ]
+        return {
+            message.message_id: message
+            for message in await self._history.get_messages_by_ids(
+                list(
+                    dict.fromkeys(
+                        [request.user_message_id for request in record.requests]
+                        + reply_ids
+                    )
+                )
+            )
+        }
 
     async def _with_waiting(
         self, records: list[SessionRecord], owner: SessionOwner
@@ -770,23 +856,7 @@ class SessionFacade:
             return []
         outcomes = await self._waiter.history(record.conversation_id)
         names = {agent.agent_id: agent.name for agent in agents}
-        reply_ids = [
-            reply_id
-            for request in record.requests
-            if (reply_id := final_message_id(outcomes.get(request.client_request_id)))
-            is not None
-        ]
-        messages = {
-            message.message_id: message
-            for message in await self._history.get_messages_by_ids(
-                list(
-                    dict.fromkeys(
-                        [request.user_message_id for request in record.requests]
-                        + reply_ids
-                    )
-                )
-            )
-        }
+        messages = await self._request_messages(record, outcomes)
         closed = record.status == "closed"
         entries: list[SessionHistoryEntry] = []
         for request in record.requests:
@@ -880,7 +950,7 @@ class SessionFacade:
             for interaction_id, version in interactions.items():
                 try:
                     await self._approvals.cancel_hitl_interaction(
-                        conversation_id, interaction_id, version
+                        conversation_id, interaction_id, version, cause=_CLOSE_CAUSE
                     )
                     canceled_any = True
                 except Exception as exc:
@@ -900,6 +970,7 @@ class SessionFacade:
                     conversation_id,
                     run.trigger_message_id,
                     requested_by_user_id=owner.user_id,
+                    cause=_CLOSE_CAUSE,
                 )
             except Exception as exc:
                 # Pending local agent-call cancellation and reconciliation are
@@ -974,6 +1045,22 @@ def _message_text(message: object | None) -> str:
     content = getattr(message, "content", None)
     text = content.get("message_text") if isinstance(content, dict) else None
     return text if isinstance(text, str) else ""
+
+
+def _ended_by_close(outcome: CorrelatedOutcome | None) -> bool:
+    """Whether closing the session ended this Step.
+
+    A Step that had not settled is ended by the close, and so is one the close
+    canceled. A Step the owner stopped or rejected before the close keeps its
+    state.
+    """
+    if outcome is None or outcome.settlement is None:
+        return True
+    settlement = outcome.settlement
+    return (
+        settlement.get("status") == "canceled"
+        and settlement.get("cancellation_code") == _CLOSE_CAUSE
+    )
 
 
 def _target_agent(message: object | None) -> str | None:

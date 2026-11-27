@@ -6,6 +6,10 @@ kind ``run_event`` whose ``payload_public`` carries the run's ``type``,
 ``payload``. Owner decisions arrive as ``hitl_response`` records carrying
 ``status`` and ``run_id``. The waiter matches on the correlation id, so a
 retried request finds the earlier outcome.
+
+Questions are ``hitl_request`` records, and how each ended is the
+``hitl_response`` record of the same request. Both carry the request's
+``client_request_id``, so a Question belongs to the Step that asked it.
 """
 
 from __future__ import annotations
@@ -30,6 +34,61 @@ _SURFACE_TOOL = "surface_agent_questions"
 
 
 @dataclass(slots=True)
+class AskedQuestion:
+    """One Question (an interaction) as the event log recorded it.
+
+    ``items`` and ``answers`` are keyed by the member's request id; ``status``
+    is the first response's status, ``None`` while nothing ended it.
+    """
+
+    question_id: str
+    source: str | None = None
+    prompt_type: str | None = None
+    asked_at: datetime | None = None
+    # request id -> (question index, header, prompt)
+    items: dict[str, tuple[int, str | None, str]] = field(default_factory=dict)
+    status: str | None = None
+    resolved_at: datetime | None = None
+    answers: dict[str, str] = field(default_factory=dict)
+    # ``owner`` or ``client`` from the first answer; None when nothing
+    # answered or the event predates the field.
+    answered_by: str | None = None
+    answered_by_client_id: str | None = None
+
+    def note_request(self, payload: dict[str, Any], at: datetime | None) -> None:
+        if self.asked_at is None:
+            self.asked_at = at
+        self.source = self.source or _text(payload.get("source"))
+        self.prompt_type = self.prompt_type or _text(payload.get("prompt_type"))
+        request_id = _text(payload.get("request_id"))
+        prompt = payload.get("prompt")
+        if request_id and isinstance(prompt, str):
+            index = payload.get("question_index")
+            self.items[request_id] = (
+                index if isinstance(index, int) else len(self.items),
+                _text(payload.get("header")),
+                prompt,
+            )
+
+    def note_response(self, payload: dict[str, Any], at: datetime | None) -> None:
+        status = _text(payload.get("status"))
+        if self.status is None and status:
+            self.status = status
+            self.resolved_at = at
+            answered_by = payload.get("answered_by")
+            if status == "responded" and answered_by in {"owner", "client"}:
+                self.answered_by = answered_by
+                if answered_by == "client":
+                    self.answered_by_client_id = _text(
+                        payload.get("answered_by_client_id")
+                    )
+        request_id = _text(payload.get("request_id"))
+        answer = _text(payload.get("answer_text"))
+        if request_id and answer and status == "responded":
+            self.answers[request_id] = answer
+
+
+@dataclass(slots=True)
 class CorrelatedOutcome:
     """What the event log says about one request's run."""
 
@@ -49,6 +108,8 @@ class CorrelatedOutcome:
     # The called agent's tool label, "Agent name - skill".
     agent_label: str | None = None
     not_started: bool = False
+    # The request's Questions by interaction id, in the order they were asked.
+    questions: dict[str, AskedQuestion] = field(default_factory=dict)
     _canceled_hitl_runs: set[str] = field(default_factory=set)
 
     @property
@@ -61,10 +122,8 @@ class CorrelatedOutcome:
         if not isinstance(payload, dict):
             return
         kind = record.get("kind")
-        if kind == _HITL_RESPONSE:
-            run_id = payload.get("run_id")
-            if payload.get("status") == "canceled" and isinstance(run_id, str):
-                self._canceled_hitl_runs.add(run_id)
+        if kind in (_HITL_REQUEST, _HITL_RESPONSE):
+            self._absorb_hitl(kind, payload, record, correlation_id)
             return
         if kind != _RUN_EVENT or payload.get("correlation_id") != correlation_id:
             return
@@ -94,6 +153,44 @@ class CorrelatedOutcome:
                 and self.run_id in self._canceled_hitl_runs
             )
 
+    def _absorb_hitl(
+        self,
+        kind: str,
+        payload: dict[str, Any],
+        record: dict[str, Any],
+        correlation_id: str,
+    ) -> None:
+        self._note_question(kind, payload, record, correlation_id)
+        if kind == _HITL_RESPONSE:
+            run_id = payload.get("run_id")
+            if payload.get("status") == "canceled" and isinstance(run_id, str):
+                self._canceled_hitl_runs.add(run_id)
+
+    def _note_question(
+        self,
+        kind: str,
+        payload: dict[str, Any],
+        record: dict[str, Any],
+        correlation_id: str,
+    ) -> None:
+        if payload.get("client_request_id") != correlation_id:
+            return
+        question_id = _text(payload.get("interaction_id")) or _text(
+            payload.get("request_id")
+        )
+        if question_id is None:
+            return
+        at = _event_time(record.get("ts"))
+        if kind == _HITL_REQUEST:
+            question = self.questions.setdefault(
+                question_id, AskedQuestion(question_id=question_id)
+            )
+            question.note_request(payload, at)
+            return
+        question = self.questions.get(question_id)
+        if question is not None:
+            question.note_response(payload, at)
+
     def _note_details(
         self, event_type: str, inner: dict[str, Any], at: datetime | None
     ) -> None:
@@ -107,6 +204,10 @@ class CorrelatedOutcome:
             tool = inner.get("tool_name")
             if isinstance(tool, str) and tool and tool != _SURFACE_TOOL:
                 self.agent_label = tool
+
+
+def _text(value: object) -> str | None:
+    return value if isinstance(value, str) and value else None
 
 
 def _event_time(value: object) -> datetime | None:
@@ -125,9 +226,18 @@ def _absorb_into(
     if not isinstance(payload, dict):
         return
     if record.get("kind") == _HITL_RESPONSE:
-        # Owner frames carry a run id, not a correlation id.
+        # The reject check matches owner frames on the run id.
         for correlation_id, outcome in outcomes.items():
             outcome.absorb(record, correlation_id)
+        return
+    if record.get("kind") == _HITL_REQUEST:
+        # A Question follows its request's run_started, so the outcome exists.
+        correlation_id = payload.get("client_request_id")
+        known = (
+            outcomes.get(correlation_id) if isinstance(correlation_id, str) else None
+        )
+        if known is not None:
+            known.absorb(record, correlation_id)
         return
     correlation_id = payload.get("correlation_id")
     if record.get("kind") == _RUN_EVENT and isinstance(correlation_id, str):
@@ -210,4 +320,4 @@ class SessionWaiter:
                 return
 
 
-__all__ = ["CorrelatedOutcome", "SessionWaiter"]
+__all__ = ["AskedQuestion", "CorrelatedOutcome", "SessionWaiter"]

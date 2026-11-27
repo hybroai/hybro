@@ -166,7 +166,7 @@ The states of each record:
 | Session | open, waiting for an answer, ended |
 | Step | accepted, waiting for an answer, running, done, failed, denied, canceled |
 | Agent call | queued, running, waiting for input, done, failed, canceled |
-| Question | pending, answered, canceled |
+| Question | pending, answered, canceled, expired, error |
 | Event | never changes once written |
 | Score | pass, fail |
 | Agent | active, inactive |
@@ -177,7 +177,9 @@ refused at a check rule's Question, has one of two states: `denied` when a
 check rule denied the call, and `rejected` when the owner or a client with the
 owner's grant refused it at the Question. These two become the one state
 denied when the `session` module migrates in phase 5. A step whose Question
-the owner canceled also reads `rejected` today.
+the owner canceled also reads `rejected` today. The step view also shows a
+Question as `unanswered` when its step ended while it was still pending; that
+is a view of the step, not a state of the Question.
 
 Four more words:
 

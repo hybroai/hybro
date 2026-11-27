@@ -1121,6 +1121,37 @@ async def test_orchestrator_cancel_runs_hitl_cleanup_only_after_router_claim():
 
 
 @pytest.mark.asyncio
+async def test_a_cancel_passes_its_cause_to_the_router():
+    router = SimpleNamespace(
+        route_cancellation_by_user_message=AsyncMock(
+            return_value=CancellationAck(
+                status="canceled", cancellation_applied=True, reconciled=True
+            )
+        ),
+        cancel_hitl_interaction=AsyncMock(return_value=4),
+    )
+    facade, _deps = _make_facade(orchestrator_router=router)
+
+    await facade.cancel(
+        "room-1", "msg-1", requested_by_user_id="user-1", cause="room_closed"
+    )
+    await facade.cancel_hitl_interaction(
+        "room-1", "interaction-1", 3, cause="room_closed"
+    )
+    await facade.cancel("room-1", "msg-2", requested_by_user_id="user-1")
+
+    first, default = router.route_cancellation_by_user_message.await_args_list
+    assert first.kwargs["cause"] == "room_closed"
+    assert default.kwargs["cause"] == "user_requested"
+    router.cancel_hitl_interaction.assert_awaited_once_with(
+        conversation_id="room-1",
+        interaction_id="interaction-1",
+        expected_version=3,
+        cause="room_closed",
+    )
+
+
+@pytest.mark.asyncio
 async def test_run_methods_delegate_to_ports():
     facade, deps = _make_facade()
     deps["run_reader"].get_runs_for_room.return_value = [
@@ -1210,6 +1241,7 @@ async def test_hitl_pending_and_cancel_delegate_and_translate():
         "interaction-1",
         "room-1",
         expected_version=3,
+        cause="user_requested",
     )
 
 
@@ -1239,9 +1271,15 @@ async def test_orchestrator_hitl_answer_falls_back_only_for_missing_interaction(
     assert response.status == "accepted"
     deps["hitl_manager"].handle_batch_response.assert_awaited_once()
 
-    canceled = await facade.cancel_hitl_interaction("room-1", "interaction-missing", 1)
+    # A check rule's question is not in the router's ledger; the fallback keeps
+    # the cause a session close gives it.
+    canceled = await facade.cancel_hitl_interaction(
+        "room-1", "interaction-missing", 1, cause="room_closed"
+    )
     assert canceled == 6
-    deps["hitl_manager"].cancel_interaction_by_user.assert_awaited_once()
+    deps["hitl_manager"].cancel_interaction_by_user.assert_awaited_once_with(
+        "interaction-missing", "room-1", expected_version=1, cause="room_closed"
+    )
 
     router.route_hitl_answer = AsyncMock(side_effect=KeyError("call-record-1"))
     with pytest.raises(KeyError, match="call-record-1"):

@@ -1508,6 +1508,24 @@
     "include_in_schema": true
   },
   {
+    "path": "/api/v1/sessions/{session_id}/steps",
+    "methods": [
+      "GET"
+    ],
+    "name": "get_session_steps",
+    "endpoint_module": "api_gateway.routes.session_routes",
+    "declared_owner": "api_gateway.routes.session_routes",
+    "tags": [
+      "session"
+    ],
+    "status_code": null,
+    "dependencies": [
+      "get_owner_session_access"
+    ],
+    "auth_dependencies": [],
+    "include_in_schema": true
+  },
+  {
     "path": "/api/v1/settings",
     "methods": [
       "GET"

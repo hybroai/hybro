@@ -9,6 +9,7 @@ production.
 from __future__ import annotations
 
 import asyncio
+import logging
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from typing import Any
@@ -31,6 +32,7 @@ from common.errors import AppError, ConflictError, NotFoundError
 from models.session import SessionMessageRequest
 from session.facade import SessionFacade, SessionOwner
 from session.models import SessionRecord, SessionRequest
+from session.steps import label_skill
 from session.waiter import SessionWaiter
 from tests.fakes.room_events import InMemoryRoomEventStore
 
@@ -248,6 +250,7 @@ class FakeEngine:
     executed: list[ExecutionRequest] = field(default_factory=list)
     scheduled: list[tuple[ExecutionRequest, ExecutionAck]] = field(default_factory=list)
     canceled: list[tuple[str, str, str]] = field(default_factory=list)
+    causes: list[str] = field(default_factory=list)
     cancel_error: Exception | None = None
     # Events to append when the run is scheduled, as (type, payload) pairs.
     on_schedule: list[tuple[str, dict[str, Any]]] = field(default_factory=list)
@@ -299,8 +302,16 @@ class FakeEngine:
             )
         self.pending_events = []
 
-    async def cancel(self, conversation_id, message_id, *, requested_by_user_id):
+    async def cancel(
+        self,
+        conversation_id,
+        message_id,
+        *,
+        requested_by_user_id,
+        cause="user_requested",
+    ):
         self.canceled.append((conversation_id, message_id, requested_by_user_id))
+        self.causes.append(cause)
         if self.cancel_error is not None:
             raise self.cancel_error
         return True
@@ -323,15 +334,17 @@ class FakeEngine:
 class FakeApprovals:
     pending: list[HITLRequest] = field(default_factory=list)
     canceled: list[tuple[str, str, int]] = field(default_factory=list)
+    causes: list[str] = field(default_factory=list)
     cancel_error: Exception | None = None
 
     async def get_pending_hitl(self, conversation_id: str) -> list[HITLRequest]:
         return [p for p in self.pending if p.conversation_id == conversation_id]
 
     async def cancel_hitl_interaction(
-        self, conversation_id, interaction_id, expected_version
+        self, conversation_id, interaction_id, expected_version, *, cause
     ):
         self.canceled.append((conversation_id, interaction_id, expected_version))
+        self.causes.append(cause)
         if self.cancel_error is not None:
             raise self.cancel_error
         return expected_version + 1
@@ -1329,6 +1342,7 @@ async def test_close_with_pending_approval_cancels_the_interaction():
 
     assert closed.status == "closed"
     assert h.approvals.canceled == [("conv-1", "int-1", 3)]
+    assert h.approvals.causes == ["room_closed"]
     assert h.engine.canceled == []
     assert h.store.records["sess-1"].status == "closed"
 
@@ -1342,6 +1356,7 @@ async def test_close_without_approval_cancels_the_active_run():
     await h.facade.close(first.session_id, owner=OWNER, client=CLIENT)
 
     assert h.engine.canceled == [("conv-1", "msg-1", OWNER.user_id)]
+    assert h.engine.causes == ["room_closed"]
 
 
 @pytest.mark.asyncio
@@ -2167,3 +2182,580 @@ async def test_the_owner_closes_any_client_session():
     with pytest.raises(AppError) as exc_info:
         await h.facade.close_for_owner(first.session_id, owner=other)
     assert exc_info.value.code == "session_not_found"
+
+
+# -- The owner's Steps ----------------------------------------------------------
+
+ASKED_AT = NOW + timedelta(seconds=2)
+ANSWERED_AT = NOW + timedelta(seconds=5)
+
+
+async def ask(
+    h: Harness,
+    *,
+    interaction_id: str = "int-1",
+    client_request_id: str = "cr-1",
+    items: tuple[tuple[str, str | None, str], ...] = (("req-1", None, "Book it?"),),
+    source: str = "agent",
+    prompt_type: str = "approval",
+) -> None:
+    for index, (request_id, header, prompt) in enumerate(items):
+        payload: dict[str, Any] = {
+            "request_id": request_id,
+            "message_id": "orchestrator:run-1:a",
+            "prompt": prompt,
+            "prompt_type": prompt_type,
+            "source": source,
+            "run_id": "run-1",
+            "interaction_id": interaction_id,
+            "question_count": len(items),
+            "question_index": index,
+            "client_request_id": client_request_id,
+        }
+        if header is not None:
+            payload["header"] = header
+        await h.events.append(
+            conversation_id="conv-1",
+            kind="hitl_request",
+            payload_public=payload,
+            ts=ASKED_AT,
+        )
+
+
+async def resolve(
+    h: Harness,
+    status: str,
+    *,
+    interaction_id: str = "int-1",
+    client_request_id: str = "cr-1",
+    answers: tuple[tuple[str, str], ...] = (("req-1", ""),),
+    answered_by: str | None = None,
+    answered_by_client_id: str | None = None,
+) -> None:
+    for request_id, answer in answers:
+        payload: dict[str, Any] = {
+            "request_id": request_id,
+            "status": status,
+            "run_id": "run-1",
+            "interaction_id": interaction_id,
+            "client_request_id": client_request_id,
+        }
+        if answer:
+            payload["answer_text"] = answer
+        if answered_by is not None:
+            payload["answered_by"] = answered_by
+        if answered_by_client_id is not None:
+            payload["answered_by_client_id"] = answered_by_client_id
+        await h.events.append(
+            conversation_id="conv-1",
+            kind="hitl_response",
+            payload_public=payload,
+            ts=ANSWERED_AT,
+        )
+
+
+async def steps(h: Harness, session_id: str = "sess-1"):
+    return (await h.facade.steps_for_owner(session_id, owner=OWNER)).steps
+
+
+@pytest.mark.asyncio
+async def test_a_step_shows_its_prompt_agent_result_timing_and_answers():
+    h = make_harness(
+        on_schedule=[
+            started("msg-1"),
+            ("tool_execution_start", {"tool_name": "Travel Planner - Trips"}),
+        ]
+    )
+    h.messages.add(user_message("msg-1", "Plan a weekend in Lyon"))
+    h.messages.add(final_message("f1", "conv-1", "Day 1: Vieux Lyon"))
+    await h.send(text="Plan a weekend in Lyon")
+    await ask(
+        h,
+        items=(("req-1", "Budget", "Which budget?"), ("req-2", "Dates", "When?")),
+        prompt_type="questionnaire",
+    )
+    await resolve(h, "responded", answers=(("req-2", "May"), ("req-1", "Mid")))
+    await append_event(
+        h.events,
+        "conv-1",
+        *settled("completed", final_message_id="f1", duration_ms=1500),
+        "cr-1",
+        "run-1",
+    )
+
+    [step] = await steps(h)
+
+    assert step.step_id == "cr-1"
+    assert step.client_id == CLIENT.client_id
+    assert step.prompt == "Plan a weekend in Lyon"
+    assert (step.agent_id, step.agent_name, step.skill) == (
+        AGENT,
+        "Travel Planner",
+        "Trips",
+    )
+    assert step.chosen_by == "named"
+    assert (step.state, step.reason) == ("completed", None)
+    assert step.result == "Day 1: Vieux Lyon"
+    assert step.finished_at == NOW
+    assert step.duration_ms == 1500
+    [question] = step.questions
+    assert question.question_id == "int-1"
+    assert (question.asked_by, question.prompt_type) == ("agent", "questionnaire")
+    assert (question.asked_at, question.resolved_at) == (ASKED_AT, ANSWERED_AT)
+    assert question.outcome == "answered"
+    assert [(i.label, i.text) for i in question.items] == [
+        ("Budget", "Which budget?"),
+        ("Dates", "When?"),
+    ]
+    # Answers follow the question order, with the question's header.
+    assert [(a.label, a.text) for a in question.answers] == [
+        ("Budget", "Mid"),
+        ("Dates", "May"),
+    ]
+
+
+@pytest.mark.asyncio
+async def test_a_pending_question_waits_on_the_owner():
+    h = make_harness(on_schedule=[started("msg-1"), WAITING])
+    h.messages.add(user_message("msg-1", "Book it"))
+    await h.send(text="Book it")
+    await ask(h)
+
+    [step] = await steps(h)
+
+    assert step.state == "waiting_on_owner"
+    assert [q.outcome for q in step.questions] == ["pending"]
+    assert step.finished_at is None
+
+
+@pytest.mark.asyncio
+async def test_a_refused_rule_question_is_answered_and_the_step_rejected():
+    h = make_harness(on_schedule=[started("msg-1"), WAITING])
+    h.messages.add(user_message("msg-1", "Book it"))
+    await h.send(text="Book it")
+    await ask(h, source="system")
+    await resolve(h, "responded", answers=(("req-1", "Reject"),))
+    await append_event(
+        h.events,
+        "conv-1",
+        *settled("canceled", cancellation_code="owner_refused"),
+        "cr-1",
+        "run-1",
+    )
+
+    [step] = await steps(h)
+
+    assert step.state == "rejected"
+    [question] = step.questions
+    # A "no" is still an answer.
+    assert (question.asked_by, question.outcome) == ("system", "answered")
+    assert [a.text for a in question.answers] == ["Reject"]
+    # The event does not say who answered.
+    assert (question.answered_by, question.answered_by_client_id) == (None, None)
+
+
+@pytest.mark.asyncio
+async def test_a_question_a_client_answered_names_the_client():
+    h = make_harness(on_schedule=[started("msg-1"), WAITING])
+    h.messages.add(user_message("msg-1", "Book it"))
+    await h.send(text="Book it")
+    await ask(h, source="system")
+    await resolve(
+        h,
+        "responded",
+        answers=(("req-1", "Approve"),),
+        answered_by="client",
+        answered_by_client_id="client-1",
+    )
+
+    [step] = await steps(h)
+
+    [question] = step.questions
+    assert (
+        question.outcome,
+        question.answered_by,
+        question.answered_by_client_id,
+    ) == ("answered", "client", "client-1")
+
+
+@pytest.mark.asyncio
+async def test_a_question_the_owner_answered_names_the_owner():
+    h = make_harness(on_schedule=[started("msg-1"), WAITING])
+    h.messages.add(user_message("msg-1", "Book it"))
+    await h.send(text="Book it")
+    await ask(h, source="system")
+    # A stray client id on an owner's answer is not shown.
+    await resolve(
+        h,
+        "responded",
+        answers=(("req-1", "Approve"),),
+        answered_by="owner",
+        answered_by_client_id="client-1",
+    )
+
+    [step] = await steps(h)
+
+    [question] = step.questions
+    assert (question.answered_by, question.answered_by_client_id) == ("owner", None)
+
+
+@pytest.mark.asyncio
+async def test_only_an_answer_names_who_gave_it():
+    h = make_harness(on_schedule=[started("msg-1"), WAITING])
+    h.messages.add(user_message("msg-1", "Book it"))
+    await h.send(text="Book it")
+    await ask(h)
+    await resolve(h, "canceled", answered_by="client", answered_by_client_id="client-1")
+
+    [step] = await steps(h)
+
+    assert [
+        (q.outcome, q.answered_by, q.answered_by_client_id) for q in step.questions
+    ] == [("canceled", None, None)]
+
+
+@pytest.mark.asyncio
+async def test_an_unknown_response_status_is_an_error_and_logged(caplog):
+    h = make_harness(on_schedule=[started("msg-1"), WAITING])
+    h.messages.add(user_message("msg-1", "Book it"))
+    await h.send(text="Book it")
+    await ask(h)
+    await resolve(h, "superseded")
+
+    with caplog.at_level(logging.WARNING):
+        [step] = await steps(h)
+
+    assert [q.outcome for q in step.questions] == ["error"]
+    [record] = [
+        r for r in caplog.records if "session_question_status_unknown" in r.getMessage()
+    ]
+    assert "superseded" in str(record.__dict__)
+
+
+@pytest.mark.parametrize(
+    ("label", "name", "skill"),
+    [
+        ("Acme - EU Travel - Trips", "Acme - EU Travel", "Trips"),
+        ("Foo - Bar", "Foo - Bar", None),
+        ("Card Name - Trips", "Registry Name", None),
+        ("Travel - Trips", None, None),
+        (None, "Travel", None),
+    ],
+)
+def test_the_skill_is_the_label_after_the_agent_name(label, name, skill):
+    assert label_skill(label, name) == skill
+
+
+@pytest.mark.asyncio
+async def test_a_question_the_owner_canceled_rejects_the_step():
+    h = make_harness(on_schedule=[started("msg-1"), WAITING])
+    h.messages.add(user_message("msg-1", "Book it"))
+    await h.send(text="Book it")
+    await ask(h)
+    await resolve(h, "canceled")
+    await append_event(h.events, "conv-1", *settled("canceled"), "cr-1", "run-1")
+
+    [step] = await steps(h)
+
+    assert step.state == "rejected"
+    assert [(q.outcome, q.answers) for q in step.questions] == [("canceled", [])]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("status", ["expired", "error"])
+async def test_an_ended_question_shows_its_recorded_outcome(status):
+    h = make_harness(on_schedule=[started("msg-1"), WAITING])
+    h.messages.add(user_message("msg-1", "Book it"))
+    await h.send(text="Book it")
+    await ask(h, source="system")
+    await resolve(h, status)
+    await append_event(
+        h.events,
+        "conv-1",
+        *settled("failed", error_summary="Human input request expired"),
+        "cr-1",
+        "run-1",
+    )
+
+    [step] = await steps(h)
+
+    assert (step.state, step.reason) == ("failed", "Human input request expired")
+    assert [q.outcome for q in step.questions] == [status]
+
+
+@pytest.mark.asyncio
+async def test_a_question_left_open_by_a_failed_step_is_unanswered():
+    h = make_harness(on_schedule=[started("msg-1"), WAITING])
+    h.messages.add(user_message("msg-1", "Book it"))
+    await h.send(text="Book it")
+    await ask(h)
+    # The agent call ended by itself; nothing closed the question in the log.
+    await append_event(
+        h.events,
+        "conv-1",
+        *settled("failed", error_summary="The agent failed."),
+        "cr-1",
+        "run-1",
+    )
+
+    [step] = await steps(h)
+
+    assert step.state == "failed"
+    [question] = step.questions
+    assert (question.outcome, question.resolved_at) == ("unanswered", None)
+
+
+@pytest.mark.asyncio
+async def test_a_denied_step_has_no_question():
+    h = make_harness(
+        on_schedule=[
+            started("msg-1"),
+            settled("canceled", cancellation_code="policy", rule_id="rule_abc"),
+        ]
+    )
+    h.messages.add(user_message("msg-1", "Book it"))
+    await h.send(text="Book it")
+
+    [step] = await steps(h)
+
+    assert step.state == "denied"
+    assert step.reason == "The owner's check rule rule_abc denied this agent call."
+    assert step.questions == []
+
+
+@pytest.mark.asyncio
+async def test_a_step_whose_run_never_started_fails_after_the_grace():
+    h = make_harness(on_schedule=[], start_grace_seconds=10.0)
+    h.messages.add(user_message("msg-1", "Book it"))
+    await h.send(text="Book it")
+    h.clock.now = 11
+
+    [step] = await steps(h)
+
+    assert (step.state, step.reason) == ("failed", "run_not_started")
+    assert (step.started_at, step.finished_at, step.duration_ms) == (None, None, None)
+    assert step.questions == []
+
+
+@pytest.mark.asyncio
+async def test_each_question_belongs_to_the_step_that_asked_it():
+    h = make_harness(on_schedule=[started("msg-1"), WAITING])
+    h.messages.add(user_message("msg-1", "First"))
+    first = await h.send(text="First")
+    await ask(h, interaction_id="int-1")
+    await resolve(h, "canceled")
+    await append_event(h.events, "conv-1", *settled("canceled"), "cr-1", "run-1")
+    h.engine.on_schedule = [started("msg-2"), WAITING]
+    h.engine.run_id = "run-2"
+    h.messages.add(user_message("msg-2", "Second"))
+    await h.send(
+        session_id=first.session_id,
+        client_request_id="cr-2",
+        client_label=None,
+        text="Second",
+    )
+    await ask(h, interaction_id="int-2", client_request_id="cr-2")
+    # A question with no client_request_id belongs to no Step.
+    await h.events.append(
+        conversation_id="conv-1",
+        kind="hitl_request",
+        payload_public={"request_id": "q9", "interaction_id": "int-9", "prompt": "?"},
+    )
+
+    first_step, second_step = await steps(h)
+
+    assert [q.question_id for q in first_step.questions] == ["int-1"]
+    assert [(q.question_id, q.outcome) for q in second_step.questions] == [
+        ("int-2", "pending")
+    ]
+
+
+@pytest.mark.asyncio
+async def test_closing_the_session_ends_its_open_question_unanswered():
+    h = make_harness(on_schedule=[started("msg-1"), WAITING])
+    h.messages.add(user_message("msg-1", "Book it"))
+    await h.send(text="Book it")
+    await ask(h)
+    await h.facade.close_for_owner("sess-1", owner=OWNER)
+
+    [step] = await steps(h)
+
+    assert step.state == "closed"
+    assert [q.outcome for q in step.questions] == ["unanswered"]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    # An agent's question, a check rule's question, or no question.
+    "question_source",
+    ["agent", "system", None],
+)
+async def test_the_cancel_a_close_makes_reads_closed_not_rejected(question_source):
+    h = make_harness(on_schedule=[started("msg-1"), WAITING])
+    h.messages.add(user_message("msg-1", "Book it"))
+    await h.send(text="Book it")
+    with_question = question_source is not None
+    if with_question:
+        # Closing cancels the open question, which settles the run canceled.
+        await ask(h, source=question_source)
+        await resolve(h, "canceled")
+    # Without one, closing cancels the run itself.
+    await append_event(
+        h.events,
+        "conv-1",
+        *settled("canceled", cancellation_code="room_closed"),
+        "cr-1",
+        "run-1",
+    )
+    await h.facade.close_for_owner("sess-1", owner=OWNER)
+
+    [step] = await steps(h)
+
+    assert (step.state, step.reason) == ("closed", None)
+    assert [q.outcome for q in step.questions] == (
+        ["canceled"] if with_question else []
+    )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("rejected_question", "code", "state", "reason"),
+    [
+        # The owner rejected the agent's question, then closed the session.
+        (True, "user_requested", "rejected", None),
+        # The owner stopped the request, then closed the session.
+        (False, "user_requested", "failed", "canceled:user_requested"),
+        (False, "owner_refused", "rejected", None),
+        (False, "policy", "denied", "The owner's check rules denied this agent call."),
+    ],
+)
+async def test_closing_keeps_how_the_latest_step_ended_before_it(
+    rejected_question, code, state, reason
+):
+    h = make_harness(on_schedule=[started("msg-1"), WAITING])
+    h.messages.add(user_message("msg-1", "Book it"))
+    await h.send(text="Book it")
+    if rejected_question:
+        await ask(h)
+        await resolve(h, "canceled")
+    await append_event(
+        h.events,
+        "conv-1",
+        *settled("canceled", cancellation_code=code),
+        "cr-1",
+        "run-1",
+    )
+    await h.facade.close_for_owner("sess-1", owner=OWNER)
+
+    [step] = await steps(h)
+
+    assert (step.state, step.reason) == (state, reason)
+
+
+@pytest.mark.asyncio
+async def test_closing_keeps_an_earlier_steps_cancel():
+    h = make_harness(
+        on_schedule=[
+            started("msg-1"),
+            settled("canceled", cancellation_code="user_requested"),
+        ]
+    )
+    h.messages.add(user_message("msg-1", "Book it"))
+    first = await h.send(text="Book it")
+    h.engine.on_schedule = [
+        started("msg-2"),
+        settled("completed", final_message_id="f2"),
+    ]
+    h.messages.add(user_message("msg-2", "And the train"))
+    h.messages.add(final_message("f2", "conv-1", "Train booked"))
+    await h.send(
+        session_id=first.session_id,
+        client_request_id="cr-2",
+        client_label=None,
+        text="And the train",
+    )
+    await h.facade.close_for_owner("sess-1", owner=OWNER)
+
+    earlier, latest = await steps(h)
+
+    assert (earlier.state, earlier.reason) == ("failed", "canceled:user_requested")
+    assert latest.state == "completed"
+
+
+@pytest.mark.asyncio
+async def test_closing_the_session_keeps_a_settled_step_and_ends_an_earlier_open_one():
+    h = make_harness(on_schedule=[started("msg-1"), WAITING])
+    h.messages.add(user_message("msg-1", "Book it"))
+    first = await h.send(text="Book it")
+    await ask(h)
+    h.engine.on_schedule = [
+        started("msg-2"),
+        settled("completed", final_message_id="f2"),
+    ]
+    h.messages.add(user_message("msg-2", "And the train"))
+    h.messages.add(final_message("f2", "conv-1", "Train booked"))
+    await h.send(
+        session_id=first.session_id,
+        client_request_id="cr-2",
+        client_label=None,
+        text="And the train",
+    )
+    await h.facade.close_for_owner("sess-1", owner=OWNER)
+
+    earlier, latest = await steps(h)
+
+    assert (earlier.state, [q.outcome for q in earlier.questions]) == (
+        "closed",
+        ["unanswered"],
+    )
+    assert (latest.state, latest.result) == ("completed", "Train booked")
+
+
+@pytest.mark.asyncio
+async def test_a_question_split_across_pages_of_the_log_is_one_question():
+    h = make_harness(on_schedule=[started("msg-1"), WAITING])
+    h.facade._waiter = SessionWaiter(h.events, start_grace_seconds=10.0, page_size=3)
+    h.messages.add(user_message("msg-1", "Plan it"))
+    await h.send(text="Plan it")
+    await ask(
+        h,
+        items=(
+            ("req-1", "Budget", "Which budget?"),
+            ("req-2", "Dates", "When?"),
+            ("req-3", "City", "Where?"),
+        ),
+    )
+    await resolve(
+        h,
+        "responded",
+        answers=(("req-1", "Mid"), ("req-2", "May"), ("req-3", "Lyon")),
+        answered_by="owner",
+    )
+
+    [step] = await steps(h)
+
+    [question] = step.questions
+    assert [item.text for item in question.items] == [
+        "Which budget?",
+        "When?",
+        "Where?",
+    ]
+    assert [(a.label, a.text) for a in question.answers] == [
+        ("Budget", "Mid"),
+        ("Dates", "May"),
+        ("City", "Lyon"),
+    ]
+    assert (question.outcome, question.answered_by) == ("answered", "owner")
+
+
+@pytest.mark.asyncio
+async def test_steps_of_another_owner_are_not_found():
+    h = make_harness(on_schedule=[started("msg-1")])
+    await h.send()
+
+    with pytest.raises(AppError) as error:
+        await h.facade.steps_for_owner(
+            "sess-1", owner=SessionOwner(user_id="owner-2", name="Other")
+        )
+
+    assert error.value.code == "session_not_found"

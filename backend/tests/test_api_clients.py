@@ -100,6 +100,9 @@ class RecordingFacade:
     async def record_for_owner(self, session_id, *, owner):
         raise AssertionError("not used")
 
+    async def steps_for_owner(self, session_id, *, owner):
+        raise AssertionError("not used")
+
 
 def make_app(
     *,

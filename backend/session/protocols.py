@@ -36,6 +36,7 @@ from models.session import (
     SessionQuestionAnswer,
     SessionQuestionAnswered,
     SessionStatus,
+    SessionSteps,
 )
 from session.models import SessionRecord
 
@@ -95,6 +96,7 @@ class SessionAccess(Protocol):
 class OwnerSessionAccess(Protocol):
     async def list_sessions(self) -> SessionListResponse: ...
     async def get_record(self, session_id: str) -> SessionOwnerRecord: ...
+    async def get_steps(self, session_id: str) -> SessionSteps: ...
     async def close(self, session_id: str) -> SessionClosed: ...
 
 
@@ -137,6 +139,9 @@ class SessionService(Protocol):
     async def record_for_owner(
         self, session_id: str, *, owner: SessionOwner
     ) -> SessionOwnerRecord: ...
+    async def steps_for_owner(
+        self, session_id: str, *, owner: SessionOwner
+    ) -> SessionSteps: ...
     async def close_for_owner(
         self, session_id: str, *, owner: SessionOwner
     ) -> SessionClosed: ...

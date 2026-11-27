@@ -730,7 +730,7 @@ def test_route_owner_protocols_match_handler_calls():
             "search",
         },
         SessionAccess: {"answer", "check", "close", "send"},
-        OwnerSessionAccess: {"close", "get_record", "list_sessions"},
+        OwnerSessionAccess: {"close", "get_record", "get_steps", "list_sessions"},
         ClientRegistry: {
             "create",
             "list_clients",
