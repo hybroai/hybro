@@ -33,6 +33,7 @@ from client import ClientService, MongoClientRepository
 from client.models import TokenRequirement
 from common.config.loader import settings
 from common.dto import AgentMessageFinal, DeliveryEmitStatus
+from common.dto.execution import OwnerCancelCause
 from common.eventing import (
     BoundedInternalEventBus,
     EventingConfig,
@@ -435,6 +436,43 @@ def _canonical_final_message_end_parent_id(
         None,
     )
     return str(parent.get("room_event_id") or "") or None if parent else None
+
+
+async def request_canonical_hitl_cancellation(
+    orchestrator_runtime: Any,
+    run_id: str,
+    *,
+    cause: OwnerCancelCause = "user_requested",
+) -> str:
+    """Claim cancellation of the Run that owns an approval-service question.
+
+    Returns the Run's status after the claim, or "missing" when there is no Run.
+    """
+    if orchestrator_runtime is None:
+        return "missing"
+    run = await orchestrator_runtime.run_store.load(run_id)
+    if run is None:
+        return "missing"
+    command_id = f"cancel:{run_id}:{cause}"
+    for _attempt in range(4):
+        result = await orchestrator_runtime.run_store.request_cancellation(
+            run_id,
+            expected_state_version=run.state_version,
+            command_id=command_id,
+            cause=cause,
+            requested_at=datetime.now(UTC),
+        )
+        if result.run is None:
+            return "missing"
+        run = result.run
+        if result.outcome in {"accepted", "replayed"} or run.status not in {
+            "queued",
+            "running",
+            "waiting_external",
+            "awaiting_user",
+        }:
+            return run.status
+    raise RuntimeError("canonical HITL cancellation CAS did not converge")
 
 
 async def terminalize_canonical_hitl_run(
@@ -1114,33 +1152,14 @@ async def _runtime_lifespan(app: Any, runtime: ApplicationRuntime):  # noqa: C90
                 run = await orchestrator_runtime.run_store.load(run_id)
                 return run.status if run is not None else "missing"
 
-            async def request_canonical_hitl_cancellation(run_id: str) -> str:
-                orchestrator_runtime = getattr(app.state, "orchestrator_runtime", None)
-                if orchestrator_runtime is None:
-                    return "missing"
-                run = await orchestrator_runtime.run_store.load(run_id)
-                if run is None:
-                    return "missing"
-                command_id = f"cancel:{run_id}:user_requested"
-                for _attempt in range(4):
-                    result = await orchestrator_runtime.run_store.request_cancellation(
-                        run_id,
-                        expected_state_version=run.state_version,
-                        command_id=command_id,
-                        cause="user_requested",
-                        requested_at=datetime.now(UTC),
-                    )
-                    if result.run is None:
-                        return "missing"
-                    run = result.run
-                    if result.outcome in {"accepted", "replayed"} or run.status not in {
-                        "queued",
-                        "running",
-                        "waiting_external",
-                        "awaiting_user",
-                    }:
-                        return run.status
-                raise RuntimeError("canonical HITL cancellation CAS did not converge")
+            async def request_canonical_hitl_cancellation_port(
+                run_id: str, *, cause: OwnerCancelCause = "user_requested"
+            ) -> str:
+                return await request_canonical_hitl_cancellation(
+                    getattr(app.state, "orchestrator_runtime", None),
+                    run_id,
+                    cause=cause,
+                )
 
             async def terminalize_canonical_hitl_run_port(
                 request: Any,
@@ -1215,7 +1234,7 @@ async def _runtime_lifespan(app: Any, runtime: ApplicationRuntime):  # noqa: C90
                 canonical_control_publisher=publish_canonical_hitl_control,
                 canonical_run_state_reader=read_canonical_run_state,
                 supervisor_resume=resume_supervisor_hitl_port,
-                canonical_cancellation_requester=request_canonical_hitl_cancellation,
+                canonical_cancellation_requester=request_canonical_hitl_cancellation_port,
                 public_secret_values=configured_public_secret_values(runtime.settings),
                 public_text_sanitizer=sanitize_public_text,
                 approval_deadline_hours=runtime.settings.approval_deadline_hours,

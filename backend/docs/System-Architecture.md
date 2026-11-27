@@ -4028,7 +4028,11 @@ supervisor's question stay with the owner.
 - `close` cancels a pending approval through `cancel_hitl_interaction`, or else
   the active run through `ExecutionEngine.cancel`; when no pending approval could
   be canceled it cancels the run instead. Both cancels carry the cause
-  `room_closed`, so the Run settles canceled with that code and the Steps view
+  `room_closed`, also on the approval-service path a check rule's question
+  takes (`HITLService.cancel_interaction_by_user` and the container's
+  `request_canonical_hitl_cancellation`, which claims
+  `cancel:{run_id}:{cause}`), so the Run settles canceled with that code and
+  the Steps view
   can tell the close's cancel from an earlier Stop or rejection by the owner
   (`user_requested`). Failures are logged and tolerated, and
   the session is marked closed. Closed sessions refuse sends with

@@ -2585,14 +2585,19 @@ async def test_closing_the_session_ends_its_open_question_unanswered():
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("with_question", [True, False])
-async def test_the_cancel_a_close_makes_reads_closed_not_rejected(with_question):
+@pytest.mark.parametrize(
+    # An agent's question, a check rule's question, or no question.
+    "question_source",
+    ["agent", "system", None],
+)
+async def test_the_cancel_a_close_makes_reads_closed_not_rejected(question_source):
     h = make_harness(on_schedule=[started("msg-1"), WAITING])
     h.messages.add(user_message("msg-1", "Book it"))
     await h.send(text="Book it")
+    with_question = question_source is not None
     if with_question:
         # Closing cancels the open question, which settles the run canceled.
-        await ask(h)
+        await ask(h, source=question_source)
         await resolve(h, "canceled")
     # Without one, closing cancels the run itself.
     await append_event(

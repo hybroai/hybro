@@ -43,6 +43,7 @@ from common.dto import (
     HITLResolvedEvent,
     HITLRouteSnapshot,
 )
+from common.dto.execution import OwnerCancelCause
 from common.observability import events as E
 from common.public_prompt import (
     GENERIC_AGENT_INPUT_PROMPT,
@@ -1295,6 +1296,7 @@ class HITLService:
         conversation_id: str,
         *,
         expected_version: int,
+        cause: OwnerCancelCause = "user_requested",
     ) -> int:
         if self._lifecycle is None:
             raise HITLRoutingFailedError("HITL lifecycle persistence is required")
@@ -1317,7 +1319,9 @@ class HITLService:
                 raise HITLRoutingFailedError(
                     "canonical cancellation requester is required"
                 )
-            result = self._canonical_cancellation_requester(orchestration_run_id)
+            result = self._canonical_cancellation_requester(
+                orchestration_run_id, cause=cause
+            )
             if inspect.isawaitable(result):
                 result = await result
             if result not in {"canceling", "canceled"}:

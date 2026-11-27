@@ -764,6 +764,10 @@ def test_protocol_methods_match_design_doc():
         protocols.ExecutionEngine.cancel,
         ["self", "conversation_id", "message_id", "requested_by_user_id", "cause"],
     )
+    _assert_params(
+        protocols.HITLManager.cancel_hitl_interaction,
+        ["self", "conversation_id", "interaction_id", "expected_version", "cause"],
+    )
     _assert_params(protocols.SSEConnectionLike.get_message, ["self", "timeout"])
     _assert_params(
         protocols.SSERouteTransport.add_connection,

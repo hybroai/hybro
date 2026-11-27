@@ -914,10 +914,13 @@ class ExecutionFacade:
             except KeyError as exc:
                 if exc.args != (interaction_id,):
                     raise
+        # A check rule's question is not in the router's ledger; its cancel
+        # still carries the cause.
         return await self._hitl_manager.cancel_interaction_by_user(
             interaction_id,
             conversation_id,
             expected_version=expected_version,
+            cause=cause,
         )
 
 

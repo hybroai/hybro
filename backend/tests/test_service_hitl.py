@@ -10,6 +10,7 @@ Tests cover:
 - SSE event emission
 """
 
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -169,8 +170,8 @@ async def test_canonical_interaction_cancel_claims_run_before_hitl_mutation():
 
     lifecycle.terminalize_interaction = terminalize
 
-    async def request_cancellation(run_id):
-        assert run_id == "run-1"
+    async def request_cancellation(run_id, *, cause):
+        assert (run_id, cause) == ("run-1", "user_requested")
         order.append("run")
         return "canceling"
 
@@ -186,6 +187,64 @@ async def test_canonical_interaction_cancel_claims_run_before_hitl_mutation():
 
     assert version == 2
     assert order == ["run", "hitl"]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("cause", ["user_requested", "room_closed"])
+async def test_canonical_interaction_cancel_claims_the_run_with_its_cause(cause):
+    """A check rule's question, canceled through the service, claims its Run
+    with the caller's cause (a session close passes room_closed)."""
+    from container import request_canonical_hitl_cancellation
+
+    interaction = {
+        "interaction_id": "interaction-1",
+        "room_id": "room-1",
+        "orchestration_run_id": "run-1",
+        "status": "materializing",
+        "version": 1,
+        "request_ids": [],
+    }
+    lifecycle = MagicMock()
+    lifecycle.get_interaction_strict = AsyncMock(
+        side_effect=[interaction, {**interaction, "status": "canceled", "version": 2}]
+    )
+    lifecycle.terminalize_interaction = AsyncMock(
+        return_value={**interaction, "status": "canceled", "version": 2}
+    )
+    run = SimpleNamespace(run_id="run-1", state_version=3, status="awaiting_user")
+    run_store = SimpleNamespace(
+        load=AsyncMock(return_value=run),
+        request_cancellation=AsyncMock(
+            return_value=SimpleNamespace(
+                outcome="accepted",
+                run=SimpleNamespace(**{**run.__dict__, "status": "canceling"}),
+            )
+        ),
+    )
+    runtime = SimpleNamespace(run_store=run_store)
+    service = HITLService(
+        lifecycle=lifecycle,
+        canonical_run_state_reader=AsyncMock(return_value="awaiting_user"),
+        canonical_cancellation_requester=(
+            lambda run_id, *, cause: request_canonical_hitl_cancellation(
+                runtime, run_id, cause=cause
+            )
+        ),
+    )
+
+    version = await service.cancel_interaction_by_user(
+        conversation_id="room-1",
+        interaction_id="interaction-1",
+        expected_version=1,
+        cause=cause,
+    )
+
+    assert version == 2
+    claim = run_store.request_cancellation.await_args
+    assert claim.args == ("run-1",)
+    assert claim.kwargs["cause"] == cause
+    assert claim.kwargs["command_id"] == f"cancel:run-1:{cause}"
+    assert claim.kwargs["expected_state_version"] == 3
 
 
 @pytest.mark.asyncio

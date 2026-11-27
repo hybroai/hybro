@@ -1241,6 +1241,7 @@ async def test_hitl_pending_and_cancel_delegate_and_translate():
         "interaction-1",
         "room-1",
         expected_version=3,
+        cause="user_requested",
     )
 
 
@@ -1270,9 +1271,15 @@ async def test_orchestrator_hitl_answer_falls_back_only_for_missing_interaction(
     assert response.status == "accepted"
     deps["hitl_manager"].handle_batch_response.assert_awaited_once()
 
-    canceled = await facade.cancel_hitl_interaction("room-1", "interaction-missing", 1)
+    # A check rule's question is not in the router's ledger; the fallback keeps
+    # the cause a session close gives it.
+    canceled = await facade.cancel_hitl_interaction(
+        "room-1", "interaction-missing", 1, cause="room_closed"
+    )
     assert canceled == 6
-    deps["hitl_manager"].cancel_interaction_by_user.assert_awaited_once()
+    deps["hitl_manager"].cancel_interaction_by_user.assert_awaited_once_with(
+        "interaction-missing", "room-1", expected_version=1, cause="room_closed"
+    )
 
     router.route_hitl_answer = AsyncMock(side_effect=KeyError("call-record-1"))
     with pytest.raises(KeyError, match="call-record-1"):
