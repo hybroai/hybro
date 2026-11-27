@@ -18,9 +18,9 @@ flowchart LR
 | 0 | Make the direction visible | The design, this roadmap, contributor rules and a quick start. | Done |
 | 1 | Clean up and break down | Remove what is dead, and split `execution` without changing behaviour. | Done |
 | 2 | Client identity and remote access | Each client has a token and the owner has an account, so Hybro knows which client sent a step, and a client on another machine can reach the Client API. | Done |
-| 3 | Owner check rules and the step view | The owner gates agent calls with rules, and sees each step of a session. | Now |
-| 4 | Move out | The model loop leaves the core and becomes the bundled orchestrator, a client. | Next |
-| 5 | Migrate to the target modules | The remaining modules and their stored collections take their target names, one at a time, with a data migration. | Later |
+| 3 | Owner check rules and the step view | The owner gates agent calls with rules, and sees each step of a session. | Done |
+| 4 | Move out | The model loop leaves the core and becomes the bundled orchestrator, a client. | Now |
+| 5 | Migrate to the target modules | The remaining modules and their stored collections take their target names, one at a time, with a data migration. | Next |
 | 6 | Build what does not exist yet | Routing without a named agent, and evaluation by hand. | Later |
 | 7 | The enterprise edition | The `enterprise/` folders, the license key, and the features a team or a company adds. | Later |
 
@@ -347,8 +347,8 @@ Open items found in this phase, each a small change of its own:
 
 ## Phase 3: Owner check rules and the step view
 
-**Status.** Not finished. Items 1 to 4 are done. Item 5, the step view
-(issue #273), is open.
+**Status.** Done. What it leaves for later is under "Carried forward" at the
+end of this phase.
 
 **Goal.** The owner decides which agent calls need an answer first, and sees
 what each step did.
@@ -387,9 +387,12 @@ what each step did.
    the client that gave it is recorded. Information questions follow in
    phase 4.
 4. **The Rules page** in the Panel, with the check rules. Done.
-5. **The step view.** Open (issue #273). The Sessions page shows each step's
-   input, output and timing. Until phase 4 it covers sessions from the Client
-   API only, because Room chat's agent calls are not Steps yet.
+5. **The step view.** Done (issue #273). The Sessions page shows each step
+   of a session: its prompt, agent and skill, its Questions with how each
+   ended and who answered, its result and its timing. The backend builds the
+   steps, and the owner reads them from one route,
+   `GET /sessions/{session_id}/steps`. Until phase 4 it covers sessions from
+   the Client API only, because Room chat's agent calls are not Steps yet.
 
 **Renamed: Source to Client** (issue #276). The concept that phase 2 called a
 Source is now a Client, everywhere: the design, the Panel, the CLI, the routes,
@@ -403,23 +406,32 @@ as "No token", and the token requirement is seeded again, off when the
 database already has data. The rule "no upgrade leaves an install more open"
 is about released versions.
 
-**Done when.** The first three and the last hold today; the step view is
-open.
+**Done when.** All five hold.
 
 - A check rule that answers "ask" stops a call until the owner answers, and a
-  rule that answers "deny" ends the step with a reason. Holds.
-- The documents and the Rules page say which calls the rules cover. Holds.
+  rule that answers "deny" ends the step with a reason.
+- The documents and the Rules page say which calls the rules cover.
 - A client with the grant can answer a permission question, and a client
-  without it is refused. Holds.
+  without it is refused.
 - The Sessions page shows the input, output and timing of each step sent
-  through the Client API. Open, with item 5.
-- With no rules, every call goes as it does without the check. Holds.
+  through the Client API.
+- With no rules, every call goes as it does without the check.
 
 **Carried from phase 1.** Decided: the step view does not read
 `orchestrator_run_events`. Whether that collection stays is settled in
 phase 4.
 
 **What stays the same.** Sessions and chats on an instance with no rules.
+
+**Carried forward.** Open items found in this phase, each a small change of
+its own:
+
+- When an agent call ends by itself while its Question is pending, nothing
+  closes the Question in the room event log, so the step view shows it as
+  `unanswered` (issue #286).
+- The step view recovers a step's skill from the agent's tool label. A card
+  renamed after the session opened, or a name longer than the label, gives
+  no skill. Phase 4 lets a step name its skill and records it then.
 
 ## Phase 4: Move out
 
@@ -444,29 +456,98 @@ flowchart TB
     end
 ```
 
+**Status.** Now (tracking issue #289). The work has three stages, one for
+each item below. Each change of stage A ships on its own. Stage B changes
+nothing a user sees while its setting is off. Stage C spans two releases, by
+the deprecation rule.
+
 **Work.**
 
-1. **The Client API grows far enough to carry an orchestrator.** Today's
-   `/sessions` routes take text only, run one request at a time in a session,
-   and make the caller poll. The orchestrator needs four things:
-   - a step can point at earlier results and files
-   - information questions go back to the client
-   - several steps can run in one Session
-   - a client can follow events live
-2. **The bundled orchestrator becomes a client.** It receives a chat message,
-   plans, sends each agent call as a step through the Client API, and answers
-   in the chat. `context_memory` moves with it, because its only reader is the
-   orchestrator.
-3. **Room chat switches over.** The new path runs beside the old one behind a
-   setting until it behaves the same. Then the new path becomes the default,
-   and the old one is removed in a later release.
+1. **Stage A: the Client API grows far enough to carry an orchestrator.**
+   Today's `/sessions` routes take text only, run one request at a time in a
+   session, and make the caller poll. The orchestrator needs:
+   - **Several steps in one Session.** A Step has its own id and state, and
+     one step can be read and canceled. A client can open a Session without
+     a step, close stops every step, and a client can delete its Session's
+     data.
+   - **Live events.** A client follows its Session's events on a stream it
+     can resume, without the data only the owner may see.
+   - **Questions go back to the client.** A client that opts in when it
+     opens the Session receives an agent's questions before the owner. It
+     can reply to the agent with text, pass the Question on to the owner, or
+     answer it, and it can drop the questions its work leaves open. A client
+     that does not opt in keeps today's behaviour.
+   - **Files and pointers.** A client adds a file to its Session, a step
+     points at files and earlier results, and a step's result carries its
+     files and the agent's error detail.
+   - **Smaller additions.** A step can name a skill, or none. A step can set
+     its time limit. The send route's limits leave room for an
+     orchestrator's traffic. Agent discovery returns the same list the core
+     uses when it accepts a call.
+2. **Stage B: the bundled orchestrator becomes a client.** It receives a chat
+   message, plans, sends each agent call as a step through the Client API
+   over HTTP, and answers in the chat.
+   - It is a package inside the backend process, and a client with a token
+     of its own, named "Hybro Orchestrator Agent". Hybro creates it.
+   - Each chat room has one Session, opened by that client.
+   - The chat room keeps its messages and its event stream. The
+     orchestrator follows its Session's events and writes what the chat
+     page reads into the room.
+   - It keeps a record of its own for each chat turn.
+   - `context_memory` moves with it. It has four callers in the core today,
+     and each changes: the read that seeds a call's history, the write on
+     every stored message, the write of the final answer, and the
+     compaction job.
+   - A test harness runs the same scripted model turns and fake agents on
+     both paths and compares the room's events.
+3. **Stage C: Room chat switches over.** The new path runs beside the old one
+   behind one `backend.*` setting until it behaves the same. Then the new
+   path becomes the default, and the old one is removed in a later release.
+   The check's caller moves into `session` with that removal.
+
+**Where this phase departs from the design.** `design.md` is updated by the
+change that builds each of these:
+
+- **The bundled orchestrator holds the grant.** The design gives the grant
+  only to a client the owner chose. Hybro sets it for this client, so that
+  it can pass on the answer a person gives in chat, and the owner cannot
+  switch it off. The model is never shown a check rule's ask and never
+  answers one.
+- **A client the owner did not create.** The owner cannot rename it, rotate
+  its token or revoke it.
+- **Information questions need an opt-in.** The design says the client that
+  wrote the prompt answers. Without the opt-in the owner answers, as today.
+- **A sign-in request can reach a client:** one that holds the grant and
+  opted in. For every other client it stays with the owner.
+- **New Client API actions:** reply to an agent with text, pass a Question
+  on, drop open questions, cancel a permission question with the grant, add
+  a file, delete a Session's data, and set a step's time limit.
+- **A Question has more states** than pending, answered and canceled, among
+  them passed on, superseded and dropped.
+- **An answer can carry a mark that a person gave it.** It is the client's
+  own claim. On a Session that opted in, the core refuses an answer to a
+  check rule's ask without it.
+- **The Inbox does not show every open Question.** An agent's question on a
+  Session that opted in appears there once the client passes it on. In chat
+  this is so today.
+- **The model may reply to an agent's approval question without a person,**
+  as it does in chat today. A reply is not an answer: it resolves no
+  Question.
+- **The orchestrator calls the model in process.** The design's `llm` only
+  picks and judges.
+- **Room chat keeps its rooms in the shared room store.** The design gives
+  Room chat no storage of its own. Phase 5 can split it.
 
 **Done when.**
 
+- After stage A, an outside client can do everything the orchestrator will
+  do.
+- After stage B, the comparison harness passes on both paths.
 - Every agent call that Room chat makes is a Step sent through the Client API.
 - `execution` has one way to run a call, which is today's `passthrough`
   profile.
-- The core imports nothing from the orchestrator.
+- The core imports nothing from the orchestrator, except in the one place
+  that wires the modules together. A boundary test holds it.
 - The old Room chat path is gone.
 - The check rules of phase 3 cover every call through the one path.
 
@@ -486,8 +567,22 @@ flowchart TB
   Today every Run writes it, and no product feature reads it; the step view
   does not read it.
 
+**Carried from phase 3 (the step view).** A step records the skill it names,
+so the step view no longer recovers the skill from the agent's tool label.
+
 **What stays the same.** The chat pages and the rooms API. The `/sessions`
 routes keep working, and new fields are optional.
+
+An existing client can notice three changes:
+
+- A send to a Session that is running a step is accepted. Today it gets a
+  `busy` receipt.
+- Close stops every step of the Session. Today it returns once it has
+  canceled a waiting Question.
+- `/agents/discovery` leaves out excluded agents.
+
+On the new path, chat loses two things until a later change: the detail of
+an agent card, and quoting one.
 
 **The main risk.** This is the largest change in the roadmap. Running the two
 paths side by side, and comparing them on the same messages, is what keeps it
