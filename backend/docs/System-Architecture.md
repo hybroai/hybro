@@ -3478,16 +3478,22 @@ bookkeeping (`projection_state`, `projection_outbox`, `recovery_claim`,
 first. A pass that is still running when another driver ends the Run, for
 example a sink-delivered answer pass whose Agent call returns after a Stop,
 stops quietly: the kernel checks the Run after a batch's Agent calls return,
-before each call that starts after another returned (a sequential batch, or a
-parallel batch waiting on `max_parallel_calls`), before each reply to an
-Agent's open task, and at each turn close, and turns the stores' refusal of a
-checkpoint or of its own terminal commit into the same stop. It writes nothing, emits nothing, returns
-the ended Run's outcome, and logs `orchestrator_ended_run_pass_stopped` with
-the Run's id, status, and the late calls' ids, tools, and result statuses
-(no content). The late result stays on the call ledger. No public run event follows
-the terminal commit (the session host's run-level events after a pass publish
-nothing), so the session-event listener drops a public event for an ended Run and logs `orchestrator_ended_run_event_dropped`; the
-Room's snapshot fold would otherwise refuse the log after `run_settled`.
+before each call or reply to an Agent's open task that starts after another
+call returned (a sequential batch, or a parallel batch waiting on
+`max_parallel_calls`), at each turn close, and when the kernel's own session
+signal or interrupted-call branches reload the Run. (The chat model loop's
+interrupted-call branch still raises `KernelConflict` for an ended Run.) It
+turns the stores' refusal of a checkpoint or of its own terminal commit into
+the same stop. It writes nothing more, returns the ended Run's outcome, and
+logs `orchestrator_ended_run_pass_stopped` with the Run's id and status and the
+ids, tools, and result statuses of the call outcomes the pass discards (no
+content). The late result stays on the call ledger. No public run event
+follows the terminal commit (the session host's run-level events after a pass
+publish nothing), so the session-event listener drops a public event for an
+ended Run and logs `orchestrator_ended_run_event_dropped`. That also covers an
+event the pass emits between two of its own writes after another driver ended
+the Run. The Room's snapshot fold would otherwise refuse the log after
+`run_settled`.
 
 ### Recovery, settlement, and shutdown
 

@@ -514,7 +514,7 @@ ORCHESTRATOR_RUN_RECOVERY_FAILED = define(
 # A pass that found its Run ended stopped without writing; ids and statuses only.
 ORCHESTRATOR_ENDED_RUN_PASS_STOPPED = define(
     "orchestrator_ended_run_pass_stopped",
-    WARNING,
+    INFO,
     required={"run_id", "conversation_id", "run_status"},
 )
 ORCHESTRATOR_ENDED_RUN_EVENT_DROPPED = define(

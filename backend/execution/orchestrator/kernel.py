@@ -2389,12 +2389,9 @@ class OrchestratorKernel:
             outcomes = [
                 (call.call_id, outcome)
                 for (call, _, _), outcome in zip(executable, values, strict=True)
+                # A skipped call saw the Run ended; the reload below stops.
                 if outcome is not None
             ]
-            if len(outcomes) < len(values):
-                _not_ended(
-                    await self._load(run.run_id), _late_outcomes(assistant, outcomes)
-                )
 
         # Model-first join continuations execute after ordinary dispatch; each
         # join blocks until the Agent responds on the existing task/context.

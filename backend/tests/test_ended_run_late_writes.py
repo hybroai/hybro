@@ -31,7 +31,7 @@ from tests._orchestrator_helpers import (
     make_run,
     tool_events,
 )
-from tests._rule_ask_helpers import RoomLog
+from tests._rule_ask_helpers import ProcessDied, RoomLog
 from tests.orchestrator_harness.in_memory import InMemoryOrchestratorRunStore
 from tests.test_orchestrator_a2a_mongo_parity import FakeCollection
 from tests.test_orchestrator_model_first_kernel import (
@@ -522,6 +522,150 @@ async def test_a_refused_write_on_an_ended_run_ends_the_pass_quietly(write, bump
     assert result.outcome == "failed"
     (ended_run,) = ended
     assert store.runs[run_id] == ended_run
+
+
+def _end_run(store, run_id):
+    """Another driver ends the Run, as a Stop or recovery does."""
+    current = store.runs[run_id]
+    store.runs[run_id] = current.model_copy(
+        update={
+            "status": "failed",
+            "terminal_reason": "other driver",
+            "active_internal_turn_id": None,
+            "active_assistant_message_id": None,
+            "active_attempt": None,
+            "state_version": current.state_version + 1,
+        }
+    )
+    return store.runs[run_id]
+
+
+def _end_after(store, run_id, command_prefix, ended):
+    """End the Run right after the pass's write with ``command_prefix`` lands."""
+    real_cas = store.cas_mutate
+
+    async def cas(candidate, *, expected_state_version, command_id):
+        result = await real_cas(
+            candidate,
+            expected_state_version=expected_state_version,
+            command_id=command_id,
+        )
+        if not ended and command_id.startswith(command_prefix):
+            ended.append(_end_run(store, run_id))
+        return result
+
+    store.cas_mutate = cas
+
+
+async def _turn_close_passthrough():
+    kernel, store, room, run_id, blocking, start, _model = await _passthrough("result")
+    blocking.release.set()
+    return kernel, store, room, run_id, start
+
+
+async def _turn_close_recovery():
+    # The first pass dies before its call starts; the restart runs the batch
+    # again and closes the turn on the recovery path.
+    kernel, store, _model, _tools, _port, room, run_id = await room_chat(
+        [tool_events(("call-1", ECHO, '{"value":"x"}')), final_events("late")],
+        ask={},
+    )
+    room.die_before = {"tool_execution_started"}
+    with pytest.raises(ProcessDied):
+        await kernel.run(run_id, signal=SIGNAL, lifecycle=room.lifecycle)
+
+    def start():
+        return kernel.run(run_id, signal=SIGNAL, lifecycle=room.lifecycle)
+
+    return kernel, store, room, run_id, start
+
+
+@pytest.mark.parametrize(
+    "harness",
+    [_turn_close_passthrough, _turn_close_recovery],
+    ids=["passthrough", "recovery"],
+)
+async def test_a_run_ended_before_its_turn_close_stops_the_pass(harness, caplog):
+    kernel, store, room, run_id, start = await harness()
+    ended: list = []
+    _end_after(store, run_id, "public-tool-end:", ended)
+    emitted_at_end: list = []
+    lifecycle = room.lifecycle
+
+    async def watch(event_type, run, payload):
+        if ended:
+            emitted_at_end.append(event_type)
+        await lifecycle(event_type, run, payload)
+
+    room.lifecycle = watch
+    caplog.set_level(logging.INFO)
+
+    result = await start()
+
+    assert result.outcome == "failed"
+    (ended_run,) = ended
+    assert store.runs[run_id] == ended_run
+    # The turn close found the Run ended: no turn_completed and no write for
+    # it. (An event between two of the pass's own writes is the listener's to
+    # drop.)
+    assert "turn_completed" not in emitted_at_end
+    assert [r for r in caplog.records if r.getMessage() == STOPPED]
+
+
+async def test_terminalize_after_another_driver_ended_the_run():
+    kernel, store, _model, _tools = await make_kernel([final_events()])
+    run_id = next(iter(store.runs))
+    real_cas = store.cas_mutate
+    ended: list = []
+
+    async def cas(candidate, *, expected_state_version, command_id):
+        # The other driver commits its end just before this terminal commit.
+        if not ended and command_id.startswith("terminate:"):
+            ended.append(_end_run(store, run_id))
+        return await real_cas(
+            candidate,
+            expected_state_version=expected_state_version,
+            command_id=command_id,
+        )
+
+    store.cas_mutate = cas
+
+    result = await kernel.terminalize(
+        run_id, status="budget_exhausted", reason="deadline"
+    )
+
+    assert result.outcome == "failed"
+    (ended_run,) = ended
+    assert store.runs[run_id] == ended_run
+
+
+async def test_a_tripped_signal_on_a_run_another_driver_ended_stops_quietly(caplog):
+    kernel, store, _model, _tools = await make_kernel([final_events()])
+    run_id = next(iter(store.runs))
+    signal = _Tripped()
+    signal.cancelled = True
+    real_load = store.load
+    loads = 0
+    ended: list = []
+
+    async def load(run_id_):
+        # The third load is the signal branch's reload in the pass's loop.
+        nonlocal loads
+        loads += 1
+        if loads == 3:
+            ended.append(_end_run(store, run_id))
+        return await real_load(run_id_)
+
+    store.load = load
+    caplog.set_level(logging.INFO)
+
+    result = await kernel.run(run_id, signal=signal)
+
+    assert result.outcome == "failed"
+    (ended_run,) = ended
+    assert store.runs[run_id] == ended_run
+    # Stopped by the signal branch, not by the loop's own ended check.
+    assert [r for r in caplog.records if r.getMessage() == STOPPED]
 
 
 # -- The session-event listener ----------------------------------------------------
