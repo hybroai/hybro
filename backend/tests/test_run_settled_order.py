@@ -104,6 +104,11 @@ async def test_without_the_lock_run_settled_lands_first_and_breaks_the_room():
         "run_started",
     ]
     assert room.folds() is False
+    # The fold takes both records and leaves the Turn active for good.
+    fold = RoomEventFold()
+    assert all(fold.apply(record) for record in room.log)
+    (turn,) = fold.state(room_seq=len(room.log))["turns"]
+    assert turn["state"] == "active"
 
 
 async def test_run_settled_waits_for_a_listener_that_loaded_the_run_before_the_end():
