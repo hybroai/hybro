@@ -5,8 +5,12 @@ from __future__ import annotations
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from types import MappingProxyType
+from typing import TYPE_CHECKING
 
 from common.run_status import TERMINAL_RUN_STATUSES as TERMINAL_RUN_STATUSES
+
+if TYPE_CHECKING:
+    from execution.orchestrator.models import OrchestratorRunState
 
 ORCHESTRATOR_RUNS_COLLECTION = "orchestrator_runs"
 ORCHESTRATOR_RUN_EVENTS_COLLECTION = "orchestrator_run_events"
@@ -22,6 +26,31 @@ NON_TERMINAL_RUN_STATUSES = (
     "canceling",
     "finalizing",
 )
+
+
+# An ended Run takes writes only to its bookkeeping: projection settlement,
+# projection intents, the recovery claim and the CAS fields. A late Agent
+# outcome or a pass that kept running after the end must not change it.
+ENDED_RUN_BOOKKEEPING_FIELDS = frozenset(
+    {
+        "projection_state",
+        "projection_outbox",
+        "recovery_claim",
+        "state_version",
+        "updated_at",
+        "processed_command_ids",
+    }
+)
+
+
+def ended_run_change_allowed(
+    current: OrchestratorRunState, candidate: OrchestratorRunState
+) -> bool:
+    if current.status not in TERMINAL_RUN_STATUSES:
+        return True
+    return current.model_dump(exclude=ENDED_RUN_BOOKKEEPING_FIELDS) == (
+        candidate.model_dump(exclude=ENDED_RUN_BOOKKEEPING_FIELDS)
+    )
 
 
 # A suspended Run waits for the owner or an external Agent. Its deadline clock

@@ -19,7 +19,10 @@ from execution.orchestrator.models import (
     ProjectionIntent,
     RecoveryClaim,
 )
-from execution.orchestrator.persistence import RECOVERY_ELIGIBLE_RUN_STATUSES
+from execution.orchestrator.persistence import (
+    RECOVERY_ELIGIBLE_RUN_STATUSES,
+    ended_run_change_allowed,
+)
 from execution.orchestrator.settlement import transition_projection_intent
 
 from .stores import (
@@ -289,6 +292,8 @@ class MongoOrchestratorRunStore:
             run.model_copy(update={"processed_command_ids": processed_command_ids})
         )
         if not _cancellation_transition_allowed(current, candidate):
+            return MongoRunStoreResult("conflict", current)
+        if not ended_run_change_allowed(current, candidate):
             return MongoRunStoreResult("conflict", current)
         try:
             result = await self.collection.replace_one(

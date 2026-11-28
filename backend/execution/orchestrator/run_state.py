@@ -62,6 +62,23 @@ class KernelCancellationPending(RuntimeError):
     """Normal execution lost its CAS to durable cancellation."""
 
 
+class KernelRunEnded(RuntimeError):
+    """The pass found its Run ended (another driver settled it) and must stop.
+
+    Not a ``KernelConflict``: a conflict retry must not take it. ``late`` holds
+    the outcomes the pass got after the end, as ``(call_id, tool_name, status)``.
+    """
+
+    def __init__(
+        self,
+        run: OrchestratorRunState,
+        late: tuple[tuple[str, str, str], ...] = (),
+    ) -> None:
+        super().__init__("Run ended during the pass")
+        self.run = run
+        self.late = late
+
+
 REQUEST_USER_INPUT_TOOL_NAME = "request_user_input"
 SURFACE_AGENT_QUESTIONS_TOOL_NAME = "surface_agent_questions"
 MAX_CONSECUTIVE_MODEL_JOINS = 4

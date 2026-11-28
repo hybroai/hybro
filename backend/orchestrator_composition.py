@@ -407,6 +407,43 @@ def run_question_closeout(
     return close
 
 
+def run_call_closeout(
+    coordinator: A2ACancellationCoordinator,
+) -> Callable[[Any], Awaitable[None]]:
+    """The kernel's closeout of an ended Run's open Agent calls.
+
+    The Run is already terminal, so none of its calls can still be answered.
+    Each open call is canceled through the owner's cancel, and each Agent
+    with a remote task gets a remote cancel that the ending does not await.
+    A call parked on an Agent's question was already closed locally by the
+    ending; its Agent gets the remote cancel here.
+    """
+
+    async def close(run: Any) -> None:
+        # A failed parked notify must not keep the open calls from closing;
+        # it is raised after them so the kernel still logs it.
+        parked_error: Exception | None = None
+        try:
+            await coordinator.notify_parked_closeouts(run.run_id)
+        except Exception as exc:
+            parked_error = exc
+        try:
+            results = await coordinator.cancel_run(
+                run.run_id, reason="run_ended", notify_remote=True
+            )
+        except Exception as exc:
+            if parked_error is None:
+                raise
+            raise exc from parked_error
+        if parked_error is not None:
+            raise parked_error
+        if any(state not in TERMINAL_AGENT_CALL_STATES for state in results.values()):
+            # The kernel logs this; call recovery closes what is left open.
+            raise RuntimeError("local Agent-call cancellation remains pending")
+
+    return close
+
+
 def create_orchestrator_runtime(  # noqa: C901
     *,
     mongo: Any,
@@ -615,6 +652,8 @@ def create_orchestrator_runtime(  # noqa: C901
                 if supervisor_hitl_cancellation is None
                 else run_question_closeout(supervisor_hitl_cancellation)
             ),
+            # Built later in this function; read when a kernel is built.
+            run_call_closeout=run_call_closeout(cancellation_coordinator),
         )
 
     run_factory = DefaultRunFactory()
@@ -704,6 +743,7 @@ def create_orchestrator_runtime(  # noqa: C901
         hitl_delivery=hitl_delivery,
         run_store=run_store,
         canonical_hitl_control=canonical_hitl_control,
+        cancellation=cancellation_coordinator,
         public_secret_values=public_secret_values,
         call_wait_ceiling=timedelta(
             hours=getattr(settings_obj, "orchestrator_call_wait_ceiling_hours", 168.0)
@@ -770,6 +810,7 @@ def create_orchestrator_runtime(  # noqa: C901
                     cancellation_results = await cancellation_coordinator.cancel_run(
                         run.run_id,
                         reason="cancellation_recovery",
+                        notify_remote=True,
                     )
                     if any(
                         state not in TERMINAL_AGENT_CALL_STATES

@@ -13,7 +13,7 @@ from typing import Literal, Protocol
 from jsonschema import Draft202012Validator
 
 from common.observability import events as E
-from common.observability import get_logger, log_id
+from common.observability import get_logger, log_id, log_ids
 
 from .budget import BudgetExceeded, BudgetPolicy, apply_suspension_clock
 from .control import ClientCancellationRequested
@@ -75,6 +75,7 @@ from .run_state import (
     KernelCancellationPending,
     KernelConflict,
     KernelLifecycle,
+    KernelRunEnded,
     KernelRunResult,
     SupervisorHITLPort,
     SystemClock,
@@ -244,6 +245,8 @@ class OrchestratorKernel:
         rule_question: SupervisorHITLPort | None = None,
         run_question_closeout: Callable[[OrchestratorRunState], Awaitable[object]]
         | None = None,
+        run_call_closeout: Callable[[OrchestratorRunState], Awaitable[object]]
+        | None = None,
     ) -> None:
         self.run_store = run_store
         self.model_runtime = model_runtime
@@ -265,6 +268,8 @@ class OrchestratorKernel:
         self.rule_question = rule_question
         # Closes the owner Questions still open when the Run ends.
         self.run_question_closeout = run_question_closeout
+        # Cancels the Agent calls still open when the Run ends.
+        self.run_call_closeout = run_call_closeout
         self._lifecycle_context: ContextVar[KernelLifecycle | None] = ContextVar(
             f"kernel-lifecycle-{id(self)}", default=None
         )
@@ -281,10 +286,14 @@ class OrchestratorKernel:
             return KernelRunResult("cancellation_pending", current)
         try:
             return await self._run_normal(run_id, signal=signal, lifecycle=lifecycle)
+        except KernelRunEnded as ended:
+            return self._pass_stopped(ended)
         except (KernelCancellationPending, ClientCancellationRequested):
             current = await self._load(run_id)
             if current.status == "canceling":
                 return KernelRunResult("cancellation_pending", current)
+            if current.status in TERMINAL_RUN_STATUSES:
+                return self._pass_stopped(KernelRunEnded(current))
             raise KernelConflict(
                 "cancellation control path observed without durable cancellation"
             ) from None
@@ -391,6 +400,7 @@ class OrchestratorKernel:
                 current = await self._load(run.run_id)
                 if current.status == "canceling":
                     return KernelRunResult("cancellation_pending", current)
+                _not_ended(current)
                 raise KernelConflict(
                     "cancellation signal observed without durable cancellation"
                 )
@@ -432,7 +442,7 @@ class OrchestratorKernel:
                     continue
                 if recovered is not None:
                     return recovered
-                run = await self._load(run_id)
+                run = _not_ended(await self._load(run_id))
                 owner = _batch_internal_turn_id(unflushed)
                 closure = _canonical_turn_closure(run, owner)
                 if closure is not None:
@@ -500,14 +510,49 @@ class OrchestratorKernel:
         """Public family-specific terminalization entrypoint for HITL/recovery."""
 
         self._lifecycle_context.set(lifecycle)
-        return await self._terminate(
-            await self._load(run_id),
-            status=status,
-            reason=reason,
-            cancellation_cause=cancellation_cause,
-        )
+        try:
+            return await self._terminate(
+                await self._load(run_id),
+                status=status,
+                reason=reason,
+                cancellation_cause=cancellation_cause,
+            )
+        except KernelRunEnded as ended:
+            return self._pass_stopped(ended)
 
     async def observe_tool(
+        self,
+        run_id: str,
+        observation: ToolObservation,
+        *,
+        signal: CancellationSignal,
+        lifecycle: KernelLifecycle | None = None,
+    ) -> KernelRunResult:
+        try:
+            return await self._observe_tool(
+                run_id, observation, signal=signal, lifecycle=lifecycle
+            )
+        except KernelRunEnded as ended:
+            return self._pass_stopped(ended)
+
+    def _pass_stopped(self, ended: KernelRunEnded) -> KernelRunResult:
+        """End a pass whose Run ended under it, without writing anything."""
+
+        run = ended.run
+        late_call_ids = log_ids(call_id for call_id, _, _ in ended.late)
+        _kernel_logger.emit(
+            E.ORCHESTRATOR_ENDED_RUN_PASS_STOPPED,
+            run_id=log_id(run.run_id),
+            conversation_id=log_id(run.conversation_id),
+            run_status=run.status,
+            late_call_ids=late_call_ids,
+            late_tools=log_ids(tool for _, tool, _ in ended.late),
+            # Capped as the ids are, so the three lists line up.
+            late_statuses=[status for _, _, status in ended.late][: len(late_call_ids)],
+        )
+        return KernelRunResult(_outcome_for_status(run.status), run)
+
+    async def _observe_tool(
         self,
         run_id: str,
         observation: ToolObservation,
@@ -740,11 +785,7 @@ class OrchestratorKernel:
             updates["status"] = "waiting_external"
         else:
             updates["status"] = "running"
-        run = await self._checkpoint(
-            run,
-            updates=updates,
-            command_id=f"tool-observation:{observation.observation_id}",
-        )
+        run = await self._checkpoint_observation(run, observation, updates=updates)
         if not all_terminal:
             # A follow-up interaction may have terminalized the prior
             # surface_agent_questions batch while leaving the parent suspended.
@@ -980,10 +1021,8 @@ class OrchestratorKernel:
             }
         )
         batches[batch_index] = batch.model_copy(update={"entries": entries})
-        run = await self._checkpoint(
-            run,
-            updates={"tool_batches": batches, "status": "running"},
-            command_id=f"tool-observation:{observation.observation_id}",
+        run = await self._checkpoint_observation(
+            run, observation, updates={"tool_batches": batches, "status": "running"}
         )
         public_call_id = entry.opaque_public_call_id or _opaque_public_call_id(
             run.run_id, entry.call_id
@@ -1779,7 +1818,10 @@ class OrchestratorKernel:
         recoverable_declaration_failed = False
         fatal_preacceptance_failed = False
         for call in assistant.tool_calls:
-            run = await self._load(run.run_id)
+            # A Stop may have ended the Run since the last call was accepted.
+            # Its ending marks every entry terminal, so the loop would skip
+            # the later calls and dispatch the accepted ones; stop instead.
+            run = _not_ended(await self._load(run.run_id))
             batch = run.tool_batches[batch_index]
             entry_index = next(
                 index
@@ -2262,6 +2304,9 @@ class OrchestratorKernel:
                 )
             executable.append((call, invocation, acceptance))
 
+        if executable or join_calls:
+            # A Stop may have ended the Run after the last acceptance.
+            run = _not_ended(await self._load(run.run_id))
         # A held call's row was started at the hold, under its own event id;
         # its dispatch start repeats that id so the store drops it.
         held_call_ids = {
@@ -2276,6 +2321,12 @@ class OrchestratorKernel:
         outcomes: list[tuple[str, ToolResult | ToolSuspension]] = []
         if sequential:
             for call, invocation, acceptance in executable:
+                if outcomes:
+                    # A cancel may have ended the Run during the last call.
+                    _not_ended(
+                        await self._load(run.run_id),
+                        _late_outcomes(assistant, outcomes),
+                    )
                 await self._emit(
                     lifecycle,
                     "tool_execution_started",
@@ -2297,13 +2348,19 @@ class OrchestratorKernel:
                 outcomes.append((call.call_id, outcome))
         else:
             semaphore = asyncio.Semaphore(run.profile.max_parallel_calls)
+            returned: list[str] = []
 
             async def execute_bounded(
                 call: ToolCall,
                 invocation: ToolInvocation,
                 acceptance: ToolAcceptance,
-            ) -> ToolResult | ToolSuspension:
+            ) -> ToolResult | ToolSuspension | None:
                 async with semaphore:
+                    if returned and (
+                        (await self._load(run.run_id)).status in TERMINAL_RUN_STATUSES
+                    ):
+                        # A cancel ended the Run while this call waited.
+                        return None
                     await self._emit(
                         lifecycle,
                         "tool_execution_started",
@@ -2324,6 +2381,7 @@ class OrchestratorKernel:
                     outcome = await self._execute_one(
                         invocation, acceptance, signal=signal
                     )
+                    returned.append(call.call_id)
                     return outcome
 
             values = await asyncio.gather(
@@ -2335,6 +2393,8 @@ class OrchestratorKernel:
             outcomes = [
                 (call.call_id, outcome)
                 for (call, _, _), outcome in zip(executable, values, strict=True)
+                # A skipped call saw the Run ended; the reload below stops.
+                if outcome is not None
             ]
 
         # Model-first join continuations execute after ordinary dispatch; each
@@ -2342,6 +2402,11 @@ class OrchestratorKernel:
         for call in assistant.tool_calls:
             if call.call_id not in join_calls:
                 continue
+            if outcomes:
+                # A cancel may have ended the Run during an earlier call.
+                _not_ended(
+                    await self._load(run.run_id), _late_outcomes(assistant, outcomes)
+                )
             invocation, parent_call_record_id = join_calls[call.call_id]
             await self._emit(
                 lifecycle,
@@ -2449,7 +2514,9 @@ class OrchestratorKernel:
             outcomes.append((call.call_id, outcome))
             join_outcomes[parent_call_record_id] = outcome
 
-        run = await self._load(run.run_id)
+        run = _not_ended(
+            await self._load(run.run_id), _late_outcomes(assistant, outcomes)
+        )
         batch = run.tool_batches[batch_index]
         entries = list(batch.entries)
         for call_id, outcome in outcomes:
@@ -3759,6 +3826,7 @@ class OrchestratorKernel:
                 current = await self._load(run.run_id)
                 if current.status == "canceling":
                     return KernelRunResult("cancellation_pending", current)
+                _not_ended(current)
                 raise KernelConflict(
                     "tool cancellation observed without durable cancellation"
                 ) from None
@@ -3769,7 +3837,7 @@ class OrchestratorKernel:
             return None
         if result is not None:
             return result
-        completed = await self._load(run.run_id)
+        completed = _not_ended(await self._load(run.run_id))
         closure = _canonical_turn_closure(completed, turn_id)
         if closure is None:
             return None
@@ -3832,8 +3900,10 @@ class OrchestratorKernel:
         if stored.outcome not in {"accepted", "replayed"}:
             if stored.run.status == "canceling":
                 return KernelRunResult("cancellation_pending", stored.run)
+            _not_ended(stored.run)
             raise KernelConflict("terminal completion CAS lost")
         settled = await self.projection_driver.settle(run.run_id)
+        await self._close_run_calls(settled)
         return KernelRunResult("final_answer", settled)
 
     async def _close_active_attempt(
@@ -4196,9 +4266,11 @@ class OrchestratorKernel:
                 stored.run, status, cancellation_cause
             ):
                 return KernelRunResult("cancellation_pending", stored.run)
+            _not_ended(stored.run)
             raise KernelConflict("terminal status store CAS lost")
         settled = await self.projection_driver.settle(run.run_id)
         await self._close_run_questions(settled)
+        await self._close_run_calls(settled)
         return KernelRunResult(_outcome_for_status(status), settled)
 
     async def _close_run_questions(self, run: OrchestratorRunState) -> None:
@@ -4216,6 +4288,27 @@ class OrchestratorKernel:
             # An answer to such a Question is closed when it is applied.
             _kernel_logger.emit(
                 E.RUN_QUESTION_CLOSEOUT_FAILED,
+                exc=exc,
+                run_id=run.run_id,
+                conversation_id=run.conversation_id,
+            )
+
+    async def _close_run_calls(self, run: OrchestratorRunState) -> None:
+        """Cancel the Agent calls still open when a Run ends for good.
+
+        The terminal status is already stored, so the Run cannot resume and
+        its calls have nothing left to answer. Each open call is canceled on
+        the ledger and its Agent gets a best-effort remote cancel. A failure
+        or a crash before this leaves the calls to call recovery, which
+        closes any open call of an ended Run.
+        """
+        if self.run_call_closeout is None:
+            return
+        try:
+            await self.run_call_closeout(run)
+        except Exception as exc:
+            _kernel_logger.emit(
+                E.RUN_CALL_CLOSEOUT_FAILED,
                 exc=exc,
                 run_id=run.run_id,
                 conversation_id=run.conversation_id,
@@ -4304,7 +4397,7 @@ class OrchestratorKernel:
                 command_id=command,
             )
         except KernelConflict:
-            current = await self._load(run.run_id)
+            current = _not_ended(await self._load(run.run_id))
             current_batch_index, current_entry_index = _find_entry(
                 current,
                 assistant_message_id=original_entry.assistant_message_id,
@@ -4333,6 +4426,31 @@ class OrchestratorKernel:
                 updates={**(run_updates or {}), "tool_batches": current_batches},
                 command_id=command,
             )
+
+    async def _checkpoint_observation(
+        self,
+        run: OrchestratorRunState,
+        observation: ToolObservation,
+        *,
+        updates: dict[str, object],
+    ) -> OrchestratorRunState:
+        """Checkpoint a new observation, refusing it if the Run ended first.
+
+        A Run that ended after this pass read it refuses the observation as
+        the terminal check above does, so a caller never counts an answer
+        the Run did not take.
+        """
+
+        try:
+            return await self._checkpoint(
+                run,
+                updates=updates,
+                command_id=f"tool-observation:{observation.observation_id}",
+            )
+        except KernelRunEnded as ended:
+            raise KernelConflict(
+                "terminal Run cannot accept a new tool observation"
+            ) from ended
 
     async def _checkpoint(
         self,
@@ -4372,6 +4490,7 @@ class OrchestratorKernel:
                 raise KernelCancellationPending
             if command_id in current.processed_command_ids:
                 return current
+            _not_ended(current)
         raise KernelConflict(f"checkpoint failed: {command_id}:{result.outcome}")
 
     async def _load(self, run_id: str) -> OrchestratorRunState:
@@ -4404,3 +4523,24 @@ __all__ = [
     "UUIDFactory",
     "supervisor_answer_observation",
 ]
+
+
+def _not_ended(
+    run: OrchestratorRunState, late: tuple[tuple[str, str, str], ...] = ()
+) -> OrchestratorRunState:
+    """Return ``run``, or stop the pass when it has ended under the pass."""
+
+    if run.status in TERMINAL_RUN_STATUSES:
+        raise KernelRunEnded(run, late)
+    return run
+
+
+def _late_outcomes(
+    assistant: AssistantMessage,
+    outcomes: list[tuple[str, ToolResult | ToolSuspension]],
+) -> tuple[tuple[str, str, str], ...]:
+    names = {call.call_id: call.tool_name for call in assistant.tool_calls}
+    return tuple(
+        (call_id, names.get(call_id, ""), outcome.status)
+        for call_id, outcome in outcomes
+    )

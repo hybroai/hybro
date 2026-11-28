@@ -30,6 +30,10 @@ from .terminal_interactions import TerminalInteractionFinalizer
 
 logger = get_logger(__name__)
 
+# The reason written when a Run closes a call parked on an Agent's question:
+# its ending, before the terminal commit, or a model retry.
+PARKED_CLOSEOUT_REASON = "parked interaction abandoned by orchestrator closeout"
+
 
 class A2ACancellationCoordinator:
     """Make local cancellation terminal without waiting for a remote Agent."""
@@ -103,11 +107,20 @@ class A2ACancellationCoordinator:
             if call.cancellation_command is not None
             else None
         )
-        return await self.cancel_call(
+        result = await self.cancel_call(
             call_record_id=call_record_id,
             reason="cancellation_recovery",
             deletion_id=deletion_id,
         )
+        if (
+            call.state not in TERMINAL_AGENT_CALL_STATES
+            and call.a2a_task_id is not None
+            and result == "canceled"
+        ):
+            # Every cancellation asks for the remote cancel; one whose local
+            # cancel was left pending sends it once recovery finishes it.
+            await self._notify_remote(call_record_id)
+        return result
 
     async def _finalized_state(self, record: AgentCallLedgerRecord) -> str:
         if record.state in TERMINAL_AGENT_CALL_STATES:
@@ -155,8 +168,55 @@ class A2ACancellationCoordinator:
                 await self._notify_remote(call.call_record_id)
         return results
 
+    async def notify_parked_closeouts(self, run_id: str) -> None:
+        """Tell each Agent whose parked call the Run closed locally to stop.
+
+        A Run's ending, before its terminal commit, and a model retry close a
+        call parked on an Agent's question locally and send nothing to the
+        Agent. Once the Run has ended, each such call with a remote task gets
+        the same best-effort remote cancel as any other call. A parked
+        closeout left ``cancel_pending`` is told instead by ``recover_call``
+        when it finishes the cancel.
+        """
+        for call in await self.ledger.list_for_run(run_id):
+            if (
+                call.state == "canceled"
+                and call.cancellation_reason == PARKED_CLOSEOUT_REASON
+                and call.a2a_task_id is not None
+            ):
+                await self._notify_remote(call.call_record_id)
+
+    async def close_call_of_ended_run(self, call_record_id: str, *, reason: str) -> str:
+        """Cancel one open call whose Run has already ended for good.
+
+        The Run is terminal, so nothing can still wait on the call and the
+        room epoch fence has nothing left to protect. The call is canceled
+        locally, and an Agent with a remote task gets a best-effort remote
+        cancel that this does not await.
+        """
+        call = await self.ledger.load_by_record_id(call_record_id)
+        if call is None:
+            raise KeyError(call_record_id)
+        if call.state in TERMINAL_AGENT_CALL_STATES:
+            return await self._finalized_state(call)
+        persisted = await persist_local_cancellation(self.ledger, call, reason=reason)
+        # The call's question closes first: the call is terminal now, so
+        # nothing would come back to close it if the send failed.
+        state = await self._finalized_state(persisted)
+        if persisted.state == "canceled" and persisted.a2a_task_id is not None:
+            await self._notify_remote(call_record_id)
+        return state
+
     async def _notify_remote(self, call_record_id: str) -> None:
-        canceled = await self.ledger.load_by_record_id(call_record_id)
+        # The local cancel is committed; a failed read only loses this
+        # best-effort send, so it is logged rather than raised.
+        try:
+            canceled = await self.ledger.load_by_record_id(call_record_id)
+        except Exception as exc:
+            logger.emit(
+                E.REMOTE_CANCELLATION_FAILED, exc=exc, call_record_id=call_record_id
+            )
+            return
         if canceled is None or canceled.cancellation_command is None:
             return
         task = asyncio.create_task(

@@ -728,3 +728,103 @@ describe('settlement of a call a check rule denied', () => {
       .toMatchObject({ valid: false })
   })
 })
+
+describe('a late event for a settled Turn', () => {
+  const started = (runId = 'run-1') => ({
+    ...runEvent(1, 'run_started', {
+      hybro_turn_id: runId, user_message_id: 'user-1', started_at: TS, mode: 'fast',
+    }),
+    run_id: runId,
+  }) as CanonicalRunEventData
+  const settled = (roomSeq: number, status = 'canceled', runId = 'run-1') => ({
+    ...runEvent(roomSeq, 'run_settled', {
+      status, started_at: TS, settled_at: TS, duration_ms: 0,
+      ...(status === 'canceled'
+        ? { cancellation_code: 'user_requested' }
+        : { failure_code: 'tool_failure', error_summary: 'failed' }),
+    }),
+    run_id: runId,
+  }) as CanonicalRunEventData
+  const turnStart = (roomSeq: number) => runEvent(roomSeq, 'turn_start', {
+    internal_turn_id: 'turn-1', attempt: 1,
+  })
+  const settledTurns = () => apply(apply({}, started()), settled(2))
+  const hitl = (roomSeq: number) => ({
+    room_seq: roomSeq, run_id: 'run-1', request_id: `request-${roomSeq}`,
+    message_id: 'hitl-message-1', interaction_id: 'interaction-1',
+    related_user_message_id: 'user-1', client_request_id: 'client-1',
+    question_index: 0, question_count: 1,
+  })
+  const hitlRequest = (roomSeq: number, clientRequestId = 'client-1') => ({
+    kind: 'hitl_request' as const,
+    data: {
+      ...hitl(roomSeq), client_request_id: clientRequestId,
+      prompt: 'Continue?', prompt_type: 'confirmation' as const, source: 'supervisor' as const,
+    },
+  })
+
+  it('ignores a run event of the settled Turn without a violation', () => {
+    const turns = settledTurns()
+    const result = foldCanonicalEvent(turns, 'room-1', { kind: 'run_event', data: turnStart(3) })
+    expect(result).toEqual({ ok: true, turns, changed: false })
+  })
+
+  it('ignores a HITL request and response of the settled Turn', () => {
+    const turns = settledTurns()
+    expect(foldCanonicalEvent(turns, 'room-1', hitlRequest(3)))
+      .toEqual({ ok: true, turns, changed: false })
+    const response = foldCanonicalEvent(turns, 'room-1', {
+      kind: 'hitl_response',
+      data: { ...hitl(4), status: 'responded' },
+    } as Parameters<typeof foldCanonicalEvent>[2])
+    expect(response).toEqual({ ok: true, turns, changed: false })
+  })
+
+  it('still closes a request the settled Turn holds', () => {
+    let turns = apply({}, started())
+    const request = foldCanonicalEvent(turns, 'room-1', hitlRequest(2))
+    expect(request.ok).toBe(true)
+    if (request.ok) turns = request.turns
+    turns = apply(turns, settled(3))
+    const response = foldCanonicalEvent(turns, 'room-1', {
+      kind: 'hitl_response',
+      data: { ...hitl(2), status: 'canceled' },
+    } as Parameters<typeof foldCanonicalEvent>[2])
+    expect(response.ok).toBe(true)
+    if (!response.ok) return
+    const interaction = response.turns['run-1'].hitlInteractions[0]
+    expect(interaction.state).toBe('canceled')
+    expect(interaction.requests[0].status).toBe('canceled')
+    expect(response.turns['run-1'].state).toBe('canceled')
+  })
+
+  it('ignores a settlement of a Run whose run_started never arrived', () => {
+    const turns = settledTurns()
+    const result = foldCanonicalEvent(turns, 'room-1', {
+      kind: 'run_event', data: settled(3, 'canceled', 'run-9'),
+    })
+    expect(result).toEqual({ ok: true, turns, changed: false })
+  })
+
+  it('records no violation in the store, so the page requests no snapshot', () => {
+    const store = useTurnStore.getState()
+    store.replaceSnapshot('room-late', [])
+    for (const data of [started(), settled(2), turnStart(3)]) {
+      expect(store.applyEvent('room-late', { kind: 'run_event', data }).ok).toBe(true)
+    }
+    const room = useTurnStore.getState().rooms['room-late']
+    expect(room.protocolViolation).toBeUndefined()
+    expect(room.turns['run-1'].state).toBe('canceled')
+  })
+
+  it('still rejects a contradicting settlement, another correlation, or an early event', () => {
+    const turns = settledTurns()
+    expect(foldCanonicalEvent(turns, 'room-1', { kind: 'run_event', data: settled(3, 'failed') }).ok)
+      .toBe(false)
+    expect(foldCanonicalEvent(turns, 'room-1', {
+      kind: 'run_event', data: { ...turnStart(3), correlation_id: 'other' },
+    }).ok).toBe(false)
+    expect(foldCanonicalEvent({}, 'room-1', { kind: 'run_event', data: turnStart(1) }).ok).toBe(false)
+    expect(foldCanonicalEvent(turns, 'room-1', hitlRequest(3, 'other')).ok).toBe(false)
+  })
+})

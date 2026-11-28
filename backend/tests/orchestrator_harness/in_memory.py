@@ -17,7 +17,10 @@ from execution.orchestrator.models import (
     ProjectionIntent,
     RecoveryClaim,
 )
-from execution.orchestrator.persistence import RECOVERY_ELIGIBLE_RUN_STATUSES
+from execution.orchestrator.persistence import (
+    RECOVERY_ELIGIBLE_RUN_STATUSES,
+    ended_run_change_allowed,
+)
 from execution.orchestrator.settlement import (
     transition_projection_intent,
     transition_projection_settlement,
@@ -107,6 +110,15 @@ class InMemoryOrchestratorRunStore:
             return InMemoryRunStoreResult("error", current)
         if not _cancellation_transition_allowed(current, run):
             return InMemoryRunStoreResult("conflict", current)
+        if not ended_run_change_allowed(current, run):
+            return InMemoryRunStoreResult("conflict", current)
+        if command_id not in run.processed_command_ids:
+            # As the Mongo store does, so a replay check on the Run works here.
+            run = run.model_copy(
+                update={
+                    "processed_command_ids": [*run.processed_command_ids, command_id]
+                }
+            )
         self.runs[run.run_id] = run
         self.commands[command_key] = run
         return InMemoryRunStoreResult("accepted", run)

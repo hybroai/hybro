@@ -585,7 +585,7 @@ work on it starts. This list fixes which pages exist and what belongs on each.
 |---|---|---|
 | Overview | What needs the owner now, what failed, and recent activity. Its Inbox is the one home for open Questions. | Exists |
 | Chat | Room chat, where a person places an order with the bundled orchestrator. | Exists |
-| Sessions | Every Session from every client, Room chat included. One Session shows its Steps: the prompt, the agent and how it was chosen, the result, the timing, the Questions and the Scores. | Exists under the name Inbox, for API and MCP clients; the step view is new |
+| Sessions | Every Session from every client, Room chat included. One Session shows its Steps: the prompt, the agent and how it was chosen, the result, the timing, the Questions and the Scores. | Exists under the name Inbox, for API and MCP clients, with each Step; how the agent was chosen and the Scores are new |
 | Network | Agents and Groups. | Exists |
 | Rules | The ordered route rules, and the check rules. | Exists, with the check rules; route rules are new |
 | Evaluation | Standards, and checking one against a run. | New |
