@@ -511,6 +511,17 @@ ORCHESTRATOR_RUN_RECOVERY_FAILED = define(
     ERROR,
     required={"run_id", "failure_count"},
 )
+# A pass that found its Run ended stopped without writing; ids and statuses only.
+ORCHESTRATOR_ENDED_RUN_PASS_STOPPED = define(
+    "orchestrator_ended_run_pass_stopped",
+    WARNING,
+    required={"run_id", "conversation_id", "run_status"},
+)
+ORCHESTRATOR_ENDED_RUN_EVENT_DROPPED = define(
+    "orchestrator_ended_run_event_dropped",
+    WARNING,
+    required={"run_id", "conversation_id", "event_type", "run_status"},
+)
 
 # dal
 

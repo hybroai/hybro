@@ -46,6 +46,7 @@ from common.observability import (
     MetricsCollector,
     get_instance_id,
     get_logger,
+    log_id,
     log_sinks,
     ring_buffer,
     traced_create_task,
@@ -541,6 +542,26 @@ async def terminalize_canonical_hitl_run(
         status="failed",
         reason=reason,
         lifecycle=emit,
+    )
+    return True
+
+
+def _drop_event_for_ended_run(run: Any, event: Any) -> bool:
+    """Whether a public event for ``run`` arrived after the Run ended.
+
+    The terminal commit emits nothing after it, so a public event for an ended
+    Run comes from a pass that kept running past the end. Publishing it would
+    break the Room's snapshot fold after ``run_settled``.
+    """
+
+    if run.status not in TERMINAL_RUN_STATUSES:
+        return False
+    logger.emit(
+        E.ORCHESTRATOR_ENDED_RUN_EVENT_DROPPED,
+        run_id=log_id(run.run_id),
+        conversation_id=log_id(run.conversation_id),
+        event_type=log_id(event.event_type),
+        run_status=run.status,
     )
     return True
 
@@ -1662,7 +1683,9 @@ async def _runtime_lifespan(app: Any, runtime: ApplicationRuntime):  # noqa: C90
                 public_event = canonical_projection_translator.translate(
                     event, catalog=current_run.tool_catalog
                 )
-                if public_event is not None:
+                if public_event is not None and not _drop_event_for_ended_run(
+                    current_run, event
+                ):
                     notification = RunEventNotification(
                         conversation_id=event.conversation_id,
                         event_id=public_event.event_id,

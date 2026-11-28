@@ -3470,6 +3470,25 @@ root through the Kernel terminalizer. A `(updated_at, run_id)` partial index
 supports the repair scan. Active-Run reads expose `canceling` with the
 originating message identity until `canceled` settlement.
 
+An ended Run (`completed`, `failed`, `canceled`, `budget_exhausted`) takes no
+further change to its record. Both run stores' `cas_mutate` refuse, as a
+conflict, a write to an ended Run that changes any field other than its
+bookkeeping (`projection_state`, `projection_outbox`, `recovery_claim`,
+`state_version`, `updated_at`, `processed_command_ids`); the replay check runs
+first. A pass that is still running when another driver ends the Run, for
+example a sink-delivered answer pass whose Agent call returns after a Stop,
+stops quietly: the kernel checks the Run after a batch's Agent calls return,
+before each call that starts after another returned (a sequential batch, or a
+parallel batch waiting on `max_parallel_calls`), before each reply to an
+Agent's open task, and at each turn close, and turns the stores' refusal of a
+checkpoint or of its own terminal commit into the same stop. It writes nothing, emits nothing, returns
+the ended Run's outcome, and logs `orchestrator_ended_run_pass_stopped` with
+the Run's id, status, and the late calls' ids, tools, and result statuses
+(no content). The late result stays on the call ledger. No public run event follows
+the terminal commit (the session host's run-level events after a pass publish
+nothing), so the session-event listener drops a public event for an ended Run and logs `orchestrator_ended_run_event_dropped`; the
+Room's snapshot fold would otherwise refuse the log after `run_settled`.
+
 ### Recovery, settlement, and shutdown
 
 An in-process driver holds a live execution lease over the Run's recovery claim,
