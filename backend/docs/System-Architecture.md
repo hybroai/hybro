@@ -3495,6 +3495,21 @@ event the pass emits between two of its own writes after another driver ended
 the Run. The Room's snapshot fold would otherwise refuse the log after
 `run_settled`.
 
+The listener and the `run_settled` append share one per-Run lock in the
+process (`container._RunEventOrder`). The listener loads the Run, checks it,
+and appends its event under the lock; the projection worker's
+`run_settled` append, with its parent lookup and the processing-status
+adapter, takes the same lock. A listener that loaded the Run before it ended
+therefore lands before `run_settled`, even when the ending emitted nothing and
+so never waited on the listener (a Stop before the first turn). A listener that
+takes the lock after `run_settled` sees the ended Run and drops its event. The
+lock is held across one append, never across a pass. The final-answer nudge,
+which runs the projection worker and may publish this Run's `run_settled`,
+runs after the listener releases the lock, so it does not wait on itself. The
+lock does not order appends made by another process, nor the room events that
+other writers append, such as the HITL control events and the final
+`agent_response`.
+
 ### Recovery, settlement, and shutdown
 
 An in-process driver holds a live execution lease over the Run's recovery claim,

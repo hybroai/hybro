@@ -566,6 +566,42 @@ def _drop_event_for_ended_run(run: Any, event: Any) -> bool:
     return True
 
 
+class _RunEventOrder:
+    """Order one process's lifecycle and ``run_settled`` appends for each Run.
+
+    A lifecycle append loads the Run, drops the event if the Run has ended,
+    and appends it; ``run_settled`` is appended by the projection worker once
+    the Run has ended. Both take the Run's lock, so an append whose Run was
+    loaded before the end lands before ``run_settled``, and one that takes
+    the lock after it sees the ended Run and is dropped. The lock is held only
+    across one append. Work after a lifecycle append that may publish
+    ``run_settled`` (the projection nudge) runs after the lock is released.
+    """
+
+    def __init__(self) -> None:
+        self._locks: dict[str, asyncio.Lock] = {}
+
+    def _lock(self, run_id: str) -> asyncio.Lock:
+        return self._locks.setdefault(run_id, asyncio.Lock())
+
+    async def lifecycle(
+        self,
+        run_id: str,
+        append: Callable[[], Awaitable[None]],
+        *,
+        after: Callable[[], Awaitable[None]],
+    ) -> None:
+        async with self._lock(run_id):
+            await append()
+        await after()
+
+    async def settlement(
+        self, run_id: str, append: Callable[[], Awaitable[None]]
+    ) -> None:
+        async with self._lock(run_id):
+            await append()
+
+
 @asynccontextmanager
 async def _runtime_lifespan(app: Any, runtime: ApplicationRuntime):  # noqa: C901
     """Lifespan context manager to handle startup and shutdown events.
@@ -1587,14 +1623,24 @@ async def _runtime_lifespan(app: Any, runtime: ApplicationRuntime):  # noqa: C90
                     "canonical processing_status event was not persisted"
                 )
 
+        # Lifecycle events are dispatched concurrently, and run_settled comes
+        # from the projection worker, so one per-run lock orders the
+        # listener's appends and run_settled for a Run in this process.
+        _run_event_order = _RunEventOrder()
+
         async def publish_orchestrator_projection_status(run, intent) -> None:
+            del intent
+            await _run_event_order.settlement(
+                run.run_id, lambda: _publish_run_settled(run)
+            )
+
+        async def _publish_run_settled(run) -> None:
             # SSE is non-authoritative: it is published only after the durable
             # public run/processing projection has completed AND the Run
             # reached projection_state == "settled" (all mandatory intents
             # durable). The status is derived from the settled Run, never from
             # the intent payload, so intent completion order cannot leak an
             # early terminal event.
-            del intent
             status = public_terminal_status(str(run.status or ""))
             if status is None or _delivery_deps is None:
                 return
@@ -1645,15 +1691,12 @@ async def _runtime_lifespan(app: Any, runtime: ApplicationRuntime):  # noqa: C90
                 "failed" if run.status == "budget_exhausted" else run.status,
             )
 
-        # Lifecycle events are dispatched concurrently, so a per-run lock
-        # re-serializes canonical room-event publication into durable order.
-        _orchestrator_session_locks: dict[str, asyncio.Lock] = {}
-
         async def _orchestrator_session_listener(event: Any) -> None:
-            lock = _orchestrator_session_locks.setdefault(event.run_id, asyncio.Lock())
-            async with lock:
-                await _orchestrator_session_event(event)
-                return
+            await _run_event_order.lifecycle(
+                event.run_id,
+                lambda: _orchestrator_session_event(event),
+                after=lambda: _after_orchestrator_session_event(event),
+            )
 
         async def _orchestrator_session_event(event: Any) -> None:  # noqa: C901
             # Tool lifecycle remains solely in the canonical Run/event fold;
@@ -1732,11 +1775,17 @@ async def _runtime_lifespan(app: Any, runtime: ApplicationRuntime):  # noqa: C90
                             current_run, "processing"
                         )
 
+        async def _after_orchestrator_session_event(event: Any) -> None:
+            if _delivery_deps is None:
+                return
+            runtime = getattr(app.state, "orchestrator_runtime", None)
             if event.event_type == "run_final_answer_ready" and runtime is not None:
                 # Deliver the final answer immediately instead of waiting for
                 # the next projection-outbox tick (the <=10s dead stop). Runs
                 # after the work-log 'Preparing…' entry so the frontend shows
-                # the synthesis step before the terminal delivery.
+                # the synthesis step before the terminal delivery. It runs
+                # outside the Run's event lock: it may publish this Run's
+                # run_settled, which takes that lock.
                 try:
                     await runtime.projection_worker.run_once(due_at=datetime.now(UTC))
                 except Exception as exc:
