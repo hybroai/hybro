@@ -3494,8 +3494,8 @@ follows the terminal commit (the session host's run-level events after a pass
 publish nothing), so the session-event listener drops a public event for an
 ended Run and logs `orchestrator_ended_run_event_dropped`. That also covers an
 event the pass emits between two of its own writes after another driver ended
-the Run. The Room's snapshot fold would otherwise refuse the log after
-`run_settled`.
+the Run. Published after `run_settled`, the Room's snapshot fold could only
+skip such an event, and a `run_started` would open a Turn that never settles.
 
 The listener and the `run_settled` append share one per-Run lock in the
 process (`container._RunEventOrder`). The listener loads the Run, checks it,
@@ -3792,7 +3792,29 @@ Every connect yields a `snapshot` frame right after `connected`, folded from the
 event log by `SnapshotService` (incrementally materialized; `?snapshot=1` forces
 a fresh fold). Builds are serialized per room and replace checkpoints
 monotonically; a DTO or fold violation stops before that event's watermark and is
-surfaced instead of publishing a partial snapshot. Reads page through the
+surfaced instead of publishing a partial snapshot. The checkpoint lives in
+memory only, so the next build retries from the last valid watermark.
+
+Settlement is absorbing, and the fold skips two kinds of stored event it
+cannot place rather than failing every later snapshot of the Room. The first
+is an event for a Turn that has already settled, left by a pass that kept
+running past its Run's end: a `run_event` with the Turn's run and client root,
+or, with the Turn's exact run, client and User root, a `hitl_request` or a
+`hitl_response` for a request the Turn never held. A skipped `hitl_response` is
+still recorded in `hitl.resolved`. A late `hitl_response` for a request the
+Turn holds still closes it, in the Turn and in the room's stored prompt, so
+the prompt is not offered again. The second is a `run_settled` whose `run_started` never reached the
+Room: a Run stopped before its `run_started` was appended still settles. Each
+skip logs `room_snapshot_late_event_skipped` with ids only and a `reason`
+(`turn_settled` or `turn_not_started`), once per fold of that event. Still
+rejected: an event whose correlation does not match its Turn, an invalid
+payload, any other event before `run_started`, an event after the final
+Assistant message other than its `turn_end` and `run_settled`, and a second
+`run_settled` whose status differs from the settled one. No stored data is
+rewritten; a Room an earlier late event broke builds again on its next
+snapshot.
+
+Reads page through the
 complete contiguous prefix. The snapshot holds `room_seq`, `messages`, `tasks`,
 `hitl` (`requests`, `resolved`), `streaming`, `turn_lifecycle_schema: 1`, and
 `turns`. Stored `run_event` rows of retired non-canonical kinds are skipped. Canonical `turns` carry exact

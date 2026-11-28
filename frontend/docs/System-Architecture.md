@@ -460,7 +460,17 @@ projection in `turn-store`. Every snapshot Turn and every known canonical
 `run_event` payload is runtime validated against the closed backend DTO before
 it can mutate state. Buffered live deltas then replay through the same pure,
 idempotent fold used by normal live delivery. Invalid known events leave the
-projection unchanged and request one fresh snapshot. Presentation state is
+projection unchanged and request one fresh snapshot. A late event of a settled
+Turn with the Turn's exact root, from a pass that kept running past the Run's
+end (a `run_event`, a `hitl_request`, or a `hitl_response` for a request the
+Turn never held), and a `run_settled` whose `run_started` never arrived are
+ignored with no violation and no snapshot request, matching the backend fold.
+A late `hitl_response` for a request the settled Turn holds still closes it. A
+`run_settled` that contradicts the settled status is still a violation. Known
+gap: the live `hitl_request` handler does not check for a settled Turn, so a
+late question can show a prompt that the next snapshot, which skips it, no
+longer lists.
+Presentation state is
 stored separately in `turn-presentation-store`, so snapshot replacement does
 not reset manual disclosure or pinned-bottom ownership. After a successful
 canonical replacement, `RoomReducer` performs authoritative terminal cleanup

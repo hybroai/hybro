@@ -4,8 +4,8 @@ A lifecycle listener loads the Run, drops the event if the Run has ended, and
 appends it. ``run_settled`` comes from the projection worker. Without a shared
 lock, a listener that loaded the Run before a Stop ended it can append its
 event after ``run_settled`` (a Stop before the first turn emits nothing, so it
-never waits on the listener), and the Room's snapshot fold then rejects the
-log. ``_RunEventOrder`` takes the Run's lock for both appends.
+never waits on the listener), and the Room then shows a Turn that never
+settles. ``_RunEventOrder`` takes the Run's lock for both appends.
 """
 
 from __future__ import annotations
@@ -46,12 +46,19 @@ class Room:
         self.log.append(_run_event(len(self.log) + 1, kind, payload))
 
     def folds(self) -> bool:
-        # The snapshot build fails on a record the fold rejects or raises on.
+        # The Room is right when the snapshot build accepts every record and
+        # every Turn ends settled. The fold skips a run_settled that comes
+        # before its run_started, so that order leaves a Turn active forever.
         fold = RoomEventFold()
         try:
-            return all(fold.apply(record) for record in self.log)
+            if not all(fold.apply(record) for record in self.log):
+                return False
         except ValueError:
             return False
+        return all(
+            turn["state"] in {"completed", "failed", "canceled"}
+            for turn in fold.state(room_seq=len(self.log))["turns"]
+        )
 
 
 def _listener_append(room: Room, loaded: asyncio.Event, release: asyncio.Event):

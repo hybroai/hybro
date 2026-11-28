@@ -70,6 +70,10 @@ function hasOpenChildren(turn: TurnProjection): boolean {
   )
 }
 
+function isSettled(turn: TurnProjection): boolean {
+  return ['completed', 'failed', 'canceled'].includes(turn.state)
+}
+
 function eventOrder(data: { room_seq?: number }): number | null {
   return typeof data.room_seq === 'number'
     && Number.isInteger(data.room_seq)
@@ -112,13 +116,23 @@ function foldRunEvent(
   }
 
   const existing = turns[data.run_id]
-  if (!existing) return failed(turns, `${data.type} arrived before run_started`)
+  // A Run stopped before its run_started reached the Room still settles;
+  // there is no Turn to settle, and the backend snapshot skips it too.
+  if (!existing) {
+    return data.type === 'run_settled'
+      ? unchanged(turns)
+      : failed(turns, `${data.type} arrived before run_started`)
+  }
   if (existing.clientRequestId !== data.correlation_id) {
     return failed(turns, `${data.type} does not match the Turn correlation root`)
   }
-  if (['completed', 'failed', 'canceled'].includes(existing.state)) {
-    if (data.type === 'run_settled' && existing.state === data.payload.status) return unchanged(turns)
-    return failed(turns, `${data.type} arrived after the Turn settled`)
+  if (isSettled(existing)) {
+    // A late event of a settled Turn (a pass that kept running past the end)
+    // is ignored; a settlement that contradicts the settled status is not.
+    if (data.type === 'run_settled' && existing.state !== data.payload.status) {
+      return failed(turns, 'run_settled contradicts the settled Turn')
+    }
+    return unchanged(turns)
   }
   if (existing.finalAnswer) {
     const finalPayload = data.type === 'message_end' ? data.payload as MessageEndPayload : null
@@ -485,6 +499,7 @@ function foldHITLRequest(
 ): FoldResult {
   const existing = findExactRoot(turns, data.run_id, data.client_request_id, data.related_user_message_id)
   if (!existing) return failed(turns, 'Canonical HITL request does not match the exact Turn root')
+  if (isSettled(existing)) return unchanged(turns)
   const turn = cloneTurn(existing)
   let interaction = turn.hitlInteractions.find((item) => item.interactionId === data.interaction_id)
   if (!interaction) {
@@ -540,6 +555,9 @@ function foldHITLResponse(
   const turn = cloneTurn(existing)
   const interaction = turn.hitlInteractions.find((item) => item.interactionId === data.interaction_id)
   const request = interaction?.requests.find((item) => item.requestId === data.request_id)
+  // A settled Turn that never held the request takes nothing, as in the
+  // backend snapshot; one it holds still closes.
+  if (!request && isSettled(existing)) return unchanged(turns)
   if (!interaction || !request
     || request.messageId !== data.message_id
     || request.questionIndex !== data.question_index

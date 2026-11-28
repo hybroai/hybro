@@ -210,6 +210,11 @@ AGENT_SUGGESTION_ROUTE_FAILED = define("agent_suggestion_route_failed", ERROR)
 SSE_SNAPSHOT_BUILD_FAILED = define(
     "sse_snapshot_build_failed", WARNING, required={"conversation_id"}
 )
+ROOM_SNAPSHOT_LATE_EVENT_SKIPPED = define(
+    "room_snapshot_late_event_skipped",
+    INFO,
+    required={"conversation_id", "run_id", "room_seq", "event_type", "reason"},
+)
 SSE_STREAM_STARTED = define(
     "sse_stream_started", INFO, required={"conversation_id", "connection_id"}
 )

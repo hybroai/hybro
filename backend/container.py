@@ -550,8 +550,9 @@ def _drop_event_for_ended_run(run: Any, event: Any) -> bool:
     """Whether a public event for ``run`` arrived after the Run ended.
 
     The terminal commit emits nothing after it, so a public event for an ended
-    Run comes from a pass that kept running past the end. Publishing it would
-    break the Room's snapshot fold after ``run_settled``.
+    Run comes from a pass that kept running past the end. Published after
+    ``run_settled``, the Room's snapshot fold could only skip it, and a
+    ``run_started`` would open a Turn that never settles.
     """
 
     if run.status not in TERMINAL_RUN_STATUSES:

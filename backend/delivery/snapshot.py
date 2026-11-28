@@ -27,6 +27,7 @@ from common.dto.delivery import (
 )
 from common.dto.turn_lifecycle import CANONICAL_RUN_EVENT_KINDS
 from common.observability import events as E
+from common.observability import log_id
 from common.utils.logger import get_logger
 from delivery.room_events import RoomEventStore
 
@@ -40,6 +41,29 @@ _TERMINAL_TASK_STATUSES = frozenset(
 _TERMINAL_PROCESSING_STATUSES = frozenset(
     {"completed", "failed", "canceled", "rejected", "rate_limited", "error"}
 )
+_SETTLED_TURN_STATES = frozenset({"completed", "failed", "canceled"})
+
+
+def _skip_late_event(
+    record: dict[str, Any], run_id: str, event_type: str, reason: str
+) -> bool:
+    """Accept an event the fold cannot place, without applying it.
+
+    A pass that kept running past its Run's end, or a Run stopped before its
+    ``run_started`` reached the Room, can leave such an event in the log. It
+    carries nothing a settled Turn can take, so the fold moves past it rather
+    than failing every later snapshot of the Room.
+    """
+
+    logger.emit(
+        E.ROOM_SNAPSHOT_LATE_EVENT_SKIPPED,
+        conversation_id=log_id(record.get("room_id")),
+        run_id=log_id(run_id),
+        room_seq=int(record.get("room_seq") or 0),
+        event_type=log_id(event_type),
+        reason=reason,
+    )
+    return True
 
 
 def _first_present(data: dict[str, Any], *keys: str) -> Any:
@@ -507,12 +531,20 @@ class RoomEventFold:
             }
             return True
         turn = self.turns.get(run_id)
-        if turn is None or correlation_id != turn.get("client_request_id"):
+        if turn is None:
+            # A Run stopped before its run_started reached the Room still
+            # settles; there is no Turn to settle.
+            if sub_type == "run_settled":
+                return _skip_late_event(record, run_id, sub_type, "turn_not_started")
             return False
-        if turn.get("state") in {"completed", "failed", "canceled"}:
-            # Final commit/settlement is absorbing. Replayed children and
-            # contradictory duplicate settlement records never mutate it.
+        if correlation_id != turn.get("client_request_id"):
             return False
+        if turn.get("state") in _SETTLED_TURN_STATES:
+            # Settlement is absorbing: a late event of the same Turn is
+            # skipped, and a settlement that contradicts it is rejected.
+            if sub_type == "run_settled" and payload.get("status") != turn["state"]:
+                return False
+            return _skip_late_event(record, run_id, sub_type, "turn_settled")
         final_answer = turn.get("final_answer")
         if isinstance(final_answer, dict):
             closes_final = sub_type == "turn_end" and payload.get(
@@ -907,7 +939,9 @@ class RoomEventFold:
             turn["terminal_summary"] = payload.get("error_summary")
         return True
 
-    def _hitl_request(self, data: dict[str, Any], record: dict[str, Any]) -> bool:
+    def _hitl_request(  # noqa: C901
+        self, data: dict[str, Any], record: dict[str, Any]
+    ) -> bool:
         if data.get("run_id") is not None:
             try:
                 HITLRequestEvent(
@@ -929,6 +963,10 @@ class RoomEventFold:
         request_id = str(data.get("request_id") or "")
         if not request_id:
             return data.get("run_id") is None
+        if self._turn_settled_for(data):
+            return _skip_late_event(
+                record, str(data["run_id"]), "hitl_request", "turn_settled"
+            )
         request_key = _hitl_request_key(data)
         run_id = str(data.get("run_id") or "")
         turn = self.turns.get(run_id)
@@ -993,6 +1031,16 @@ class RoomEventFold:
         )
         return True
 
+    def _turn_settled_for(self, data: dict[str, Any]) -> bool:
+        """Whether a HITL event names the exact root of a settled Turn."""
+        turn = self.turns.get(str(data.get("run_id") or ""))
+        return (
+            turn is not None
+            and turn.get("state") in _SETTLED_TURN_STATES
+            and data.get("client_request_id") == turn.get("client_request_id")
+            and data.get("related_user_message_id") == turn.get("user_message_id")
+        )
+
     def _stored_hitl_request(self, data: dict[str, Any]) -> dict[str, Any] | None:
         request_key = _hitl_request_key(data)
         existing = self.hitl_requests.get(request_key)
@@ -1001,7 +1049,9 @@ class RoomEventFold:
         request_id = str(data.get("request_id") or "")
         return self.hitl_requests.get(f"{request_id}:{request_id}")
 
-    def _hitl_response(self, data: dict[str, Any], record: dict[str, Any]) -> bool:
+    def _hitl_response(  # noqa: C901
+        self, data: dict[str, Any], record: dict[str, Any]
+    ) -> bool:
         if data.get("run_id") is not None:
             try:
                 HITLResolvedEvent(
@@ -1046,17 +1096,19 @@ class RoomEventFold:
             ),
             None,
         )
-        if interaction is None:
-            return False
         request = next(
             (
                 item
-                for item in interaction["requests"]
+                for item in (interaction or {}).get("requests") or []
                 if item.get("request_id") == request_id
             ),
             None,
         )
         if request is None:
+            # A settled Turn that never held the request takes nothing; the
+            # room's prompt closed above.
+            if turn.get("state") in _SETTLED_TURN_STATES:
+                return _skip_late_event(record, run_id, "hitl_response", "turn_settled")
             return False
         request["status"] = data.get("status")
         request["answer_ref"] = data.get("answer_ref")
