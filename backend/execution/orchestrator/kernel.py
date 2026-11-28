@@ -785,11 +785,7 @@ class OrchestratorKernel:
             updates["status"] = "waiting_external"
         else:
             updates["status"] = "running"
-        run = await self._checkpoint(
-            run,
-            updates=updates,
-            command_id=f"tool-observation:{observation.observation_id}",
-        )
+        run = await self._checkpoint_observation(run, observation, updates=updates)
         if not all_terminal:
             # A follow-up interaction may have terminalized the prior
             # surface_agent_questions batch while leaving the parent suspended.
@@ -1025,10 +1021,8 @@ class OrchestratorKernel:
             }
         )
         batches[batch_index] = batch.model_copy(update={"entries": entries})
-        run = await self._checkpoint(
-            run,
-            updates={"tool_batches": batches, "status": "running"},
-            command_id=f"tool-observation:{observation.observation_id}",
+        run = await self._checkpoint_observation(
+            run, observation, updates={"tool_batches": batches, "status": "running"}
         )
         public_call_id = entry.opaque_public_call_id or _opaque_public_call_id(
             run.run_id, entry.call_id
@@ -1824,7 +1818,10 @@ class OrchestratorKernel:
         recoverable_declaration_failed = False
         fatal_preacceptance_failed = False
         for call in assistant.tool_calls:
-            run = await self._load(run.run_id)
+            # A Stop may have ended the Run since the last call was accepted.
+            # Its ending marks every entry terminal, so the loop would skip
+            # the later calls and dispatch the accepted ones; stop instead.
+            run = _not_ended(await self._load(run.run_id))
             batch = run.tool_batches[batch_index]
             entry_index = next(
                 index
@@ -2307,6 +2304,9 @@ class OrchestratorKernel:
                 )
             executable.append((call, invocation, acceptance))
 
+        if executable or join_calls:
+            # A Stop may have ended the Run after the last acceptance.
+            run = _not_ended(await self._load(run.run_id))
         # A held call's row was started at the hold, under its own event id;
         # its dispatch start repeats that id so the store drops it.
         held_call_ids = {
@@ -4426,6 +4426,31 @@ class OrchestratorKernel:
                 updates={**(run_updates or {}), "tool_batches": current_batches},
                 command_id=command,
             )
+
+    async def _checkpoint_observation(
+        self,
+        run: OrchestratorRunState,
+        observation: ToolObservation,
+        *,
+        updates: dict[str, object],
+    ) -> OrchestratorRunState:
+        """Checkpoint a new observation, refusing it if the Run ended first.
+
+        A Run that ended after this pass read it refuses the observation as
+        the terminal check above does, so a caller never counts an answer
+        the Run did not take.
+        """
+
+        try:
+            return await self._checkpoint(
+                run,
+                updates=updates,
+                command_id=f"tool-observation:{observation.observation_id}",
+            )
+        except KernelRunEnded as ended:
+            raise KernelConflict(
+                "terminal Run cannot accept a new tool observation"
+            ) from ended
 
     async def _checkpoint(
         self,

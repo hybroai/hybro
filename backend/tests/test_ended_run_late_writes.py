@@ -709,3 +709,187 @@ def test_the_listener_checks_before_it_publishes():
     assert guard is not None and publish is not None
     assert guard.end() < publish.start()
     assert source.count("_drop_event_for_ended_run(") == 1
+
+
+# -- An answer that reaches a Run ended after it was read -----------------------
+
+
+def _end_before(store, run_id, command_prefix, ended):
+    """End the Run just before the pass's write with ``command_prefix``."""
+    real_cas = store.cas_mutate
+
+    async def cas(candidate, *, expected_state_version, command_id):
+        if not ended and command_id.startswith(command_prefix):
+            ended.append(_end_run(store, run_id))
+        return await real_cas(
+            candidate,
+            expected_state_version=expected_state_version,
+            command_id=command_id,
+        )
+
+    store.cas_mutate = cas
+
+
+async def test_an_ask_user_answer_to_a_run_ended_after_it_was_read_is_refused():
+    from execution.orchestrator.kernel import (
+        REQUEST_USER_INPUT_TOOL_NAME,
+        KernelConflict,
+        supervisor_answer_observation,
+    )
+    from tests.test_orchestrator_kernel import RecordingSupervisorHITL
+
+    kernel, store, _model, _ = await make_kernel(
+        [
+            tool_events(
+                ("ask-1", REQUEST_USER_INPUT_TOOL_NAME, '{"question": "Which city?"}')
+            ),
+            final_events("You chose Shanghai."),
+        ],
+        supervisor_hitl=RecordingSupervisorHITL(),
+    )
+    run_id = next(iter(store.runs))
+    asked = await kernel.run(run_id, signal=SIGNAL)
+    assert asked.outcome == "awaiting_user"
+    ended: list = []
+    # The answer passes the kernel's terminal check; a Stop ends the Run
+    # before the answer's checkpoint.
+    _end_before(store, run_id, "tool-observation:", ended)
+
+    with pytest.raises(KernelConflict, match="terminal Run"):
+        await kernel.observe_tool(
+            run_id,
+            supervisor_answer_observation(run_id, "ask-1", "Shanghai", NOW),
+            signal=SIGNAL,
+        )
+
+    (ended_run,) = ended
+    assert store.runs[run_id] == ended_run
+
+
+async def test_a_held_call_answer_to_a_run_ended_after_it_was_read_is_not_applied():
+    from execution.orchestrator.kernel import KernelConflict
+    from tests.test_rule_ask_wiring import _two_held_calls
+
+    port, store, tools, _room, run_id = await _two_held_calls()
+    ended: list = []
+    _end_before(store, run_id, "tool-observation:", ended)
+
+    # The port read the Run suspended. The answer must not count as applied:
+    # the HITL coordinator would mark the interaction applied on True.
+    with pytest.raises(KernelConflict, match="terminal Run"):
+        await port(run_id, call_id="call-1", answers="Approve")
+
+    (ended_run,) = ended
+    assert store.runs[run_id] == ended_run
+    assert tools.execute_log == []
+
+
+# -- A Stop during a batch's acceptance loop ------------------------------------
+
+
+def _cancel_after(kernel, store, room, run_id, after, settled):
+    """A Stop settles the Run right after the pass's write ``after`` lands."""
+    real_cas = store.cas_mutate
+
+    async def cas(candidate, *, expected_state_version, command_id):
+        result = await real_cas(
+            candidate,
+            expected_state_version=expected_state_version,
+            command_id=command_id,
+        )
+        if command_id == after:
+            store.cas_mutate = real_cas
+            settled.append(await _cancel(kernel, store, room, run_id))
+            settled.append(list(room.emitted))
+        return result
+
+    store.cas_mutate = cas
+
+
+@pytest.mark.parametrize(
+    "after",
+    # Before call-2 is reached, or after the last acceptance before dispatch.
+    ["accepted-tool:call-1", "accepted-tool:call-2"],
+    ids=["before_the_next_call", "before_dispatch"],
+)
+@pytest.mark.parametrize(
+    "profile",
+    [
+        pytest.param({"tool_execution": "sequential"}, id="sequential"),
+        pytest.param({"max_parallel_calls": 1}, id="parallel_bounded"),
+    ],
+)
+async def test_a_stop_during_acceptance_dispatches_no_call_of_the_batch(profile, after):
+    run = make_run()
+    run = run.model_copy(update={"profile": run.profile.model_copy(update=profile)})
+    kernel, store, _model, tools, _port, room, run_id = await room_chat(
+        [
+            tool_events(
+                ("call-1", ECHO, '{"value":"one"}'),
+                ("call-2", ECHO, '{"value":"two"}'),
+            ),
+            final_events("late"),
+        ],
+        ask={},
+        run=run,
+    )
+    settled: list = []
+    # The Stop ends the Run and every entry right after the ``after`` write.
+    _cancel_after(kernel, store, room, run_id, after, settled)
+
+    result = await kernel.run(run_id, signal=SIGNAL, lifecycle=room.lifecycle)
+
+    ended, emitted = settled
+    assert result.outcome == "aborted"
+    assert tools.execute_log == []
+    assert room.emitted == emitted
+    assert store.runs[run_id] == ended
+
+
+@pytest.mark.parametrize(
+    "calls",
+    [
+        # The Stop comes before call-3 is reached.
+        [("call-2", PAUSE, '{"status":"input_required"}'), ("call-3", ECHO, "{}")],
+        # The reply is the batch's only call: the Stop comes before dispatch.
+        [("call-2", PAUSE, '{"status":"input_required"}')],
+    ],
+    ids=["before_the_next_call", "before_dispatch"],
+)
+async def test_a_stop_during_acceptance_sends_no_reply_to_an_agent_task(calls):
+    runtime = InteractionRuntime()
+    runtime.suspensions["call-1"] = _interaction_suspension("call-1")
+    runtime.model_replies["call-2"] = ToolResult(
+        call_id="call-2",
+        tool_name=PAUSE,
+        status="completed",
+        content=[TextPart(text="done")],
+        artifact_refs=[],
+    )
+    kernel, store, _model, tools = await make_kernel(
+        [
+            tool_events(("call-1", PAUSE, '{"status":"input_required"}')),
+            tool_events(*calls),
+            final_events("late"),
+        ],
+        tool_runtime=runtime,
+    )
+    run_id = next(iter(store.runs))
+    emitted: list[str] = []
+
+    async def lifecycle(event_type, _run, _payload):
+        emitted.append(event_type)
+
+    room = SimpleNamespace(lifecycle=lifecycle, emitted=emitted)
+    settled: list = []
+    # The Stop comes right after the reply to call-1's task is accepted.
+    _cancel_after(kernel, store, room, run_id, "accepted-join:call-2", settled)
+
+    result = await kernel.run(run_id, signal=SIGNAL, lifecycle=lifecycle)
+
+    ended, seen = settled
+    assert result.outcome == "aborted"
+    assert runtime.model_reply_calls == []
+    assert "call-3" not in tools.execute_log
+    assert emitted == seen
+    assert store.runs[run_id] == ended

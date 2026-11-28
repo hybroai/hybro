@@ -3479,9 +3479,11 @@ bookkeeping (`projection_state`, `projection_outbox`, `recovery_claim`,
 `state_version`, `updated_at`, `processed_command_ids`); the replay check runs
 first. A pass that is still running when another driver ends the Run, for
 example a sink-delivered answer pass whose Agent call returns after a Stop,
-stops quietly: the kernel checks the Run after a batch's Agent calls return,
-before each call or reply to an Agent's open task that starts after another
-call returned (a sequential batch, or a parallel batch waiting on
+stops quietly: the kernel checks the Run as it reaches each call of a batch
+before accepting it, once more before the batch's first call or reply to an
+Agent's open task is dispatched, after a batch's Agent calls return, before
+each call or reply to an Agent's open task that starts after another call
+returned (a sequential batch, or a parallel batch waiting on
 `max_parallel_calls`), at each turn close, and when the kernel's own session
 signal or interrupted-call branches reload the Run. (The chat model loop's
 interrupted-call branch still raises `KernelConflict` for an ended Run.) It
@@ -3489,13 +3491,21 @@ turns the stores' refusal of a checkpoint or of its own terminal commit into
 the same stop. It writes nothing more, returns the ended Run's outcome, and
 logs `orchestrator_ended_run_pass_stopped` with the Run's id and status and the
 ids, tools, and result statuses of the call outcomes the pass discards (no
-content). The late result stays on the call ledger. No public run event
+content). The late result stays on the call ledger. The one refusal that is
+not a quiet stop is the checkpoint that takes a new tool observation (an
+Agent's result or the owner's answer): there the kernel raises
+`KernelConflict("terminal Run cannot accept a new tool observation")`, as
+when the observation finds the Run already ended. The HITL resume port
+therefore does not count an answer whose Run ended before that checkpoint;
+the answer's interaction stays `applying` and the next application fails it
+as "The Run ended before the answer was applied". No public run event
 follows the terminal commit (the session host's run-level events after a pass
 publish nothing), so the session-event listener drops a public event for an
 ended Run and logs `orchestrator_ended_run_event_dropped`. That also covers an
 event the pass emits between two of its own writes after another driver ended
-the Run. Published after `run_settled`, the Room's snapshot fold could only
-skip such an event, and a `run_started` would open a Turn that never settles.
+the Run. Published after `run_settled`, such an event is one the Room's
+snapshot fold skips or refuses, and a `run_started` would open a Turn that
+never settles.
 
 The listener and the `run_settled` append share one per-Run lock in the
 process (`container._RunEventOrder`). The listener loads the Run, checks it,
