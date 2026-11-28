@@ -79,6 +79,7 @@ Run commands from the directory that owns the relevant configuration.
 - Backend changes: follow `backend/AGENTS.md` and run both Ruff gates plus focused Pytest coverage.
 - Default-agent changes: run `default_agents/tests/test_manifest_in_sync.py` and the relevant agent tests.
 - Cross-service, image, container, configuration, or end-to-end changes: from the repository root, build and smoke-test the image with `./scripts/hybro start --build` (dev mode: image `hybro:dev`, container `hybro-dev`, port 3100), then exercise the affected flow when the environment is available. CLI changes also run `scripts/test_hybro_cli.py` and `shellcheck -s sh scripts/hybro install.sh`.
+- Run every image smoke test on the dev-mode instance that `./scripts/hybro start --build` starts (container `hybro-dev`, volume `hybro-dev-data`). Do not build a separate container, volume, or port for the test. The dev-mode data is test data, so a change may migrate it in a way an older checkout cannot read; say so before the run. Dev mode reads the real `~/.hybro`: do not print or edit `config.json` or `auth.json`. Never smoke-test against a release install (container `hybro`, volume `hybro-data`, port 3000).
 - If a test file is created or modified, run that test and iterate until it passes.
 - Do not use real provider APIs, keys, paid tokens, or external services unless the user explicitly requests live integration testing.
 - Do not claim a check passed unless it completed successfully. Report skipped checks and why.

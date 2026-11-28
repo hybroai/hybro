@@ -39,5 +39,7 @@ For every P1 and P2 finding, before any fix:
 Then stop and report. Fixing belongs to the `/dev` loop, with these specs as the failing tests.
 
 ## Rules
+- The smoke walk runs on the dev-mode instance: `./scripts/hybro start --build` from the repository root (container `hybro-dev`, volume `hybro-dev-data`, port 3100). When a start or rebuild is asked for, use that command; do not build a separate container, volume or port for the walk. The dev-mode data is test data, so a build may migrate it in a way an older checkout cannot read; say so before the rebuild.
+- Dev mode reads the real `~/.hybro`. Do not print or edit `config.json` or `auth.json`.
 - Never delete rooms, agents, volumes or config on the instance; create test rooms with a `smoke-` prefix and list them in the report so the owner can remove them.
 - Do not claim a flow passed unless you observed it.
