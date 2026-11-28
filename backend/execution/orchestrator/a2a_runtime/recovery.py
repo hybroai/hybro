@@ -90,6 +90,7 @@ class A2ACallRecoveryService:
         hitl_delivery: Any | None = None,
         run_store: Any | None = None,
         canonical_hitl_control: CanonicalHITLControlPublisher | None = None,
+        cancellation: A2ACancellationCoordinator | None = None,
         public_secret_values: tuple[str, ...] = (),
         call_wait_ceiling: timedelta = timedelta(hours=168),
     ) -> None:
@@ -105,6 +106,8 @@ class A2ACallRecoveryService:
         self.hitl_delivery = hitl_delivery
         self.run_store = run_store
         self.canonical_hitl_control = canonical_hitl_control
+        # Closes the open calls of Runs that already ended.
+        self.cancellation = cancellation
         self.public_secret_values = public_secret_values
         self.call_wait_ceiling = call_wait_ceiling
 
@@ -129,6 +132,8 @@ class A2ACallRecoveryService:
         current = await self.ledger.load_by_record_id(record.call_record_id)
         if current is None or current.state_version != record.state_version:
             return False
+        if await self._close_if_run_ended(current):
+            return True
         if await self._run_blocks_dispatch(current):
             return False
         if (
@@ -499,6 +504,42 @@ class A2ACallRecoveryService:
             and record.a2a_task_id is not None
             and now - record.accepted_at <= self.call_wait_ceiling
         )
+
+    async def _close_if_run_ended(self, record: AgentCallLedgerRecord) -> bool:
+        """Close an open call whose Run has already ended for good.
+
+        A terminal Run never resumes, so the call has nothing left to answer.
+        Left open it would stay due forever and fill the recovery batch.
+        """
+        if self.cancellation is None or self.run_store is None:
+            return False
+        run = await self.run_store.load(record.run_id)
+        if run is None or run.status not in TERMINAL_RUN_STATUSES:
+            return False
+        try:
+            state = await self.cancellation.close_call_of_ended_run(
+                record.call_record_id, reason="run_ended"
+            )
+        except KeyError:
+            # Room deletion removed the call meanwhile; nothing is left to close.
+            logger.emit(
+                E.A2A_CALL_CLOSED_FOR_ENDED_RUN,
+                call_record_id=record.call_record_id,
+                run_id=record.run_id,
+                run_status=run.status,
+                call_state="deleted",
+            )
+            return False
+        # ``call_state`` is the call's terminal state now; a concurrent
+        # winner, such as the Agent's own result, may have closed it first.
+        logger.emit(
+            E.A2A_CALL_CLOSED_FOR_ENDED_RUN,
+            call_record_id=record.call_record_id,
+            run_id=record.run_id,
+            run_status=run.status,
+            call_state=state,
+        )
+        return True
 
     async def _run_blocks_dispatch(self, record: AgentCallLedgerRecord) -> bool:
         if self.run_store is None:

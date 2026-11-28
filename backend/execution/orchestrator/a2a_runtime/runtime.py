@@ -31,7 +31,7 @@ from ..ports import (
     InvocationCheckpointReader,
     ParkedInteractionCloseout,
 )
-from .cancellation import persist_local_cancellation
+from .cancellation import PARKED_CLOSEOUT_REASON, persist_local_cancellation
 from .errors import (
     AgentCardContractError,
     AmbiguousRemoteEffectError,
@@ -89,7 +89,7 @@ class A2AAcceptanceDenied(PermissionError):
     pass
 
 
-_PARKED_CLOSEOUT_REASON = "parked interaction abandoned by orchestrator closeout"
+_PARKED_CLOSEOUT_REASON = PARKED_CLOSEOUT_REASON
 
 
 class _RecoveryCancellationSignal:

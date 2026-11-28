@@ -161,9 +161,35 @@ async def test_failed_hitl_terminalization_cancels_parallel_calls_locally_first(
     )
 
     assert handled is True
+    # The Run ends for good, so each Agent with a remote task is told to stop.
     assert order == [
-        "cancel_run:run-1:{'reason': 'canonical_hitl_failed'}",
+        "cancel_run:run-1:{'reason': 'canonical_hitl_failed', 'notify_remote': True}",
         "terminalize:run-1:failed",
+    ]
+
+
+async def test_canceled_hitl_terminalization_tells_the_agents_to_stop():
+    from container import terminalize_canonical_hitl_run
+
+    order: list[str] = []
+    runtime = _orchestrator_runtime(order, run_status="canceling")
+    run = await runtime.run_store.load("run-1")
+    run.cancellation_command_id = "cancel:run-1:user_requested"
+    runtime.session_host = SimpleNamespace(
+        reconcile_cancellation=AsyncMock(), signal_run_cancellation=AsyncMock()
+    )
+
+    handled = await terminalize_canonical_hitl_run(
+        runtime,
+        SimpleNamespace(orchestration_run_id="run-1", request_id="request-1"),
+        terminal_status="canceled",
+        reason="The owner canceled the question",
+        session_listener=AsyncMock(),
+    )
+
+    assert handled is True
+    assert order == [
+        "cancel_run:run-1:{'reason': 'canonical_hitl_canceled', 'notify_remote': True}",
     ]
 
 

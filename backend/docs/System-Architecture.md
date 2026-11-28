@@ -3431,10 +3431,10 @@ Cancellation flow for `POST /api/v1/sse/message/{message_id}/cancel`:
    `cancel_hitl_interaction`). A terminal Run, or one
    already `canceling` under another command (for example room deletion),
    returns its status with `cancellation_applied=False`.
-3. `A2ACancellationCoordinator.cancel_run` cancels the Run's calls locally. The
-   two user paths (`route_cancellation_by_user_message` and
-   `cancel_hitl_interaction`) pass `notify_remote=True`: a call this cancellation
-   ended that has a remote task alias gets one fire-and-forget
+3. `A2ACancellationCoordinator.cancel_run` cancels the Run's calls locally.
+   Every caller, the two user paths (`route_cancellation_by_user_message` and
+   `cancel_hitl_interaction`) included, passes `notify_remote=True`: a call this
+   cancellation ended that has a remote task alias gets one fire-and-forget
    `A2ADispatchPort.cancel`; failures are logged only. If any call is not yet
    terminal, the response is `cancellation_pending` and recovery finishes later.
 4. After the calls settle, the router cancels the Run's HITL requests, runs the
@@ -3457,7 +3457,9 @@ Cancellation flow for `POST /api/v1/sse/message/{message_id}/cancel`:
    the route returns 404. Unexpected failures return 500 with a fixed detail
    that does not include the exception text.
 
-Recovery cancellation and HITL expiry stay local. When a supervisor approval
+Recovery cancellation and HITL expiry cancel the calls locally first and never
+wait on an Agent; they pass `notify_remote=True`, so each Agent with a remote
+task still gets the fire-and-forget remote cancel. When a supervisor approval
 fails or expires, `terminalize_canonical_hitl_run` cancels the Run's calls
 locally before terminalizing it as `failed`. User cancellation of an
 orchestrator HITL interaction abandons the interaction and cancels the Run. Late
@@ -3509,6 +3511,68 @@ runs after the listener releases the lock, so it does not wait on itself. The
 lock does not order appends made by another process, nor the room events that
 other writers append, such as the HITL control events and the final
 `agent_response`.
+
+Every final ending closes the Run's open Agent calls. After the kernel commits
+a terminal status (`_complete` or `_terminate`, which covers completion,
+failure, an interrupted Run that graceful shutdown or recovery settles
+`failed`, the deadline and budget, and a Stop) and settles the projection, it
+hands the Run to its call closeout. The closeout is `A2ACancellationCoordinator.cancel_run` with reason
+`run_ended` and `notify_remote=True`: each open call is canceled locally and an
+Agent with a remote task gets the fire-and-forget remote cancel; the ending
+never waits for it. Paths that cancel the calls locally before they terminalize
+(a Stop, a canonical HITL interaction that fails, expires or is canceled, the
+canceling branch of generic recovery) already sent the remote cancels with
+`notify_remote=True`, and the closeout finds nothing open. A closeout that
+raises, or that leaves a call `cancel_pending`, logs `run_call_closeout_failed`
+and the Run still ends. Cancellation recovery
+(`A2ACancellationCoordinator.recover_call`) finishes a `cancel_pending` call
+and then sends its remote cancel, since every cancellation asks for one; call
+recovery closes a call the closeout did not reach. A Run that suspends, or an
+interrupted Run that recovery resumes, has no terminal status, so its calls
+stay open. Graceful shutdown settles an in-flight Run this process owns as
+`failed` with reason `interrupted`, so the closeout runs then and its remote
+cancel may be lost at process exit; a suspended Run, which shutdown does not
+settle, keeps its calls. An Agent's result that arrives after the closeout does not reopen
+the canceled call: a terminal result goes to the observation conflict audit,
+and a non-terminal frame is dropped.
+
+A call parked on an Agent's question is closed locally, with no remote cancel,
+by `abandon_parked_interaction` (reason `PARKED_CLOSEOUT_REASON`). The ending
+does this before its terminal commit, and so does a model retry of a Run that
+keeps going. The closeout first sends each such call of the Run that has a
+remote task the remote cancel
+(`A2ACancellationCoordinator.notify_parked_closeouts`), so the Agent of a call
+a model retry closed is normally told when the Run ends. If that local cancel
+was left `cancel_pending`, cancellation recovery tells the Agent when it
+finishes the cancel, which may be while the Run is still going.
+
+Call recovery closes what the closeout missed: any open call whose Run is
+terminal. When `recover_call` meets such a call, it cancels it through
+`A2ACancellationCoordinator.close_call_of_ended_run` (the same local
+cancellation, without the room epoch fence, plus the remote cancel) with reason
+`run_ended`. It logs `a2a_call_closed_for_ended_run` with the call's final
+state, which may come from another winner such as the kernel's closeout or the
+Agent's own result, or with `deleted` when room deletion removed the call
+first. The closed call leaves the due listing, so such calls no longer fill the
+recovery batch (`recovery_batch_limit`, 100). A call whose Run is `canceling`
+or missing still waits without being dispatched.
+
+The remote cancel is best-effort by design. It is sent in a task the ending
+does not await, and nothing stores that it is owed, so a send that is missed is
+not retried. A failed send logs `remote_cancellation_failed`. Known ways to
+miss it:
+- A failure or a crash between the terminal commit and the closeout (for
+  example `settle` raising): the open calls are closed later by call recovery,
+  with the remote cancel, but the parked calls the ending already closed are
+  terminal and nothing sends theirs.
+- `notify_parked_closeouts` itself failing (logged as
+  `run_call_closeout_failed`). The open calls are still canceled after it.
+- A process exit before the send task runs.
+
+An ended Run ignores late answers, so a missed remote cancel costs the Agent's
+own work, not correctness. The same cancel can also reach an Agent more than
+once (for example when two closers finish the same call), so an Agent can
+receive a cancel for a task it has already stopped.
 
 ### Recovery, settlement, and shutdown
 
@@ -4149,7 +4213,8 @@ question); on `failed` or `rejected`, optionally put
 `hybro.ai/a2a/error` in `status.message.metadata` (code
 `[A-Za-z][A-Za-z0-9_.:-]{0,63}`, message capped at 500 characters); support
 `tasks/get`; accept a best-effort remote cancel meaning "stop; this request will
-not proceed", sent on owner reject and on client close.
+not proceed", sent when the Run ends or is canceled while the call is still
+open (including a completed Run's sibling calls that are still working).
 
 A failed call's `hybro.ai/a2a/error` code and message reach the model transcript
 (`[agent error code: …]`) and the public `tool_execution_end` payload and

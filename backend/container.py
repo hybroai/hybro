@@ -507,7 +507,7 @@ async def terminalize_canonical_hitl_run(
         if run.status != "canceling" or command_id is None:
             return run.status == "canceled"
         results = await orchestrator_runtime.cancellation_coordinator.cancel_run(
-            run_id, reason="canonical_hitl_canceled"
+            run_id, reason="canonical_hitl_canceled", notify_remote=True
         )
         if any(state not in TERMINAL_AGENT_CALL_STATES for state in results.values()):
             return True
@@ -516,7 +516,7 @@ async def terminalize_canonical_hitl_run(
         return True
 
     results = await orchestrator_runtime.cancellation_coordinator.cancel_run(
-        run_id, reason="canonical_hitl_failed"
+        run_id, reason="canonical_hitl_failed", notify_remote=True
     )
     if any(state not in TERMINAL_AGENT_CALL_STATES for state in results.values()):
         raise RuntimeError("local Agent-call cancellation remains pending")

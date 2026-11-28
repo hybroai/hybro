@@ -245,6 +245,8 @@ class OrchestratorKernel:
         rule_question: SupervisorHITLPort | None = None,
         run_question_closeout: Callable[[OrchestratorRunState], Awaitable[object]]
         | None = None,
+        run_call_closeout: Callable[[OrchestratorRunState], Awaitable[object]]
+        | None = None,
     ) -> None:
         self.run_store = run_store
         self.model_runtime = model_runtime
@@ -266,6 +268,8 @@ class OrchestratorKernel:
         self.rule_question = rule_question
         # Closes the owner Questions still open when the Run ends.
         self.run_question_closeout = run_question_closeout
+        # Cancels the Agent calls still open when the Run ends.
+        self.run_call_closeout = run_call_closeout
         self._lifecycle_context: ContextVar[KernelLifecycle | None] = ContextVar(
             f"kernel-lifecycle-{id(self)}", default=None
         )
@@ -3899,6 +3903,7 @@ class OrchestratorKernel:
             _not_ended(stored.run)
             raise KernelConflict("terminal completion CAS lost")
         settled = await self.projection_driver.settle(run.run_id)
+        await self._close_run_calls(settled)
         return KernelRunResult("final_answer", settled)
 
     async def _close_active_attempt(
@@ -4265,6 +4270,7 @@ class OrchestratorKernel:
             raise KernelConflict("terminal status store CAS lost")
         settled = await self.projection_driver.settle(run.run_id)
         await self._close_run_questions(settled)
+        await self._close_run_calls(settled)
         return KernelRunResult(_outcome_for_status(status), settled)
 
     async def _close_run_questions(self, run: OrchestratorRunState) -> None:
@@ -4282,6 +4288,27 @@ class OrchestratorKernel:
             # An answer to such a Question is closed when it is applied.
             _kernel_logger.emit(
                 E.RUN_QUESTION_CLOSEOUT_FAILED,
+                exc=exc,
+                run_id=run.run_id,
+                conversation_id=run.conversation_id,
+            )
+
+    async def _close_run_calls(self, run: OrchestratorRunState) -> None:
+        """Cancel the Agent calls still open when a Run ends for good.
+
+        The terminal status is already stored, so the Run cannot resume and
+        its calls have nothing left to answer. Each open call is canceled on
+        the ledger and its Agent gets a best-effort remote cancel. A failure
+        or a crash before this leaves the calls to call recovery, which
+        closes any open call of an ended Run.
+        """
+        if self.run_call_closeout is None:
+            return
+        try:
+            await self.run_call_closeout(run)
+        except Exception as exc:
+            _kernel_logger.emit(
+                E.RUN_CALL_CLOSEOUT_FAILED,
                 exc=exc,
                 run_id=run.run_id,
                 conversation_id=run.conversation_id,

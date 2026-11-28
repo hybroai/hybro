@@ -881,6 +881,22 @@ RUN_QUESTION_CLOSEOUT_FAILED = define(
     WARNING,
     required={"run_id", "conversation_id"},
 )
+# The closeout of a Run that ended failed: an open Agent call stayed open
+# (call recovery closes it), or the remote cancels of the parked calls the
+# ending closed could not be sent (they are not retried).
+RUN_CALL_CLOSEOUT_FAILED = define(
+    "run_call_closeout_failed",
+    WARNING,
+    required={"run_id", "conversation_id"},
+)
+# Call recovery met an open call whose Run had already ended and closed it.
+# ``call_state`` is the call's final state, which a concurrent winner may have
+# written first.
+A2A_CALL_CLOSED_FOR_ENDED_RUN = define(
+    "a2a_call_closed_for_ended_run",
+    INFO,
+    required={"call_record_id", "run_id", "run_status", "call_state"},
+)
 RUN_PASS_END_HOOK_FAILED = define(
     "run_pass_end_hook_failed", WARNING, required={"run_id", "conversation_id"}
 )
